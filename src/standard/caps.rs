@@ -5,7 +5,7 @@
 //! These definitions should match the TOML definitions in capns-dot-org/standard/
 
 use crate::{
-    Cap, CapRegistry, CapUrn, CapUrnBuilder, MEDIA_DISBOUND_PAGE, MEDIA_DOCUMENT_OUTLINE, MEDIA_FILE_METADATA, RegistryError
+    Cap, CapOutput, CapRegistry, CapUrn, CapUrnBuilder, MEDIA_DISBOUND_PAGE, MEDIA_DOCUMENT_OUTLINE, MEDIA_FILE_METADATA, RegistryError
 };
 use crate::urn::media_urn::{
     // Primitives (needed for coercion functions)
@@ -26,7 +26,7 @@ use crate::urn::media_urn::{
     MEDIA_LIST_OUTPUT, MEDIA_STATUS_OUTPUT, MEDIA_CONTENTS_OUTPUT,
     MEDIA_AVAILABILITY_OUTPUT, MEDIA_PATH_OUTPUT,
     MEDIA_EMBEDDING_VECTOR, MEDIA_JSON, MEDIA_LLM_INFERENCE_OUTPUT,
-    MEDIA_DECISION, MEDIA_DECISION_ARRAY,
+    MEDIA_DECISION, MEDIA_DECISION_ARRAY, MEDIA_VOID,
 };
 use std::sync::Arc;
 
@@ -43,11 +43,80 @@ pub const CAP_IDENTITY: &str = "cap:";
 /// The capns lib provides a default implementation; plugins may override.
 pub const CAP_DISCARD: &str = "cap:in=media:;out=media:void";
 
+/// Parse and return the canonical identity `CapUrn` from `CAP_IDENTITY`.
+pub fn identity_urn() -> CapUrn {
+    CapUrn::from_string(CAP_IDENTITY)
+        .unwrap_or_else(|e| panic!("BUG: CAP_IDENTITY constant is invalid: {}", e))
+}
+
+/// Parse and return the canonical discard `CapUrn` from `CAP_DISCARD`.
+pub fn discard_urn() -> CapUrn {
+    CapUrn::from_string(CAP_DISCARD)
+        .unwrap_or_else(|e| panic!("BUG: CAP_DISCARD constant is invalid: {}", e))
+}
+
+/// Construct the canonical Identity `Cap` definition.
+pub fn identity_cap() -> Cap {
+    let urn = identity_urn();
+
+    let mut cap = Cap::with_description(
+        urn,
+        "Identity".to_string(),
+        "identity".to_string(),
+        "The categorical identity morphism. Echoes input as output unchanged. Mandatory in every capability set.".to_string(),
+    );
+
+    cap.set_output(crate::cap::definition::CapOutput::new("media:", "The input data, unchanged"));
+    cap
+}
+
+/// Construct the canonical Discard `Cap` definition.
+pub fn discard_cap() -> Cap {
+    let urn = discard_urn();
+
+    let mut cap = Cap::with_description(
+        urn,
+        "Discard".to_string(),
+        "discard".to_string(),
+        "The terminal morphism. Accepts any input and produces void output. Standard but not mandatory.".to_string(),
+    );
+
+    cap.set_output(crate::cap::definition::CapOutput::new(MEDIA_VOID, "Void (no output)"));
+    cap
+}
+
+
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
 
+// CAP_IDENTITY: the categorical identity morphism — MANDATORY in every capset
+// Canonical form of 'cap:' after wildcard expansion
 
+// const IDENTITY_DEFINITION = {
+//   urn: 'cap:in=media:;out=media:',
+//   command: 'identity',
+//   title: 'Identity',
+//   cap_description: 'The categorical identity morphism. Echoes input as output unchanged. Mandatory in every capability set.',
+//   args: [],
+//   output: {
+//     media_urn: 'media:',
+//     output_description: 'The input data, unchanged'
+//   }
+// };
+
+// // CAP_DISCARD: the terminal morphism — standard, NOT mandatory
+// const DISCARD_DEFINITION = {
+//   urn: 'cap:in=media:;out=media:void',
+//   command: 'discard',
+//   title: 'Discard',
+//   cap_description: 'The terminal morphism. Accepts any input and produces void output. Standard but not mandatory.',
+//   args: [],
+//   output: {
+//     media_urn: 'media:void',
+//     output_description: 'Void (no output)'
+//   }
+// };
 
 // =============================================================================
 // URN BUILDER FUNCTIONS (synchronous, return CapUrn directly)

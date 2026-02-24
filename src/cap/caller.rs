@@ -539,4 +539,134 @@ mod tests {
         assert_eq!(arg.value.len(), 10000);
         assert_eq!(arg.value, data);
     }
+
+    // TEST675: build_request_frames with full media URN preserves it in STREAM_START frame
+    #[test]
+    fn test675_build_request_frames_preserves_media_urn_in_stream_start() {
+        use crate::bifaci::frame::FrameType;
+        use crate::MessageId;
+
+        let full_urn = "media:llm-generation-request;json;form=map";
+        let arg = CapArgumentValue::new(full_urn, b"{\"prompt\":\"test\"}".to_vec());
+        let rid = MessageId::new_uuid();
+        let frames = CapArgumentValue::build_request_frames(&rid, "cap:op=test", &[arg], 32768);
+
+        // Find the STREAM_START frame
+        let stream_start = frames.iter()
+            .find(|f| f.frame_type == FrameType::StreamStart)
+            .expect("Must have STREAM_START frame");
+
+        assert_eq!(
+            stream_start.media_urn.as_deref(),
+            Some(full_urn),
+            "STREAM_START must carry the exact media URN from CapArgumentValue"
+        );
+    }
+
+    // TEST676: Full round-trip: build_request_frames → extract streams → find_stream succeeds
+    #[test]
+    fn test676_build_request_frames_round_trip_find_stream_succeeds() {
+        use crate::bifaci::frame::FrameType;
+        use crate::{MessageId, find_stream};
+
+        let full_urn = "media:llm-generation-request;json;form=map";
+        let payload = b"{\"prompt\":\"hello\",\"model_spec\":\"test\"}";
+        let arg = CapArgumentValue::new(full_urn, payload.to_vec());
+        let rid = MessageId::new_uuid();
+        let frames = CapArgumentValue::build_request_frames(&rid, "cap:op=test", &[arg], 32768);
+
+        // Simulate plugin-side: extract streams from frames (like collect_streams does)
+        let mut streams: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut active: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+        for frame in &frames {
+            match frame.frame_type {
+                FrameType::StreamStart => {
+                    let sid = frame.stream_id.clone().unwrap_or_default();
+                    let media = frame.media_urn.clone().unwrap_or_default();
+                    let idx = streams.len();
+                    streams.push((media, Vec::new()));
+                    active.insert(sid, idx);
+                }
+                FrameType::Chunk => {
+                    let sid = frame.stream_id.clone().unwrap_or_default();
+                    if let Some(&idx) = active.get(&sid) {
+                        if let Some(ref p) = frame.payload {
+                            let value: ciborium::Value = ciborium::from_reader(&p[..])
+                                .expect("CHUNK payload must be valid CBOR");
+                            match value {
+                                ciborium::Value::Bytes(b) => streams[idx].1.extend_from_slice(&b),
+                                ciborium::Value::Text(s) => streams[idx].1.extend_from_slice(s.as_bytes()),
+                                other => panic!("Unexpected CBOR type: {:?}", other),
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Now find_stream should succeed with the full URN
+        let found = find_stream(&streams, full_urn);
+        assert!(found.is_some(), "find_stream must find the stream by full media URN");
+        assert_eq!(found.unwrap(), payload.as_slice(), "Round-tripped bytes must match original");
+    }
+
+    // TEST677: build_request_frames with BASE URN → find_stream with FULL URN FAILS
+    // This documents the root cause of the cartridge_client.rs bug:
+    // sender used "media:llm-generation-request" (base), receiver looked for
+    // "media:llm-generation-request;json;form=map" (full). is_equivalent requires
+    // exact tag set match, so base != full.
+    #[test]
+    fn test677_base_urn_does_not_match_full_urn_in_find_stream() {
+        use crate::bifaci::frame::FrameType;
+        use crate::{MessageId, find_stream};
+
+        // Sender uses BASE URN (the bug)
+        let base_urn = "media:llm-generation-request";
+        let full_urn = "media:llm-generation-request;json;form=map";
+        let arg = CapArgumentValue::new(base_urn, b"{}".to_vec());
+        let rid = MessageId::new_uuid();
+        let frames = CapArgumentValue::build_request_frames(&rid, "cap:op=test", &[arg], 32768);
+
+        // Extract streams (same as above)
+        let mut streams: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut active: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+        for frame in &frames {
+            match frame.frame_type {
+                FrameType::StreamStart => {
+                    let sid = frame.stream_id.clone().unwrap_or_default();
+                    let media = frame.media_urn.clone().unwrap_or_default();
+                    let idx = streams.len();
+                    streams.push((media, Vec::new()));
+                    active.insert(sid, idx);
+                }
+                FrameType::Chunk => {
+                    let sid = frame.stream_id.clone().unwrap_or_default();
+                    if let Some(&idx) = active.get(&sid) {
+                        if let Some(ref p) = frame.payload {
+                            let value: ciborium::Value = ciborium::from_reader(&p[..]).unwrap();
+                            match value {
+                                ciborium::Value::Bytes(b) => streams[idx].1.extend_from_slice(&b),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // STREAM_START carries the base URN
+        assert_eq!(streams[0].0, base_urn);
+
+        // find_stream with FULL URN must FAIL — base URN is not equivalent to full URN
+        let found = find_stream(&streams, full_urn);
+        assert!(
+            found.is_none(),
+            "Base URN '{}' must NOT match full URN '{}' — is_equivalent requires exact tag set",
+            base_urn, full_urn
+        );
+    }
 }

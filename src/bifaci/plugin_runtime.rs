@@ -5771,4 +5771,84 @@ mod tests {
         let bytes = response_stream.collect_bytes().expect("collect must succeed");
         assert_eq!(bytes, b"response data");
     }
+
+    // ==================== find_stream / require_stream Tests ====================
+
+    // TEST678: find_stream with exact equivalent URN (same tags, different order) succeeds
+    #[test]
+    fn test678_find_stream_equivalent_urn_different_tag_order() {
+        let streams = vec![
+            ("media:json;form=map;llm-generation-request".to_string(), b"data".to_vec()),
+        ];
+        // Tags in different order — is_equivalent is order-independent
+        let found = super::find_stream(&streams, "media:llm-generation-request;json;form=map");
+        assert!(found.is_some(), "Same tags in different order must match via is_equivalent");
+        assert_eq!(found.unwrap(), b"data");
+    }
+
+    // TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict
+    // This is the root cause of the cartridge_client.rs bug. Sender sent
+    // "media:llm-generation-request" but receiver looked for
+    // "media:llm-generation-request;json;form=map".
+    #[test]
+    fn test679_find_stream_base_urn_does_not_match_full_urn() {
+        let streams = vec![
+            ("media:llm-generation-request".to_string(), b"data".to_vec()),
+        ];
+        let found = super::find_stream(&streams, "media:llm-generation-request;json;form=map");
+        assert!(
+            found.is_none(),
+            "Base URN without tags must NOT match full URN with tags"
+        );
+    }
+
+    // TEST680: require_stream with missing URN returns hard StreamError
+    #[test]
+    fn test680_require_stream_missing_urn_returns_error() {
+        let streams = vec![
+            ("media:model-spec;textable;form=scalar".to_string(), b"gpt-4".to_vec()),
+        ];
+        let result = super::require_stream(&streams, "media:llm-generation-request;json;form=map");
+        assert!(result.is_err(), "Missing stream must fail hard");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("media:llm-generation-request;json;form=map"),
+            "Error must name the missing media URN, got: {}",
+            err
+        );
+    }
+
+    // TEST681: find_stream with multiple streams returns the correct one
+    #[test]
+    fn test681_find_stream_multiple_streams_returns_correct() {
+        let streams = vec![
+            ("media:model-spec;textable;form=scalar".to_string(), b"gpt-4".to_vec()),
+            ("media:llm-generation-request;json;form=map".to_string(), b"{\"prompt\":\"test\"}".to_vec()),
+            ("media:temperature;textable;numeric;form=scalar".to_string(), b"0.7".to_vec()),
+        ];
+        let found = super::find_stream(&streams, "media:llm-generation-request;json;form=map");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), b"{\"prompt\":\"test\"}");
+    }
+
+    // TEST682: require_stream_str returns UTF-8 string for text data
+    #[test]
+    fn test682_require_stream_str_returns_utf8() {
+        let streams = vec![
+            ("media:textable;form=scalar".to_string(), b"hello world".to_vec()),
+        ];
+        let result = super::require_stream_str(&streams, "media:textable;form=scalar");
+        assert_eq!(result.unwrap(), "hello world");
+    }
+
+    // TEST683: find_stream returns None for invalid media URN string (not a parse error — just None)
+    #[test]
+    fn test683_find_stream_invalid_urn_returns_none() {
+        let streams = vec![
+            ("media:valid;form=scalar".to_string(), b"data".to_vec()),
+        ];
+        // Empty string is not a valid media URN
+        let found = super::find_stream(&streams, "");
+        assert!(found.is_none(), "Invalid URN must return None, not panic");
+    }
 }
