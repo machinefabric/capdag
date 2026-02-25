@@ -1964,9 +1964,9 @@ fn gguf_analyze_image() -> CapUrn {
 // Additional Model Constants (GGUF)
 // =============================================================================
 
-/// Small GGUF embedding model (~250MB) for embedding tests
+/// Small GGUF embedding model (~84MB) for embedding tests
 const MODEL_GGUF_EMBED: &str =
-    "hf:nomic-ai/nomic-embed-text-v1.5?include=nomic-embed-text-v1.5.Q4_0.gguf";
+    "hf:nomic-ai/nomic-embed-text-v1.5-GGUF?include=nomic-embed-text-v1.5.Q4_K_M.gguf";
 
 /// Small 0.5B GGUF LLM for generation tests (~320MB)
 const MODEL_GGUF_LLM: &str =
