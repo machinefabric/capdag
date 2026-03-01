@@ -157,7 +157,7 @@ pub fn encode_frame(frame: &Frame) -> Result<Vec<u8>, CborError> {
     if let Some(checksum) = frame.checksum {
         map.push((
             Value::Integer(keys::CHECKSUM.into()),
-            Value::Integer((checksum as i64).into()),
+            Value::Integer(checksum.into()),  // Keep unsigned - checksum is u64
         ));
     }
 
