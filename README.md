@@ -1,6 +1,6 @@
 # Capns - Cap Namespace System
 
-A capability URN and definition system for plugin architectures, built on [Tagged URNs](https://github.com/filegrind/tagged-urn-rs).
+A capability URN and definition system for plugin architectures, built on [Tagged URNs](https://github.com/machinefabric/tagged-urn-rs).
 
 ## Overview
 
@@ -36,7 +36,7 @@ cap:in="media:binary";op=extract;out="media:object";target=metadata
 - `target` - What the operation targets (e.g., `metadata`, `thumbnail`)
 - `ext` - File extension for format-specific capabilities
 
-For base Tagged URN format rules (case handling, quoting, wildcards, etc.), see [Tagged URN RULES.md](https://github.com/filegrind/tagged-urn-rs/blob/main/docs/RULES.md).
+For base Tagged URN format rules (case handling, quoting, wildcards, etc.), see [Tagged URN RULES.md](https://github.com/machinefabric/tagged-urn-rs/blob/main/docs/RULES.md).
 
 ## Cap Definitions
 
@@ -86,7 +86,7 @@ let cap = CapUrnBuilder::new()
 ### Go (`capns-go`)
 
 ```go
-import "github.com/macina/capns-go"
+import "github.com/machfab/capns-go"
 
 // Create cap URN
 cap, err := capns.NewCapUrnFromString(
@@ -195,14 +195,14 @@ let (provider, cap) = cube.find_best_match(&request)?;
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture
 - [MEDIA_SPEC_SYSTEM.md](docs/MEDIA_SPEC_SYSTEM.md) - Media specification system
 - [PERFORMANCE.md](docs/PERFORMANCE.md) - Cross-language throughput measurements
-- [Tagged URN RULES.md](https://github.com/filegrind/tagged-urn-rs/blob/main/docs/RULES.md) - Base URN format rules
+- [Tagged URN RULES.md](https://github.com/machinefabric/tagged-urn-rs/blob/main/docs/RULES.md) - Base URN format rules
 
 ## Cross-Language Compatibility
 
 This Rust implementation is the reference. Identical implementations exist for:
-- [Go implementation](https://github.com/filegrind/capns-go)
-- [JavaScript implementation](https://github.com/filegrind/capns-js)
-- [Objective-C implementation](https://github.com/filegrind/capns-objc)
+- [Go implementation](https://github.com/machinefabric/capns-go)
+- [JavaScript implementation](https://github.com/machinefabric/capns-js)
+- [Objective-C implementation](https://github.com/machinefabric/capns-objc)
 
 All implementations pass the same test cases and follow identical rules.
 

@@ -349,8 +349,8 @@ fn build_manifest() -> CapManifest {
         "Integration test plugin for stream multiplexing protocol verification".to_string(),
         caps,
     )
-    .with_author("https://github.com/filegrind".to_string())
-    .with_page_url("https://github.com/filegrind/testcartridge".to_string())
+    .with_author("https://github.com/machinefabric".to_string())
+    .with_page_url("https://github.com/machinefabric/testcartridge".to_string())
 }
 
 // =============================================================================

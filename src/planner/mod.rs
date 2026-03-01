@@ -16,7 +16,7 @@
 //! 2. **Structure** - opaque vs record
 //!    - Detected from `record` marker tag
 //!
-//! Both macina (desktop app) and macino (CLI harness) use this same code.
+//! Both machfab (desktop app) and macino (CLI harness) use this same code.
 
 use thiserror::Error;
 
@@ -81,7 +81,7 @@ pub type PlannerResult<T> = Result<T, PlannerError>;
 
 /// Abstracts cap invocation so different backends can be plugged in.
 ///
-/// - **macina** implements via `CapService.execute_cap()` through the relay
+/// - **machfab** implements via `CapService.execute_cap()` through the relay
 /// - **macino** implements by spawning plugin binaries
 #[async_trait::async_trait]
 pub trait CapExecutor: Send + Sync {
@@ -109,7 +109,7 @@ pub trait CapExecutor: Send + Sync {
 /// The planner resolves arg defaults from cap definitions first,
 /// then checks the settings provider for overrides.
 ///
-/// - **macina** implements via DB adapter (`cap_setting_repo.find_by_cap_urn()`)
+/// - **machfab** implements via DB adapter (`cap_setting_repo.find_by_cap_urn()`)
 /// - **macino** implements via NDJSON file reader
 #[async_trait::async_trait]
 pub trait CapSettingsProvider: Send + Sync {

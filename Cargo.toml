@@ -39,9 +39,9 @@ version = "1.0"
 tempfile = "3.10"
 
 [package]
-authors = ["https://github.com/jowharshamshiri"]
+authors = ["https://github.com/machinefabric"]
 description = "Core cap URN and definition system for MACINA plugins"
 edition = "2021"
 license = "MIT"
 name = "capns"
-version = "0.241.124788"
+version = "0.242.124932"

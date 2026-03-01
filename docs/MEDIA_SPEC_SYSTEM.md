@@ -32,13 +32,13 @@ These spec IDs are implicitly available and do not need to be declared in `media
 
 Additional well-known spec IDs for specific domains:
 
-#### FileGrind Types (`macina:`)
+#### MachineFabric Types (`machfab:`)
 
 | Spec ID | Media Type | Profile URI | Description |
 |---------|------------|-------------|-------------|
-| `macina:listing-id.v1` | `text/plain` | `https://filegrind.com/schema/listing-id` | Listing UUID |
-| `macina:task-id.v1` | `text/plain` | `https://filegrind.com/schema/task-id` | Task UUID |
-| `macina:file-path-array.v1` | `application/json` | `https://filegrind.com/schema/file-path-array` | Array of file paths |
+| `machfab:listing-id.v1` | `text/plain` | `https://machinefabric.com/schema/listing-id` | Listing UUID |
+| `machfab:task-id.v1` | `text/plain` | `https://machinefabric.com/schema/task-id` | Task UUID |
+| `machfab:file-path-array.v1` | `application/json` | `https://machinefabric.com/schema/file-path-array` | Array of file paths |
 
 #### CapNS Output Types (`capns:`)
 

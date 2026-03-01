@@ -313,7 +313,7 @@ async fn main() {
     let plugin_dir = home.join(".capns").join("plugins");
 
     // Registry URL
-    let registry_url = "https://filegrind.com/api/plugins".to_string();
+    let registry_url = "https://machinefabric.com/api/plugins".to_string();
 
     println!("\n=== Executing DAG ===\n");
     if !dev_binaries.is_empty() {

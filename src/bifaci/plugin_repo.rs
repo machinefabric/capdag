@@ -221,7 +221,7 @@ impl PluginRepo {
     pub fn new(cache_ttl_seconds: u64) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
-            .user_agent("FileGrindEngine/1.0.0")
+            .user_agent("MachineFabricEngine/1.0.0")
             .build()
             .expect("Failed to create HTTP client");
 
@@ -503,7 +503,7 @@ impl PluginRepoServer {
             available_versions.sort_by(|a, b| Self::compare_versions(b, a));
 
             // Build flat plugin object
-            let package_url = format!("https://filegrind.com/plugins/packages/{}", version_data.package.name);
+            let package_url = format!("https://machinefabric.com/plugins/packages/{}", version_data.package.name);
             plugins.push(PluginInfo {
                 id: id.clone(),
                 name: plugin.name.clone(),
@@ -681,8 +681,8 @@ mod tests {
             "name": "pdfcartridge",
             "version": "0.81.5325",
             "description": "PDF document processor",
-            "author": "https://github.com/jowharshamshiri",
-            "pageUrl": "https://github.com/filegrind/pdfcartridge",
+            "author": "https://github.com/machinefabric",
+            "pageUrl": "https://github.com/machinefabric/pdfcartridge",
             "teamId": "P336JK947M",
             "signedAt": "2026-02-07T16:40:28Z",
             "minAppVersion": "1.0.0",

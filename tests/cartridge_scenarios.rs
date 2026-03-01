@@ -311,7 +311,7 @@ impl CapRegistryTrait for CartridgeRegistry {
 fn cartridge_dir(name: &str) -> Option<PathBuf> {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok()?;
     let dir = PathBuf::from(&manifest_dir)
-        .parent()? // filegrind/
+        .parent()? // machinefabric/
         .join(name);
     if dir.exists() {
         Some(dir)
@@ -526,7 +526,7 @@ fn build_cartridge(name: &str) -> Result<(), String> {
 fn find_cartridge_binary(name: &str) -> Option<PathBuf> {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok()?;
     let release_dir = PathBuf::from(&manifest_dir)
-        .parent()? // filegrind/
+        .parent()? // machinefabric/
         .join(name)
         .join("target")
         .join("release");
@@ -1378,7 +1378,7 @@ async fn ensure_model_downloaded(model_spec: &str, modelcartridge_bin: &PathBuf)
     match execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         vec![modelcartridge_bin.clone()],
     )
@@ -1449,7 +1449,7 @@ async fn test948_pdf_document_intelligence() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -1515,7 +1515,7 @@ async fn test949_pdf_thumbnail_to_image_embedding() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -1573,7 +1573,7 @@ async fn test950_pdf_full_intelligence_pipeline() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -1638,7 +1638,7 @@ async fn test951_text_document_intelligence() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -1701,7 +1701,7 @@ async fn test952_multi_format_document_processing() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -1778,7 +1778,7 @@ async fn test953_model_plus_dimensions() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -1832,7 +1832,7 @@ async fn test954_model_availability_plus_status() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -1885,7 +1885,7 @@ async fn test955_text_embedding() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -1940,7 +1940,7 @@ async fn test956_candle_describe_image() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -1989,7 +1989,7 @@ async fn test957_audio_transcription() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2037,7 +2037,7 @@ async fn test958_pdf_complete_analysis() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2115,7 +2115,7 @@ async fn test959_model_full_inspection() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2187,7 +2187,7 @@ async fn test960_two_format_full_analysis() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2264,7 +2264,7 @@ async fn test961_model_plus_pdf_combined() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2339,7 +2339,7 @@ async fn test962_three_cartridge_pipeline() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2647,7 +2647,7 @@ async fn test963_txt_document_intelligence() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2700,7 +2700,7 @@ async fn test964_rst_document_intelligence() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2753,7 +2753,7 @@ async fn test965_log_document_intelligence() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2819,7 +2819,7 @@ async fn test966_all_text_formats_intelligence() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2884,7 +2884,7 @@ async fn test967_model_list_models() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2939,7 +2939,7 @@ async fn test968_gguf_embeddings_dimensions() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -2991,7 +2991,7 @@ async fn test969_gguf_llm_model_info() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3045,7 +3045,7 @@ async fn test970_gguf_llm_vocab() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3101,7 +3101,7 @@ async fn test971_gguf_model_info_plus_vocab() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3160,7 +3160,7 @@ async fn test972_gguf_llm_inference() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3212,7 +3212,7 @@ async fn test973_gguf_llm_inference_constrained() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3268,7 +3268,7 @@ async fn test974_gguf_generate_embeddings() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3329,7 +3329,7 @@ async fn test975_gguf_describe_image() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3382,7 +3382,7 @@ async fn test976_pdf_thumbnail_to_gguf_vision() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3449,7 +3449,7 @@ async fn test977_gguf_all_llm_ops() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3523,7 +3523,7 @@ async fn test978_mlx_generate_text() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3571,7 +3571,7 @@ async fn test979_mlx_describe_image() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3619,7 +3619,7 @@ async fn test980_mlx_generate_embeddings() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3667,7 +3667,7 @@ async fn test981_mlx_embeddings_dimensions() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3711,7 +3711,7 @@ async fn test982_model_download() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3762,7 +3762,7 @@ async fn test983_pdf_to_thumbnail_to_describe_to_embed() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3819,7 +3819,7 @@ async fn test984_pdf_thumbnail_to_gguf_describe_fanin() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3865,7 +3865,7 @@ async fn test985_audio_transcribe_to_embed() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3914,7 +3914,7 @@ async fn test986_pdf_fanout_with_chain() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -3971,7 +3971,7 @@ async fn test987_multi_format_parallel_chains() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -4024,7 +4024,7 @@ async fn test988_deep_chain_with_parallel() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -4086,7 +4086,7 @@ async fn test989_five_cartridge_chain() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )
@@ -4152,7 +4152,7 @@ async fn test990_all_text_formats_to_image_embeds() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
     )

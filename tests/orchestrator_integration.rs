@@ -287,7 +287,7 @@ async fn test936_execute_single_edge_dag() {
     let result = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
     ).await;
@@ -327,7 +327,7 @@ async fn test937_execute_edge1_to_edge2_chain() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
     ).await.expect("Execution failed");
@@ -368,7 +368,7 @@ async fn test938_execute_with_file_input() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
     ).await.expect("Execution failed");
@@ -405,7 +405,7 @@ async fn test939_execute_large_payload() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
     ).await.expect("Execution failed");
@@ -450,7 +450,7 @@ async fn test940_fan_in_pattern() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
     ).await.expect("Execution failed");
@@ -579,7 +579,7 @@ async fn test945_four_cap_chain() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
     ).await.expect("Execution failed");
@@ -625,7 +625,7 @@ async fn test946_five_cap_chain() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
     ).await.expect("Execution failed");
@@ -670,7 +670,7 @@ async fn test947_six_cap_chain() {
     let outputs = execute_dag(
         &graph,
         plugin_dir,
-        "https://filegrind.com/api/plugins".to_string(),
+        "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
     ).await.expect("Execution failed");

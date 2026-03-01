@@ -56,7 +56,7 @@ import (
     "fmt"
     "log"
     
-    capns "github.com/macina/capns-go"
+    capns "github.com/machfab/capns-go"
 )
 
 func main() {
@@ -162,7 +162,7 @@ package main
 
 import (
     "log"
-    sdk "github.com/macina/macina-plugin-sdk-go"
+    sdk "github.com/machfab/machfab-plugin-sdk-go"
 )
 
 func main() {

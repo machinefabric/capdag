@@ -10,7 +10,7 @@ Validation is organized into categories:
 3. **Media Spec Rules** - Rules for media specifications (MS1-MS3)
 4. **Cross-Validation Rules** - Rules for reference integrity (XV1-XV4)
 
-For base Tagged URN rules (case handling, tag ordering, wildcards, quoting, character restrictions, etc.), see the [Tagged URN RULES.md](https://github.com/filegrind/tagged-urn-rs/blob/main/docs/RULES.md).
+For base Tagged URN rules (case handling, tag ordering, wildcards, quoting, character restrictions, etc.), see the [Tagged URN RULES.md](https://github.com/machinefabric/tagged-urn-rs/blob/main/docs/RULES.md).
 
 ---
 

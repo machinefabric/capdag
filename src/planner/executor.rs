@@ -8,7 +8,7 @@
 //! - Cap node execution via the `CapExecutor` trait
 //!
 //! The `CapExecutor` trait is implemented by:
-//! - **macina**: via `CapService.execute_cap()` through the relay
+//! - **machfab**: via `CapService.execute_cap()` through the relay
 //! - **macino**: by spawning plugin binaries
 
 use std::collections::HashMap;
