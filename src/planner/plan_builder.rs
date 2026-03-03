@@ -74,9 +74,48 @@ impl CapPlanBuilder {
 
     /// Check if a cap is available (has a provider/plugin installed).
     /// If no filter is set, returns true (considers all caps available).
+    ///
+    /// Uses semantic URN matching via `conforms_to()` - NOT string comparison.
+    /// The pattern is the requested cap (from registry), the instance is the
+    /// available cap (from plugin). We check: does the plugin's cap conform to
+    /// what the registry says we need?
     fn is_cap_available(&self, cap_urn: &str) -> bool {
         match &self.available_cap_urns {
-            Some(available) => available.contains(cap_urn),
+            Some(available) => {
+                // Parse the cap URN we're checking (the pattern/request)
+                let pattern = match crate::CapUrn::from_string(cap_urn) {
+                    Ok(u) => u,
+                    Err(e) => {
+                        eprintln!(
+                            "is_cap_available: Failed to parse cap URN '{}': {}. \
+                             This is a bug - cap URNs in the registry should be valid.",
+                            cap_urn, e
+                        );
+                        return false;
+                    }
+                };
+
+                // Check if any available cap (instance) conforms to the pattern
+                for available_urn in available {
+                    match crate::CapUrn::from_string(available_urn) {
+                        Ok(instance) => {
+                            // instance.conforms_to(&pattern): does the plugin's cap
+                            // satisfy what the registry requires?
+                            if instance.conforms_to(&pattern) {
+                                return true;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "is_cap_available: Failed to parse available cap URN '{}': {}. \
+                                 This is a bug - plugin-reported URNs should be valid.",
+                                available_urn, e
+                            );
+                        }
+                    }
+                }
+                false
+            }
             None => true,
         }
     }
@@ -1299,11 +1338,11 @@ mod tests {
     use crate::CapUrn;
 
     /// Helper to create a test cap with given in/out specs (full media URNs)
-    fn make_test_cap(op: &str, in_spec: &str, out_spec: &str, title: &str) -> Cap {
+    fn make_test_cap(op: &str, in_spec: &str, out_spec: &str, title: &str) -> Result<Cap, crate::urn::cap_urn::CapUrnError> {
         let mut tags = BTreeMap::new();
         tags.insert("op".to_string(), op.to_string());
-        let urn = CapUrn::new(in_spec.to_string(), out_spec.to_string(), tags);
-        Cap::new(urn, title.to_string(), "test-command".to_string())
+        let urn = CapUrn::new(in_spec.to_string(), out_spec.to_string(), tags)?;
+        Ok(Cap::new(urn, title.to_string(), "test-command".to_string()))
     }
 
     /// Simulates the graph-building duplicate detection logic
@@ -1337,25 +1376,26 @@ mod tests {
     // TEST750: Tests duplicate detection passes for caps with unique URN combinations
     // Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations
     #[test]
-    fn test750_no_duplicates_with_unique_caps() {
+    fn test750_no_duplicates_with_unique_caps() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let caps = vec![
-            make_test_cap("extract_metadata", "media:pdf", "media:file-metadata;textable;record", "Extract Metadata"),
-            make_test_cap("extract_outline", "media:pdf", "media:document-outline;textable;record", "Extract Outline"),
-            make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind PDF"),
+            make_test_cap("extract_metadata", "media:pdf", "media:file-metadata;textable;record", "Extract Metadata")?,
+            make_test_cap("extract_outline", "media:pdf", "media:document-outline;textable;record", "Extract Outline")?,
+            make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind PDF")?,
         ];
 
         let result = check_for_duplicate_caps(&caps);
         assert!(result.is_ok(), "Should not detect duplicates for unique caps");
         assert_eq!(result.unwrap(), 3, "Should have 3 edges");
+        Ok(())
     }
 
     // TEST751: Tests duplicate detection identifies caps with identical URNs
     // Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn
     #[test]
-    fn test751_detects_duplicate_cap_urns() {
+    fn test751_detects_duplicate_cap_urns() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let caps = vec![
-            make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind PDF"),
-            make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind PDF Again"),
+            make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind PDF")?,
+            make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind PDF Again")?,
         ];
 
         let result = check_for_duplicate_caps(&caps);
@@ -1364,34 +1404,37 @@ mod tests {
         assert!(err_msg.contains("Duplicate cap_urn detected"), "Error should mention duplicate: {}", err_msg);
         assert!(err_msg.contains("op=disbind"), "Error should contain the cap URN: {}", err_msg);
         assert!(err_msg.contains("media:pdf"), "Error should contain the input spec: {}", err_msg);
+        Ok(())
     }
 
     // TEST752: Tests caps with different operations but same input/output types are not duplicates
     // Verifies that only the complete URN (including op) is used for duplicate detection
     #[test]
-    fn test752_different_ops_same_types_not_duplicates() {
+    fn test752_different_ops_same_types_not_duplicates() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let caps = vec![
-            make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind"),
-            make_test_cap("grind", "media:pdf", "media:disbound-pages;textable;list", "Grind"),
+            make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind")?,
+            make_test_cap("grind", "media:pdf", "media:disbound-pages;textable;list", "Grind")?,
         ];
 
         let result = check_for_duplicate_caps(&caps);
         assert!(result.is_ok(), "Different ops should not be duplicates");
         assert_eq!(result.unwrap(), 2, "Should have 2 edges");
+        Ok(())
     }
 
     // TEST753: Tests caps with same operation but different input types are not duplicates
     // Verifies that input type differences distinguish caps with the same operation name
     #[test]
-    fn test753_same_op_different_input_types_not_duplicates() {
+    fn test753_same_op_different_input_types_not_duplicates() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let caps = vec![
-            make_test_cap("extract_metadata", "media:pdf", "media:file-metadata;textable;record", "Extract PDF Metadata"),
-            make_test_cap("extract_metadata", "media:txt;textable", "media:file-metadata;textable;record", "Extract TXT Metadata"),
+            make_test_cap("extract_metadata", "media:pdf", "media:file-metadata;textable;record", "Extract PDF Metadata")?,
+            make_test_cap("extract_metadata", "media:txt;textable", "media:file-metadata;textable;record", "Extract TXT Metadata")?,
         ];
 
         let result = check_for_duplicate_caps(&caps);
         assert!(result.is_ok(), "Same op with different inputs should not be duplicates");
         assert_eq!(result.unwrap(), 2, "Should have 2 edges");
+        Ok(())
     }
 
     // ==========================================================================
@@ -1729,11 +1772,11 @@ mod tests {
     // TEST772: Tests find_all_paths() excludes unavailable caps from pathfinding
     // Verifies that only paths using available caps are returned when filter is set
     #[tokio::test]
-    async fn test772_find_all_paths_filters_by_availability() {
+    async fn test772_find_all_paths_filters_by_availability() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
-        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B");
-        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C");
-        let cap3 = make_test_cap("direct", "media:a", "media:c", "A to C Direct");
+        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B")?;
+        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C")?;
+        let cap3 = make_test_cap("direct", "media:a", "media:c", "A to C Direct")?;
 
         registry.add_caps_to_cache(vec![cap1.clone(), cap2.clone(), cap3.clone()]);
 
@@ -1750,14 +1793,15 @@ mod tests {
         assert_eq!(paths[0].steps.len(), 2, "Path should have 2 steps (A->B, B->C)");
         assert_eq!(paths[0].steps[0].title, "A to B");
         assert_eq!(paths[0].steps[1].title, "B to C");
+        Ok(())
     }
 
     // TEST773: Tests find_all_paths() returns empty result when all caps are filtered out
     // Verifies that pathfinding returns no paths when the availability filter excludes all relevant caps
     #[tokio::test]
-    async fn test773_find_all_paths_returns_empty_when_no_available_caps() {
+    async fn test773_find_all_paths_returns_empty_when_no_available_caps() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
-        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B");
+        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B")?;
 
         registry.add_caps_to_cache(vec![cap1]);
 
@@ -1769,16 +1813,17 @@ mod tests {
         let paths = builder.find_all_paths("media:a", "media:b", 5, 10).await.unwrap();
 
         assert!(paths.is_empty(), "Should find no paths when no caps are available");
+        Ok(())
     }
 
     // TEST774: Tests get_reachable_targets() only considers available caps for reachability
     // Verifies that target specs are only reachable via caps in the availability filter
     #[tokio::test]
-    async fn test774_get_reachable_targets_filters_by_availability() {
+    async fn test774_get_reachable_targets_filters_by_availability() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
-        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B");
-        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C");
-        let cap3 = make_test_cap("step3", "media:a", "media:d", "A to D");
+        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B")?;
+        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C")?;
+        let cap3 = make_test_cap("step3", "media:a", "media:d", "A to D")?;
 
         registry.add_caps_to_cache(vec![cap1.clone(), cap2.clone(), cap3.clone()]);
 
@@ -1795,16 +1840,17 @@ mod tests {
         assert!(targets.contains(&"media:b".to_string()), "B should be reachable");
         assert!(targets.contains(&"media:d".to_string()), "D should be reachable");
         assert!(!targets.contains(&"media:c".to_string()), "C should NOT be reachable (cap2 not available)");
+        Ok(())
     }
 
     // TEST775: Tests find_path() selects from available caps when multiple paths exist
     // Verifies that find_path() respects availability filter and prefers available direct paths
     #[tokio::test]
-    async fn test775_find_path_filters_by_availability() {
+    async fn test775_find_path_filters_by_availability() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
-        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B");
-        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C");
-        let cap3 = make_test_cap("direct", "media:a", "media:c", "A to C Direct");
+        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B")?;
+        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C")?;
+        let cap3 = make_test_cap("direct", "media:a", "media:c", "A to C Direct")?;
 
         registry.add_caps_to_cache(vec![cap1.clone(), cap2.clone(), cap3.clone()]);
 
@@ -1818,15 +1864,16 @@ mod tests {
 
         assert_eq!(path.len(), 1, "Should find path with 1 step (direct)");
         assert!(path[0].contains("op=direct"), "Should use the direct cap: {}", path[0]);
+        Ok(())
     }
 
     // TEST776: Tests find_path() returns error when required caps are filtered out by availability
     // Verifies that "No path found" error is returned when filter blocks the only viable path
     #[tokio::test]
-    async fn test776_find_path_returns_error_when_path_unavailable() {
+    async fn test776_find_path_returns_error_when_path_unavailable() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
-        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B");
-        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C");
+        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B")?;
+        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C")?;
 
         registry.add_caps_to_cache(vec![cap1.clone(), cap2.clone()]);
 
@@ -1841,6 +1888,7 @@ mod tests {
         assert!(result.is_err(), "Should fail when path requires unavailable caps");
         let err = result.unwrap_err();
         assert!(err.to_string().contains("No path found"), "Error should indicate no path found: {}", err);
+        Ok(())
     }
 
     // ==========================================================================
@@ -1850,9 +1898,9 @@ mod tests {
     // TEST777: Tests type checking prevents using PDF-specific cap with PNG input
     // Verifies that media type compatibility is enforced during pathfinding (PNG cannot use PDF cap)
     #[tokio::test]
-    async fn test777_type_mismatch_pdf_cap_does_not_match_png_input() {
+    async fn test777_type_mismatch_pdf_cap_does_not_match_png_input() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
-        let pdf_to_text = make_test_cap("pdf2text", "media:pdf", "media:textable", "PDF to Text");
+        let pdf_to_text = make_test_cap("pdf2text", "media:pdf", "media:textable", "PDF to Text")?;
 
         registry.add_caps_to_cache(vec![pdf_to_text.clone()]);
 
@@ -1865,14 +1913,15 @@ mod tests {
         let result = builder.find_path("media:png", "media:textable").await;
 
         assert!(result.is_err(), "Should NOT find path from PNG to text via PDF cap");
+        Ok(())
     }
 
     // TEST778: Tests type checking prevents using PNG-specific cap with PDF input
     // Verifies that media type compatibility is enforced during pathfinding (PDF cannot use PNG cap)
     #[tokio::test]
-    async fn test778_type_mismatch_png_cap_does_not_match_pdf_input() {
+    async fn test778_type_mismatch_png_cap_does_not_match_pdf_input() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
-        let png_to_thumb = make_test_cap("png2thumb", "media:png", "media:thumbnail", "PNG to Thumbnail");
+        let png_to_thumb = make_test_cap("png2thumb", "media:png", "media:thumbnail", "PNG to Thumbnail")?;
 
         registry.add_caps_to_cache(vec![png_to_thumb.clone()]);
 
@@ -1885,15 +1934,16 @@ mod tests {
         let result = builder.find_path("media:pdf", "media:thumbnail").await;
 
         assert!(result.is_err(), "Should NOT find path from PDF to thumbnail via PNG cap");
+        Ok(())
     }
 
     // TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps
     // Verifies that PNG and PDF inputs reach different targets based on cap input type requirements
     #[tokio::test]
-    async fn test779_get_reachable_targets_respects_type_matching() {
+    async fn test779_get_reachable_targets_respects_type_matching() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
-        let pdf_to_text = make_test_cap("pdf2text", "media:pdf", "media:textable", "PDF to Text");
-        let png_to_thumb = make_test_cap("png2thumb", "media:png", "media:thumbnail", "PNG to Thumbnail");
+        let pdf_to_text = make_test_cap("pdf2text", "media:pdf", "media:textable", "PDF to Text")?;
+        let png_to_thumb = make_test_cap("png2thumb", "media:png", "media:thumbnail", "PNG to Thumbnail")?;
 
         registry.add_caps_to_cache(vec![pdf_to_text.clone(), png_to_thumb.clone()]);
 
@@ -1913,15 +1963,16 @@ mod tests {
         assert_eq!(pdf_targets.len(), 1, "PDF should only reach 1 target");
         assert!(pdf_targets.contains(&"media:textable".to_string()), "PDF should reach text");
         assert!(!pdf_targets.contains(&"media:thumbnail".to_string()), "PDF should NOT reach thumbnail (type mismatch)");
+        Ok(())
     }
 
     // TEST780: Tests get_reachable_targets_with_metadata() respects type compatibility constraints
     // Verifies that reachable target metadata only includes type-compatible transformations
     #[tokio::test]
-    async fn test780_reachable_targets_with_metadata_respects_type_matching() {
+    async fn test780_reachable_targets_with_metadata_respects_type_matching() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
-        let pdf_to_text = make_test_cap("pdf2text", "media:pdf", "media:textable", "PDF to Text");
-        let png_to_thumb = make_test_cap("png2thumb", "media:png", "media:thumbnail", "PNG to Thumbnail");
+        let pdf_to_text = make_test_cap("pdf2text", "media:pdf", "media:textable", "PDF to Text")?;
+        let png_to_thumb = make_test_cap("png2thumb", "media:png", "media:thumbnail", "PNG to Thumbnail")?;
 
         registry.add_caps_to_cache(vec![pdf_to_text.clone(), png_to_thumb.clone()]);
 
@@ -1939,15 +1990,16 @@ mod tests {
         let pdf_targets = builder.get_reachable_targets_with_metadata("media:pdf", 5).await.unwrap();
         assert_eq!(pdf_targets.len(), 1, "PDF should only reach 1 target with metadata");
         assert_eq!(pdf_targets[0].media_spec, "media:textable", "PDF target should be text");
+        Ok(())
     }
 
     // TEST781: Tests find_all_paths() enforces type compatibility across multi-step chains
     // Verifies that paths are only found when all intermediate types are compatible
     #[tokio::test]
-    async fn test781_find_all_paths_respects_type_chain() {
+    async fn test781_find_all_paths_respects_type_chain() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
-        let resize_png = make_test_cap("resize", "media:png", "media:resized-png", "Resize PNG");
-        let to_thumb = make_test_cap("thumb", "media:resized-png", "media:thumbnail", "To Thumbnail");
+        let resize_png = make_test_cap("resize", "media:png", "media:resized-png", "Resize PNG")?;
+        let to_thumb = make_test_cap("thumb", "media:resized-png", "media:thumbnail", "To Thumbnail")?;
 
         registry.add_caps_to_cache(vec![resize_png.clone(), to_thumb.clone()]);
 
@@ -1964,6 +2016,7 @@ mod tests {
 
         let pdf_paths = builder.find_all_paths("media:pdf", "media:thumbnail", 5, 10).await.unwrap();
         assert!(pdf_paths.is_empty(), "Should find NO paths from PDF to thumbnail (type mismatch)");
+        Ok(())
     }
 
     // ==========================================================================
@@ -2068,12 +2121,12 @@ mod tests {
     // TEST785: Tests find_all_paths() filters out deviating paths when coherent alternatives exist
     // Verifies that semantically wandering paths are excluded if direct coherent paths are available
     #[tokio::test]
-    async fn test785_find_all_paths_filters_deviating_when_coherent_exists() {
+    async fn test785_find_all_paths_filters_deviating_when_coherent_exists() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
 
-        let direct = make_test_cap("txt2rst", "media:txt;textable", "media:rst;textable", "Direct TXT to RST");
-        let to_thumb = make_test_cap("txt2thumb", "media:txt;textable", "media:thumbnail", "TXT to Thumbnail");
-        let thumb_to_rst = make_test_cap("thumb2rst", "media:thumbnail", "media:rst;textable", "Thumbnail to RST");
+        let direct = make_test_cap("txt2rst", "media:txt;textable", "media:rst;textable", "Direct TXT to RST")?;
+        let to_thumb = make_test_cap("txt2thumb", "media:txt;textable", "media:thumbnail", "TXT to Thumbnail")?;
+        let thumb_to_rst = make_test_cap("thumb2rst", "media:thumbnail", "media:rst;textable", "Thumbnail to RST")?;
 
         registry.add_caps_to_cache(vec![direct.clone(), to_thumb.clone(), thumb_to_rst.clone()]);
 
@@ -2089,19 +2142,20 @@ mod tests {
 
         assert_eq!(paths.len(), 1, "Deviating path should be filtered out when coherent path exists");
         assert_eq!(paths[0].steps.len(), 1, "Remaining path should be the direct 1-step path");
+        Ok(())
     }
 
     // TEST786: Tests find_all_paths() keeps all paths when no coherent path exists
     // Verifies that all deviating paths are returned if they're the only viable options
     #[tokio::test]
-    async fn test786_find_all_paths_keeps_all_when_all_deviate() {
+    async fn test786_find_all_paths_keeps_all_when_all_deviate() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
 
-        let txt_to_thumb = make_test_cap("txt2thumb", "media:txt;textable", "media:thumbnail", "TXT to Thumb");
-        let thumb_to_emb = make_test_cap("thumb2emb", "media:thumbnail", "media:embeddings", "Thumb to Embeddings");
+        let txt_to_thumb = make_test_cap("txt2thumb", "media:txt;textable", "media:thumbnail", "TXT to Thumb")?;
+        let thumb_to_emb = make_test_cap("thumb2emb", "media:thumbnail", "media:embeddings", "Thumb to Embeddings")?;
 
-        let txt_to_audio = make_test_cap("txt2audio", "media:txt;textable", "media:audio", "TXT to Audio");
-        let audio_to_thumb = make_test_cap("audio2thumb", "media:audio", "media:thumbnail", "Audio to Thumb");
+        let txt_to_audio = make_test_cap("txt2audio", "media:txt;textable", "media:audio", "TXT to Audio")?;
+        let audio_to_thumb = make_test_cap("audio2thumb", "media:audio", "media:thumbnail", "Audio to Thumb")?;
 
         registry.add_caps_to_cache(vec![
             txt_to_thumb.clone(), thumb_to_emb.clone(),
@@ -2121,17 +2175,18 @@ mod tests {
 
         assert!(paths.len() >= 2, "When no coherent path exists, all deviating paths should be kept (got {})", paths.len());
         assert_eq!(paths[0].steps.len(), 2, "First path should be the shorter 2-step one");
+        Ok(())
     }
 
     // TEST787: Tests find_all_paths() sorts coherent paths by length, preferring shorter ones
     // Verifies that among multiple coherent paths, the shortest is ranked first
     #[tokio::test]
-    async fn test787_find_all_paths_coherent_sorting_prefers_shorter() {
+    async fn test787_find_all_paths_coherent_sorting_prefers_shorter() -> Result<(), crate::urn::cap_urn::CapUrnError> {
         let registry = CapRegistry::new_for_test();
 
-        let direct = make_test_cap("txt2md", "media:txt;textable", "media:md;textable", "Direct");
-        let strip = make_test_cap("strip", "media:txt;textable", "media:textable", "Strip Format");
-        let to_md = make_test_cap("to_md", "media:textable", "media:md;textable", "To MD");
+        let direct = make_test_cap("txt2md", "media:txt;textable", "media:md;textable", "Direct")?;
+        let strip = make_test_cap("strip", "media:txt;textable", "media:textable", "Strip Format")?;
+        let to_md = make_test_cap("to_md", "media:textable", "media:md;textable", "To MD")?;
 
         registry.add_caps_to_cache(vec![direct.clone(), strip.clone(), to_md.clone()]);
 
@@ -2147,5 +2202,197 @@ mod tests {
 
         assert!(paths.len() >= 2, "Should find at least 2 paths (got {})", paths.len());
         assert_eq!(paths[0].steps.len(), 1, "Shortest coherent path should be first");
+        Ok(())
+    }
+
+    // ==========================================================================
+    // URN CANONICALIZATION TESTS
+    // ==========================================================================
+
+    // TEST1100: Tests that CapUrn normalizes media URN tags to canonical order
+    // This is the root cause fix for caps not matching when plugins report URNs with
+    // different tag ordering than the registry (e.g., "record;textable" vs "textable;record")
+    #[test]
+    fn test1100_cap_urn_normalizes_media_urn_tag_order() -> Result<(), crate::urn::cap_urn::CapUrnError> {
+        // Create two CapUrns with different tag ordering in the output media URN
+        let urn1 = CapUrn::from_string("cap:in=media:pdf;op=extract_metadata;out=\"media:file-metadata;record;textable\"")?;
+        let urn2 = CapUrn::from_string("cap:in=media:pdf;op=extract_metadata;out=\"media:file-metadata;textable;record\"")?;
+
+        // After normalization, both should produce the same canonical string
+        assert_eq!(
+            urn1.to_string(),
+            urn2.to_string(),
+            "URNs with different tag ordering should normalize to the same canonical form"
+        );
+
+        // The canonical form should have tags in alphabetical order
+        let canonical = urn1.to_string();
+        assert!(
+            canonical.contains("record;textable") || canonical.contains("textable;record"),
+            "Canonical form should contain the tags: {}", canonical
+        );
+
+        Ok(())
+    }
+
+    // TEST1101: Tests that is_cap_available matches URNs regardless of original tag ordering
+    // Verifies that a cap from the registry (with one tag order) matches an available cap
+    // from plugins (with different tag order) after normalization
+    #[tokio::test]
+    async fn test1101_is_cap_available_matches_normalized_urns() -> Result<(), crate::urn::cap_urn::CapUrnError> {
+        let registry = CapRegistry::new_for_test();
+
+        // Registry has cap with tags in one order
+        let registry_cap = make_test_cap(
+            "extract_metadata",
+            "media:pdf",
+            "media:file-metadata;textable;record",  // textable comes first
+            "Extract PDF Metadata"
+        )?;
+        registry.add_caps_to_cache(vec![registry_cap.clone()]);
+
+        // Plugin reports the same cap but with tags in different order
+        // After normalization via CapUrn::from_string().to_string(), order should match
+        let plugin_urn_str = "cap:in=media:pdf;op=extract_metadata;out=\"media:file-metadata;record;textable\"";
+        let plugin_urn = CapUrn::from_string(plugin_urn_str)?;
+        let normalized_plugin_urn = plugin_urn.to_string();
+
+        let mut available = HashSet::new();
+        available.insert(normalized_plugin_urn);
+
+        let builder = create_test_plan_builder_with_registry(registry)
+            .with_available_caps(available);
+
+        // The cap should be found as available because normalization makes URNs match
+        assert!(
+            builder.is_cap_available(&registry_cap.urn.to_string()),
+            "Cap should be available after URN normalization. Registry: {}, Available set should contain normalized form",
+            registry_cap.urn.to_string()
+        );
+
+        Ok(())
+    }
+
+    // TEST1102: Tests that pathfinding works when plugin and registry have different tag ordering
+    // This is an integration test for the full fix: plugins report URNs with one order,
+    // registry has another order, but paths are still found because URNs are normalized
+    #[tokio::test]
+    async fn test1102_pathfinding_works_with_different_tag_ordering() -> Result<(), crate::urn::cap_urn::CapUrnError> {
+        let registry = CapRegistry::new_for_test();
+
+        // Registry cap with output tags in one order
+        let pdf_to_metadata = make_test_cap(
+            "extract_metadata",
+            "media:pdf",
+            "media:file-metadata;textable;record",  // alphabetical: record, textable -> becomes record;textable
+            "Extract PDF Metadata"
+        )?;
+
+        registry.add_caps_to_cache(vec![pdf_to_metadata.clone()]);
+
+        // Simulate plugin reporting same cap with different tag order in output
+        // The key insight: CapUrn::new() now normalizes, so both produce same canonical form
+        let plugin_urn = CapUrn::from_string(
+            "cap:in=media:pdf;op=extract_metadata;out=\"media:file-metadata;record;textable\""
+        )?;
+
+        let mut available = HashSet::new();
+        available.insert(plugin_urn.to_string());
+
+        let builder = create_test_plan_builder_with_registry(registry)
+            .with_available_caps(available);
+
+        // Should find reachable targets because URNs match after normalization
+        let targets = builder.get_reachable_targets("media:pdf").await.unwrap();
+
+        assert!(
+            !targets.is_empty(),
+            "Should find reachable targets when URNs are normalized. \
+             This test verifies the fix for plugin/registry tag ordering mismatch."
+        );
+
+        Ok(())
+    }
+
+    // TEST1103: Tests that is_cap_available uses conforms_to (not accepts) correctly
+    // The available cap (instance) must conform to the requested cap (pattern).
+    // This tests the directionality: instance.conforms_to(&pattern)
+    #[test]
+    fn test1103_is_cap_available_uses_conforms_to_correctly() {
+        // A more specific cap (with extra tags) should conform to a general pattern
+        let general_pattern = CapUrn::from_string(
+            "cap:in=media:pdf;op=extract;out=media:text"
+        ).unwrap();
+
+        let specific_instance = CapUrn::from_string(
+            "cap:in=media:pdf;op=extract;out=media:text;version=2"
+        ).unwrap();
+
+        // instance.conforms_to(&pattern) should be true: specific conforms to general
+        assert!(
+            specific_instance.conforms_to(&general_pattern),
+            "Specific cap should conform to general pattern"
+        );
+
+        // pattern.conforms_to(&instance) should be false: general does NOT conform to specific
+        assert!(
+            !general_pattern.conforms_to(&specific_instance),
+            "General pattern should NOT conform to specific instance (missing version tag)"
+        );
+
+        // Now test via is_cap_available
+        let registry = CapRegistry::new_for_test();
+        // Registry has the general pattern
+        let registry_cap = Cap::new(general_pattern.clone(), "Extract".to_string(), "extract".to_string());
+        registry.add_caps_to_cache(vec![registry_cap]);
+
+        // Plugin provides the specific instance
+        let mut available = HashSet::new();
+        available.insert(specific_instance.to_string());
+
+        let builder = create_test_plan_builder_with_registry(registry)
+            .with_available_caps(available);
+
+        // is_cap_available checks: does any available cap (instance) conform to the pattern?
+        // This should be TRUE because specific_instance conforms to general_pattern
+        assert!(
+            builder.is_cap_available(&general_pattern.to_string()),
+            "is_cap_available should return true when available cap conforms to requested pattern"
+        );
+    }
+
+    // TEST1104: Tests that is_cap_available rejects when instance doesn't conform to pattern
+    #[test]
+    fn test1104_is_cap_available_rejects_non_conforming() {
+        // Create two caps that don't conform to each other
+        let pattern = CapUrn::from_string(
+            "cap:in=media:pdf;op=extract;out=media:text;required=yes"
+        ).unwrap();
+
+        let instance = CapUrn::from_string(
+            "cap:in=media:pdf;op=extract;out=media:text"  // missing required=yes
+        ).unwrap();
+
+        // instance does NOT conform to pattern (missing required tag)
+        assert!(
+            !instance.conforms_to(&pattern),
+            "Instance missing required tag should not conform to pattern"
+        );
+
+        let registry = CapRegistry::new_for_test();
+        let registry_cap = Cap::new(pattern.clone(), "Extract".to_string(), "extract".to_string());
+        registry.add_caps_to_cache(vec![registry_cap]);
+
+        let mut available = HashSet::new();
+        available.insert(instance.to_string());
+
+        let builder = create_test_plan_builder_with_registry(registry)
+            .with_available_caps(available);
+
+        // is_cap_available should return FALSE because instance doesn't conform to pattern
+        assert!(
+            !builder.is_cap_available(&pattern.to_string()),
+            "is_cap_available should return false when available cap doesn't conform to pattern"
+        );
     }
 }

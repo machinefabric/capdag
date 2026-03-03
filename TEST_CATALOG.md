@@ -1,61 +1,61 @@
 # CapDag Test Catalog
 
-**Total Tests:** 868
+**Total Tests:** 860
 
 This catalog lists all numbered tests in the capdag codebase.
 
 | Test # | Function Name | Description | Location |
 |--------|---------------|-------------|----------|
-| test001 | `test001_cap_urn_creation` | TEST001: Test that cap URN is created with tags parsed correctly and direction specs accessible | src/urn/cap_urn.rs:711 |
-| test002 | `test002_direction_specs_default_to_wildcard` | TEST002: Test that missing 'in' or 'out' defaults to media: wildcard | src/urn/cap_urn.rs:723 |
-| test003 | `test003_direction_matching` | TEST003: Test that direction specs must match exactly, different in/out types don't match, wildcard matches any | src/urn/cap_urn.rs:745 |
-| test004 | `test004_unquoted_values_lowercased` | TEST004: Test that unquoted keys and values are normalized to lowercase | src/urn/cap_urn.rs:774 |
-| test005 | `test005_quoted_values_preserve_case` | TEST005: Test that quoted values preserve case while unquoted are lowercased | src/urn/cap_urn.rs:795 |
-| test006 | `test006_quoted_value_special_chars` | TEST006: Test that quoted values can contain special characters (semicolons, equals, spaces) | src/urn/cap_urn.rs:814 |
-| test007 | `test007_quoted_value_escape_sequences` | TEST007: Test that escape sequences in quoted values (\" and \\) are parsed correctly | src/urn/cap_urn.rs:833 |
-| test008 | `test008_mixed_quoted_unquoted` | TEST008: Test that mixed quoted and unquoted values in same URN parse correctly | src/urn/cap_urn.rs:852 |
-| test009 | `test009_unterminated_quote_error` | TEST009: Test that unterminated quote produces UnterminatedQuote error | src/urn/cap_urn.rs:860 |
-| test010 | `test010_invalid_escape_sequence_error` | TEST010: Test that invalid escape sequences (like \n, \x) produce InvalidEscapeSequence error | src/urn/cap_urn.rs:870 |
-| test011 | `test011_serialization_smart_quoting` | TEST011: Test that serialization uses smart quoting (no quotes for simple lowercase, quotes for special chars/uppercase) | src/urn/cap_urn.rs:887 |
-| test012 | `test012_round_trip_simple` | TEST012: Test that simple cap URN round-trips (parse -> serialize -> parse equals original) | src/urn/cap_urn.rs:922 |
-| test013 | `test013_round_trip_quoted` | TEST013: Test that quoted values round-trip preserving case and spaces | src/urn/cap_urn.rs:932 |
-| test014 | `test014_round_trip_escapes` | TEST014: Test that escape sequences round-trip correctly | src/urn/cap_urn.rs:946 |
-| test015 | `test015_cap_prefix_required` | TEST015: Test that cap: prefix is required and case-insensitive | src/urn/cap_urn.rs:960 |
-| test016 | `test016_trailing_semicolon_equivalence` | TEST016: Test that trailing semicolon is equivalent (same hash, same string, matches) | src/urn/cap_urn.rs:983 |
-| test017 | `test017_tag_matching` | TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch | src/urn/cap_urn.rs:1016 |
-| test018 | `test018_matching_case_sensitive_values` | TEST018: Test that quoted values with different case do NOT match (case-sensitive) | src/urn/cap_urn.rs:1043 |
-| test019 | `test019_missing_tag_handling` | TEST019: Missing tag in instance causes rejection — pattern's tags are constraints | src/urn/cap_urn.rs:1057 |
-| test020 | `test020_specificity` | TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count) | src/urn/cap_urn.rs:1076 |
-| test021 | `test021_builder` | TEST021: Test builder creates cap URN with correct tags and direction specs | src/urn/cap_urn.rs:1096 |
-| test022 | `test022_builder_requires_direction` | TEST022: Test builder requires both in_spec and out_spec | src/urn/cap_urn.rs:1113 |
-| test023 | `test023_builder_preserves_case` | TEST023: Test builder lowercases keys but preserves value case | src/urn/cap_urn.rs:1138 |
-| test024 | `test024_directional_accepts` | TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy | src/urn/cap_urn.rs:1152 |
-| test025 | `test025_best_match` | TEST025: Test find_best_match returns most specific matching cap | src/urn/cap_urn.rs:1183 |
-| test026 | `test026_merge_and_subset` | TEST026: Test merge combines tags from both caps, subset keeps only specified tags | src/urn/cap_urn.rs:1199 |
-| test027 | `test027_wildcard_tag` | TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out | src/urn/cap_urn.rs:1223 |
-| test028 | `test028_empty_cap_urn_defaults_to_wildcard` | TEST028: Test empty cap URN defaults to media: wildcard | src/urn/cap_urn.rs:1239 |
-| test029 | `test029_minimal_cap_urn` | TEST029: Test minimal valid cap URN has just in and out, empty tags | src/urn/cap_urn.rs:1253 |
-| test030 | `test030_extended_character_support` | TEST030: Test extended characters (forward slashes, colons) in tag values | src/urn/cap_urn.rs:1264 |
-| test031 | `test031_wildcard_restrictions` | TEST031: Test wildcard rejected in keys but accepted in values | src/urn/cap_urn.rs:1277 |
-| test032 | `test032_duplicate_key_rejection` | TEST032: Test duplicate keys are rejected with DuplicateKey error | src/urn/cap_urn.rs:1288 |
-| test033 | `test033_numeric_key_restriction` | TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed | src/urn/cap_urn.rs:1298 |
-| test034 | `test034_empty_value_error` | TEST034: Test empty values are rejected | src/urn/cap_urn.rs:1312 |
-| test035 | `test035_has_tag_case_sensitive` | TEST035: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out | src/urn/cap_urn.rs:1319 |
-| test036 | `test036_with_tag_preserves_value` | TEST036: Test with_tag preserves value case | src/urn/cap_urn.rs:1340 |
-| test037 | `test037_with_tag_rejects_empty_value` | TEST037: Test with_tag rejects empty value | src/urn/cap_urn.rs:1348 |
-| test038 | `test038_semantic_equivalence` | TEST038: Test semantic equivalence of unquoted and quoted simple lowercase values | src/urn/cap_urn.rs:1356 |
-| test039 | `test039_get_tag_returns_direction_specs` | TEST039: Test get_tag returns direction specs (in/out) with case-insensitive lookup | src/urn/cap_urn.rs:1369 |
-| test040 | `test040_matching_semantics_test1_exact_match` | TEST040: Matching semantics - exact match succeeds | src/urn/cap_urn.rs:1397 |
-| test041 | `test041_matching_semantics_test2_cap_missing_tag` | TEST041: Matching semantics - cap missing tag matches (implicit wildcard) | src/urn/cap_urn.rs:1406 |
-| test042 | `test042_matching_semantics_test3_cap_has_extra_tag` | TEST042: Pattern rejects instance missing required tags | src/urn/cap_urn.rs:1418 |
-| test043 | `test043_matching_semantics_test4_request_has_wildcard` | TEST043: Matching semantics - request wildcard matches specific cap value | src/urn/cap_urn.rs:1429 |
-| test044 | `test044_matching_semantics_test5_cap_has_wildcard` | TEST044: Matching semantics - cap wildcard matches specific request value | src/urn/cap_urn.rs:1441 |
-| test045 | `test045_matching_semantics_test6_value_mismatch` | TEST045: Matching semantics - value mismatch does not match | src/urn/cap_urn.rs:1450 |
-| test046 | `test046_matching_semantics_test7_fallback_pattern` | TEST046: Matching semantics - fallback pattern (cap missing tag = implicit wildcard) | src/urn/cap_urn.rs:1462 |
-| test047 | `test047_matching_semantics_test7b_thumbnail_void_input` | TEST047: Matching semantics - thumbnail fallback with void input | src/urn/cap_urn.rs:1483 |
-| test048 | `test048_matching_semantics_test8_wildcard_direction_matches_anything` | TEST048: Matching semantics - wildcard direction matches anything | src/urn/cap_urn.rs:1504 |
-| test049 | `test049_matching_semantics_test9_cross_dimension_independence` | TEST049: Non-overlapping tags — neither direction accepts | src/urn/cap_urn.rs:1520 |
-| test050 | `test050_matching_semantics_test10_direction_mismatch` | TEST050: Matching semantics - direction mismatch prevents matching | src/urn/cap_urn.rs:1530 |
+| test001 | `test001_cap_urn_creation` | TEST001: Test that cap URN is created with tags parsed correctly and direction specs accessible | src/urn/cap_urn.rs:738 |
+| test002 | `test002_direction_specs_default_to_wildcard` | TEST002: Test that missing 'in' or 'out' defaults to media: wildcard | src/urn/cap_urn.rs:750 |
+| test003 | `test003_direction_matching` | TEST003: Test that direction specs must match exactly, different in/out types don't match, wildcard matches any | src/urn/cap_urn.rs:772 |
+| test004 | `test004_unquoted_values_lowercased` | TEST004: Test that unquoted keys and values are normalized to lowercase | src/urn/cap_urn.rs:801 |
+| test005 | `test005_quoted_values_preserve_case` | TEST005: Test that quoted values preserve case while unquoted are lowercased | src/urn/cap_urn.rs:822 |
+| test006 | `test006_quoted_value_special_chars` | TEST006: Test that quoted values can contain special characters (semicolons, equals, spaces) | src/urn/cap_urn.rs:841 |
+| test007 | `test007_quoted_value_escape_sequences` | TEST007: Test that escape sequences in quoted values (\" and \\) are parsed correctly | src/urn/cap_urn.rs:860 |
+| test008 | `test008_mixed_quoted_unquoted` | TEST008: Test that mixed quoted and unquoted values in same URN parse correctly | src/urn/cap_urn.rs:879 |
+| test009 | `test009_unterminated_quote_error` | TEST009: Test that unterminated quote produces UnterminatedQuote error | src/urn/cap_urn.rs:887 |
+| test010 | `test010_invalid_escape_sequence_error` | TEST010: Test that invalid escape sequences (like \n, \x) produce InvalidEscapeSequence error | src/urn/cap_urn.rs:897 |
+| test011 | `test011_serialization_smart_quoting` | TEST011: Test that serialization uses smart quoting (no quotes for simple lowercase, quotes for special chars/uppercase) | src/urn/cap_urn.rs:914 |
+| test012 | `test012_round_trip_simple` | TEST012: Test that simple cap URN round-trips (parse -> serialize -> parse equals original) | src/urn/cap_urn.rs:949 |
+| test013 | `test013_round_trip_quoted` | TEST013: Test that quoted values round-trip preserving case and spaces | src/urn/cap_urn.rs:959 |
+| test014 | `test014_round_trip_escapes` | TEST014: Test that escape sequences round-trip correctly | src/urn/cap_urn.rs:973 |
+| test015 | `test015_cap_prefix_required` | TEST015: Test that cap: prefix is required and case-insensitive | src/urn/cap_urn.rs:987 |
+| test016 | `test016_trailing_semicolon_equivalence` | TEST016: Test that trailing semicolon is equivalent (same hash, same string, matches) | src/urn/cap_urn.rs:1010 |
+| test017 | `test017_tag_matching` | TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch | src/urn/cap_urn.rs:1043 |
+| test018 | `test018_matching_case_sensitive_values` | TEST018: Test that quoted values with different case do NOT match (case-sensitive) | src/urn/cap_urn.rs:1070 |
+| test019 | `test019_missing_tag_handling` | TEST019: Missing tag in instance causes rejection — pattern's tags are constraints | src/urn/cap_urn.rs:1084 |
+| test020 | `test020_specificity` | TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count) | src/urn/cap_urn.rs:1103 |
+| test021 | `test021_builder` | TEST021: Test builder creates cap URN with correct tags and direction specs | src/urn/cap_urn.rs:1123 |
+| test022 | `test022_builder_requires_direction` | TEST022: Test builder requires both in_spec and out_spec | src/urn/cap_urn.rs:1140 |
+| test023 | `test023_builder_preserves_case` | TEST023: Test builder lowercases keys but preserves value case | src/urn/cap_urn.rs:1165 |
+| test024 | `test024_directional_accepts` | TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy | src/urn/cap_urn.rs:1179 |
+| test025 | `test025_best_match` | TEST025: Test find_best_match returns most specific matching cap | src/urn/cap_urn.rs:1210 |
+| test026 | `test026_merge_and_subset` | TEST026: Test merge combines tags from both caps, subset keeps only specified tags | src/urn/cap_urn.rs:1226 |
+| test027 | `test027_wildcard_tag` | TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out | src/urn/cap_urn.rs:1250 |
+| test028 | `test028_empty_cap_urn_defaults_to_wildcard` | TEST028: Test empty cap URN defaults to media: wildcard | src/urn/cap_urn.rs:1266 |
+| test029 | `test029_minimal_cap_urn` | TEST029: Test minimal valid cap URN has just in and out, empty tags | src/urn/cap_urn.rs:1280 |
+| test030 | `test030_extended_character_support` | TEST030: Test extended characters (forward slashes, colons) in tag values | src/urn/cap_urn.rs:1291 |
+| test031 | `test031_wildcard_restrictions` | TEST031: Test wildcard rejected in keys but accepted in values | src/urn/cap_urn.rs:1304 |
+| test032 | `test032_duplicate_key_rejection` | TEST032: Test duplicate keys are rejected with DuplicateKey error | src/urn/cap_urn.rs:1315 |
+| test033 | `test033_numeric_key_restriction` | TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed | src/urn/cap_urn.rs:1325 |
+| test034 | `test034_empty_value_error` | TEST034: Test empty values are rejected | src/urn/cap_urn.rs:1339 |
+| test035 | `test035_has_tag_case_sensitive` | TEST035: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out | src/urn/cap_urn.rs:1346 |
+| test036 | `test036_with_tag_preserves_value` | TEST036: Test with_tag preserves value case | src/urn/cap_urn.rs:1367 |
+| test037 | `test037_with_tag_rejects_empty_value` | TEST037: Test with_tag rejects empty value | src/urn/cap_urn.rs:1376 |
+| test038 | `test038_semantic_equivalence` | TEST038: Test semantic equivalence of unquoted and quoted simple lowercase values | src/urn/cap_urn.rs:1385 |
+| test039 | `test039_get_tag_returns_direction_specs` | TEST039: Test get_tag returns direction specs (in/out) with case-insensitive lookup | src/urn/cap_urn.rs:1398 |
+| test040 | `test040_matching_semantics_test1_exact_match` | TEST040: Matching semantics - exact match succeeds | src/urn/cap_urn.rs:1426 |
+| test041 | `test041_matching_semantics_test2_cap_missing_tag` | TEST041: Matching semantics - cap missing tag matches (implicit wildcard) | src/urn/cap_urn.rs:1435 |
+| test042 | `test042_matching_semantics_test3_cap_has_extra_tag` | TEST042: Pattern rejects instance missing required tags | src/urn/cap_urn.rs:1447 |
+| test043 | `test043_matching_semantics_test4_request_has_wildcard` | TEST043: Matching semantics - request wildcard matches specific cap value | src/urn/cap_urn.rs:1458 |
+| test044 | `test044_matching_semantics_test5_cap_has_wildcard` | TEST044: Matching semantics - cap wildcard matches specific request value | src/urn/cap_urn.rs:1470 |
+| test045 | `test045_matching_semantics_test6_value_mismatch` | TEST045: Matching semantics - value mismatch does not match | src/urn/cap_urn.rs:1479 |
+| test046 | `test046_matching_semantics_test7_fallback_pattern` | TEST046: Matching semantics - fallback pattern (cap missing tag = implicit wildcard) | src/urn/cap_urn.rs:1491 |
+| test047 | `test047_matching_semantics_test7b_thumbnail_void_input` | TEST047: Matching semantics - thumbnail fallback with void input | src/urn/cap_urn.rs:1512 |
+| test048 | `test048_matching_semantics_test8_wildcard_direction_matches_anything` | TEST048: Matching semantics - wildcard direction matches anything | src/urn/cap_urn.rs:1533 |
+| test049 | `test049_matching_semantics_test9_cross_dimension_independence` | TEST049: Non-overlapping tags — neither direction accepts | src/urn/cap_urn.rs:1549 |
+| test050 | `test050_matching_semantics_test10_direction_mismatch` | TEST050: Matching semantics - direction mismatch prevents matching | src/urn/cap_urn.rs:1559 |
 | test051 | `test051_input_validation_success` | TEST051: Test input validation succeeds with valid positional argument | src/cap/validation.rs:1065 |
 | test052 | `test052_input_validation_missing_required` | TEST052: Test input validation fails with MissingRequiredArgument when required arg missing | src/cap/validation.rs:1086 |
 | test053 | `test053_input_validation_wrong_type` | TEST053: Test input validation fails with InvalidArgumentType when wrong type provided | src/cap/validation.rs:1114 |
@@ -489,15 +489,15 @@ This catalog lists all numbered tests in the capdag codebase.
 | test556 | `test556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | src/urn/media_urn.rs:918 |
 | test557 | `test557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | src/urn/media_urn.rs:928 |
 | test558 | `test558_predicate_constant_consistency` | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates | src/urn/media_urn.rs:938 |
-| test559 | `test559_without_tag` | TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys | src/urn/cap_urn.rs:1828 |
-| test560 | `test560_with_in_out_spec` | TEST560: with_in_spec and with_out_spec change direction specs | src/urn/cap_urn.rs:1853 |
-| test561 | `test561_in_out_media_urn` | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn | src/urn/cap_urn.rs:1877 |
-| test562 | `test562_canonical_option` | TEST562: canonical_option returns None for None input, canonical string for Some | src/urn/cap_urn.rs:1899 |
-| test563 | `test563_find_all_matches` | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity | src/urn/cap_urn.rs:1921 |
-| test564 | `test564_are_compatible` | TEST564: CapMatcher::are_compatible detects bidirectional overlap | src/urn/cap_urn.rs:1940 |
-| test565 | `test565_tags_to_string` | TEST565: tags_to_string returns only tags portion without prefix | src/urn/cap_urn.rs:1964 |
-| test566 | `test566_with_tag_ignores_in_out` | TEST566: with_tag silently ignores in/out keys | src/urn/cap_urn.rs:1977 |
-| test567 | `test567_str_variants` | TEST567: conforms_to_str and accepts_str work with string arguments | src/urn/cap_urn.rs:1991 |
+| test559 | `test559_without_tag` | TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys | src/urn/cap_urn.rs:1857 |
+| test560 | `test560_with_in_out_spec` | TEST560: with_in_spec and with_out_spec change direction specs | src/urn/cap_urn.rs:1882 |
+| test561 | `test561_in_out_media_urn` | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn | src/urn/cap_urn.rs:1906 |
+| test562 | `test562_canonical_option` | TEST562: canonical_option returns None for None input, canonical string for Some | src/urn/cap_urn.rs:1928 |
+| test563 | `test563_find_all_matches` | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity | src/urn/cap_urn.rs:1950 |
+| test564 | `test564_are_compatible` | TEST564: CapMatcher::are_compatible detects bidirectional overlap | src/urn/cap_urn.rs:1969 |
+| test565 | `test565_tags_to_string` | TEST565: tags_to_string returns only tags portion without prefix | src/urn/cap_urn.rs:1993 |
+| test566 | `test566_with_tag_ignores_in_out` | TEST566: with_tag silently ignores in/out keys | src/urn/cap_urn.rs:2006 |
+| test567 | `test567_str_variants` | TEST567: conforms_to_str and accepts_str work with string arguments | src/urn/cap_urn.rs:2020 |
 | test568 | `test568_cap_graph_find_best_path` | TEST568: CapGraph::find_best_path returns highest-specificity path over shortest | src/urn/cap_matrix.rs:1771 |
 | test569 | `test569_unregister_cap_set` | TEST569: unregister_cap_set removes a host and returns true, false if not found | src/urn/cap_matrix.rs:1819 |
 | test570 | `test570_clear` | TEST570: clear removes all registered sets | src/urn/cap_matrix.rs:1839 |
@@ -536,17 +536,17 @@ This catalog lists all numbered tests in the capdag codebase.
 | test603 | `test603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | src/cap/response.rs:352 |
 | test605 | `test605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | src/standard/caps.rs:827 |
 | test606 | `test606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | src/standard/caps.rs:849 |
-| test607 | `test607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | src/media/registry.rs:726 |
-| test608 | `test608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | src/media/registry.rs:740 |
-| test609 | `test609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension->URN pairs | src/media/registry.rs:774 |
-| test610 | `test610_get_cached_spec` | TEST610: get_cached_spec returns None for unknown and Some for known | src/media/registry.rs:799 |
+| test607 | `test607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | src/media/registry.rs:764 |
+| test608 | `test608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | src/media/registry.rs:778 |
+| test609 | `test609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension->URN pairs | src/media/registry.rs:812 |
+| test610 | `test610_get_cached_spec` | TEST610: get_cached_spec returns None for unknown and Some for known | src/media/registry.rs:837 |
 | test611 | `test611_is_embedded_profile_comprehensive` | TEST611: is_embedded_profile recognizes all 9 embedded profiles and rejects non-embedded | src/media/profile.rs:650 |
 | test612 | `test612_clear_cache` | TEST612: clear_cache empties all in-memory schemas | src/media/profile.rs:671 |
 | test613 | `test613_validate_cached` | TEST613: validate_cached validates against cached standard schemas | src/media/profile.rs:688 |
-| test614 | `test614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | src/media/registry.rs:672 |
-| test615 | `test615_cache_key_generation` | TEST615: Verify cache key generation is deterministic and distinct for different URNs | src/media/registry.rs:679 |
-| test616 | `test616_stored_media_spec_to_def` | TEST616: Verify StoredMediaSpec converts to MediaSpecDef preserving all fields | src/media/registry.rs:691 |
-| test617 | `test617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | src/media/registry.rs:715 |
+| test614 | `test614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | src/media/registry.rs:710 |
+| test615 | `test615_cache_key_generation` | TEST615: Verify cache key generation is deterministic and distinct for different URNs | src/media/registry.rs:717 |
+| test616 | `test616_stored_media_spec_to_def` | TEST616: Verify StoredMediaSpec converts to MediaSpecDef preserving all fields | src/media/registry.rs:729 |
+| test617 | `test617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | src/media/registry.rs:753 |
 | test618 | `test618_registry_creation` | TEST618: Verify profile schema registry creation succeeds with temp cache | src/media/profile.rs:526 |
 | test619 | `test619_embedded_schemas_loaded` | TEST619: Verify all 9 embedded standard schemas are loaded on creation | src/media/profile.rs:533 |
 | test620 | `test620_string_validation` | TEST620: Verify string schema validates strings and rejects non-strings | src/media/profile.rs:550 |
@@ -568,21 +568,21 @@ This catalog lists all numbered tests in the capdag codebase.
 | test636 | `test636_deserialize_registry_with_null_descriptions` | TEST636: Verify PluginRegistryResponse deserializes with mixed null/present descriptions | src/bifaci/plugin_repo.rs:656 |
 | test637 | `test637_deserialize_full_plugin_with_signature` | TEST637: Verify full PluginInfo deserialization with signature and binary fields | src/bifaci/plugin_repo.rs:678 |
 | test638 | `test638_no_peer_router_rejects_all` | TEST638: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported | src/bifaci/router.rs:95 |
-| test639 | `test639_wildcard_001_empty_cap_defaults_to_media_wildcard` | TEST639: cap: (empty) defaults to in=media:;out=media: | src/urn/cap_urn.rs:1640 |
-| test640 | `test640_wildcard_002_in_only_defaults_out_to_media` | TEST640: cap:in defaults out to media: | src/urn/cap_urn.rs:1649 |
-| test641 | `test641_wildcard_003_out_only_defaults_in_to_media` | TEST641: cap:out defaults in to media: | src/urn/cap_urn.rs:1657 |
-| test642 | `test642_wildcard_004_in_out_no_values_become_media` | TEST642: cap:in;out both become media: | src/urn/cap_urn.rs:1665 |
-| test643 | `test643_wildcard_005_explicit_asterisk_becomes_media` | TEST643: cap:in=*;out=* becomes media: | src/urn/cap_urn.rs:1673 |
-| test644 | `test644_wildcard_006_specific_in_wildcard_out` | TEST644: cap:in=media:;out=* has specific in, wildcard out | src/urn/cap_urn.rs:1681 |
-| test645 | `test645_wildcard_007_wildcard_in_specific_out` | TEST645: cap:in=*;out=media:text has wildcard in, specific out | src/urn/cap_urn.rs:1689 |
-| test646 | `test646_wildcard_008_invalid_in_spec_fails` | TEST646: cap:in=foo fails (invalid media URN) | src/urn/cap_urn.rs:1697 |
-| test647 | `test647_wildcard_009_invalid_out_spec_fails` | TEST647: cap:in=media:;out=bar fails (invalid media URN) | src/urn/cap_urn.rs:1706 |
-| test648 | `test648_wildcard_010_wildcard_accepts_specific` | TEST648: Wildcard in/out match specific caps | src/urn/cap_urn.rs:1715 |
-| test649 | `test649_wildcard_011_specificity_scoring` | TEST649: Specificity - wildcard has 0, specific has tag count | src/urn/cap_urn.rs:1725 |
-| test650 | `test650_wildcard_012_preserve_other_tags` | TEST650: cap:in;out;op=test preserves other tags | src/urn/cap_urn.rs:1735 |
-| test651 | `test651_wildcard_013_identity_forms_equivalent` | TEST651: All identity forms produce the same CapUrn | src/urn/cap_urn.rs:1744 |
-| test652 | `test652_wildcard_014_cap_identity_constant_works` | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form | src/urn/cap_urn.rs:1769 |
-| test653 | `test653_wildcard_015_identity_routing_isolation` | TEST653: Identity (no tags) does not match specific requests via routing | src/urn/cap_urn.rs:1799 |
+| test639 | `test639_wildcard_001_empty_cap_defaults_to_media_wildcard` | TEST639: cap: (empty) defaults to in=media:;out=media: | src/urn/cap_urn.rs:1669 |
+| test640 | `test640_wildcard_002_in_only_defaults_out_to_media` | TEST640: cap:in defaults out to media: | src/urn/cap_urn.rs:1678 |
+| test641 | `test641_wildcard_003_out_only_defaults_in_to_media` | TEST641: cap:out defaults in to media: | src/urn/cap_urn.rs:1686 |
+| test642 | `test642_wildcard_004_in_out_no_values_become_media` | TEST642: cap:in;out both become media: | src/urn/cap_urn.rs:1694 |
+| test643 | `test643_wildcard_005_explicit_asterisk_becomes_media` | TEST643: cap:in=*;out=* becomes media: | src/urn/cap_urn.rs:1702 |
+| test644 | `test644_wildcard_006_specific_in_wildcard_out` | TEST644: cap:in=media:;out=* has specific in, wildcard out | src/urn/cap_urn.rs:1710 |
+| test645 | `test645_wildcard_007_wildcard_in_specific_out` | TEST645: cap:in=*;out=media:text has wildcard in, specific out | src/urn/cap_urn.rs:1718 |
+| test646 | `test646_wildcard_008_invalid_in_spec_fails` | TEST646: cap:in=foo fails (invalid media URN) | src/urn/cap_urn.rs:1726 |
+| test647 | `test647_wildcard_009_invalid_out_spec_fails` | TEST647: cap:in=media:;out=bar fails (invalid media URN) | src/urn/cap_urn.rs:1735 |
+| test648 | `test648_wildcard_010_wildcard_accepts_specific` | TEST648: Wildcard in/out match specific caps | src/urn/cap_urn.rs:1744 |
+| test649 | `test649_wildcard_011_specificity_scoring` | TEST649: Specificity - wildcard has 0, specific has tag count | src/urn/cap_urn.rs:1754 |
+| test650 | `test650_wildcard_012_preserve_other_tags` | TEST650: cap:in;out;op=test preserves other tags | src/urn/cap_urn.rs:1764 |
+| test651 | `test651_wildcard_013_identity_forms_equivalent` | TEST651: All identity forms produce the same CapUrn | src/urn/cap_urn.rs:1773 |
+| test652 | `test652_wildcard_014_cap_identity_constant_works` | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form | src/urn/cap_urn.rs:1798 |
+| test653 | `test653_wildcard_015_identity_routing_isolation` | TEST653: Identity (no tags) does not match specific requests via routing | src/urn/cap_urn.rs:1828 |
 | test654 | `test654_routes_req_to_handler` | TEST654: InProcessPluginHost routes REQ to matching handler and returns response | src/bifaci/in_process_host.rs:610 |
 | test655 | `test655_identity_verification` | TEST655: InProcessPluginHost handles identity verification (echo nonce) | src/bifaci/in_process_host.rs:687 |
 | test656 | `test656_no_handler_returns_err` | TEST656: InProcessPluginHost returns NO_HANDLER for unregistered cap | src/bifaci/in_process_host.rs:756 |
@@ -691,47 +691,47 @@ This catalog lists all numbered tests in the capdag codebase.
 | test748 | `test748_cap_node_split` | TEST748: Tests creation of Split node that distributes input to multiple outputs Verifies that Split nodes correctly specify an input node and output count | src/planner/plan.rs:1142 |
 | test749 | `test749_get_node` | TEST749: Tests get_node() method for looking up nodes by ID in a plan Verifies that existing nodes are found and non-existent nodes return None | src/planner/plan.rs:1164 |
 | test750 | `test750_shape_chain_valid` | TEST750: Tests shape chain analysis for valid chain with matching structures | src/planner/cardinality.rs:950 |
-| test750 | `test750_no_duplicates_with_unique_caps` | TEST750: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations | src/planner/plan_builder.rs:1340 |
+| test750 | `test750_no_duplicates_with_unique_caps` | TEST750: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations | src/planner/plan_builder.rs:1379 |
 | test751 | `test751_shape_chain_structure_mismatch` | TEST751: Tests shape chain analysis detects structure mismatch | src/planner/cardinality.rs:962 |
-| test751 | `test751_detects_duplicate_cap_urns` | TEST751: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn | src/planner/plan_builder.rs:1355 |
+| test751 | `test751_detects_duplicate_cap_urns` | TEST751: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn | src/planner/plan_builder.rs:1395 |
 | test752 | `test752_shape_chain_with_fanout` | TEST752: Tests shape chain analysis with fan-out (matching structures) | src/planner/cardinality.rs:976 |
-| test752 | `test752_different_ops_same_types_not_duplicates` | TEST752: Tests caps with different operations but same input/output types are not duplicates Verifies that only the complete URN (including op) is used for duplicate detection | src/planner/plan_builder.rs:1372 |
+| test752 | `test752_different_ops_same_types_not_duplicates` | TEST752: Tests caps with different operations but same input/output types are not duplicates Verifies that only the complete URN (including op) is used for duplicate detection | src/planner/plan_builder.rs:1413 |
 | test753 | `test753_shape_chain_list_record_to_list_record` | TEST753: Tests shape chain analysis correctly handles list-to-list record flow | src/planner/cardinality.rs:989 |
-| test753 | `test753_same_op_different_input_types_not_duplicates` | TEST753: Tests caps with same operation but different input types are not duplicates Verifies that input type differences distinguish caps with the same operation name | src/planner/plan_builder.rs:1386 |
-| test754 | `test754_input_arg_first_cap_auto_resolved_from_input` | TEST754: Tests first cap's input argument is automatically resolved from input file Verifies that determine_resolution_with_io_check() returns FromInputFile for the first cap in a chain | src/planner/plan_builder.rs:1425 |
-| test755 | `test755_input_arg_subsequent_cap_auto_resolved_from_previous` | TEST755: Tests subsequent caps' input arguments are automatically resolved from previous output Verifies that determine_resolution_with_io_check() returns FromPreviousOutput for caps after the first | src/planner/plan_builder.rs:1436 |
-| test756 | `test756_output_arg_auto_resolved` | TEST756: Tests output arguments are automatically resolved from previous cap's output Verifies that arguments matching the output spec are always resolved as FromPreviousOutput | src/planner/plan_builder.rs:1451 |
-| test757 | `test757_file_path_type_fallback_first_cap` | TEST757: Tests MEDIA_FILE_PATH argument type resolves to input file for first cap Verifies that generic file-path arguments are bound to input file in the first cap | src/planner/plan_builder.rs:1462 |
-| test758 | `test758_file_path_type_fallback_subsequent_cap` | TEST758: Tests MEDIA_FILE_PATH argument type resolves to previous output for subsequent caps Verifies that generic file-path arguments are bound to previous cap's output after the first cap | src/planner/plan_builder.rs:1473 |
-| test759 | `test759_file_path_array_fallback` | TEST759: Tests MEDIA_FILE_PATH_ARRAY argument type resolution for first and subsequent caps Verifies that file-path array arguments follow the same resolution pattern as single file paths | src/planner/plan_builder.rs:1484 |
-| test760 | `test760_non_io_arg_with_default_has_default` | TEST760: Tests required non-IO arguments with default values are marked as HasDefault Verifies that arguments like integers with defaults don't require user input | src/planner/plan_builder.rs:1498 |
-| test761 | `test761_non_io_arg_without_default_requires_user_input` | TEST761: Tests required non-IO arguments without defaults require user input Verifies that arguments like strings without defaults are marked as RequiresUserInput | src/planner/plan_builder.rs:1510 |
-| test762 | `test762_optional_non_io_arg_with_default_has_default` | TEST762: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults | src/planner/plan_builder.rs:1521 |
-| test763 | `test763_optional_non_io_arg_without_default_requires_user_input` | TEST763: Tests optional non-IO arguments without defaults still require user input Verifies that optional arguments without defaults must be explicitly provided or skipped | src/planner/plan_builder.rs:1533 |
-| test764 | `test764_validation_to_json_none` | TEST764: Tests validation_to_json() returns None for None input Verifies that missing validation metadata is converted to JSON None | src/planner/plan_builder.rs:1544 |
-| test765 | `test765_validation_to_json_empty` | TEST765: Tests validation_to_json() returns None for empty validation constraints Verifies that default MediaValidation with no constraints produces JSON None | src/planner/plan_builder.rs:1552 |
-| test766 | `test766_validation_to_json_with_constraints` | TEST766: Tests validation_to_json() converts MediaValidation with constraints to JSON Verifies that min/max validation rules are correctly serialized as JSON fields | src/planner/plan_builder.rs:1561 |
-| test767 | `test767_argument_info_serialization` | TEST767: Tests ArgumentInfo struct serialization to JSON Verifies that argument metadata including resolution status and validation is correctly serialized | src/planner/plan_builder.rs:1580 |
-| test768 | `test768_path_argument_requirements_structure` | TEST768: Tests PathArgumentRequirements structure for single-step execution paths Verifies that argument requirements are correctly organized by step with resolution information | src/planner/plan_builder.rs:1600 |
-| test769 | `test769_path_with_required_slot` | TEST769: Tests PathArgumentRequirements tracking of required user-input slots Verifies that arguments requiring user input are collected in slots and can_execute_without_input is false | src/planner/plan_builder.rs:1636 |
-| test770 | `test770_is_cap_available_with_filter` | TEST770: Tests is_cap_available() correctly applies availability filter when set Verifies that only caps in the available_caps set are considered available | src/planner/plan_builder.rs:1709 |
-| test771 | `test771_is_cap_available_without_filter` | TEST771: Tests is_cap_available() treats all caps as available when no filter is set Verifies that without an availability filter, any cap URN is considered available | src/planner/plan_builder.rs:1722 |
-| test772 | `test772_find_all_paths_filters_by_availability` | TEST772: Tests find_all_paths() excludes unavailable caps from pathfinding Verifies that only paths using available caps are returned when filter is set | src/planner/plan_builder.rs:1732 |
-| test773 | `test773_find_all_paths_returns_empty_when_no_available_caps` | TEST773: Tests find_all_paths() returns empty result when all caps are filtered out Verifies that pathfinding returns no paths when the availability filter excludes all relevant caps | src/planner/plan_builder.rs:1758 |
-| test774 | `test774_get_reachable_targets_filters_by_availability` | TEST774: Tests get_reachable_targets() only considers available caps for reachability Verifies that target specs are only reachable via caps in the availability filter | src/planner/plan_builder.rs:1777 |
-| test775 | `test775_find_path_filters_by_availability` | TEST775: Tests find_path() selects from available caps when multiple paths exist Verifies that find_path() respects availability filter and prefers available direct paths | src/planner/plan_builder.rs:1803 |
-| test776 | `test776_find_path_returns_error_when_path_unavailable` | TEST776: Tests find_path() returns error when required caps are filtered out by availability Verifies that "No path found" error is returned when filter blocks the only viable path | src/planner/plan_builder.rs:1826 |
-| test777 | `test777_type_mismatch_pdf_cap_does_not_match_png_input` | TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding (PNG cannot use PDF cap) | src/planner/plan_builder.rs:1853 |
-| test778 | `test778_type_mismatch_png_cap_does_not_match_pdf_input` | TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding (PDF cannot use PNG cap) | src/planner/plan_builder.rs:1873 |
-| test779 | `test779_get_reachable_targets_respects_type_matching` | TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different targets based on cap input type requirements | src/planner/plan_builder.rs:1893 |
-| test780 | `test780_reachable_targets_with_metadata_respects_type_matching` | TEST780: Tests get_reachable_targets_with_metadata() respects type compatibility constraints Verifies that reachable target metadata only includes type-compatible transformations | src/planner/plan_builder.rs:1921 |
-| test781 | `test781_find_all_paths_respects_type_chain` | TEST781: Tests find_all_paths() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible | src/planner/plan_builder.rs:1947 |
-| test782 | `test782_coherence_score_zero_for_direct_path` | TEST782: Tests coherence scoring gives 0 deviations for direct single-step paths Verifies that paths going directly from source to target without detours have perfect coherence | src/planner/plan_builder.rs:1976 |
-| test783 | `test783_coherence_score_penalizes_unrelated_intermediate` | TEST783: Tests coherence scoring penalizes paths through semantically unrelated intermediates Verifies that going from textable→thumbnail→textable incurs deviation penalty (thumbnail unrelated) | src/planner/plan_builder.rs:2002 |
-| test784 | `test784_coherence_score_related_intermediate_not_penalized` | TEST784: Tests coherence scoring does not penalize paths through semantically related intermediates Verifies that going through a supertype (txt→textable→md) maintains coherence with 0 deviations | src/planner/plan_builder.rs:2037 |
-| test785 | `test785_find_all_paths_filters_deviating_when_coherent_exists` | TEST785: Tests find_all_paths() filters out deviating paths when coherent alternatives exist Verifies that semantically wandering paths are excluded if direct coherent paths are available | src/planner/plan_builder.rs:2071 |
-| test786 | `test786_find_all_paths_keeps_all_when_all_deviate` | TEST786: Tests find_all_paths() keeps all paths when no coherent path exists Verifies that all deviating paths are returned if they're the only viable options | src/planner/plan_builder.rs:2097 |
-| test787 | `test787_find_all_paths_coherent_sorting_prefers_shorter` | TEST787: Tests find_all_paths() sorts coherent paths by length, preferring shorter ones Verifies that among multiple coherent paths, the shortest is ranked first | src/planner/plan_builder.rs:2129 |
+| test753 | `test753_same_op_different_input_types_not_duplicates` | TEST753: Tests caps with same operation but different input types are not duplicates Verifies that input type differences distinguish caps with the same operation name | src/planner/plan_builder.rs:1428 |
+| test754 | `test754_input_arg_first_cap_auto_resolved_from_input` | TEST754: Tests first cap's input argument is automatically resolved from input file Verifies that determine_resolution_with_io_check() returns FromInputFile for the first cap in a chain | src/planner/plan_builder.rs:1468 |
+| test755 | `test755_input_arg_subsequent_cap_auto_resolved_from_previous` | TEST755: Tests subsequent caps' input arguments are automatically resolved from previous output Verifies that determine_resolution_with_io_check() returns FromPreviousOutput for caps after the first | src/planner/plan_builder.rs:1479 |
+| test756 | `test756_output_arg_auto_resolved` | TEST756: Tests output arguments are automatically resolved from previous cap's output Verifies that arguments matching the output spec are always resolved as FromPreviousOutput | src/planner/plan_builder.rs:1494 |
+| test757 | `test757_file_path_type_fallback_first_cap` | TEST757: Tests MEDIA_FILE_PATH argument type resolves to input file for first cap Verifies that generic file-path arguments are bound to input file in the first cap | src/planner/plan_builder.rs:1505 |
+| test758 | `test758_file_path_type_fallback_subsequent_cap` | TEST758: Tests MEDIA_FILE_PATH argument type resolves to previous output for subsequent caps Verifies that generic file-path arguments are bound to previous cap's output after the first cap | src/planner/plan_builder.rs:1516 |
+| test759 | `test759_file_path_array_fallback` | TEST759: Tests MEDIA_FILE_PATH_ARRAY argument type resolution for first and subsequent caps Verifies that file-path array arguments follow the same resolution pattern as single file paths | src/planner/plan_builder.rs:1527 |
+| test760 | `test760_non_io_arg_with_default_has_default` | TEST760: Tests required non-IO arguments with default values are marked as HasDefault Verifies that arguments like integers with defaults don't require user input | src/planner/plan_builder.rs:1541 |
+| test761 | `test761_non_io_arg_without_default_requires_user_input` | TEST761: Tests required non-IO arguments without defaults require user input Verifies that arguments like strings without defaults are marked as RequiresUserInput | src/planner/plan_builder.rs:1553 |
+| test762 | `test762_optional_non_io_arg_with_default_has_default` | TEST762: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults | src/planner/plan_builder.rs:1564 |
+| test763 | `test763_optional_non_io_arg_without_default_requires_user_input` | TEST763: Tests optional non-IO arguments without defaults still require user input Verifies that optional arguments without defaults must be explicitly provided or skipped | src/planner/plan_builder.rs:1576 |
+| test764 | `test764_validation_to_json_none` | TEST764: Tests validation_to_json() returns None for None input Verifies that missing validation metadata is converted to JSON None | src/planner/plan_builder.rs:1587 |
+| test765 | `test765_validation_to_json_empty` | TEST765: Tests validation_to_json() returns None for empty validation constraints Verifies that default MediaValidation with no constraints produces JSON None | src/planner/plan_builder.rs:1595 |
+| test766 | `test766_validation_to_json_with_constraints` | TEST766: Tests validation_to_json() converts MediaValidation with constraints to JSON Verifies that min/max validation rules are correctly serialized as JSON fields | src/planner/plan_builder.rs:1604 |
+| test767 | `test767_argument_info_serialization` | TEST767: Tests ArgumentInfo struct serialization to JSON Verifies that argument metadata including resolution status and validation is correctly serialized | src/planner/plan_builder.rs:1623 |
+| test768 | `test768_path_argument_requirements_structure` | TEST768: Tests PathArgumentRequirements structure for single-step execution paths Verifies that argument requirements are correctly organized by step with resolution information | src/planner/plan_builder.rs:1643 |
+| test769 | `test769_path_with_required_slot` | TEST769: Tests PathArgumentRequirements tracking of required user-input slots Verifies that arguments requiring user input are collected in slots and can_execute_without_input is false | src/planner/plan_builder.rs:1679 |
+| test770 | `test770_is_cap_available_with_filter` | TEST770: Tests is_cap_available() correctly applies availability filter when set Verifies that only caps in the available_caps set are considered available | src/planner/plan_builder.rs:1752 |
+| test771 | `test771_is_cap_available_without_filter` | TEST771: Tests is_cap_available() treats all caps as available when no filter is set Verifies that without an availability filter, any cap URN is considered available | src/planner/plan_builder.rs:1765 |
+| test772 | `test772_find_all_paths_filters_by_availability` | TEST772: Tests find_all_paths() excludes unavailable caps from pathfinding Verifies that only paths using available caps are returned when filter is set | src/planner/plan_builder.rs:1775 |
+| test773 | `test773_find_all_paths_returns_empty_when_no_available_caps` | TEST773: Tests find_all_paths() returns empty result when all caps are filtered out Verifies that pathfinding returns no paths when the availability filter excludes all relevant caps | src/planner/plan_builder.rs:1802 |
+| test774 | `test774_get_reachable_targets_filters_by_availability` | TEST774: Tests get_reachable_targets() only considers available caps for reachability Verifies that target specs are only reachable via caps in the availability filter | src/planner/plan_builder.rs:1822 |
+| test775 | `test775_find_path_filters_by_availability` | TEST775: Tests find_path() selects from available caps when multiple paths exist Verifies that find_path() respects availability filter and prefers available direct paths | src/planner/plan_builder.rs:1849 |
+| test776 | `test776_find_path_returns_error_when_path_unavailable` | TEST776: Tests find_path() returns error when required caps are filtered out by availability Verifies that "No path found" error is returned when filter blocks the only viable path | src/planner/plan_builder.rs:1873 |
+| test777 | `test777_type_mismatch_pdf_cap_does_not_match_png_input` | TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding (PNG cannot use PDF cap) | src/planner/plan_builder.rs:1901 |
+| test778 | `test778_type_mismatch_png_cap_does_not_match_pdf_input` | TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding (PDF cannot use PNG cap) | src/planner/plan_builder.rs:1922 |
+| test779 | `test779_get_reachable_targets_respects_type_matching` | TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different targets based on cap input type requirements | src/planner/plan_builder.rs:1943 |
+| test780 | `test780_reachable_targets_with_metadata_respects_type_matching` | TEST780: Tests get_reachable_targets_with_metadata() respects type compatibility constraints Verifies that reachable target metadata only includes type-compatible transformations | src/planner/plan_builder.rs:1972 |
+| test781 | `test781_find_all_paths_respects_type_chain` | TEST781: Tests find_all_paths() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible | src/planner/plan_builder.rs:1999 |
+| test782 | `test782_coherence_score_zero_for_direct_path` | TEST782: Tests coherence scoring gives 0 deviations for direct single-step paths Verifies that paths going directly from source to target without detours have perfect coherence | src/planner/plan_builder.rs:2029 |
+| test783 | `test783_coherence_score_penalizes_unrelated_intermediate` | TEST783: Tests coherence scoring penalizes paths through semantically unrelated intermediates Verifies that going from textable→thumbnail→textable incurs deviation penalty (thumbnail unrelated) | src/planner/plan_builder.rs:2055 |
+| test784 | `test784_coherence_score_related_intermediate_not_penalized` | TEST784: Tests coherence scoring does not penalize paths through semantically related intermediates Verifies that going through a supertype (txt→textable→md) maintains coherence with 0 deviations | src/planner/plan_builder.rs:2090 |
+| test785 | `test785_find_all_paths_filters_deviating_when_coherent_exists` | TEST785: Tests find_all_paths() filters out deviating paths when coherent alternatives exist Verifies that semantically wandering paths are excluded if direct coherent paths are available | src/planner/plan_builder.rs:2124 |
+| test786 | `test786_find_all_paths_keeps_all_when_all_deviate` | TEST786: Tests find_all_paths() keeps all paths when no coherent path exists Verifies that all deviating paths are returned if they're the only viable options | src/planner/plan_builder.rs:2151 |
+| test787 | `test787_find_all_paths_coherent_sorting_prefers_shorter` | TEST787: Tests find_all_paths() sorts coherent paths by length, preferring shorter ones Verifies that among multiple coherent paths, the shortest is ranked first | src/planner/plan_builder.rs:2184 |
 | test788 | `test788_cap_input_file_new` | TEST788: Tests CapInputFile constructor creates file with correct path and media URN Verifies new() initializes file_path, media_urn and leaves metadata/source_id as None | src/planner/argument_binding.rs:511 |
 | test789 | `test789_cap_input_file_from_listing` | TEST789: Tests CapInputFile from_listing sets source metadata correctly Verifies from_listing() populates source_id and source_type as Listing | src/planner/argument_binding.rs:522 |
 | test790 | `test790_cap_input_file_filename` | TEST790: Tests CapInputFile extracts filename from full path correctly Verifies filename() returns just the basename without directory path | src/planner/argument_binding.rs:531 |
@@ -767,8 +767,8 @@ This catalog lists all numbered tests in the capdag codebase.
 | test820 | `test820_extract_json_path_with_boolean` | TEST820: Tests JSON path extraction correctly handles boolean values Verifies that true and false are extracted as proper boolean JSON values | src/planner/executor.rs:728 |
 | test821 | `test821_extract_json_path_with_nested_arrays` | TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access) Verifies that nested array structures like "matrix[1]" correctly extract inner arrays | src/planner/executor.rs:742 |
 | test822 | `test822_extract_json_path_invalid_array_index` | TEST822: Tests error handling for non-numeric array indices Verifies that invalid indices like "items[abc]" return a descriptive parse error | src/planner/executor.rs:757 |
-| test890 | `test890_direction_semantic_matching` | TEST890: Semantic direction matching - generic provider matches specific request | src/urn/cap_urn.rs:1552 |
-| test891 | `test891_direction_semantic_specificity` | TEST891: Semantic direction specificity - more media URN tags = higher specificity | src/urn/cap_urn.rs:1609 |
+| test890 | `test890_direction_semantic_matching` | TEST890: Semantic direction matching - generic provider matches specific request | src/urn/cap_urn.rs:1581 |
+| test891 | `test891_direction_semantic_specificity` | TEST891: Semantic direction specificity - more media URN tags = higher specificity | src/urn/cap_urn.rs:1638 |
 | test892 | `test892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaSpecDef | src/media/spec.rs:1074 |
 | test893 | `test893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | src/media/spec.rs:1096 |
 | test894 | `test894_multiple_extensions` | TEST894: Test multiple extensions in a media spec | src/media/spec.rs:1131 |
@@ -817,6 +817,7 @@ This catalog lists all numbered tests in the capdag codebase.
 | test1017 | `test1017_path_with_unicode` | TEST1017: Path with unicode | src/input_resolver/path_resolver.rs:420 |
 | test1018 | `test1018_relative_path` | TEST1018: Relative path | src/input_resolver/path_resolver.rs:431 |
 | test1020 | `test1020_ds_store_excluded` | TEST1020: macOS .DS_Store is excluded | src/input_resolver/os_filter.rs:162 |
+| test1020 | `test1020_os_files_excluded_integration` | TEST1020 (integration): OS files excluded in resolve_paths | src/input_resolver/resolver.rs:378 |
 | test1021 | `test1021_thumbs_db_excluded` | TEST1021: Windows Thumbs.db is excluded | src/input_resolver/os_filter.rs:169 |
 | test1022 | `test1022_resource_fork_excluded` | TEST1022: macOS resource fork files are excluded | src/input_resolver/os_filter.rs:176 |
 | test1023 | `test1023_office_lock_excluded` | TEST1023: Office lock files are excluded | src/input_resolver/os_filter.rs:183 |
@@ -826,56 +827,47 @@ This catalog lists all numbered tests in the capdag codebase.
 | test1027 | `test1027_localized_excluded` | TEST1027: .localized is excluded | src/input_resolver/os_filter.rs:213 |
 | test1028 | `test1028_desktop_ini_excluded` | TEST1028: desktop.ini is excluded | src/input_resolver/os_filter.rs:219 |
 | test1029 | `test1029_normal_files_not_excluded` | TEST1029: Normal files are NOT excluded | src/input_resolver/os_filter.rs:225 |
-| test1030 | `test1030_json_empty_object` | TEST1030: Empty object | input_resolver/adapters/data.rs:509 |
-| test1031 | `test1031_json_simple_object` | TEST1031: Simple object | input_resolver/adapters/data.rs:521 |
-| test1032 | `test1032_json_nested_object` | TEST1032: Nested object | input_resolver/adapters/data.rs:533 |
-| test1033 | `test1033_json_empty_array` | TEST1033: Empty array | input_resolver/adapters/data.rs:544 |
-| test1034 | `test1034_json_array_of_primitives` | TEST1034: Array of primitives | input_resolver/adapters/data.rs:556 |
-| test1035 | `test1035_json_array_of_strings` | TEST1035: Array of strings | input_resolver/adapters/data.rs:568 |
-| test1036 | `test1036_json_array_of_objects` | TEST1036: Array of objects | input_resolver/adapters/data.rs:580 |
-| test1037 | `test1037_json_mixed_array` | TEST1037: Mixed array (contains object) | input_resolver/adapters/data.rs:592 |
-| test1038 | `test1038_json_string_primitive` | TEST1038: String primitive | input_resolver/adapters/data.rs:606 |
-| test1039 | `test1039_json_number_primitive` | TEST1039: Number primitive | input_resolver/adapters/data.rs:618 |
-| test1040 | `test1040_json_boolean_true` | TEST1040: Boolean true | input_resolver/adapters/data.rs:630 |
-| test1041 | `test1041_json_boolean_false` | TEST1041: Boolean false | input_resolver/adapters/data.rs:642 |
-| test1042 | `test1042_json_null` | TEST1042: Null | input_resolver/adapters/data.rs:653 |
-| test1043 | `test1043_json_with_whitespace` | TEST1043: With whitespace | input_resolver/adapters/data.rs:665 |
-| test1044 | `test1044_json_invalid` | TEST1044: Invalid JSON | input_resolver/adapters/data.rs:677 |
-| test1045 | `test1045_ndjson_objects_only` | TEST1045: Objects only | input_resolver/adapters/data.rs:691 |
-| test1046 | `test1046_ndjson_single_object` | TEST1046: Single object | input_resolver/adapters/data.rs:703 |
-| test1047 | `test1047_ndjson_primitives_only` | TEST1047: Primitives only | input_resolver/adapters/data.rs:714 |
-| test1048 | `test1048_ndjson_strings_only` | TEST1048: Strings only | input_resolver/adapters/data.rs:726 |
-| test1049 | `test1049_ndjson_mixed_with_object` | TEST1049: Mixed with object | input_resolver/adapters/data.rs:738 |
-| test1050 | `test1050_ndjson_empty_lines` | TEST1050: Empty lines | input_resolver/adapters/data.rs:749 |
-| test1055 | `test1055_csv_multi_column` | TEST1055: Multi-column with header | input_resolver/adapters/data.rs:762 |
-| test1056 | `test1056_csv_single_column` | TEST1056: Single column | input_resolver/adapters/data.rs:774 |
-| test1057 | `test1057_csv_header_only` | TEST1057: Header only | input_resolver/adapters/data.rs:786 |
-| test1058 | `test1058_csv_empty` | TEST1058: Empty file | input_resolver/adapters/data.rs:797 |
-| test1061 | `test1061_tsv_multi_column` | TEST1061: TSV multi-column | input_resolver/adapters/data.rs:808 |
-| test1065 | `test1065_yaml_simple_mapping` | TEST1065: Simple mapping | input_resolver/adapters/data.rs:821 |
-| test1066 | `test1066_yaml_nested_mapping` | TEST1066: Nested mapping | input_resolver/adapters/data.rs:833 |
-| test1067 | `test1067_yaml_sequence_of_scalars` | TEST1067: Sequence of scalars | input_resolver/adapters/data.rs:844 |
-| test1068 | `test1068_yaml_sequence_of_mappings` | TEST1068: Sequence of mappings | input_resolver/adapters/data.rs:856 |
-| test1069 | `test1069_yaml_scalar` | TEST1069: Scalar only | input_resolver/adapters/data.rs:868 |
+| test1030 | `test1030_json_empty_object` | TEST1030: Empty object | input_resolver/adapters/data.rs:425 |
+| test1031 | `test1031_resolve_json_object` | TEST1031 (integration): JSON object via resolve_paths | src/input_resolver/resolver.rs:304 |
+| test1031 | `test1031_json_detection_via_adapter_registry` | TEST1031 (registry integration): JSON detection via MediaAdapterRegistry | input_resolver/adapters/registry.rs:225 |
+| test1031 | `test1031_json_simple_object` | TEST1031: Simple object | input_resolver/adapters/data.rs:437 |
+| test1033 | `test1033_json_empty_array` | TEST1033: Empty array | input_resolver/adapters/data.rs:448 |
+| test1036 | `test1036_resolve_json_array_of_objects` | TEST1036 (integration): JSON array of objects via resolve_paths | src/input_resolver/resolver.rs:319 |
+| test1036 | `test1036_json_array_of_objects` | TEST1036: Array of objects | input_resolver/adapters/data.rs:460 |
+| test1039 | `test1039_json_number_primitive` | TEST1039: Number primitive | input_resolver/adapters/data.rs:472 |
+| test1045 | `test1045_resolve_ndjson` | TEST1045 (integration): NDJSON via resolve_paths | src/input_resolver/resolver.rs:335 |
+| test1045 | `test1045_ndjson_objects` | TEST1045: Objects only | input_resolver/adapters/data.rs:486 |
+| test1047 | `test1047_ndjson_primitives` | TEST1047: Primitives only | input_resolver/adapters/data.rs:498 |
+| test1055 | `test1055_csv_multi_column` | TEST1055: Multi-column with header | input_resolver/adapters/data.rs:512 |
+| test1056 | `test1056_csv_single_column` | TEST1056: Single column | input_resolver/adapters/data.rs:524 |
+| test1065 | `test1065_resolve_yaml_mapping` | TEST1065 (integration): YAML mapping via resolve_paths | src/input_resolver/resolver.rs:350 |
+| test1065 | `test1065_yaml_mapping` | TEST1065: Simple mapping | input_resolver/adapters/data.rs:538 |
+| test1067 | `test1067_resolve_yaml_sequence` | TEST1067 (integration): YAML sequence via resolve_paths | src/input_resolver/resolver.rs:364 |
+| test1067 | `test1067_yaml_sequence_of_scalars` | TEST1067: Sequence of scalars | input_resolver/adapters/data.rs:550 |
+| test1068 | `test1068_yaml_sequence_of_mappings` | TEST1068: Sequence of mappings | input_resolver/adapters/data.rs:562 |
 | test1080 | `test1080_pdf_extension` | TEST1080: PDF extension mapping | input_resolver/adapters/documents.rs:228 |
 | test1081 | `test1081_png_extension` | TEST1081: PNG extension mapping | input_resolver/adapters/images.rs:338 |
 | test1082 | `test1082_mp3_extension` | TEST1082: MP3 extension mapping | input_resolver/adapters/audio.rs:243 |
 | test1083 | `test1083_mp4_extension` | TEST1083: MP4 extension mapping | input_resolver/adapters/video.rs:266 |
 | test1084 | `test1084_rust_extension` | TEST1084: Rust code extension mapping | input_resolver/adapters/code.rs:734 |
 | test1085 | `test1085_python_extension` | TEST1085: Python code extension mapping | input_resolver/adapters/code.rs:745 |
-| test1086 | `test1086_markdown_extension` | TEST1086: Markdown extension mapping | input_resolver/adapters/text.rs:268 |
-| test1087 | `test1087_toml_always_record` | TEST1087: TOML is always record | input_resolver/adapters/data.rs:880 |
-| test1088 | `test1088_log_file_is_list` | TEST1088: Log file is list | input_resolver/adapters/text.rs:279 |
+| test1087 | `test1087_toml_always_record` | TEST1087: TOML always record | input_resolver/adapters/data.rs:574 |
 | test1089 | `test1089_unknown_extension` | TEST1089: Unknown extension fallback | input_resolver/adapters/other.rs:499 |
-| test1090 | `test1090_single_file_scalar` | TEST1090: 1 file scalar content | src/input_resolver/resolver.rs:146 |
-| test1091 | `test1091_single_file_list_content` | TEST1091: 1 file list content (CSV) | src/input_resolver/resolver.rs:158 |
-| test1092 | `test1092_two_files` | TEST1092: 2 files | src/input_resolver/resolver.rs:171 |
-| test1093 | `test1093_dir_single_file` | TEST1093: 1 dir with 1 file | src/input_resolver/resolver.rs:187 |
-| test1094 | `test1094_dir_multiple_files` | TEST1094: 1 dir with 3 files | src/input_resolver/resolver.rs:199 |
-| test1098 | `test1098_common_media` | TEST1098: Common media (all same type) | src/input_resolver/resolver.rs:213 |
-| test1099 | `test1099_heterogeneous` | TEST1099: Heterogeneous (mixed types) | src/input_resolver/resolver.rs:226 |
+| test1090 | `test1090_single_file_scalar` | TEST1090: 1 file scalar content | src/input_resolver/resolver.rs:199 |
+| test1091 | `test1091_single_file_list_content` | TEST1091: 1 file list content (CSV) | src/input_resolver/resolver.rs:211 |
+| test1092 | `test1092_two_files` | TEST1092: 2 files | src/input_resolver/resolver.rs:230 |
+| test1093 | `test1093_dir_single_file` | TEST1093: 1 dir with 1 file | src/input_resolver/resolver.rs:247 |
+| test1094 | `test1094_dir_multiple_files` | TEST1094: 1 dir with 3 files | src/input_resolver/resolver.rs:259 |
+| test1095 | `test1095_glob_with_detection` | TEST1095/1096 (integration): Glob with detection | src/input_resolver/resolver.rs:391 |
+| test1098 | `test1098_common_media` | TEST1098: Common media (all same type) | src/input_resolver/resolver.rs:276 |
+| test1099 | `test1099_heterogeneous` | TEST1099: Heterogeneous (mixed types) | src/input_resolver/resolver.rs:289 |
+| test1100 | `test1100_cap_urn_normalizes_media_urn_tag_order` | TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when plugins report URNs with different tag ordering than the registry (e.g., "record;textable" vs "textable;record") | src/planner/plan_builder.rs:2216 |
+| test1101 | `test1101_is_cap_available_matches_normalized_urns` | TEST1101: Tests that is_cap_available matches URNs regardless of original tag ordering Verifies that a cap from the registry (with one tag order) matches an available cap from plugins (with different tag order) after normalization | src/planner/plan_builder.rs:2242 |
+| test1102 | `test1102_pathfinding_works_with_different_tag_ordering` | TEST1102: Tests that pathfinding works when plugin and registry have different tag ordering This is an integration test for the full fix: plugins report URNs with one order, registry has another order, but paths are still found because URNs are normalized | src/planner/plan_builder.rs:2280 |
+| test1103 | `test1103_is_cap_available_uses_conforms_to_correctly` | TEST1103: Tests that is_cap_available uses conforms_to (not accepts) correctly The available cap (instance) must conform to the requested cap (pattern). This tests the directionality: instance.conforms_to(&pattern) | src/planner/plan_builder.rs:2321 |
+| test1104 | `test1104_is_cap_available_rejects_non_conforming` | TEST1104: Tests that is_cap_available rejects when instance doesn't conform to pattern | src/planner/plan_builder.rs:2366 |
 
 ---
 
 *Generated from capdag source tree*
-*Total numbered tests: 868*
+*Total numbered tests: 860*

@@ -42,7 +42,28 @@ impl CapUrn {
     /// Create a new cap URN from direction specs and additional tags
     /// Keys are normalized to lowercase; values are preserved as-is
     /// in_urn and out_urn are required direction specifiers (media URN strings)
-    pub fn new(in_urn: String, out_urn: String, tags: BTreeMap<String, String>) -> Self {
+    /// Media URNs are parsed and normalized to canonical form for consistent matching.
+    pub fn new(in_urn: String, out_urn: String, tags: BTreeMap<String, String>) -> Result<Self, CapUrnError> {
+        use crate::urn::media_urn::MediaUrn;
+
+        // Normalize in_urn to canonical form
+        let in_urn_normalized = if in_urn == "media:" {
+            in_urn
+        } else {
+            MediaUrn::from_string(&in_urn)
+                .map_err(|e| CapUrnError::InvalidInSpec(format!("Invalid media URN for in spec '{}': {}", in_urn, e)))?
+                .to_string()
+        };
+
+        // Normalize out_urn to canonical form
+        let out_urn_normalized = if out_urn == "media:" {
+            out_urn
+        } else {
+            MediaUrn::from_string(&out_urn)
+                .map_err(|e| CapUrnError::InvalidOutSpec(format!("Invalid media URN for out spec '{}': {}", out_urn, e)))?
+                .to_string()
+        };
+
         let normalized_tags: BTreeMap<String, String> = tags
             .into_iter()
             .filter(|(k, _)| {
@@ -51,11 +72,11 @@ impl CapUrn {
             })
             .map(|(k, v)| (k.to_lowercase(), v))
             .collect();
-        Self {
-            in_urn,
-            out_urn,
+        Ok(Self {
+            in_urn: in_urn_normalized,
+            out_urn: out_urn_normalized,
             tags: normalized_tags,
-        }
+        })
     }
 
     /// Create a cap URN from tags map that must contain 'in' and 'out'
@@ -63,7 +84,7 @@ impl CapUrn {
     pub fn from_tags(mut tags: BTreeMap<String, String>) -> Result<Self, CapUrnError> {
         let in_urn = tags.remove("in").ok_or(CapUrnError::MissingInSpec)?;
         let out_urn = tags.remove("out").ok_or(CapUrnError::MissingOutSpec)?;
-        Ok(Self::new(in_urn, out_urn, tags))
+        Self::new(in_urn, out_urn, tags)
     }
 
     /// Create a cap URN from a string representation
@@ -97,20 +118,26 @@ impl CapUrn {
 
         // Process in and out tags with wildcard expansion
         // Missing tag or tag=* → "media:" (the wildcard)
-        let in_urn = Self::process_direction_tag(&tagged, "in")?;
-        let out_urn = Self::process_direction_tag(&tagged, "out")?;
+        let in_urn_raw = Self::process_direction_tag(&tagged, "in")?;
+        let out_urn_raw = Self::process_direction_tag(&tagged, "out")?;
 
-        // Validate that in and out specs are valid media URNs (or wildcard "media:")
-        // After processing, "media:" is the wildcard (not "*")
+        // Parse and normalize media URNs to canonical form.
+        // This ensures consistent tag ordering (e.g., "record;textable" vs "textable;record").
         use crate::urn::media_urn::MediaUrn;
-        if in_urn != "media:" {
-            MediaUrn::from_string(&in_urn)
-                .map_err(|e| CapUrnError::InvalidInSpec(format!("Invalid media URN for in spec '{}': {}", in_urn, e)))?;
-        }
-        if out_urn != "media:" {
-            MediaUrn::from_string(&out_urn)
-                .map_err(|e| CapUrnError::InvalidOutSpec(format!("Invalid media URN for out spec '{}': {}", out_urn, e)))?;
-        }
+        let in_urn = if in_urn_raw == "media:" {
+            in_urn_raw
+        } else {
+            MediaUrn::from_string(&in_urn_raw)
+                .map_err(|e| CapUrnError::InvalidInSpec(format!("Invalid media URN for in spec '{}': {}", in_urn_raw, e)))?
+                .to_string()
+        };
+        let out_urn = if out_urn_raw == "media:" {
+            out_urn_raw
+        } else {
+            MediaUrn::from_string(&out_urn_raw)
+                .map_err(|e| CapUrnError::InvalidOutSpec(format!("Invalid media URN for out spec '{}': {}", out_urn_raw, e)))?
+                .to_string()
+        };
 
         // Collect remaining tags (excluding in/out)
         let tags: BTreeMap<String, String> = tagged
@@ -675,7 +702,7 @@ impl CapUrnBuilder {
     pub fn build(self) -> Result<CapUrn, CapUrnError> {
         let in_urn = self.in_urn.ok_or(CapUrnError::MissingInSpec)?;
         let out_urn = self.out_urn.ok_or(CapUrnError::MissingOutSpec)?;
-        Ok(CapUrn::new(in_urn, out_urn, self.tags))
+        CapUrn::new(in_urn, out_urn, self.tags)
     }
 }
 
@@ -1337,18 +1364,20 @@ mod tests {
 
     // TEST036: Test with_tag preserves value case
     #[test]
-    fn test036_with_tag_preserves_value() {
-        let cap = CapUrn::new(MEDIA_VOID.to_string(), MEDIA_OBJECT.to_string(), BTreeMap::new())
-            .with_tag("key".to_string(), "ValueWithCase".to_string()).unwrap();
+    fn test036_with_tag_preserves_value() -> Result<(), CapUrnError> {
+        let cap = CapUrn::new(MEDIA_VOID.to_string(), MEDIA_OBJECT.to_string(), BTreeMap::new())?
+            .with_tag("key".to_string(), "ValueWithCase".to_string())?;
         assert_eq!(cap.get_tag("key"), Some(&"ValueWithCase".to_string()));
+        Ok(())
     }
 
     // TEST037: Test with_tag rejects empty value
     #[test]
-    fn test037_with_tag_rejects_empty_value() {
-        let cap = CapUrn::new(MEDIA_VOID.to_string(), MEDIA_OBJECT.to_string(), BTreeMap::new());
+    fn test037_with_tag_rejects_empty_value() -> Result<(), CapUrnError> {
+        let cap = CapUrn::new(MEDIA_VOID.to_string(), MEDIA_OBJECT.to_string(), BTreeMap::new())?;
         let result = cap.with_tag("key".to_string(), "".to_string());
         assert!(result.is_err());
+        Ok(())
     }
 
     // TEST038: Test semantic equivalence of unquoted and quoted simple lowercase values
