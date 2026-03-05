@@ -591,10 +591,10 @@ impl PluginHostRuntime {
                 //   1. Frames on a single socket are ordered — END is always last
                 //   2. For non-peer requests, no further relay frames arrive after END
                 let key = (xid.clone(), frame.id.clone());
-                let plugin_idx = if let Some(&idx) = self.incoming_rxids.get(&key) {
-                    idx
+                let (plugin_idx, routed_via_incoming) = if let Some(&idx) = self.incoming_rxids.get(&key) {
+                    (idx, true)
                 } else if let Some(&idx) = self.outgoing_rids.get(&frame.id) {
-                    idx
+                    (idx, false)
                 } else {
                     return Ok(()); // Already cleaned up
                 };
@@ -620,12 +620,16 @@ impl PluginHostRuntime {
                     return Ok(());
                 }
 
-                // When the request body END (or ERR) is delivered to the handler,
-                // remove incoming_rxids entry. Subsequent frames from relay with
-                // the same (XID, RID) are peer responses and will route via
-                // outgoing_rids to the REQUESTER instead of the HANDLER.
+                // Clean up routing on terminal frame.
+                // - If routed via incoming_rxids: this was a request body frame to handler
+                // - If routed via outgoing_rids: this was a peer response to requester
                 if is_terminal {
-                    self.incoming_rxids.remove(&key);
+                    if routed_via_incoming {
+                        self.incoming_rxids.remove(&key);
+                    } else {
+                        // Peer response completed - clean up outgoing_rids
+                        self.outgoing_rids.remove(&frame.id);
+                    }
                 }
 
                 Ok(())
