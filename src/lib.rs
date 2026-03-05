@@ -64,8 +64,6 @@ pub use bifaci::io::{
     CborError, FrameReader, FrameWriter, HandshakeResult,
     encode_frame, decode_frame, read_frame, write_frame,
     handshake, handshake_accept,
-    AsyncFrameReader, AsyncFrameWriter, handshake_async,
-    read_frame_async, write_frame_async,
     verify_identity,
 };
 pub use bifaci::manifest::*;
@@ -94,7 +92,7 @@ pub use bifaci::host_runtime::PluginHostRuntime;
 pub use bifaci::host_runtime::AsyncHostError;
 
 // Relay exports
-pub use bifaci::relay::{RelaySlave, RelayMaster, AsyncRelayMaster};
+pub use bifaci::relay::{RelaySlave, RelayMaster};
 pub use bifaci::relay_switch::{RelaySwitch, RelaySwitchError};
 pub use bifaci::in_process_host::{InProcessPluginHost, FrameHandler, ResponseWriter, accumulate_input};
 

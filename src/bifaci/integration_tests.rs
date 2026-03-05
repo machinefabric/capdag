@@ -7,10 +7,10 @@
 #[cfg(test)]
 mod tests {
     use crate::bifaci::frame::{FlowKey, Frame, FrameType, MessageId, SeqAssigner};
-    use crate::bifaci::io::{FrameReader, FrameWriter, handshake, handshake_accept, AsyncFrameReader, AsyncFrameWriter};
+    use crate::bifaci::io::{FrameReader, FrameWriter, handshake, handshake_accept};
     use crate::bifaci::plugin_runtime::PluginRuntime;
     use crate::standard::caps::CAP_IDENTITY;
-    use std::io::{BufReader, BufWriter};
+    use tokio::io::{BufReader, BufWriter};
 
     /// Test manifest JSON - plugins MUST include manifest in HELLO response.
     /// CAP_IDENTITY is mandatory in every manifest.
@@ -92,52 +92,46 @@ mod tests {
         (rt_read, rt_write, eng_write, eng_read)
     }
 
-    /// Helper: create async+sync socket pairs for plugin↔runtime.
+    /// Helper: create async socket pairs for plugin↔runtime.
     fn create_plugin_pair() -> (
         tokio::net::UnixStream,
         tokio::net::UnixStream,
-        std::os::unix::net::UnixStream,
-        std::os::unix::net::UnixStream,
+        tokio::net::UnixStream,
+        tokio::net::UnixStream,
     ) {
-        let (p_to_rt_std, rt_from_p_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p_std, p_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p_std.set_nonblocking(true).unwrap();
-        rt_to_p_std.set_nonblocking(true).unwrap();
-
-        let rt_from_p = tokio::net::UnixStream::from_std(rt_from_p_std).unwrap();
-        let rt_to_p = tokio::net::UnixStream::from_std(rt_to_p_std).unwrap();
-
-        (rt_from_p, rt_to_p, p_from_rt_std, p_to_rt_std)
+        let (p_to_rt, rt_from_p) = tokio::net::UnixStream::pair().unwrap();
+        let (rt_to_p, p_from_rt) = tokio::net::UnixStream::pair().unwrap();
+        (rt_from_p, rt_to_p, p_from_rt, p_to_rt)
     }
 
     /// Helper: do handshake only on plugin side (for raw frame tests using `handshake()`).
-    fn plugin_handshake(
-        from_runtime: std::os::unix::net::UnixStream,
-        to_runtime: std::os::unix::net::UnixStream,
+    async fn plugin_handshake(
+        from_runtime: tokio::net::UnixStream,
+        to_runtime: tokio::net::UnixStream,
         manifest: &[u8],
-    ) -> (FrameReader<BufReader<std::os::unix::net::UnixStream>>, FrameWriter<BufWriter<std::os::unix::net::UnixStream>>) {
+    ) -> (FrameReader<BufReader<tokio::net::UnixStream>>, FrameWriter<BufWriter<tokio::net::UnixStream>>) {
         let mut reader = FrameReader::new(BufReader::new(from_runtime));
         let mut writer = FrameWriter::new(BufWriter::new(to_runtime));
-        let limits = handshake_accept(&mut reader, &mut writer, manifest).unwrap();
+        let limits = handshake_accept(&mut reader, &mut writer, manifest).await.unwrap();
         reader.set_limits(limits);
         writer.set_limits(limits);
         (reader, writer)
     }
 
     /// Helper: do handshake + handle identity verification (for tests using `attach_plugin()`).
-    fn plugin_handshake_with_identity(
-        from_runtime: std::os::unix::net::UnixStream,
-        to_runtime: std::os::unix::net::UnixStream,
+    async fn plugin_handshake_with_identity(
+        from_runtime: tokio::net::UnixStream,
+        to_runtime: tokio::net::UnixStream,
         manifest: &[u8],
-    ) -> (FrameReader<BufReader<std::os::unix::net::UnixStream>>, FrameWriter<BufWriter<std::os::unix::net::UnixStream>>) {
-        let (mut reader, mut writer) = plugin_handshake(from_runtime, to_runtime, manifest);
+    ) -> (FrameReader<BufReader<tokio::net::UnixStream>>, FrameWriter<BufWriter<tokio::net::UnixStream>>) {
+        let (mut reader, mut writer) = plugin_handshake(from_runtime, to_runtime, manifest).await;
 
         // Handle identity verification REQ
-        let req = reader.read().unwrap().expect("expected identity REQ after handshake");
+        let req = reader.read().await.unwrap().expect("expected identity REQ after handshake");
         assert_eq!(req.frame_type, FrameType::Req, "first frame after handshake must be identity REQ");
         let mut payload = Vec::new();
         loop {
-            let f = reader.read().unwrap().expect("expected frame");
+            let f = reader.read().await.unwrap().expect("expected frame");
             match f.frame_type {
                 FrameType::StreamStart => {}
                 FrameType::Chunk => payload.extend(f.payload.unwrap_or_default()),
@@ -148,14 +142,14 @@ mod tests {
         }
         let stream_id = "identity-echo".to_string();
         let ss = Frame::stream_start(req.id.clone(), stream_id.clone(), "media:".to_string());
-        writer.write(&ss).unwrap();
+        writer.write(&ss).await.unwrap();
         let checksum = Frame::compute_checksum(&payload);
         let chunk = Frame::chunk(req.id.clone(), stream_id.clone(), 0, payload, 0, checksum);
-        writer.write(&chunk).unwrap();
+        writer.write(&chunk).await.unwrap();
         let se = Frame::stream_end(req.id.clone(), stream_id, 1);
-        writer.write(&se).unwrap();
+        writer.write(&se).await.unwrap();
         let end = Frame::end(req.id, None);
-        writer.write(&end).unwrap();
+        writer.write(&end).await.unwrap();
 
         (reader, writer)
     }
@@ -171,16 +165,16 @@ mod tests {
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
 
-            let req = reader.read().unwrap().expect("Expected REQ");
+            let req = reader.read().await.unwrap().expect("Expected REQ");
             assert_eq!(req.frame_type, FrameType::Req);
             assert_eq!(req.cap.as_deref(), Some(CAP_IDENTITY));
 
             let mut arg_data = Vec::new();
             loop {
-                let f = reader.read().unwrap().expect("Expected frame");
+                let f = reader.read().await.unwrap().expect("Expected frame");
                 match f.frame_type {
                     FrameType::Chunk => arg_data.extend(f.payload.unwrap_or_default()),
                     FrameType::End => break,
@@ -192,17 +186,17 @@ mod tests {
             let sid = "resp".to_string();
             let mut start = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut start);
-            writer.write(&start).unwrap();
+            writer.write(&start).await.unwrap();
             let checksum = Frame::compute_checksum(&arg_data);
             let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, arg_data, 0, checksum);
             seq.assign(&mut chunk);
-            writer.write(&chunk).unwrap();
+            writer.write(&chunk).await.unwrap();
             let mut stream_end = Frame::stream_end(req.id.clone(), sid, 1);
             seq.assign(&mut stream_end);
-            writer.write(&stream_end).unwrap();
+            writer.write(&stream_end).await.unwrap();
             let mut end = Frame::end(req.id, None);
             seq.assign(&mut end);
-            writer.write(&end).unwrap();
+            writer.write(&end).await.unwrap();
             seq.remove(&FlowKey::from_frame(&end));
             drop(writer);
         });
@@ -213,8 +207,8 @@ mod tests {
         // Engine task: send request, wait for response, THEN close relay
         let req_id = MessageId::new_uuid();
         let engine_task = tokio::spawn(async move {
-            let mut w = AsyncFrameWriter::new(eng_write);
-            let mut r = AsyncFrameReader::new(eng_read);
+            let mut w = FrameWriter::new(eng_write);
+            let mut r = FrameReader::new(eng_read);
 
             let mut seq = SeqAssigner::new();
             let sid = uuid::Uuid::new_v4().to_string();
@@ -266,7 +260,7 @@ mod tests {
         let response = engine_task.await.unwrap();
         assert_eq!(response, b"hello world", "Plugin should echo back the argument data");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST897: Plugin ERR frame flows back to engine through relay
@@ -280,14 +274,14 @@ mod tests {
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
 
-            let req = reader.read().unwrap().expect("Expected REQ");
+            let req = reader.read().await.unwrap().expect("Expected REQ");
             let mut seq = SeqAssigner::new();
             let mut err = Frame::err(req.id, "FAIL_CODE", "Something went wrong");
             seq.assign(&mut err);
-            writer.write(&err).unwrap();
+            writer.write(&err).await.unwrap();
             seq.remove(&FlowKey::from_frame(&err));
             drop(writer);
         });
@@ -297,8 +291,8 @@ mod tests {
 
         let req_id = MessageId::new_uuid();
         let engine_task = tokio::spawn(async move {
-            let mut w = AsyncFrameWriter::new(eng_write);
-            let mut r = AsyncFrameReader::new(eng_read);
+            let mut w = FrameWriter::new(eng_write);
+            let mut r = FrameReader::new(eng_read);
 
             let mut seq = SeqAssigner::new();
             let xid = MessageId::Uint(1);
@@ -338,7 +332,7 @@ mod tests {
         assert_eq!(code, "FAIL_CODE");
         assert_eq!(msg, "Something went wrong");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST898: Binary data integrity through full relay path (256 byte values)
@@ -355,14 +349,14 @@ mod tests {
         let binary_clone = binary_data.clone();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
 
-            let req = reader.read().unwrap().expect("Expected REQ");
+            let req = reader.read().await.unwrap().expect("Expected REQ");
 
             let mut received = Vec::new();
             loop {
-                let f = reader.read().unwrap().expect("frame");
+                let f = reader.read().await.unwrap().expect("frame");
                 match f.frame_type {
                     FrameType::Chunk => received.extend(f.payload.unwrap_or_default()),
                     FrameType::End => break,
@@ -379,17 +373,17 @@ mod tests {
             let sid = "resp".to_string();
             let mut start = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut start);
-            writer.write(&start).unwrap();
+            writer.write(&start).await.unwrap();
             let checksum = Frame::compute_checksum(&received);
             let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, received, 0, checksum);
             seq.assign(&mut chunk);
-            writer.write(&chunk).unwrap();
+            writer.write(&chunk).await.unwrap();
             let mut stream_end = Frame::stream_end(req.id.clone(), sid, 1);
             seq.assign(&mut stream_end);
-            writer.write(&stream_end).unwrap();
+            writer.write(&stream_end).await.unwrap();
             let mut end = Frame::end(req.id, None);
             seq.assign(&mut end);
-            writer.write(&end).unwrap();
+            writer.write(&end).await.unwrap();
             seq.remove(&FlowKey::from_frame(&end));
             drop(writer);
         });
@@ -399,8 +393,8 @@ mod tests {
 
         let req_id = MessageId::new_uuid();
         let engine_task = tokio::spawn(async move {
-            let mut w = AsyncFrameWriter::new(eng_write);
-            let mut r = AsyncFrameReader::new(eng_read);
+            let mut w = FrameWriter::new(eng_write);
+            let mut r = FrameReader::new(eng_read);
 
             let mut seq = SeqAssigner::new();
             let xid = MessageId::Uint(1);
@@ -452,7 +446,7 @@ mod tests {
             assert_eq!(b, i as u8, "Response byte mismatch at position {}", i);
         }
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST899: Streaming chunks flow through relay without accumulation
@@ -466,13 +460,13 @@ mod tests {
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
 
-            let req = reader.read().unwrap().expect("Expected REQ");
+            let req = reader.read().await.unwrap().expect("Expected REQ");
 
             loop {
-                let f = reader.read().unwrap().expect("frame");
+                let f = reader.read().await.unwrap().expect("frame");
                 if f.frame_type == FrameType::End { break; }
             }
 
@@ -480,20 +474,20 @@ mod tests {
             let mut seq = SeqAssigner::new();
             let mut start = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut start);
-            writer.write(&start).unwrap();
+            writer.write(&start).await.unwrap();
             for idx in 0u64..5 {
                 let data = format!("chunk{}", idx).into_bytes();
                 let checksum = Frame::compute_checksum(&data);
                 let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, data, idx, checksum);
                 seq.assign(&mut chunk);
-                writer.write(&chunk).unwrap();
+                writer.write(&chunk).await.unwrap();
             }
             let mut stream_end = Frame::stream_end(req.id.clone(), sid, 5);
             seq.assign(&mut stream_end);
-            writer.write(&stream_end).unwrap();
+            writer.write(&stream_end).await.unwrap();
             let mut end = Frame::end(req.id, None);
             seq.assign(&mut end);
-            writer.write(&end).unwrap();
+            writer.write(&end).await.unwrap();
             drop(writer);
         });
 
@@ -502,8 +496,8 @@ mod tests {
 
         let req_id = MessageId::new_uuid();
         let engine_task = tokio::spawn(async move {
-            let mut w = AsyncFrameWriter::new(eng_write);
-            let mut r = AsyncFrameReader::new(eng_read);
+            let mut w = FrameWriter::new(eng_write);
+            let mut r = FrameReader::new(eng_read);
 
             let mut seq = SeqAssigner::new();
             let xid = MessageId::Uint(1);
@@ -544,7 +538,7 @@ mod tests {
             assert_eq!(data, &format!("chunk{}", i).into_bytes(), "Chunk data must match");
         }
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST430: REMOVED - outdated test that doesn't represent real architecture
@@ -564,53 +558,53 @@ mod tests {
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
 
         let ma = manifest_a.as_bytes().to_vec();
-        let plugin_a = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake_with_identity(pa_from_rt, pa_to_rt, &ma);
-            let req = reader.read().unwrap().expect("Expected REQ");
+        let plugin_a = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake_with_identity(pa_from_rt, pa_to_rt, &ma).await;
+            let req = reader.read().await.unwrap().expect("Expected REQ");
             assert_eq!(req.cap.as_deref(), Some("cap:in=\"media:void\";op=alpha;out=\"media:void\""), "Plugin A must receive alpha REQ");
-            loop { let f = reader.read().unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
+            loop { let f = reader.read().await.unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
             let mut seq = SeqAssigner::new();
             let sid = "a".to_string();
             let mut start = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut start);
-            writer.write(&start).unwrap();
+            writer.write(&start).await.unwrap();
             let payload = b"from-alpha".to_vec();
             let checksum = Frame::compute_checksum(&payload);
             let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, payload, 0, checksum);
             seq.assign(&mut chunk);
-            writer.write(&chunk).unwrap();
+            writer.write(&chunk).await.unwrap();
             let mut stream_end = Frame::stream_end(req.id.clone(), sid, 1);
             seq.assign(&mut stream_end);
-            writer.write(&stream_end).unwrap();
+            writer.write(&stream_end).await.unwrap();
             let mut end = Frame::end(req.id, None);
             seq.assign(&mut end);
-            writer.write(&end).unwrap();
+            writer.write(&end).await.unwrap();
             seq.remove(&FlowKey::from_frame(&end));
             drop(writer);
         });
 
         let mb = manifest_b.as_bytes().to_vec();
-        let plugin_b = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake_with_identity(pb_from_rt, pb_to_rt, &mb);
-            let req = reader.read().unwrap().expect("Expected REQ");
+        let plugin_b = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake_with_identity(pb_from_rt, pb_to_rt, &mb).await;
+            let req = reader.read().await.unwrap().expect("Expected REQ");
             assert_eq!(req.cap.as_deref(), Some("cap:in=\"media:void\";op=beta;out=\"media:void\""), "Plugin B must receive beta REQ");
-            loop { let f = reader.read().unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
+            loop { let f = reader.read().await.unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
             let mut seq = SeqAssigner::new();
             let sid = "b".to_string();
             let mut start = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut start);
-            writer.write(&start).unwrap();
+            writer.write(&start).await.unwrap();
             let payload = b"from-beta".to_vec();
             let checksum = Frame::compute_checksum(&payload);
             let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, payload, 0, checksum);
             seq.assign(&mut chunk);
-            writer.write(&chunk).unwrap();
+            writer.write(&chunk).await.unwrap();
             let mut stream_end = Frame::stream_end(req.id.clone(), sid, 1);
             seq.assign(&mut stream_end);
-            writer.write(&stream_end).unwrap();
+            writer.write(&stream_end).await.unwrap();
             let mut end = Frame::end(req.id, None);
             seq.assign(&mut end);
-            writer.write(&end).unwrap();
+            writer.write(&end).await.unwrap();
             seq.remove(&FlowKey::from_frame(&end));
             drop(writer);
         });
@@ -625,8 +619,8 @@ mod tests {
         let beta_id_c = beta_id.clone();
 
         let engine_task = tokio::spawn(async move {
-            let mut w = AsyncFrameWriter::new(eng_write);
-            let mut r = AsyncFrameReader::new(eng_read);
+            let mut w = FrameWriter::new(eng_write);
+            let mut r = FrameReader::new(eng_read);
 
             let mut seq = SeqAssigner::new();
             let xid_alpha = MessageId::Uint(1);
@@ -680,8 +674,8 @@ mod tests {
         assert_eq!(alpha_data, b"from-alpha", "Alpha response must come from Plugin A");
         assert_eq!(beta_data, b"from-beta", "Beta response must come from Plugin B");
 
-        plugin_a.join().unwrap();
-        plugin_b.join().unwrap();
+        plugin_a.await.unwrap();
+        plugin_b.await.unwrap();
     }
 
     // TEST901: REQ for unknown cap returns ERR frame (not fatal)
@@ -695,12 +689,12 @@ mod tests {
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
+        let plugin_handle = tokio::spawn(async move {
             eprintln!("[TEST/plugin] Starting plugin thread");
-            let (mut reader, _writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m);
+            let (mut reader, _writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
             eprintln!("[TEST/plugin] Handshake complete, waiting for EOF...");
             // Plugin waits for EOF — no REQ should arrive since cap is unknown
-            match reader.read() {
+            match reader.read().await {
                 Ok(None) => {
                     eprintln!("[TEST/plugin] Got EOF, plugin exiting normally");
                 }
@@ -721,7 +715,7 @@ mod tests {
         let req_id = MessageId::new_uuid();
         let req_id_clone = req_id.clone();
         let engine_send = tokio::spawn(async move {
-            let mut w = AsyncFrameWriter::new(eng_write);
+            let mut w = FrameWriter::new(eng_write);
             let mut seq = SeqAssigner::new();
             let xid = MessageId::Uint(1);
             let mut req = Frame::req(req_id_clone.clone(), "cap:in=\"media:void\";op=unknown;out=\"media:void\"", vec![], "text/plain");
@@ -737,7 +731,7 @@ mod tests {
 
         // Read ERR frame from the host on the engine side
         let engine_recv = tokio::spawn(async move {
-            let mut r = AsyncFrameReader::new(eng_read);
+            let mut r = FrameReader::new(eng_read);
             // Skip RelayNotify (initial capabilities notification)
             eprintln!("[TEST/engine_recv] Starting, attempting first read...");
             let mut frame = r.read().await.unwrap().expect("Expected first frame");
@@ -777,32 +771,23 @@ mod tests {
     // Ported from Go integration_test.go
     // =============================================================================
 
-    /// Helper to create sync socket pairs for host-plugin communication
-    fn create_sync_pipe_pair() -> (
-        std::os::unix::net::UnixStream,
-        std::os::unix::net::UnixStream,
-        std::os::unix::net::UnixStream,
-        std::os::unix::net::UnixStream,
-    ) {
-        use std::os::unix::net::UnixStream;
-        let (host_write, plugin_read) = UnixStream::pair().unwrap();
-        let (plugin_write, host_read) = UnixStream::pair().unwrap();
-        (host_write, plugin_read, plugin_write, host_read)
-    }
-
     // TEST284: Handshake exchanges HELLO frames, negotiates limits
-    #[test]
-    fn test284_handshake_host_plugin() {
+    #[tokio::test]
+    async fn test284_handshake_host_plugin() {
         use crate::bifaci::io::{handshake, handshake_accept};
-        use std::io::{BufReader, BufWriter};
 
-        let (host_write, plugin_read, plugin_write, host_read) = create_sync_pipe_pair();
+        // Single bidirectional socket pair - each end can read and write
+        let (host_sock, plugin_sock) = tokio::net::UnixStream::pair().unwrap();
+
+        // Split each socket into read/write halves
+        let (host_read, host_write) = host_sock.into_split();
+        let (plugin_read, plugin_write) = plugin_sock.into_split();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
+        let plugin_handle = tokio::spawn(async move {
             let mut reader = FrameReader::new(BufReader::new(plugin_read));
             let mut writer = FrameWriter::new(BufWriter::new(plugin_write));
-            let limits = handshake_accept(&mut reader, &mut writer, &manifest).unwrap();
+            let limits = handshake_accept(&mut reader, &mut writer, &manifest).await.unwrap();
             assert!(limits.max_frame > 0);
             assert!(limits.max_chunk > 0);
             limits
@@ -810,29 +795,28 @@ mod tests {
 
         let mut reader = FrameReader::new(BufReader::new(host_read));
         let mut writer = FrameWriter::new(BufWriter::new(host_write));
-        let handshake_result = handshake(&mut reader, &mut writer).unwrap();
+        let handshake_result = handshake(&mut reader, &mut writer).await.unwrap();
         let received_manifest = handshake_result.manifest;
         let host_limits = handshake_result.limits;
 
         assert_eq!(received_manifest, TEST_MANIFEST.as_bytes());
 
-        let plugin_limits = plugin_handle.join().unwrap();
+        let plugin_limits = plugin_handle.await.unwrap();
         assert_eq!(host_limits.max_frame, plugin_limits.max_frame);
         assert_eq!(host_limits.max_chunk, plugin_limits.max_chunk);
     }
 
     // TEST285: Simple request-response flow (REQ → END with payload)
-    #[test]
-    fn test285_request_response_simple() {
-        use std::io::{BufReader, BufWriter};
-
-        let (host_write, plugin_read, plugin_write, host_read) = create_sync_pipe_pair();
+    #[tokio::test]
+    async fn test285_request_response_simple() {
+        let (plugin_from_host, host_to_plugin) = tokio::net::UnixStream::pair().unwrap();
+        let (host_from_plugin, plugin_to_host) = tokio::net::UnixStream::pair().unwrap();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake(plugin_read, plugin_write, &manifest);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake(plugin_from_host, plugin_to_host, &manifest).await;
 
-            let frame = reader.read().unwrap().unwrap();
+            let frame = reader.read().await.unwrap().unwrap();
             assert_eq!(frame.frame_type, FrameType::Req);
             assert_eq!(frame.cap.as_deref(), Some(CAP_IDENTITY));
             assert_eq!(frame.payload.as_deref(), Some(b"hello".as_ref()));
@@ -840,13 +824,13 @@ mod tests {
             let mut seq = SeqAssigner::new();
             let mut end = Frame::end(frame.id, Some(b"hello back".to_vec()));
             seq.assign(&mut end);
-            writer.write(&end).unwrap();
+            writer.write(&end).await.unwrap();
             seq.remove(&FlowKey::from_frame(&end));
         });
 
-        let mut reader = FrameReader::new(BufReader::new(host_read));
-        let mut writer = FrameWriter::new(BufWriter::new(host_write));
-        let handshake_result = handshake(&mut reader, &mut writer).unwrap();
+        let mut reader = FrameReader::new(BufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(BufWriter::new(host_to_plugin));
+        let handshake_result = handshake(&mut reader, &mut writer).await.unwrap();
         let limits = handshake_result.limits;
         reader.set_limits(limits);
         writer.set_limits(limits);
@@ -855,52 +839,51 @@ mod tests {
         let request_id = MessageId::new_uuid();
         let mut req = Frame::req(request_id.clone(), CAP_IDENTITY, b"hello".to_vec(), "application/json");
         seq.assign(&mut req);
-        writer.write(&req).unwrap();
+        writer.write(&req).await.unwrap();
 
-        let response = reader.read().unwrap().unwrap();
+        let response = reader.read().await.unwrap().unwrap();
         assert_eq!(response.frame_type, FrameType::End);
         assert_eq!(response.payload.as_deref(), Some(b"hello back".as_ref()));
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST286: Streaming response with multiple CHUNK frames
-    #[test]
-    fn test286_streaming_chunks() {
-        use std::io::{BufReader, BufWriter};
-
-        let (host_write, plugin_read, plugin_write, host_read) = create_sync_pipe_pair();
+    #[tokio::test]
+    async fn test286_streaming_chunks() {
+        let (plugin_from_host, host_to_plugin) = tokio::net::UnixStream::pair().unwrap();
+        let (host_from_plugin, plugin_to_host) = tokio::net::UnixStream::pair().unwrap();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake(plugin_read, plugin_write, &manifest);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake(plugin_from_host, plugin_to_host, &manifest).await;
 
-            let frame = reader.read().unwrap().unwrap();
+            let frame = reader.read().await.unwrap().unwrap();
             let request_id = frame.id.clone();
 
             let sid = "response".to_string();
             let mut seq = SeqAssigner::new();
             let mut start = Frame::stream_start(request_id.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut start);
-            writer.write(&start).unwrap();
+            writer.write(&start).await.unwrap();
             for (idx, data) in [b"chunk1", b"chunk2", b"chunk3"].iter().enumerate() {
                 let payload = data.to_vec();
                 let checksum = Frame::compute_checksum(&payload);
                 let mut chunk = Frame::chunk(request_id.clone(), sid.clone(), 0, payload, idx as u64, checksum);
                 seq.assign(&mut chunk);
-                writer.write(&chunk).unwrap();
+                writer.write(&chunk).await.unwrap();
             }
             let mut stream_end = Frame::stream_end(request_id.clone(), sid, 3);
             seq.assign(&mut stream_end);
-            writer.write(&stream_end).unwrap();
+            writer.write(&stream_end).await.unwrap();
             let mut end = Frame::end(request_id, None);
             seq.assign(&mut end);
-            writer.write(&end).unwrap();
+            writer.write(&end).await.unwrap();
         });
 
-        let mut reader = FrameReader::new(BufReader::new(host_read));
-        let mut writer = FrameWriter::new(BufWriter::new(host_write));
-        let handshake_result = handshake(&mut reader, &mut writer).unwrap();
+        let mut reader = FrameReader::new(BufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(BufWriter::new(host_to_plugin));
+        let handshake_result = handshake(&mut reader, &mut writer).await.unwrap();
         let limits = handshake_result.limits;
         reader.set_limits(limits);
         writer.set_limits(limits);
@@ -909,12 +892,12 @@ mod tests {
         let request_id = MessageId::new_uuid();
         let mut req = Frame::req(request_id.clone(), "cap:in=\"media:void\";op=stream;out=\"media:void\"", b"go".to_vec(), "application/json");
         seq.assign(&mut req);
-        writer.write(&req).unwrap();
+        writer.write(&req).await.unwrap();
 
         // Collect chunks
         let mut chunks = Vec::new();
         loop {
-            let frame = reader.read().unwrap().unwrap();
+            let frame = reader.read().await.unwrap().unwrap();
             if frame.frame_type == FrameType::Chunk {
                 chunks.push(frame.payload.unwrap_or_default());
             }
@@ -928,32 +911,31 @@ mod tests {
         assert_eq!(chunks[1], b"chunk2");
         assert_eq!(chunks[2], b"chunk3");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST287: Host-initiated heartbeat
-    #[test]
-    fn test287_heartbeat_from_host() {
-        use std::io::{BufReader, BufWriter};
-
-        let (host_write, plugin_read, plugin_write, host_read) = create_sync_pipe_pair();
+    #[tokio::test]
+    async fn test287_heartbeat_from_host() {
+        let (plugin_from_host, host_to_plugin) = tokio::net::UnixStream::pair().unwrap();
+        let (host_from_plugin, plugin_to_host) = tokio::net::UnixStream::pair().unwrap();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake(plugin_read, plugin_write, &manifest);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake(plugin_from_host, plugin_to_host, &manifest).await;
 
-            let frame = reader.read().unwrap().unwrap();
+            let frame = reader.read().await.unwrap().unwrap();
             assert_eq!(frame.frame_type, FrameType::Heartbeat);
 
             let mut seq = SeqAssigner::new();
             let mut hb = Frame::heartbeat(frame.id);
             seq.assign(&mut hb);
-            writer.write(&hb).unwrap();
+            writer.write(&hb).await.unwrap();
         });
 
-        let mut reader = FrameReader::new(BufReader::new(host_read));
-        let mut writer = FrameWriter::new(BufWriter::new(host_write));
-        let handshake_result = handshake(&mut reader, &mut writer).unwrap();
+        let mut reader = FrameReader::new(BufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(BufWriter::new(host_to_plugin));
+        let handshake_result = handshake(&mut reader, &mut writer).await.unwrap();
         let limits = handshake_result.limits;
         reader.set_limits(limits);
         writer.set_limits(limits);
@@ -962,36 +944,36 @@ mod tests {
         let heartbeat_id = MessageId::new_uuid();
         let mut hb = Frame::heartbeat(heartbeat_id.clone());
         seq.assign(&mut hb);
-        writer.write(&hb).unwrap();
+        writer.write(&hb).await.unwrap();
 
-        let response = reader.read().unwrap().unwrap();
+        let response = reader.read().await.unwrap().unwrap();
         assert_eq!(response.frame_type, FrameType::Heartbeat);
         assert_eq!(response.id, heartbeat_id);
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST290: Limit negotiation picks minimum
-    #[test]
-    fn test290_limits_negotiation() {
+    #[tokio::test]
+    async fn test290_limits_negotiation() {
         use crate::bifaci::io::{handshake, handshake_accept};
-        use std::io::{BufReader, BufWriter};
 
-        let (host_write, plugin_read, plugin_write, host_read) = create_sync_pipe_pair();
+        let (plugin_from_host, host_to_plugin) = tokio::net::UnixStream::pair().unwrap();
+        let (host_from_plugin, plugin_to_host) = tokio::net::UnixStream::pair().unwrap();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let mut reader = FrameReader::new(BufReader::new(plugin_read));
-            let mut writer = FrameWriter::new(BufWriter::new(plugin_write));
-            handshake_accept(&mut reader, &mut writer, &manifest).unwrap()
+        let plugin_handle = tokio::spawn(async move {
+            let mut reader = FrameReader::new(BufReader::new(plugin_from_host));
+            let mut writer = FrameWriter::new(BufWriter::new(plugin_to_host));
+            handshake_accept(&mut reader, &mut writer, &manifest).await.unwrap()
         });
 
-        let mut reader = FrameReader::new(BufReader::new(host_read));
-        let mut writer = FrameWriter::new(BufWriter::new(host_write));
-        let handshake_result = handshake(&mut reader, &mut writer).unwrap();
+        let mut reader = FrameReader::new(BufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(BufWriter::new(host_to_plugin));
+        let handshake_result = handshake(&mut reader, &mut writer).await.unwrap();
         let host_limits = handshake_result.limits;
 
-        let plugin_limits = plugin_handle.join().unwrap();
+        let plugin_limits = plugin_handle.await.unwrap();
 
         assert_eq!(host_limits.max_frame, plugin_limits.max_frame);
         assert_eq!(host_limits.max_chunk, plugin_limits.max_chunk);
@@ -1000,20 +982,19 @@ mod tests {
     }
 
     // TEST291: Binary payload roundtrip (all 256 byte values)
-    #[test]
-    fn test291_binary_payload_roundtrip() {
-        use std::io::{BufReader, BufWriter};
-
-        let (host_write, plugin_read, plugin_write, host_read) = create_sync_pipe_pair();
+    #[tokio::test]
+    async fn test291_binary_payload_roundtrip() {
+        let (plugin_from_host, host_to_plugin) = tokio::net::UnixStream::pair().unwrap();
+        let (host_from_plugin, plugin_to_host) = tokio::net::UnixStream::pair().unwrap();
 
         let binary_data: Vec<u8> = (0u16..=255).map(|i| i as u8).collect();
         let binary_clone = binary_data.clone();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake(plugin_read, plugin_write, &manifest);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake(plugin_from_host, plugin_to_host, &manifest).await;
 
-            let frame = reader.read().unwrap().unwrap();
+            let frame = reader.read().await.unwrap().unwrap();
             let payload = frame.payload.unwrap();
 
             assert_eq!(payload.len(), 256);
@@ -1024,13 +1005,13 @@ mod tests {
             let mut seq = SeqAssigner::new();
             let mut end = Frame::end(frame.id, Some(payload));
             seq.assign(&mut end);
-            writer.write(&end).unwrap();
+            writer.write(&end).await.unwrap();
             seq.remove(&FlowKey::from_frame(&end));
         });
 
-        let mut reader = FrameReader::new(BufReader::new(host_read));
-        let mut writer = FrameWriter::new(BufWriter::new(host_write));
-        let handshake_result = handshake(&mut reader, &mut writer).unwrap();
+        let mut reader = FrameReader::new(BufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(BufWriter::new(host_to_plugin));
+        let handshake_result = handshake(&mut reader, &mut writer).await.unwrap();
         let limits = handshake_result.limits;
         reader.set_limits(limits);
         writer.set_limits(limits);
@@ -1039,9 +1020,9 @@ mod tests {
         let request_id = MessageId::new_uuid();
         let mut req = Frame::req(request_id.clone(), "cap:in=\"media:void\";op=binary;out=\"media:void\"", binary_clone, "application/octet-stream");
         seq.assign(&mut req);
-        writer.write(&req).unwrap();
+        writer.write(&req).await.unwrap();
 
-        let response = reader.read().unwrap().unwrap();
+        let response = reader.read().await.unwrap().unwrap();
         let result = response.payload.unwrap();
 
         assert_eq!(result.len(), 256);
@@ -1049,38 +1030,38 @@ mod tests {
             assert_eq!(byte, i as u8, "Response byte mismatch at position {}", i);
         }
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST292: Sequential requests get distinct MessageIds
-    #[test]
-    fn test292_message_id_uniqueness() {
-        use std::io::{BufReader, BufWriter};
+    #[tokio::test]
+    async fn test292_message_id_uniqueness() {
         use std::sync::{Arc, Mutex};
 
-        let (host_write, plugin_read, plugin_write, host_read) = create_sync_pipe_pair();
+        let (plugin_from_host, host_to_plugin) = tokio::net::UnixStream::pair().unwrap();
+        let (host_from_plugin, plugin_to_host) = tokio::net::UnixStream::pair().unwrap();
 
         let received_ids = Arc::new(Mutex::new(Vec::new()));
         let received_ids_clone = Arc::clone(&received_ids);
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake(plugin_read, plugin_write, &manifest);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake(plugin_from_host, plugin_to_host, &manifest).await;
 
             let mut seq = SeqAssigner::new();
             for _ in 0..3 {
-                let frame = reader.read().unwrap().unwrap();
+                let frame = reader.read().await.unwrap().unwrap();
                 received_ids_clone.lock().unwrap().push(frame.id.clone());
                 let mut end = Frame::end(frame.id, Some(b"ok".to_vec()));
                 seq.assign(&mut end);
-                writer.write(&end).unwrap();
+                writer.write(&end).await.unwrap();
                 seq.remove(&FlowKey::from_frame(&end));
             }
         });
 
-        let mut reader = FrameReader::new(BufReader::new(host_read));
-        let mut writer = FrameWriter::new(BufWriter::new(host_write));
-        let handshake_result = handshake(&mut reader, &mut writer).unwrap();
+        let mut reader = FrameReader::new(BufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(BufWriter::new(host_to_plugin));
+        let handshake_result = handshake(&mut reader, &mut writer).await.unwrap();
         let limits = handshake_result.limits;
         reader.set_limits(limits);
         writer.set_limits(limits);
@@ -1090,11 +1071,11 @@ mod tests {
             let request_id = MessageId::new_uuid();
             let mut req = Frame::req(request_id.clone(), "cap:in=\"media:void\";op=test;out=\"media:void\"", vec![], "application/json");
             seq.assign(&mut req);
-            writer.write(&req).unwrap();
-            reader.read().unwrap().unwrap();
+            writer.write(&req).await.unwrap();
+            reader.read().await.unwrap().unwrap();
         }
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
 
         let ids = received_ids.lock().unwrap();
         assert_eq!(ids.len(), 3);
@@ -1106,30 +1087,29 @@ mod tests {
     }
 
     // TEST299: Empty payload request/response roundtrip
-    #[test]
-    fn test299_empty_payload_roundtrip() {
-        use std::io::{BufReader, BufWriter};
-
-        let (host_write, plugin_read, plugin_write, host_read) = create_sync_pipe_pair();
+    #[tokio::test]
+    async fn test299_empty_payload_roundtrip() {
+        let (plugin_from_host, host_to_plugin) = tokio::net::UnixStream::pair().unwrap();
+        let (host_from_plugin, plugin_to_host) = tokio::net::UnixStream::pair().unwrap();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake(plugin_read, plugin_write, &manifest);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake(plugin_from_host, plugin_to_host, &manifest).await;
 
-            let frame = reader.read().unwrap().unwrap();
+            let frame = reader.read().await.unwrap().unwrap();
             assert!(frame.payload.is_none() || frame.payload.as_ref().unwrap().is_empty(),
                     "empty payload must arrive empty");
 
             let mut seq = SeqAssigner::new();
             let mut end = Frame::end(frame.id, Some(vec![]));
             seq.assign(&mut end);
-            writer.write(&end).unwrap();
+            writer.write(&end).await.unwrap();
             seq.remove(&FlowKey::from_frame(&end));
         });
 
-        let mut reader = FrameReader::new(BufReader::new(host_read));
-        let mut writer = FrameWriter::new(BufWriter::new(host_write));
-        let handshake_result = handshake(&mut reader, &mut writer).unwrap();
+        let mut reader = FrameReader::new(BufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(BufWriter::new(host_to_plugin));
+        let handshake_result = handshake(&mut reader, &mut writer).await.unwrap();
         let limits = handshake_result.limits;
         reader.set_limits(limits);
         writer.set_limits(limits);
@@ -1138,12 +1118,12 @@ mod tests {
         let request_id = MessageId::new_uuid();
         let mut req = Frame::req(request_id.clone(), "cap:in=\"media:void\";op=empty;out=\"media:void\"", vec![], "application/json");
         seq.assign(&mut req);
-        writer.write(&req).unwrap();
+        writer.write(&req).await.unwrap();
 
-        let response = reader.read().unwrap().unwrap();
+        let response = reader.read().await.unwrap().unwrap();
         assert!(response.payload.is_none() || response.payload.as_ref().unwrap().is_empty());
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // =========================================================================
@@ -1164,16 +1144,16 @@ mod tests {
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
 
             // After identity verification, handle a real request
-            let req = reader.read().unwrap().expect("Expected REQ after identity verification");
+            let req = reader.read().await.unwrap().expect("Expected REQ after identity verification");
             assert_eq!(req.frame_type, FrameType::Req, "Must receive real REQ after identity handshake");
 
             // Consume request body
             loop {
-                let f = reader.read().unwrap().expect("Expected frame");
+                let f = reader.read().await.unwrap().expect("Expected frame");
                 if f.frame_type == FrameType::End { break; }
             }
 
@@ -1182,18 +1162,18 @@ mod tests {
             let sid = "resp".to_string();
             let mut ss = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut ss);
-            writer.write(&ss).unwrap();
+            writer.write(&ss).await.unwrap();
             let payload = b"verified-and-working".to_vec();
             let checksum = Frame::compute_checksum(&payload);
             let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, payload, 0, checksum);
             seq.assign(&mut chunk);
-            writer.write(&chunk).unwrap();
+            writer.write(&chunk).await.unwrap();
             let mut se = Frame::stream_end(req.id.clone(), sid, 1);
             seq.assign(&mut se);
-            writer.write(&se).unwrap();
+            writer.write(&se).await.unwrap();
             let mut end = Frame::end(req.id, None);
             seq.assign(&mut end);
-            writer.write(&end).unwrap();
+            writer.write(&end).await.unwrap();
         });
 
         let (p_read_half, _) = p_read.into_split();
@@ -1210,8 +1190,8 @@ mod tests {
         let req_id = MessageId::new_uuid();
         let engine_task = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let mut w = AsyncFrameWriter::new(eng_write_half);
-            let mut r = AsyncFrameReader::new(eng_read_half);
+            let mut w = FrameWriter::new(eng_write_half);
+            let mut r = FrameReader::new(eng_read_half);
 
             let xid = MessageId::Uint(1);
             let sid = uuid::Uuid::new_v4().to_string();
@@ -1265,7 +1245,7 @@ mod tests {
         let response = engine_task.await.unwrap();
         assert_eq!(response, b"verified-and-working", "Plugin must respond after identity verification");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST490: Identity verification with multiple plugins through single relay
@@ -1284,43 +1264,43 @@ mod tests {
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
 
         let ma = manifest_a.as_bytes().to_vec();
-        let pa_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake_with_identity(pa_from_rt, pa_to_rt, &ma);
-            let req = reader.read().unwrap().expect("Expected REQ for alpha");
+        let pa_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake_with_identity(pa_from_rt, pa_to_rt, &ma).await;
+            let req = reader.read().await.unwrap().expect("Expected REQ for alpha");
             assert_eq!(req.cap.as_deref(), Some("cap:in=\"media:void\";op=alpha;out=\"media:void\""));
-            loop { let f = reader.read().unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
+            loop { let f = reader.read().await.unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
             let mut seq = SeqAssigner::new();
             let sid = "a".to_string();
             let mut ss = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
-            seq.assign(&mut ss); writer.write(&ss).unwrap();
+            seq.assign(&mut ss); writer.write(&ss).await.unwrap();
             let payload = b"from-alpha".to_vec();
             let checksum = Frame::compute_checksum(&payload);
             let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, payload, 0, checksum);
-            seq.assign(&mut chunk); writer.write(&chunk).unwrap();
+            seq.assign(&mut chunk); writer.write(&chunk).await.unwrap();
             let mut se = Frame::stream_end(req.id.clone(), sid, 1);
-            seq.assign(&mut se); writer.write(&se).unwrap();
+            seq.assign(&mut se); writer.write(&se).await.unwrap();
             let mut end = Frame::end(req.id.clone(), None);
-            seq.assign(&mut end); writer.write(&end).unwrap();
+            seq.assign(&mut end); writer.write(&end).await.unwrap();
         });
 
         let mb = manifest_b.as_bytes().to_vec();
-        let pb_handle = std::thread::spawn(move || {
-            let (mut reader, mut writer) = plugin_handshake_with_identity(pb_from_rt, pb_to_rt, &mb);
-            let req = reader.read().unwrap().expect("Expected REQ for beta");
+        let pb_handle = tokio::spawn(async move {
+            let (mut reader, mut writer) = plugin_handshake_with_identity(pb_from_rt, pb_to_rt, &mb).await;
+            let req = reader.read().await.unwrap().expect("Expected REQ for beta");
             assert_eq!(req.cap.as_deref(), Some("cap:in=\"media:void\";op=beta;out=\"media:void\""));
-            loop { let f = reader.read().unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
+            loop { let f = reader.read().await.unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
             let mut seq = SeqAssigner::new();
             let sid = "b".to_string();
             let mut ss = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
-            seq.assign(&mut ss); writer.write(&ss).unwrap();
+            seq.assign(&mut ss); writer.write(&ss).await.unwrap();
             let payload = b"from-beta".to_vec();
             let checksum = Frame::compute_checksum(&payload);
             let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, payload, 0, checksum);
-            seq.assign(&mut chunk); writer.write(&chunk).unwrap();
+            seq.assign(&mut chunk); writer.write(&chunk).await.unwrap();
             let mut se = Frame::stream_end(req.id.clone(), sid, 1);
-            seq.assign(&mut se); writer.write(&se).unwrap();
+            seq.assign(&mut se); writer.write(&se).await.unwrap();
             let mut end = Frame::end(req.id.clone(), None);
-            seq.assign(&mut end); writer.write(&end).unwrap();
+            seq.assign(&mut end); writer.write(&end).await.unwrap();
         });
 
         let (pa_read_half, _) = pa_read.into_split();
@@ -1339,8 +1319,8 @@ mod tests {
 
         let engine_task = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let mut w = AsyncFrameWriter::new(eng_write_half);
-            let mut r = AsyncFrameReader::new(eng_read_half);
+            let mut w = FrameWriter::new(eng_write_half);
+            let mut r = FrameReader::new(eng_read_half);
             let xid = MessageId::Uint(1);
 
             // Send alpha request
@@ -1411,7 +1391,7 @@ mod tests {
         assert_eq!(resp_alpha, b"from-alpha", "Alpha plugin must respond correctly after identity verification");
         assert_eq!(resp_beta, b"from-beta", "Beta plugin must respond correctly after identity verification");
 
-        pa_handle.join().unwrap();
-        pb_handle.join().unwrap();
+        pa_handle.await.unwrap();
+        pb_handle.await.unwrap();
     }
 }

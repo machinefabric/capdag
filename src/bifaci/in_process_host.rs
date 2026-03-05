@@ -13,7 +13,7 @@
 //!
 //! ## Design
 //!
-//! The host does NOT accumulate data. On REQ, it spawns a handler thread with
+//! The host does NOT accumulate data. On REQ, it spawns a handler task with
 //! channels for frame I/O. All continuation frames (STREAM_START, CHUNK, STREAM_END,
 //! END) are forwarded to the handler. The handler processes frames natively —
 //! streaming or accumulating as it sees fit.
@@ -27,10 +27,11 @@ use crate::cap::caller::CapArgumentValue;
 use crate::cap::definition::Cap;
 use crate::standard::caps::CAP_IDENTITY;
 use crate::CapUrn;
+use async_trait::async_trait;
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::sync::mpsc;
 use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::mpsc;
 
 // =============================================================================
 // FRAME HANDLER TRAIT
@@ -44,10 +45,11 @@ use std::sync::Arc;
 ///
 /// For handlers that don't need streaming, use `accumulate_input()` to collect
 /// all input streams into `Vec<CapArgumentValue>`.
+#[async_trait]
 pub trait FrameHandler: Send + Sync + std::fmt::Debug {
     /// Handle a streaming request.
     ///
-    /// Called in a dedicated thread for each incoming request. The handler reads
+    /// Called in a dedicated task for each incoming request. The handler reads
     /// input frames from `input` and sends response frames via `output`.
     ///
     /// The REQ frame has already been consumed by the host. `input` receives:
@@ -55,12 +57,11 @@ pub trait FrameHandler: Send + Sync + std::fmt::Debug {
     ///
     /// The handler MUST send a complete response: either response frames
     /// (STREAM_START + CHUNK(s) + STREAM_END + END) or an error (via `output.emit_error()`).
-    fn handle_request(
+    async fn handle_request(
         &self,
         cap_urn: &str,
-        input: mpsc::Receiver<Frame>,
+        input: mpsc::UnboundedReceiver<Frame>,
         output: ResponseWriter,
-        rt: &tokio::runtime::Handle,
     );
 }
 
@@ -75,7 +76,7 @@ pub trait FrameHandler: Send + Sync + std::fmt::Debug {
 pub struct ResponseWriter {
     request_id: MessageId,
     routing_id: Option<MessageId>,
-    tx: mpsc::Sender<Frame>,
+    tx: mpsc::UnboundedSender<Frame>,
     max_chunk: usize,
 }
 
@@ -83,7 +84,7 @@ impl ResponseWriter {
     fn new(
         request_id: MessageId,
         routing_id: Option<MessageId>,
-        tx: mpsc::Sender<Frame>,
+        tx: mpsc::UnboundedSender<Frame>,
         max_chunk: usize,
     ) -> Self {
         Self { request_id, routing_id, tx, max_chunk }
@@ -169,13 +170,13 @@ impl ResponseWriter {
 /// then emit a response.
 ///
 /// Returns Err on CBOR decode failure (protocol violation).
-pub fn accumulate_input(
-    input: &mpsc::Receiver<Frame>,
+pub async fn accumulate_input(
+    input: &mut mpsc::UnboundedReceiver<Frame>,
 ) -> Result<Vec<CapArgumentValue>, String> {
     let mut streams: Vec<(String, String, Vec<u8>)> = Vec::new(); // (stream_id, media_urn, data)
     let mut active: HashMap<String, usize> = HashMap::new();
 
-    for frame in input.iter() {
+    while let Some(frame) = input.recv().await {
         match frame.frame_type {
             FrameType::StreamStart => {
                 let sid = frame.stream_id.clone().unwrap_or_default();
@@ -230,17 +231,17 @@ pub fn accumulate_input(
 #[derive(Debug)]
 struct IdentityHandler;
 
+#[async_trait]
 impl FrameHandler for IdentityHandler {
-    fn handle_request(
+    async fn handle_request(
         &self,
         _cap_urn: &str,
-        input: mpsc::Receiver<Frame>,
+        mut input: mpsc::UnboundedReceiver<Frame>,
         output: ResponseWriter,
-        _rt: &tokio::runtime::Handle,
     ) {
         // Accumulate raw payload bytes (no CBOR decode — identity is raw passthrough)
         let mut data = Vec::new();
-        for frame in input.iter() {
+        while let Some(frame) = input.recv().await {
             match frame.frame_type {
                 FrameType::Chunk => {
                     if let Some(p) = &frame.payload {
@@ -387,27 +388,25 @@ impl InProcessPluginHost {
             .map(|(idx, _)| *idx)
     }
 
-    /// Run the host. Blocks until the local connection closes.
+    /// Run the host. Returns when the local connection closes.
     ///
     /// `local_read` / `local_write` connect to the RelaySlave's local side.
-    /// `rt` is a tokio runtime handle for async handler calls.
-    pub fn run<R: Read + Send + 'static, W: Write + Send + 'static>(
+    pub async fn run<R: AsyncRead + Unpin + Send + 'static, W: AsyncWrite + Unpin + Send + 'static>(
         self,
         local_read: R,
         local_write: W,
-        rt: tokio::runtime::Handle,
     ) -> Result<(), CborError> {
         let mut reader = FrameReader::new(local_read);
 
-        // Writer runs in a separate thread with SeqAssigner
-        let (write_tx, write_rx) = mpsc::channel::<Frame>();
-        let writer_thread = std::thread::spawn(move || {
+        // Writer runs in a separate task with SeqAssigner
+        let (write_tx, mut write_rx) = mpsc::unbounded_channel::<Frame>();
+        let writer_task = tokio::spawn(async move {
             let mut writer = FrameWriter::new(local_write);
             let mut seq_assigner = SeqAssigner::new();
 
-            while let Ok(mut frame) = write_rx.recv() {
+            while let Some(mut frame) = write_rx.recv().await {
                 seq_assigner.assign(&mut frame);
-                if let Err(e) = writer.write(&frame) {
+                if let Err(e) = writer.write(&frame).await {
                     eprintln!("[InProcessPluginHost] writer error: {}", e);
                     break;
                 }
@@ -424,19 +423,19 @@ impl InProcessPluginHost {
             .send(notify)
             .map_err(|_| CborError::Protocol("writer channel closed on startup".into()))?;
 
-        // Move handlers to Arc for sharing with handler threads
+        // Move handlers to Arc for sharing with handler tasks
         let handlers = Arc::new(self.handlers);
         let cap_table = Self::build_cap_table(&handlers);
 
         // Active request channels: request_id → input_tx for forwarding frames to handler
-        let mut active: HashMap<MessageId, mpsc::Sender<Frame>> = HashMap::new();
+        let mut active: HashMap<MessageId, mpsc::UnboundedSender<Frame>> = HashMap::new();
 
         // Built-in identity handler
         let identity_handler: Arc<dyn FrameHandler> = Arc::new(IdentityHandler);
 
         // Main read loop — forward frames to handlers, no accumulation
         loop {
-            let frame = match reader.read() {
+            let frame = match reader.read().await {
                 Ok(Some(f)) => f,
                 Ok(None) => break, // EOF — RelaySlave closed
                 Err(e) => {
@@ -482,10 +481,10 @@ impl InProcessPluginHost {
                     };
 
                     // Create channel for forwarding frames to handler
-                    let (input_tx, input_rx) = mpsc::channel::<Frame>();
+                    let (input_tx, input_rx) = mpsc::unbounded_channel::<Frame>();
                     active.insert(rid.clone(), input_tx);
 
-                    // Spawn handler thread
+                    // Spawn handler task
                     let output = ResponseWriter::new(
                         rid,
                         xid,
@@ -493,9 +492,8 @@ impl InProcessPluginHost {
                         Limits::default().max_chunk,
                     );
                     let cap_urn_owned = cap_urn;
-                    let rt_clone = rt.clone();
-                    std::thread::spawn(move || {
-                        handler.handle_request(&cap_urn_owned, input_rx, output, &rt_clone);
+                    tokio::spawn(async move {
+                        handler.handle_request(&cap_urn_owned, input_rx, output).await;
                     });
                 }
 
@@ -535,7 +533,7 @@ impl InProcessPluginHost {
         active.clear();
 
         drop(write_tx);
-        let _ = writer_thread.join();
+        let _ = writer_task.await;
         Ok(())
     }
 }
@@ -545,21 +543,22 @@ mod tests {
     use super::*;
     use crate::bifaci::io::{FrameReader, FrameWriter};
     use crate::Cap;
-    use std::os::unix::net::UnixStream;
+    use tokio::io::{BufReader, BufWriter};
+    use tokio::net::UnixStream;
 
     /// Echo handler: accumulates input, echoes raw bytes back.
     #[derive(Debug)]
     struct EchoHandler;
 
+    #[async_trait]
     impl FrameHandler for EchoHandler {
-        fn handle_request(
+        async fn handle_request(
             &self,
             _cap_urn: &str,
-            input: mpsc::Receiver<Frame>,
+            mut input: mpsc::UnboundedReceiver<Frame>,
             output: ResponseWriter,
-            _rt: &tokio::runtime::Handle,
         ) {
-            match accumulate_input(&input) {
+            match accumulate_input(&mut input).await {
                 Ok(args) => {
                     let data: Vec<u8> = args.iter().flat_map(|a| a.value.clone()).collect();
                     output.emit_response("media:", &data);
@@ -606,9 +605,8 @@ mod tests {
     }
 
     // TEST654: InProcessPluginHost routes REQ to matching handler and returns response
-    #[test]
-    fn test654_routes_req_to_handler() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
+    #[tokio::test]
+    async fn test654_routes_req_to_handler() {
         let cap_urn = "cap:in=\"media:text\";op=echo;out=\"media:text\"";
         let cap = make_test_cap(cap_urn);
         let handlers = vec![(
@@ -620,16 +618,18 @@ mod tests {
         let host = InProcessPluginHost::new(handlers);
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
-        let (host_sock2, test_sock2) = UnixStream::pair().unwrap();
+        let (host_read, host_write) = host_sock.into_split();
+        let (test_read, test_write) = test_sock.into_split();
 
-        let handle = rt.handle().clone();
-        let host_thread = std::thread::spawn(move || host.run(host_sock, host_sock2, handle));
+        let host_task = tokio::spawn(async move {
+            host.run(host_read, host_write).await
+        });
 
-        let mut reader = FrameReader::new(test_sock2);
-        let mut writer = FrameWriter::new(test_sock);
+        let mut reader = FrameReader::new(BufReader::new(test_read));
+        let mut writer = FrameWriter::new(BufWriter::new(test_write));
 
         // First frame should be RelayNotify with manifest
-        let notify = reader.read().unwrap().unwrap();
+        let notify = reader.read().await.unwrap().unwrap();
         assert_eq!(notify.frame_type, FrameType::RelayNotify);
         let manifest = notify.relay_notify_manifest().unwrap();
         let cap_urns: Vec<String> = serde_json::from_slice(manifest).unwrap();
@@ -640,71 +640,72 @@ mod tests {
         let rid = MessageId::new_uuid();
         let mut req = Frame::req(rid.clone(), cap_urn, vec![], "application/cbor");
         req.routing_id = Some(MessageId::Uint(1));
-        writer.write(&req).unwrap();
+        writer.write(&req).await.unwrap();
 
         let ss = Frame::stream_start(
             rid.clone(),
             "arg0".to_string(),
             "media:text".to_string(),
         );
-        writer.write(&ss).unwrap();
+        writer.write(&ss).await.unwrap();
 
         let payload = cbor_bytes_payload(b"hello world");
         let checksum = Frame::compute_checksum(&payload);
         let chunk = Frame::chunk(rid.clone(), "arg0".to_string(), 0, payload, 0, checksum);
-        writer.write(&chunk).unwrap();
+        writer.write(&chunk).await.unwrap();
 
         let se = Frame::stream_end(rid.clone(), "arg0".to_string(), 1);
-        writer.write(&se).unwrap();
+        writer.write(&se).await.unwrap();
 
         let end = Frame::end(rid.clone(), None);
-        writer.write(&end).unwrap();
+        writer.write(&end).await.unwrap();
 
         // Read response: STREAM_START + CHUNK (CBOR-encoded) + STREAM_END + END
-        let resp_ss = reader.read().unwrap().unwrap();
+        let resp_ss = reader.read().await.unwrap().unwrap();
         assert_eq!(resp_ss.frame_type, FrameType::StreamStart);
         assert_eq!(resp_ss.id, rid);
         assert_eq!(resp_ss.stream_id.as_deref(), Some("result"));
 
-        let resp_chunk = reader.read().unwrap().unwrap();
+        let resp_chunk = reader.read().await.unwrap().unwrap();
         assert_eq!(resp_chunk.frame_type, FrameType::Chunk);
         let resp_data = decode_chunk_payload(resp_chunk.payload.as_deref().unwrap());
         assert_eq!(resp_data, b"hello world");
 
-        let resp_se = reader.read().unwrap().unwrap();
+        let resp_se = reader.read().await.unwrap().unwrap();
         assert_eq!(resp_se.frame_type, FrameType::StreamEnd);
 
-        let resp_end = reader.read().unwrap().unwrap();
+        let resp_end = reader.read().await.unwrap().unwrap();
         assert_eq!(resp_end.frame_type, FrameType::End);
 
         drop(writer);
         drop(reader);
-        host_thread.join().unwrap().unwrap();
+        host_task.await.unwrap().unwrap();
     }
 
     // TEST655: InProcessPluginHost handles identity verification (echo nonce)
-    #[test]
-    fn test655_identity_verification() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
+    #[tokio::test]
+    async fn test655_identity_verification() {
         let host = InProcessPluginHost::new(vec![]);
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
-        let (host_sock2, test_sock2) = UnixStream::pair().unwrap();
+        let (host_read, host_write) = host_sock.into_split();
+        let (test_read, test_write) = test_sock.into_split();
 
-        let handle = rt.handle().clone();
-        let host_thread = std::thread::spawn(move || host.run(host_sock, host_sock2, handle));
+        let host_task = tokio::spawn(async move {
+            host.run(host_read, host_write).await
+        });
 
-        let mut reader = FrameReader::new(test_sock2);
-        let mut writer = FrameWriter::new(test_sock);
+        let mut reader = FrameReader::new(BufReader::new(test_read));
+        let mut writer = FrameWriter::new(BufWriter::new(test_write));
 
         // Skip RelayNotify
-        let _notify = reader.read().unwrap().unwrap();
+        let _notify = reader.read().await.unwrap().unwrap();
 
         // Send identity verification
         let rid = MessageId::new_uuid();
         let mut req = Frame::req(rid.clone(), CAP_IDENTITY, vec![], "application/cbor");
         req.routing_id = Some(MessageId::Uint(0));
-        writer.write(&req).unwrap();
+        writer.write(&req).await.unwrap();
 
         // Send nonce via stream (already CBOR-encoded by identity_nonce)
         let nonce = crate::bifaci::io::identity_nonce();
@@ -713,7 +714,7 @@ mod tests {
             "identity-verify".to_string(),
             "media:".to_string(),
         );
-        writer.write(&ss).unwrap();
+        writer.write(&ss).await.unwrap();
 
         let checksum = Frame::compute_checksum(&nonce);
         let chunk = Frame::chunk(
@@ -724,50 +725,51 @@ mod tests {
             0,
             checksum,
         );
-        writer.write(&chunk).unwrap();
+        writer.write(&chunk).await.unwrap();
 
         let se = Frame::stream_end(rid.clone(), "identity-verify".to_string(), 1);
-        writer.write(&se).unwrap();
+        writer.write(&se).await.unwrap();
 
         let end = Frame::end(rid.clone(), None);
-        writer.write(&end).unwrap();
+        writer.write(&end).await.unwrap();
 
         // Read echoed response — identity echoes raw bytes (no CBOR decode/encode)
-        let resp_ss = reader.read().unwrap().unwrap();
+        let resp_ss = reader.read().await.unwrap().unwrap();
         assert_eq!(resp_ss.frame_type, FrameType::StreamStart);
 
-        let resp_chunk = reader.read().unwrap().unwrap();
+        let resp_chunk = reader.read().await.unwrap().unwrap();
         assert_eq!(resp_chunk.frame_type, FrameType::Chunk);
         assert_eq!(resp_chunk.payload.as_deref(), Some(nonce.as_slice()));
 
-        let resp_se = reader.read().unwrap().unwrap();
+        let resp_se = reader.read().await.unwrap().unwrap();
         assert_eq!(resp_se.frame_type, FrameType::StreamEnd);
 
-        let resp_end = reader.read().unwrap().unwrap();
+        let resp_end = reader.read().await.unwrap().unwrap();
         assert_eq!(resp_end.frame_type, FrameType::End);
 
         drop(writer);
         drop(reader);
-        host_thread.join().unwrap().unwrap();
+        host_task.await.unwrap().unwrap();
     }
 
     // TEST656: InProcessPluginHost returns NO_HANDLER for unregistered cap
-    #[test]
-    fn test656_no_handler_returns_err() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
+    #[tokio::test]
+    async fn test656_no_handler_returns_err() {
         let host = InProcessPluginHost::new(vec![]);
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
-        let (host_sock2, test_sock2) = UnixStream::pair().unwrap();
+        let (host_read, host_write) = host_sock.into_split();
+        let (test_read, test_write) = test_sock.into_split();
 
-        let handle = rt.handle().clone();
-        let host_thread = std::thread::spawn(move || host.run(host_sock, host_sock2, handle));
+        let host_task = tokio::spawn(async move {
+            host.run(host_read, host_write).await
+        });
 
-        let mut reader = FrameReader::new(test_sock2);
-        let mut writer = FrameWriter::new(test_sock);
+        let mut reader = FrameReader::new(BufReader::new(test_read));
+        let mut writer = FrameWriter::new(BufWriter::new(test_write));
 
         // Skip RelayNotify
-        let _notify = reader.read().unwrap().unwrap();
+        let _notify = reader.read().await.unwrap().unwrap();
 
         let rid = MessageId::new_uuid();
         let mut req = Frame::req(
@@ -777,17 +779,17 @@ mod tests {
             "application/cbor",
         );
         req.routing_id = Some(MessageId::Uint(1));
-        writer.write(&req).unwrap();
+        writer.write(&req).await.unwrap();
 
         // Should get ERR back
-        let err_frame = reader.read().unwrap().unwrap();
+        let err_frame = reader.read().await.unwrap().unwrap();
         assert_eq!(err_frame.frame_type, FrameType::Err);
         assert_eq!(err_frame.id, rid);
         assert_eq!(err_frame.error_code(), Some("NO_HANDLER"));
 
         drop(writer);
         drop(reader);
-        host_thread.join().unwrap().unwrap();
+        host_task.await.unwrap().unwrap();
     }
 
     // TEST657: InProcessPluginHost manifest includes identity cap and handler caps
@@ -808,53 +810,54 @@ mod tests {
     }
 
     // TEST658: InProcessPluginHost handles heartbeat by echoing same ID
-    #[test]
-    fn test658_heartbeat_response() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
+    #[tokio::test]
+    async fn test658_heartbeat_response() {
         let host = InProcessPluginHost::new(vec![]);
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
-        let (host_sock2, test_sock2) = UnixStream::pair().unwrap();
+        let (host_read, host_write) = host_sock.into_split();
+        let (test_read, test_write) = test_sock.into_split();
 
-        let handle = rt.handle().clone();
-        let host_thread = std::thread::spawn(move || host.run(host_sock, host_sock2, handle));
+        let host_task = tokio::spawn(async move {
+            host.run(host_read, host_write).await
+        });
 
-        let mut reader = FrameReader::new(test_sock2);
-        let mut writer = FrameWriter::new(test_sock);
+        let mut reader = FrameReader::new(BufReader::new(test_read));
+        let mut writer = FrameWriter::new(BufWriter::new(test_write));
 
         // Skip RelayNotify
-        let _notify = reader.read().unwrap().unwrap();
+        let _notify = reader.read().await.unwrap().unwrap();
 
         let hb_id = MessageId::new_uuid();
         let hb = Frame::heartbeat(hb_id.clone());
-        writer.write(&hb).unwrap();
+        writer.write(&hb).await.unwrap();
 
-        let resp = reader.read().unwrap().unwrap();
+        let resp = reader.read().await.unwrap().unwrap();
         assert_eq!(resp.frame_type, FrameType::Heartbeat);
         assert_eq!(resp.id, hb_id);
 
         drop(writer);
         drop(reader);
-        host_thread.join().unwrap().unwrap();
+        host_task.await.unwrap().unwrap();
     }
 
     // TEST659: InProcessPluginHost handler error returns ERR frame
-    #[test]
-    fn test659_handler_error_returns_err_frame() {
+    #[tokio::test]
+    async fn test659_handler_error_returns_err_frame() {
         /// Handler that always fails.
         #[derive(Debug)]
         struct FailHandler;
 
+        #[async_trait]
         impl FrameHandler for FailHandler {
-            fn handle_request(
+            async fn handle_request(
                 &self,
                 _cap_urn: &str,
-                input: mpsc::Receiver<Frame>,
+                mut input: mpsc::UnboundedReceiver<Frame>,
                 output: ResponseWriter,
-                _rt: &tokio::runtime::Handle,
             ) {
                 // Drain input
-                for frame in input.iter() {
+                while let Some(frame) = input.recv().await {
                     if frame.frame_type == FrameType::End {
                         break;
                     }
@@ -863,7 +866,6 @@ mod tests {
             }
         }
 
-        let rt = tokio::runtime::Runtime::new().unwrap();
         let cap_urn = "cap:in=\"media:void\";op=fail;out=\"media:void\"";
         let cap = make_test_cap(cap_urn);
         let host = InProcessPluginHost::new(vec![(
@@ -873,28 +875,30 @@ mod tests {
         )]);
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
-        let (host_sock2, test_sock2) = UnixStream::pair().unwrap();
+        let (host_read, host_write) = host_sock.into_split();
+        let (test_read, test_write) = test_sock.into_split();
 
-        let handle = rt.handle().clone();
-        let host_thread = std::thread::spawn(move || host.run(host_sock, host_sock2, handle));
+        let host_task = tokio::spawn(async move {
+            host.run(host_read, host_write).await
+        });
 
-        let mut reader = FrameReader::new(test_sock2);
-        let mut writer = FrameWriter::new(test_sock);
+        let mut reader = FrameReader::new(BufReader::new(test_read));
+        let mut writer = FrameWriter::new(BufWriter::new(test_write));
 
         // Skip RelayNotify
-        let _notify = reader.read().unwrap().unwrap();
+        let _notify = reader.read().await.unwrap().unwrap();
 
         // Send REQ + END (no streams, void input)
         let rid = MessageId::new_uuid();
         let mut req = Frame::req(rid.clone(), cap_urn, vec![], "application/cbor");
         req.routing_id = Some(MessageId::Uint(1));
-        writer.write(&req).unwrap();
+        writer.write(&req).await.unwrap();
 
         let end = Frame::end(rid.clone(), None);
-        writer.write(&end).unwrap();
+        writer.write(&end).await.unwrap();
 
         // Should get ERR frame
-        let err_frame = reader.read().unwrap().unwrap();
+        let err_frame = reader.read().await.unwrap().unwrap();
         assert_eq!(err_frame.frame_type, FrameType::Err);
         assert_eq!(err_frame.id, rid);
         assert_eq!(err_frame.error_code(), Some("PROVIDER_ERROR"));
@@ -905,7 +909,7 @@ mod tests {
 
         drop(writer);
         drop(reader);
-        host_thread.join().unwrap().unwrap();
+        host_task.await.unwrap().unwrap();
     }
 
     // TEST660: InProcessPluginHost closest-specificity routing prefers specific over identity
@@ -923,16 +927,16 @@ mod tests {
         #[derive(Debug)]
         struct TaggedHandler(String);
 
+        #[async_trait]
         impl FrameHandler for TaggedHandler {
-            fn handle_request(
+            async fn handle_request(
                 &self,
                 _cap_urn: &str,
-                input: mpsc::Receiver<Frame>,
+                mut input: mpsc::UnboundedReceiver<Frame>,
                 output: ResponseWriter,
-                _rt: &tokio::runtime::Handle,
             ) {
                 // Drain input
-                for frame in input.iter() {
+                while let Some(frame) = input.recv().await {
                     if frame.frame_type == FrameType::End {
                         break;
                     }

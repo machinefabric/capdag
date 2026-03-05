@@ -269,6 +269,7 @@ pub async fn parse_dot_to_cap_dag(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MediaUrn;
 
     // Mock registry for testing
     struct MockRegistry {
@@ -347,8 +348,13 @@ mod tests {
         let graph = result.unwrap();
         assert_eq!(graph.nodes.len(), 2);
         assert_eq!(graph.edges.len(), 1);
-        assert_eq!(graph.nodes.get("A").unwrap(), "media:pdf;bytes");
-        assert_eq!(graph.nodes.get("B").unwrap(), "media:txt;textable");
+        // Compare using MediaUrn equivalence rather than string equality (tag order doesn't matter)
+        let node_a = MediaUrn::from_string(graph.nodes.get("A").unwrap()).unwrap();
+        let expected_a = MediaUrn::from_string("media:pdf;bytes").unwrap();
+        assert!(node_a.is_equivalent(&expected_a).unwrap(), "Node A media URN mismatch: {:?} vs {:?}", node_a, expected_a);
+        let node_b = MediaUrn::from_string(graph.nodes.get("B").unwrap()).unwrap();
+        let expected_b = MediaUrn::from_string("media:txt;textable").unwrap();
+        assert!(node_b.is_equivalent(&expected_b).unwrap(), "Node B media URN mismatch: {:?} vs {:?}", node_b, expected_b);
     }
 
     // TEST921: Fail on edge missing label

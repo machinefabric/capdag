@@ -106,7 +106,7 @@ pub async fn plan_to_resolved_graph(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::planner::{CapExecutionPlan, CapNode, CapEdge};
+    use crate::planner::{CapExecutionPlan, CapNode, CapEdge, InputCardinality};
     use crate::{Cap, CapUrn};
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -122,7 +122,7 @@ mod tests {
 
         async fn add_cap(&self, urn: &str) {
             let cap_urn = CapUrn::from_string(urn).unwrap();
-            let cap = Cap::new(cap_urn, vec![]);
+            let cap = Cap::new(cap_urn, urn.to_string(), "test".to_string());
             self.caps.lock().await.insert(urn.to_string(), cap);
         }
     }
@@ -145,7 +145,7 @@ mod tests {
         let mut plan = CapExecutionPlan::new("test_chain");
 
         // Add input slot
-        plan.add_node(CapNode::input_slot("input", "input", "media:pdf"));
+        plan.add_node(CapNode::input_slot("input", "input", "media:pdf", InputCardinality::Single));
 
         // Add two caps in sequence
         plan.add_node(CapNode::cap("cap_0", "cap:in=media:pdf;op=extract;out=media:text"));

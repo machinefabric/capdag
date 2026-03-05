@@ -18,7 +18,7 @@
 use crate::bifaci::frame::{keys, Frame, FrameType, Limits, MessageId, DEFAULT_MAX_CHUNK, DEFAULT_MAX_FRAME, DEFAULT_MAX_REORDER_BUFFER};
 use ciborium::Value;
 use std::collections::BTreeMap;
-use std::io::{self, Read, Write};
+use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Maximum frame size (16 MB) - hard limit to prevent memory exhaustion
@@ -390,34 +390,8 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, CborError> {
     Ok(frame)
 }
 
-/// Write a length-prefixed CBOR frame to a writer
-pub fn write_frame<W: Write>(writer: &mut W, frame: &Frame, limits: &Limits) -> Result<(), CborError> {
-    let bytes = encode_frame(frame)?;
-
-    if bytes.len() > limits.max_frame {
-        return Err(CborError::FrameTooLarge {
-            size: bytes.len(),
-            max: limits.max_frame,
-        });
-    }
-
-    if bytes.len() > MAX_FRAME_HARD_LIMIT {
-        return Err(CborError::FrameTooLarge {
-            size: bytes.len(),
-            max: MAX_FRAME_HARD_LIMIT,
-        });
-    }
-
-    let len = bytes.len() as u32;
-    writer.write_all(&len.to_be_bytes())?;
-    writer.write_all(&bytes)?;
-    writer.flush()?;
-
-    Ok(())
-}
-
 /// Write a length-prefixed CBOR frame to an async writer
-pub async fn write_frame_async<W: AsyncWrite + Unpin>(
+pub async fn write_frame<W: AsyncWrite + Unpin>(
     writer: &mut W,
     frame: &Frame,
     limits: &Limits,
@@ -449,7 +423,7 @@ pub async fn write_frame_async<W: AsyncWrite + Unpin>(
 /// Read a length-prefixed CBOR frame from an async reader
 ///
 /// Returns Ok(None) on clean EOF, Err(UnexpectedEof) on partial read.
-pub async fn read_frame_async<R: AsyncRead + Unpin>(
+pub async fn read_frame<R: AsyncRead + Unpin>(
     reader: &mut R,
     limits: &Limits,
 ) -> Result<Option<Frame>, CborError> {
@@ -485,49 +459,35 @@ pub async fn read_frame_async<R: AsyncRead + Unpin>(
     Ok(Some(frame))
 }
 
-/// Read a length-prefixed CBOR frame from a reader
-///
-/// Returns Ok(None) on clean EOF, Err(UnexpectedEof) on partial read.
-pub fn read_frame<R: Read>(reader: &mut R, limits: &Limits) -> Result<Option<Frame>, CborError> {
-    // Read 4-byte length prefix
-    let mut len_buf = [0u8; 4];
-    match reader.read_exact(&mut len_buf) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(CborError::Io(e)),
-    }
-
-    let length = u32::from_be_bytes(len_buf) as usize;
-
-    // Validate length
-    if length > limits.max_frame || length > MAX_FRAME_HARD_LIMIT {
-        return Err(CborError::FrameTooLarge {
-            size: length,
-            max: limits.max_frame.min(MAX_FRAME_HARD_LIMIT),
-        });
-    }
-
-    // Read payload
-    let mut payload = vec![0u8; length];
-    reader.read_exact(&mut payload).map_err(|e| {
-        if e.kind() == io::ErrorKind::UnexpectedEof {
-            CborError::UnexpectedEof
-        } else {
-            CborError::Io(e)
-        }
-    })?;
-
-    let frame = decode_frame(&payload)?;
-    Ok(Some(frame))
+/// Handshake result including manifest (host side - receives plugin's HELLO with manifest)
+#[derive(Debug, Clone)]
+pub struct HandshakeResult {
+    /// Negotiated protocol limits
+    pub limits: Limits,
+    /// Plugin manifest JSON data (from plugin's HELLO response).
+    /// This is REQUIRED - plugins MUST include their manifest in HELLO.
+    pub manifest: Vec<u8>,
 }
 
-/// CBOR frame reader with buffering
-pub struct FrameReader<R: Read> {
+// =============================================================================
+// FRAME I/O TYPES
+// =============================================================================
+
+/// CBOR frame reader with limits enforcement
+pub struct FrameReader<R: AsyncRead + Unpin> {
     reader: R,
     limits: Limits,
 }
 
-impl<R: Read> FrameReader<R> {
+impl<R: AsyncRead + Unpin> std::fmt::Debug for FrameReader<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FrameReader")
+            .field("limits", &self.limits)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<R: AsyncRead + Unpin> FrameReader<R> {
     /// Create a new frame reader with default limits
     pub fn new(reader: R) -> Self {
         Self {
@@ -547,29 +507,31 @@ impl<R: Read> FrameReader<R> {
     }
 
     /// Read the next frame
-    pub fn read(&mut self) -> Result<Option<Frame>, CborError> {
-        read_frame(&mut self.reader, &self.limits)
+    pub async fn read(&mut self) -> Result<Option<Frame>, CborError> {
+        read_frame(&mut self.reader, &self.limits).await
     }
 
     /// Get the current limits
     pub fn limits(&self) -> &Limits {
         &self.limits
     }
-
-    /// Get mutable access to the underlying reader
-    pub fn inner_mut(&mut self) -> &mut R {
-        &mut self.reader
-    }
 }
 
-/// CBOR frame writer with buffering
-#[derive(Debug)]
-pub struct FrameWriter<W: Write> {
+/// CBOR frame writer with limits enforcement
+pub struct FrameWriter<W: AsyncWrite + Unpin> {
     writer: W,
     limits: Limits,
 }
 
-impl<W: Write> FrameWriter<W> {
+impl<W: AsyncWrite + Unpin> std::fmt::Debug for FrameWriter<W> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FrameWriter")
+            .field("limits", &self.limits)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<W: AsyncWrite + Unpin> FrameWriter<W> {
     /// Create a new frame writer with default limits
     pub fn new(writer: W) -> Self {
         Self {
@@ -589,8 +551,8 @@ impl<W: Write> FrameWriter<W> {
     }
 
     /// Write a frame
-    pub fn write(&mut self, frame: &Frame) -> Result<(), CborError> {
-        write_frame(&mut self.writer, frame, &self.limits)
+    pub async fn write(&mut self, frame: &Frame) -> Result<(), CborError> {
+        write_frame(&mut self.writer, frame, &self.limits).await
     }
 
     /// Get the current limits
@@ -598,7 +560,7 @@ impl<W: Write> FrameWriter<W> {
         &self.limits
     }
 
-    /// Get mutable access to the underlying writer
+    /// Get mutable access to the inner writer
     pub fn inner_mut(&mut self) -> &mut W {
         &mut self.writer
     }
@@ -607,7 +569,7 @@ impl<W: Write> FrameWriter<W> {
     ///
     /// This splits the payload into chunks respecting max_chunk and writes
     /// them as CHUNK frames with proper offset/len/eof markers.
-    pub fn write_chunked(
+    pub async fn write_chunked(
         &mut self,
         id: MessageId,
         stream_id: String,
@@ -625,7 +587,7 @@ impl<W: Write> FrameWriter<W> {
             frame.len = Some(0);
             frame.offset = Some(0);
             frame.eof = Some(true);
-            return self.write(&frame);
+            return self.write(&frame).await;
         }
 
         let mut offset = 0usize;
@@ -651,7 +613,7 @@ impl<W: Write> FrameWriter<W> {
                 frame.eof = Some(true);
             }
 
-            self.write(&frame)?;
+            self.write(&frame).await?;
 
             chunk_index += 1;
             offset += chunk_size;
@@ -661,178 +623,12 @@ impl<W: Write> FrameWriter<W> {
     }
 }
 
-/// Handshake result including manifest (host side - receives plugin's HELLO with manifest)
-#[derive(Debug, Clone)]
-pub struct HandshakeResult {
-    /// Negotiated protocol limits
-    pub limits: Limits,
-    /// Plugin manifest JSON data (from plugin's HELLO response).
-    /// This is REQUIRED - plugins MUST include their manifest in HELLO.
-    pub manifest: Vec<u8>,
-}
-
 /// Perform HELLO handshake and extract plugin manifest (host side - sends first).
 /// Returns HandshakeResult containing negotiated limits and plugin manifest.
 /// Fails if plugin HELLO is missing the required manifest.
-pub fn handshake<R: Read, W: Write>(
+pub async fn handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     reader: &mut FrameReader<R>,
     writer: &mut FrameWriter<W>,
-) -> Result<HandshakeResult, CborError> {
-    // Send our HELLO
-    let our_hello = Frame::hello(&Limits::default());
-    writer.write(&our_hello)?;
-
-    // Read their HELLO (should include manifest)
-    let their_frame = reader.read()?.ok_or_else(|| {
-        CborError::Handshake("connection closed before receiving HELLO".to_string())
-    })?;
-
-    if their_frame.frame_type != FrameType::Hello {
-        return Err(CborError::Handshake(format!(
-            "expected HELLO, got {:?}",
-            their_frame.frame_type
-        )));
-    }
-
-    // Extract manifest - REQUIRED for plugins
-    let manifest = their_frame
-        .hello_manifest()
-        .ok_or_else(|| CborError::Handshake("Plugin HELLO missing required manifest".to_string()))?
-        .to_vec();
-
-    // Negotiate minimum of both
-    let their_max_frame = their_frame.hello_max_frame().unwrap_or(DEFAULT_MAX_FRAME);
-    let their_max_chunk = their_frame.hello_max_chunk().unwrap_or(DEFAULT_MAX_CHUNK);
-    let their_max_reorder_buffer = their_frame.hello_max_reorder_buffer().unwrap_or(DEFAULT_MAX_REORDER_BUFFER);
-
-    let limits = Limits {
-        max_frame: DEFAULT_MAX_FRAME.min(their_max_frame),
-        max_chunk: DEFAULT_MAX_CHUNK.min(their_max_chunk),
-        max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER.min(their_max_reorder_buffer),
-    };
-
-    // Update both reader and writer with negotiated limits
-    reader.set_limits(limits);
-    writer.set_limits(limits);
-
-    Ok(HandshakeResult { limits, manifest })
-}
-
-/// Accept HELLO handshake with manifest (plugin side - receives first, sends manifest in response).
-///
-/// Reads host's HELLO, sends our HELLO with manifest, returns negotiated limits.
-/// The manifest is REQUIRED - plugins MUST provide their manifest.
-pub fn handshake_accept<R: Read, W: Write>(
-    reader: &mut FrameReader<R>,
-    writer: &mut FrameWriter<W>,
-    manifest: &[u8],
-) -> Result<Limits, CborError> {
-    // Read their HELLO first (host initiates)
-    let their_frame = reader.read()?.ok_or_else(|| {
-        CborError::Handshake("connection closed before receiving HELLO".to_string())
-    })?;
-
-    if their_frame.frame_type != FrameType::Hello {
-        return Err(CborError::Handshake(format!(
-            "expected HELLO, got {:?}",
-            their_frame.frame_type
-        )));
-    }
-
-    // Negotiate minimum of both
-    let their_max_frame = their_frame.hello_max_frame().unwrap_or(DEFAULT_MAX_FRAME);
-    let their_max_chunk = their_frame.hello_max_chunk().unwrap_or(DEFAULT_MAX_CHUNK);
-    let their_max_reorder_buffer = their_frame.hello_max_reorder_buffer().unwrap_or(DEFAULT_MAX_REORDER_BUFFER);
-
-    let limits = Limits {
-        max_frame: DEFAULT_MAX_FRAME.min(their_max_frame),
-        max_chunk: DEFAULT_MAX_CHUNK.min(their_max_chunk),
-        max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER.min(their_max_reorder_buffer),
-    };
-
-    // Send our HELLO with manifest
-    let our_hello = Frame::hello_with_manifest(&limits, manifest);
-    writer.write(&our_hello)?;
-
-    // Update both reader and writer with negotiated limits
-    reader.set_limits(limits);
-    writer.set_limits(limits);
-
-    Ok(limits)
-}
-
-// =============================================================================
-// ASYNC I/O TYPES
-// =============================================================================
-
-/// Async CBOR frame reader
-pub struct AsyncFrameReader<R: AsyncRead + Unpin> {
-    reader: R,
-    limits: Limits,
-}
-
-impl<R: AsyncRead + Unpin> AsyncFrameReader<R> {
-    /// Create a new async frame reader with default limits
-    pub fn new(reader: R) -> Self {
-        Self {
-            reader,
-            limits: Limits::default(),
-        }
-    }
-
-    /// Update limits (after handshake)
-    pub fn set_limits(&mut self, limits: Limits) {
-        self.limits = limits;
-    }
-
-    /// Read the next frame
-    pub async fn read(&mut self) -> Result<Option<Frame>, CborError> {
-        read_frame_async(&mut self.reader, &self.limits).await
-    }
-
-    /// Get the current limits
-    pub fn limits(&self) -> &Limits {
-        &self.limits
-    }
-}
-
-/// Async CBOR frame writer
-pub struct AsyncFrameWriter<W: AsyncWrite + Unpin> {
-    writer: W,
-    limits: Limits,
-}
-
-impl<W: AsyncWrite + Unpin> AsyncFrameWriter<W> {
-    /// Create a new async frame writer with default limits
-    pub fn new(writer: W) -> Self {
-        Self {
-            writer,
-            limits: Limits::default(),
-        }
-    }
-
-    /// Update limits (after handshake)
-    pub fn set_limits(&mut self, limits: Limits) {
-        self.limits = limits;
-    }
-
-    /// Write a frame
-    pub async fn write(&mut self, frame: &Frame) -> Result<(), CborError> {
-        write_frame_async(&mut self.writer, frame, &self.limits).await
-    }
-
-    /// Get the current limits
-    pub fn limits(&self) -> &Limits {
-        &self.limits
-    }
-}
-
-/// Perform async HELLO handshake and extract plugin manifest (host side - sends first).
-/// Returns HandshakeResult containing negotiated limits and plugin manifest.
-/// Fails if plugin HELLO is missing the required manifest.
-pub async fn handshake_async<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
-    reader: &mut AsyncFrameReader<R>,
-    writer: &mut AsyncFrameWriter<W>,
 ) -> Result<HandshakeResult, CborError> {
     // Send our HELLO
     let our_hello = Frame::hello(&Limits::default());
@@ -874,6 +670,49 @@ pub async fn handshake_async<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     Ok(HandshakeResult { limits, manifest })
 }
 
+/// Accept HELLO handshake with manifest (plugin side - receives first, sends manifest in response).
+///
+/// Reads host's HELLO, sends our HELLO with manifest, returns negotiated limits.
+/// The manifest is REQUIRED - plugins MUST provide their manifest.
+pub async fn handshake_accept<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+    reader: &mut FrameReader<R>,
+    writer: &mut FrameWriter<W>,
+    manifest: &[u8],
+) -> Result<Limits, CborError> {
+    // Read their HELLO first (host initiates)
+    let their_frame = reader.read().await?.ok_or_else(|| {
+        CborError::Handshake("connection closed before receiving HELLO".to_string())
+    })?;
+
+    if their_frame.frame_type != FrameType::Hello {
+        return Err(CborError::Handshake(format!(
+            "expected HELLO, got {:?}",
+            their_frame.frame_type
+        )));
+    }
+
+    // Negotiate minimum of both
+    let their_max_frame = their_frame.hello_max_frame().unwrap_or(DEFAULT_MAX_FRAME);
+    let their_max_chunk = their_frame.hello_max_chunk().unwrap_or(DEFAULT_MAX_CHUNK);
+    let their_max_reorder_buffer = their_frame.hello_max_reorder_buffer().unwrap_or(DEFAULT_MAX_REORDER_BUFFER);
+
+    let limits = Limits {
+        max_frame: DEFAULT_MAX_FRAME.min(their_max_frame),
+        max_chunk: DEFAULT_MAX_CHUNK.min(their_max_chunk),
+        max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER.min(their_max_reorder_buffer),
+    };
+
+    // Send our HELLO with manifest
+    let our_hello = Frame::hello_with_manifest(&limits, manifest);
+    writer.write(&our_hello).await?;
+
+    // Update both reader and writer with negotiated limits
+    reader.set_limits(limits);
+    writer.set_limits(limits);
+
+    Ok(limits)
+}
+
 // =============================================================================
 // IDENTITY VERIFICATION
 // =============================================================================
@@ -886,7 +725,7 @@ pub(crate) fn identity_nonce() -> Vec<u8> {
     buf
 }
 
-/// Verify a connection by invoking the identity capability (async).
+/// Verify a connection by invoking the identity capability.
 ///
 /// Sends a REQ with CAP_IDENTITY carrying the "bifaci" nonce with proper
 /// XID and seq assignment, then verifies the response echoes it back unchanged.
@@ -895,8 +734,8 @@ pub(crate) fn identity_nonce() -> Vec<u8> {
 ///
 /// Must be called after handshake, before any other traffic.
 pub async fn verify_identity<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
-    reader: &mut AsyncFrameReader<R>,
-    writer: &mut AsyncFrameWriter<W>,
+    reader: &mut FrameReader<R>,
+    writer: &mut FrameWriter<W>,
 ) -> Result<(), CborError> {
     use crate::standard::caps::CAP_IDENTITY;
     use crate::bifaci::frame::SeqAssigner;
@@ -997,7 +836,8 @@ pub async fn verify_identity<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    use tokio::io::BufReader as TokioBufReader;
+    use tokio::io::BufWriter as TokioBufWriter;
 
     // TEST205: Test REQ frame encode/decode roundtrip preserves all fields
     #[test]
@@ -1121,22 +961,20 @@ mod tests {
     }
 
     // TEST214: Test write_frame/read_frame IO roundtrip through length-prefixed wire format
-    #[test]
-    fn test214_frame_io_roundtrip() {
+    #[tokio::test]
+    async fn test214_frame_io_roundtrip() {
         let limits = Limits::default();
         let id = MessageId::new_uuid();
         let original = Frame::req(id, r#"cap:in="media:void";op=test;out="media:void""#, b"payload".to_vec(), "application/json");
 
-        let mut buf = Vec::new();
-        write_frame(&mut buf, &original, &limits).expect("write should succeed");
+        // Write to buffer using duplex stream
+        let (mut client, mut server) = tokio::io::duplex(64 * 1024);
+        write_frame(&mut client, &original, &limits).await.expect("write should succeed");
+        drop(client); // Close write side to signal EOF
 
-        // Verify length prefix exists (first 4 bytes are u32 big-endian length)
-        assert!(buf.len() > 4, "must have length prefix + data");
-        let prefix_len = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
-        assert_eq!(buf.len(), 4 + prefix_len, "buffer must be exactly prefix + frame");
-
-        let mut cursor = Cursor::new(buf);
-        let decoded = read_frame(&mut cursor, &limits)
+        // Read back
+        let decoded = read_frame(&mut server, &limits)
+            .await
             .expect("read should succeed")
             .expect("should have frame");
 
@@ -1146,10 +984,9 @@ mod tests {
     }
 
     // TEST215: Test reading multiple sequential frames from a single buffer
-    #[test]
-    fn test215_multiple_frames() {
+    #[tokio::test]
+    async fn test215_multiple_frames() {
         let limits = Limits::default();
-        let mut buf = Vec::new();
 
         let id1 = MessageId::new_uuid();
         let id2 = MessageId::new_uuid();
@@ -1161,31 +998,32 @@ mod tests {
         let f2 = Frame::chunk(id2.clone(), "stream-2".to_string(), 0, payload2, 0, checksum2);
         let f3 = Frame::end(id3.clone(), Some(b"three".to_vec()));
 
-        write_frame(&mut buf, &f1, &limits).unwrap();
-        write_frame(&mut buf, &f2, &limits).unwrap();
-        write_frame(&mut buf, &f3, &limits).unwrap();
+        let (mut client, mut server) = tokio::io::duplex(64 * 1024);
 
-        let mut cursor = Cursor::new(buf);
+        write_frame(&mut client, &f1, &limits).await.unwrap();
+        write_frame(&mut client, &f2, &limits).await.unwrap();
+        write_frame(&mut client, &f3, &limits).await.unwrap();
+        drop(client);
 
-        let r1 = read_frame(&mut cursor, &limits).unwrap().unwrap();
+        let r1 = read_frame(&mut server, &limits).await.unwrap().unwrap();
         assert_eq!(r1.frame_type, FrameType::Req);
         assert_eq!(r1.id, id1);
 
-        let r2 = read_frame(&mut cursor, &limits).unwrap().unwrap();
+        let r2 = read_frame(&mut server, &limits).await.unwrap().unwrap();
         assert_eq!(r2.frame_type, FrameType::Chunk);
         assert_eq!(r2.id, id2);
 
-        let r3 = read_frame(&mut cursor, &limits).unwrap().unwrap();
+        let r3 = read_frame(&mut server, &limits).await.unwrap().unwrap();
         assert_eq!(r3.frame_type, FrameType::End);
         assert_eq!(r3.id, id3);
 
         // EOF after all frames read
-        assert!(read_frame(&mut cursor, &limits).unwrap().is_none());
+        assert!(read_frame(&mut server, &limits).await.unwrap().is_none());
     }
 
     // TEST216: Test write_frame rejects frames exceeding max_frame limit
-    #[test]
-    fn test216_frame_too_large() {
+    #[tokio::test]
+    async fn test216_frame_too_large() {
         let limits = Limits {
             max_frame: 100,
             max_chunk: 50,
@@ -1196,54 +1034,56 @@ mod tests {
         let large_payload = vec![0u8; 200];
         let frame = Frame::req(id, r#"cap:in="media:void";op=test;out="media:void""#, large_payload, "application/octet-stream");
 
-        let mut buf = Vec::new();
-        let result = write_frame(&mut buf, &frame, &limits);
+        let (mut client, _server) = tokio::io::duplex(64 * 1024);
+        let result = write_frame(&mut client, &frame, &limits).await;
         assert!(matches!(result, Err(CborError::FrameTooLarge { .. })));
     }
 
     // TEST217: Test read_frame rejects incoming frames exceeding the negotiated max_frame limit
-    #[test]
-    fn test217_read_frame_too_large() {
+    #[tokio::test]
+    async fn test217_read_frame_too_large() {
         let write_limits = Limits { max_frame: 10_000_000, max_chunk: 1_000_000, ..Limits::default() };
         let read_limits = Limits { max_frame: 50, max_chunk: 50, ..Limits::default() };
 
         // Write a frame with generous limits
         let id = MessageId::new_uuid();
         let frame = Frame::req(id, r#"cap:in="media:void";op=test;out="media:void""#, vec![0u8; 200], "text/plain");
-        let mut buf = Vec::new();
-        write_frame(&mut buf, &frame, &write_limits).unwrap();
+
+        let (mut client, mut server) = tokio::io::duplex(64 * 1024);
+        write_frame(&mut client, &frame, &write_limits).await.unwrap();
+        drop(client);
 
         // Try to read with strict limits
-        let mut cursor = Cursor::new(buf);
-        let result = read_frame(&mut cursor, &read_limits);
+        let result = read_frame(&mut server, &read_limits).await;
         assert!(matches!(result, Err(CborError::FrameTooLarge { .. })));
     }
 
     // TEST218: Test write_chunked splits data into chunks respecting max_chunk and reconstructs correctly
     // Chunks from write_chunked have seq=0. SeqAssigner at the output stage assigns final seq.
     // Chunk ordering within a stream is tracked by chunk_index (chunk_index field).
-    #[test]
-    fn test218_write_chunked() {
+    #[tokio::test]
+    async fn test218_write_chunked() {
         let limits = Limits {
             max_frame: 1_000_000,
             max_chunk: 10, // Very small for testing
             ..Limits::default()
         };
 
-        let mut buf = Vec::new();
-        let mut writer = FrameWriter::with_limits(&mut buf, limits);
-
         let id = MessageId::new_uuid();
         let stream_id = "stream-chunked".to_string();
         let data = b"Hello, this is a longer message that will be chunked!";
 
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        let mut writer = FrameWriter::with_limits(client, limits);
+
         writer
             .write_chunked(id.clone(), stream_id, "text/plain", data)
+            .await
             .expect("chunked write should succeed");
+        drop(writer);
 
         // Read back all chunks
-        let mut cursor = Cursor::new(buf);
-        let mut reader = FrameReader::with_limits(&mut cursor, limits);
+        let mut reader = FrameReader::with_limits(server, limits);
 
         let mut received = Vec::new();
         let mut chunk_count = 0u64;
@@ -1251,7 +1091,7 @@ mod tests {
         let mut first_chunk_had_content_type = false;
 
         loop {
-            let frame = reader.read().unwrap();
+            let frame = reader.read().await.unwrap();
             match frame {
                 Some(f) => {
                     assert_eq!(f.frame_type, FrameType::Chunk);
@@ -1289,17 +1129,17 @@ mod tests {
     }
 
     // TEST219: Test write_chunked with empty data produces a single EOF chunk
-    #[test]
-    fn test219_write_chunked_empty_data() {
+    #[tokio::test]
+    async fn test219_write_chunked_empty_data() {
         let limits = Limits { max_frame: 1_000_000, max_chunk: 100, ..Limits::default() };
-        let mut buf = Vec::new();
-        let mut writer = FrameWriter::with_limits(&mut buf, limits);
 
         let id = MessageId::new_uuid();
-        writer.write_chunked(id.clone(), "stream-empty".to_string(), "text/plain", b"").unwrap();
+        let (client, mut server) = tokio::io::duplex(64 * 1024);
+        let mut writer = FrameWriter::with_limits(client, limits);
+        writer.write_chunked(id.clone(), "stream-empty".to_string(), "text/plain", b"").await.unwrap();
+        drop(writer);
 
-        let mut cursor = Cursor::new(buf);
-        let frame = read_frame(&mut cursor, &limits).unwrap().expect("should have frame");
+        let frame = read_frame(&mut server, &limits).await.unwrap().expect("should have frame");
         assert_eq!(frame.frame_type, FrameType::Chunk);
         assert!(frame.is_eof(), "empty data must produce immediate EOF");
         assert_eq!(frame.len, Some(0), "empty payload must report len=0");
@@ -1307,42 +1147,46 @@ mod tests {
     }
 
     // TEST220: Test write_chunked with data exactly equal to max_chunk produces exactly one chunk
-    #[test]
-    fn test220_write_chunked_exact_fit() {
+    #[tokio::test]
+    async fn test220_write_chunked_exact_fit() {
         let limits = Limits { max_frame: 1_000_000, max_chunk: 10, ..Limits::default() };
-        let mut buf = Vec::new();
-        let mut writer = FrameWriter::with_limits(&mut buf, limits);
 
         let id = MessageId::new_uuid();
         let data = b"0123456789"; // exactly 10 bytes = max_chunk
-        writer.write_chunked(id.clone(), "stream-1mb".to_string(), "text/plain", data).unwrap();
+        let (client, mut server) = tokio::io::duplex(64 * 1024);
+        let mut writer = FrameWriter::with_limits(client, limits);
+        writer.write_chunked(id.clone(), "stream-1mb".to_string(), "text/plain", data).await.unwrap();
+        drop(writer);
 
-        let mut cursor = Cursor::new(buf);
-        let frame = read_frame(&mut cursor, &limits).unwrap().expect("should have frame");
+        let frame = read_frame(&mut server, &limits).await.unwrap().expect("should have frame");
         assert!(frame.is_eof(), "single-chunk data must be EOF");
         assert_eq!(frame.payload, Some(data.to_vec()));
         assert_eq!(frame.seq, 0);
         // No more frames
-        assert!(read_frame(&mut cursor, &limits).unwrap().is_none());
+        assert!(read_frame(&mut server, &limits).await.unwrap().is_none());
     }
 
     // TEST221: Test read_frame returns Ok(None) on clean EOF (empty stream)
-    #[test]
-    fn test221_eof_handling() {
+    #[tokio::test]
+    async fn test221_eof_handling() {
         let limits = Limits::default();
-        let mut cursor = Cursor::new(Vec::<u8>::new());
-        let result = read_frame(&mut cursor, &limits).unwrap();
+        let (_client, mut server) = tokio::io::duplex(1024);
+        drop(_client); // Close write side immediately to signal EOF
+        let result = read_frame(&mut server, &limits).await.unwrap();
         assert!(result.is_none());
     }
 
     // TEST222: Test read_frame handles truncated length prefix (fewer than 4 bytes available)
-    #[test]
-    fn test222_truncated_length_prefix() {
+    #[tokio::test]
+    async fn test222_truncated_length_prefix() {
         let limits = Limits::default();
         // Only 2 bytes, but 4 needed for length prefix
-        let mut cursor = Cursor::new(vec![0x00, 0x01]);
-        let result = read_frame(&mut cursor, &limits);
-        // read_exact on Cursor with insufficient data returns UnexpectedEof,
+        let (mut client, mut server) = tokio::io::duplex(1024);
+        use tokio::io::AsyncWriteExt;
+        client.write_all(&[0x00, 0x01]).await.unwrap();
+        drop(client);
+        let result = read_frame(&mut server, &limits).await;
+        // read_exact with insufficient data returns UnexpectedEof,
         // which maps to Ok(None) for the clean-EOF path in read_frame.
         match result {
             Ok(None) => {} // clean EOF interpretation
@@ -1352,14 +1196,17 @@ mod tests {
     }
 
     // TEST223: Test read_frame returns error on truncated frame body (length prefix says more bytes than available)
-    #[test]
-    fn test223_truncated_frame_body() {
+    #[tokio::test]
+    async fn test223_truncated_frame_body() {
         let limits = Limits::default();
         // Length prefix says 100 bytes, but only 5 bytes of data follow
         let mut data = vec![0x00, 0x00, 0x00, 100]; // length = 100
         data.extend_from_slice(b"short"); // only 5 bytes
-        let mut cursor = Cursor::new(data);
-        let result = read_frame(&mut cursor, &limits);
+        let (mut client, mut server) = tokio::io::duplex(1024);
+        use tokio::io::AsyncWriteExt;
+        client.write_all(&data).await.unwrap();
+        drop(client);
+        let result = read_frame(&mut server, &limits).await;
         assert!(result.is_err(), "truncated body must be an error");
     }
 
@@ -1433,11 +1280,11 @@ mod tests {
     }
 
     // TEST229: Test FrameReader/FrameWriter set_limits updates the negotiated limits
-    #[test]
-    fn test229_frame_reader_writer_set_limits() {
-        let buf: Vec<u8> = Vec::new();
-        let mut reader = FrameReader::new(Cursor::new(buf));
-        let mut writer = FrameWriter::new(Vec::new());
+    #[tokio::test]
+    async fn test229_frame_reader_writer_set_limits() {
+        let (client, server) = tokio::io::duplex(1024);
+        let mut reader = FrameReader::new(server);
+        let mut writer = FrameWriter::new(client);
 
         let custom = Limits { max_frame: 500, max_chunk: 100, ..Limits::default() };
         reader.set_limits(custom);
@@ -1449,30 +1296,28 @@ mod tests {
         assert_eq!(writer.limits().max_chunk, 100);
     }
 
-    // TEST230: Test sync handshake exchanges HELLO frames and negotiates minimum limits
-    #[test]
-    fn test230_sync_handshake() {
-        use std::thread;
-
-        let (host_std, plugin_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (plugin_write_std, host_read_std) = std::os::unix::net::UnixStream::pair().unwrap();
+    // TEST230: Test async handshake exchanges HELLO frames and negotiates minimum limits
+    #[tokio::test]
+    async fn test230_async_handshake() {
+        let (host_to_plugin, plugin_from_host) = tokio::net::UnixStream::pair().unwrap();
+        let (plugin_to_host, host_from_plugin) = tokio::net::UnixStream::pair().unwrap();
 
         let manifest = b"{\"name\":\"Test\",\"version\":\"1.0\",\"caps\":[]}";
         let manifest_clone = manifest.to_vec();
 
-        // Plugin side in thread
-        let plugin_handle = thread::spawn(move || {
-            let mut reader = FrameReader::new(std::io::BufReader::new(plugin_std));
-            let mut writer = FrameWriter::new(std::io::BufWriter::new(plugin_write_std));
-            handshake_accept(&mut reader, &mut writer, &manifest_clone).unwrap()
+        // Plugin side in spawned task
+        let plugin_handle = tokio::spawn(async move {
+            let mut reader = FrameReader::new(TokioBufReader::new(plugin_from_host));
+            let mut writer = FrameWriter::new(TokioBufWriter::new(plugin_to_host));
+            handshake_accept(&mut reader, &mut writer, &manifest_clone).await.unwrap()
         });
 
         // Host side
-        let mut reader = FrameReader::new(std::io::BufReader::new(host_read_std));
-        let mut writer = FrameWriter::new(std::io::BufWriter::new(host_std));
-        let result = handshake(&mut reader, &mut writer).unwrap();
+        let mut reader = FrameReader::new(TokioBufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(TokioBufWriter::new(host_to_plugin));
+        let result = handshake(&mut reader, &mut writer).await.unwrap();
 
-        let plugin_limits = plugin_handle.join().unwrap();
+        let plugin_limits = plugin_handle.await.unwrap();
 
         // Both sides must agree on limits
         assert_eq!(result.limits.max_frame, plugin_limits.max_frame);
@@ -1482,53 +1327,53 @@ mod tests {
     }
 
     // TEST231: Test handshake fails when peer sends non-HELLO frame
-    #[test]
-    fn test231_handshake_rejects_non_hello() {
-        let (host_std, plugin_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (plugin_write_std, host_read_std) = std::os::unix::net::UnixStream::pair().unwrap();
+    #[tokio::test]
+    async fn test231_handshake_rejects_non_hello() {
+        let (host_to_plugin, plugin_from_host) = tokio::net::UnixStream::pair().unwrap();
+        let (plugin_to_host, host_from_plugin) = tokio::net::UnixStream::pair().unwrap();
 
         // Plugin side: send a REQ frame instead of HELLO
-        let plugin_handle = std::thread::spawn(move || {
-            let mut reader = FrameReader::new(std::io::BufReader::new(plugin_std));
-            let mut writer = FrameWriter::new(std::io::BufWriter::new(plugin_write_std));
+        let plugin_handle = tokio::spawn(async move {
+            let mut reader = FrameReader::new(TokioBufReader::new(plugin_from_host));
+            let mut writer = FrameWriter::new(TokioBufWriter::new(plugin_to_host));
             // Read host's HELLO (consume it)
-            let _ = reader.read().unwrap();
+            let _ = reader.read().await.unwrap();
             // Send a REQ instead of HELLO
             let bad_frame = Frame::req(MessageId::Uint(1), r#"cap:in="media:void";op=bad;out="media:void""#, vec![], "text/plain");
-            writer.write(&bad_frame).unwrap();
+            writer.write(&bad_frame).await.unwrap();
         });
 
-        let mut reader = FrameReader::new(std::io::BufReader::new(host_read_std));
-        let mut writer = FrameWriter::new(std::io::BufWriter::new(host_std));
-        let result = handshake(&mut reader, &mut writer);
+        let mut reader = FrameReader::new(TokioBufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(TokioBufWriter::new(host_to_plugin));
+        let result = handshake(&mut reader, &mut writer).await;
         assert!(result.is_err(), "handshake must fail when peer sends non-HELLO");
         let err = result.unwrap_err();
         assert!(matches!(err, CborError::Handshake(_)));
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST232: Test handshake fails when plugin HELLO is missing required manifest
-    #[test]
-    fn test232_handshake_rejects_missing_manifest() {
-        let (host_std, plugin_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (plugin_write_std, host_read_std) = std::os::unix::net::UnixStream::pair().unwrap();
+    #[tokio::test]
+    async fn test232_handshake_rejects_missing_manifest() {
+        let (host_to_plugin, plugin_from_host) = tokio::net::UnixStream::pair().unwrap();
+        let (plugin_to_host, host_from_plugin) = tokio::net::UnixStream::pair().unwrap();
 
         // Plugin side: send HELLO without manifest
-        let plugin_handle = std::thread::spawn(move || {
-            let mut reader = FrameReader::new(std::io::BufReader::new(plugin_std));
-            let mut writer = FrameWriter::new(std::io::BufWriter::new(plugin_write_std));
-            let _ = reader.read().unwrap(); // consume host HELLO
+        let plugin_handle = tokio::spawn(async move {
+            let mut reader = FrameReader::new(TokioBufReader::new(plugin_from_host));
+            let mut writer = FrameWriter::new(TokioBufWriter::new(plugin_to_host));
+            let _ = reader.read().await.unwrap(); // consume host HELLO
             let no_manifest_hello = Frame::hello(&Limits { max_frame: 1_000_000, max_chunk: 200_000, max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER });
-            writer.write(&no_manifest_hello).unwrap();
+            writer.write(&no_manifest_hello).await.unwrap();
         });
 
-        let mut reader = FrameReader::new(std::io::BufReader::new(host_read_std));
-        let mut writer = FrameWriter::new(std::io::BufWriter::new(host_std));
-        let result = handshake(&mut reader, &mut writer);
+        let mut reader = FrameReader::new(TokioBufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(TokioBufWriter::new(host_to_plugin));
+        let result = handshake(&mut reader, &mut writer).await;
         assert!(result.is_err(), "handshake must fail when manifest is missing");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST233: Test binary payload with all 256 byte values roundtrips through encode/decode
@@ -1691,27 +1536,28 @@ mod tests {
     }
 
     // TEST461: write_chunked produces frames with seq=0; SeqAssigner assigns at output stage
-    #[test]
-    fn test461_write_chunked_seq_zero() {
+    #[tokio::test]
+    async fn test461_write_chunked_seq_zero() {
         let limits = Limits {
             max_frame: 1_000_000,
             max_chunk: 5,
             ..Limits::default()
         };
-        let mut buf = Vec::new();
-        let mut writer = FrameWriter::with_limits(&mut buf, limits);
 
         let id = MessageId::new_uuid();
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        let mut writer = FrameWriter::with_limits(client, limits);
         writer
             .write_chunked(id.clone(), "s".to_string(), "application/octet-stream", b"abcdefghij")
+            .await
             .unwrap();
+        drop(writer);
 
-        let mut cursor = Cursor::new(buf);
-        let mut reader = FrameReader::with_limits(&mut cursor, limits);
+        let mut reader = FrameReader::with_limits(server, limits);
 
         let mut frames = Vec::new();
         loop {
-            match reader.read().unwrap() {
+            match reader.read().await.unwrap() {
                 Some(f) => {
                     let is_eof = f.is_eof();
                     frames.push(f);
@@ -1730,8 +1576,8 @@ mod tests {
     }
 
     // TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides)
-    #[test]
-    fn test472_handshake_negotiates_reorder_buffer() {
+    #[tokio::test]
+    async fn test472_handshake_negotiates_reorder_buffer() {
         // Simulate plugin sending HELLO with max_reorder_buffer=32
         let plugin_limits = Limits {
             max_frame: DEFAULT_MAX_FRAME,
@@ -1740,27 +1586,28 @@ mod tests {
         };
         let manifest = br#"{"name":"test","version":"1.0","caps":[]}"#;
 
-        // Write plugin's HELLO with manifest to a buffer
-        let mut plugin_hello_buf = Vec::new();
+        // Write plugin's HELLO with manifest to a duplex stream
+        let (mut plugin_write, mut plugin_read) = tokio::io::duplex(64 * 1024);
         {
-            let mut w = FrameWriter::new(&mut plugin_hello_buf);
+            let mut w = FrameWriter::new(&mut plugin_write);
             let hello = Frame::hello_with_manifest(&plugin_limits, manifest);
-            w.write(&hello).unwrap();
+            w.write(&hello).await.unwrap();
         }
+        drop(plugin_write);
 
-        // Write host's HELLO to a buffer (our default: max_reorder_buffer=64)
-        let mut host_hello_buf = Vec::new();
+        // Write host's HELLO to a duplex stream (our default: max_reorder_buffer=64)
+        let (mut host_write, mut host_read) = tokio::io::duplex(64 * 1024);
         {
-            let mut w = FrameWriter::new(&mut host_hello_buf);
+            let mut w = FrameWriter::new(&mut host_write);
             let hello = Frame::hello(&Limits::default());
-            w.write(&hello).unwrap();
+            w.write(&hello).await.unwrap();
         }
+        drop(host_write);
 
         // Host reads plugin's HELLO
-        let mut cursor = Cursor::new(plugin_hello_buf);
         let their_frame = {
-            let mut r = FrameReader::new(&mut cursor);
-            r.read().unwrap().unwrap()
+            let mut r = FrameReader::new(&mut plugin_read);
+            r.read().await.unwrap().unwrap()
         };
         let their_reorder = their_frame.hello_max_reorder_buffer().unwrap();
         assert_eq!(their_reorder, 32);
@@ -1768,10 +1615,9 @@ mod tests {
         assert_eq!(negotiated, 32, "must pick minimum (32 < 64)");
 
         // Plugin reads host's HELLO
-        let mut cursor2 = Cursor::new(host_hello_buf);
         let host_frame = {
-            let mut r = FrameReader::new(&mut cursor2);
-            r.read().unwrap().unwrap()
+            let mut r = FrameReader::new(&mut host_read);
+            r.read().await.unwrap().unwrap()
         };
         let host_reorder = host_frame.hello_max_reorder_buffer().unwrap();
         assert_eq!(host_reorder, DEFAULT_MAX_REORDER_BUFFER);
@@ -1786,23 +1632,23 @@ mod tests {
 
     /// Simulate plugin side: handshake_accept, then handle one identity REQ
     /// by echoing back the payload (like the standard identity handler).
-    fn run_plugin_identity_echo(
-        from_host: std::os::unix::net::UnixStream,
-        to_host: std::os::unix::net::UnixStream,
+    async fn run_plugin_identity_echo(
+        from_host: tokio::net::UnixStream,
+        to_host: tokio::net::UnixStream,
         manifest: &[u8],
     ) {
-        let mut reader = FrameReader::new(std::io::BufReader::new(from_host));
-        let mut writer = FrameWriter::new(std::io::BufWriter::new(to_host));
-        handshake_accept(&mut reader, &mut writer, manifest).unwrap();
+        let mut reader = FrameReader::new(TokioBufReader::new(from_host));
+        let mut writer = FrameWriter::new(TokioBufWriter::new(to_host));
+        handshake_accept(&mut reader, &mut writer, manifest).await.unwrap();
 
         // Read REQ
-        let req = reader.read().unwrap().expect("expected REQ");
+        let req = reader.read().await.unwrap().expect("expected REQ");
         assert_eq!(req.frame_type, FrameType::Req);
 
         // Read request body: STREAM_START → CHUNK(s) → STREAM_END → END
         let mut payload = Vec::new();
         loop {
-            let f = reader.read().unwrap().expect("expected frame");
+            let f = reader.read().await.unwrap().expect("expected frame");
             match f.frame_type {
                 FrameType::StreamStart => {}
                 FrameType::Chunk => payload.extend(f.payload.unwrap_or_default()),
@@ -1815,114 +1661,99 @@ mod tests {
         // Echo response: STREAM_START → CHUNK → STREAM_END → END
         let stream_id = "echo".to_string();
         let ss = Frame::stream_start(req.id.clone(), stream_id.clone(), "media:".to_string());
-        writer.write(&ss).unwrap();
+        writer.write(&ss).await.unwrap();
         let checksum = Frame::compute_checksum(&payload);
         let chunk = Frame::chunk(req.id.clone(), stream_id.clone(), 0, payload, 0, checksum);
-        writer.write(&chunk).unwrap();
+        writer.write(&chunk).await.unwrap();
         let se = Frame::stream_end(req.id.clone(), stream_id, 1);
-        writer.write(&se).unwrap();
+        writer.write(&se).await.unwrap();
         let end = Frame::end(req.id, None);
-        writer.write(&end).unwrap();
+        writer.write(&end).await.unwrap();
     }
 
     // TEST481: verify_identity succeeds with standard identity echo handler
     #[tokio::test]
     async fn test481_verify_identity_succeeds() {
-        let (host_to_plugin_std, plugin_from_host_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (plugin_to_host_std, host_from_plugin_std) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (host_to_plugin, plugin_from_host) = tokio::net::UnixStream::pair().unwrap();
+        let (plugin_to_host, host_from_plugin) = tokio::net::UnixStream::pair().unwrap();
 
-        // Plugin side runs sync in a thread
+        // Plugin side runs async in a spawned task
         let manifest = IDENTITY_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            run_plugin_identity_echo(plugin_from_host_std, plugin_to_host_std, &manifest);
+        let plugin_handle = tokio::spawn(async move {
+            run_plugin_identity_echo(plugin_from_host, plugin_to_host, &manifest).await;
         });
 
-        // Host side runs async
-        host_from_plugin_std.set_nonblocking(true).unwrap();
-        host_to_plugin_std.set_nonblocking(true).unwrap();
-        let host_read = tokio::net::UnixStream::from_std(host_from_plugin_std).unwrap();
-        let host_write = tokio::net::UnixStream::from_std(host_to_plugin_std).unwrap();
-
-        let mut reader = AsyncFrameReader::new(host_read);
-        let mut writer = AsyncFrameWriter::new(host_write);
-        let _hs = handshake_async(&mut reader, &mut writer).await.unwrap();
+        // Host side
+        let mut reader = FrameReader::new(TokioBufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(TokioBufWriter::new(host_to_plugin));
+        let _hs = handshake(&mut reader, &mut writer).await.unwrap();
 
         let result = verify_identity(&mut reader, &mut writer).await;
         assert!(result.is_ok(), "verify_identity must succeed: {:?}", result.unwrap_err());
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST482: verify_identity fails when plugin returns ERR on identity call
     #[tokio::test]
     async fn test482_verify_identity_fails_on_err() {
-        let (host_to_plugin_std, plugin_from_host_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (plugin_to_host_std, host_from_plugin_std) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (host_to_plugin, plugin_from_host) = tokio::net::UnixStream::pair().unwrap();
+        let (plugin_to_host, host_from_plugin) = tokio::net::UnixStream::pair().unwrap();
 
         let manifest = IDENTITY_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let mut reader = FrameReader::new(std::io::BufReader::new(plugin_from_host_std));
-            let mut writer = FrameWriter::new(std::io::BufWriter::new(plugin_to_host_std));
-            handshake_accept(&mut reader, &mut writer, &manifest).unwrap();
+        let plugin_handle = tokio::spawn(async move {
+            let mut reader = FrameReader::new(TokioBufReader::new(plugin_from_host));
+            let mut writer = FrameWriter::new(TokioBufWriter::new(plugin_to_host));
+            handshake_accept(&mut reader, &mut writer, &manifest).await.unwrap();
 
             // Read REQ, respond with ERR
-            let req = reader.read().unwrap().expect("expected REQ");
+            let req = reader.read().await.unwrap().expect("expected REQ");
             let err = Frame::err(req.id, "BROKEN", "identity handler broken");
-            writer.write(&err).unwrap();
-            // Flush and wait a bit to ensure host reads the error before connection closes
-            use std::io::Write;
-            writer.inner_mut().flush().unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            writer.write(&err).await.unwrap();
+            // Flush to ensure host reads the error before connection closes
+            use tokio::io::AsyncWriteExt;
+            writer.inner_mut().flush().await.unwrap();
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         });
 
-        host_from_plugin_std.set_nonblocking(true).unwrap();
-        host_to_plugin_std.set_nonblocking(true).unwrap();
-        let host_read = tokio::net::UnixStream::from_std(host_from_plugin_std).unwrap();
-        let host_write = tokio::net::UnixStream::from_std(host_to_plugin_std).unwrap();
-
-        let mut reader = AsyncFrameReader::new(host_read);
-        let mut writer = AsyncFrameWriter::new(host_write);
-        handshake_async(&mut reader, &mut writer).await.unwrap();
+        let mut reader = FrameReader::new(TokioBufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(TokioBufWriter::new(host_to_plugin));
+        handshake(&mut reader, &mut writer).await.unwrap();
 
         let result = verify_identity(&mut reader, &mut writer).await;
         assert!(result.is_err(), "verify_identity must fail on ERR");
         let err = result.unwrap_err();
         assert!(err.to_string().contains("BROKEN"), "error must contain error code: {}", err);
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST483: verify_identity fails when connection closes before response
     #[tokio::test]
     async fn test483_verify_identity_fails_on_close() {
-        let (host_to_plugin_std, plugin_from_host_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (plugin_to_host_std, host_from_plugin_std) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (host_to_plugin, plugin_from_host) = tokio::net::UnixStream::pair().unwrap();
+        let (plugin_to_host, host_from_plugin) = tokio::net::UnixStream::pair().unwrap();
 
         let manifest = IDENTITY_MANIFEST.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let mut reader = FrameReader::new(std::io::BufReader::new(plugin_from_host_std));
-            let mut writer = FrameWriter::new(std::io::BufWriter::new(plugin_to_host_std));
-            handshake_accept(&mut reader, &mut writer, &manifest).unwrap();
+        let plugin_handle = tokio::spawn(async move {
+            let mut reader = FrameReader::new(TokioBufReader::new(plugin_from_host));
+            let mut writer = FrameWriter::new(TokioBufWriter::new(plugin_to_host));
+            handshake_accept(&mut reader, &mut writer, &manifest).await.unwrap();
 
             // Read REQ but close connection without responding
-            let _req = reader.read().unwrap().expect("expected REQ");
+            let _req = reader.read().await.unwrap().expect("expected REQ");
             drop(writer);
             drop(reader);
         });
 
-        host_from_plugin_std.set_nonblocking(true).unwrap();
-        host_to_plugin_std.set_nonblocking(true).unwrap();
-        let host_read = tokio::net::UnixStream::from_std(host_from_plugin_std).unwrap();
-        let host_write = tokio::net::UnixStream::from_std(host_to_plugin_std).unwrap();
-
-        let mut reader = AsyncFrameReader::new(host_read);
-        let mut writer = AsyncFrameWriter::new(host_write);
-        handshake_async(&mut reader, &mut writer).await.unwrap();
+        let mut reader = FrameReader::new(TokioBufReader::new(host_from_plugin));
+        let mut writer = FrameWriter::new(TokioBufWriter::new(host_to_plugin));
+        handshake(&mut reader, &mut writer).await.unwrap();
 
         let result = verify_identity(&mut reader, &mut writer).await;
         assert!(result.is_err(), "verify_identity must fail on connection close");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
 }

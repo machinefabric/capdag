@@ -684,7 +684,8 @@ impl Op<()> for PeerOp {
 // Main Entry Point
 // =============================================================================
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let manifest = build_manifest();
     let mut runtime = PluginRuntime::with_manifest(manifest);
 
@@ -727,7 +728,7 @@ fn main() -> Result<()> {
     );
 
     // Run the plugin runtime (handles both CLI and CBOR modes)
-    runtime.run()?;
+    runtime.run().await?;
 
     Ok(())
 }

@@ -26,7 +26,7 @@
 //! - Everything else: forwarded to relay (pass-through)
 
 use crate::bifaci::frame::{FlowKey, Frame, FrameType, Limits, MessageId, SeqAssigner};
-use crate::bifaci::io::{handshake_async, verify_identity, AsyncFrameReader, AsyncFrameWriter, CborError};
+use crate::bifaci::io::{handshake, verify_identity, FrameReader, FrameWriter, CborError};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -330,10 +330,10 @@ impl PluginHostRuntime {
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
-        let mut reader = AsyncFrameReader::new(plugin_read);
-        let mut writer = AsyncFrameWriter::new(plugin_write);
+        let mut reader = FrameReader::new(plugin_read);
+        let mut writer = FrameWriter::new(plugin_write);
 
-        let result = handshake_async(&mut reader, &mut writer)
+        let result = handshake(&mut reader, &mut writer)
             .await
             .map_err(|e| AsyncHostError::Handshake(e.to_string()))?;
 
@@ -398,7 +398,7 @@ impl PluginHostRuntime {
         let (relay_tx, mut relay_rx) = mpsc::unbounded_channel::<Result<Frame, AsyncHostError>>();
         let mut relay_connected = true; // Track relay connection state
         let relay_reader_task = tokio::spawn(async move {
-            let mut reader = AsyncFrameReader::new(relay_read);
+            let mut reader = FrameReader::new(relay_read);
             loop {
                 match reader.read().await {
                     Ok(Some(frame)) => {
@@ -857,10 +857,10 @@ impl PluginHostRuntime {
         let stdout = child.stdout.take().unwrap();
 
         // HELLO handshake
-        let mut reader = AsyncFrameReader::new(stdout);
-        let mut writer = AsyncFrameWriter::new(stdin);
+        let mut reader = FrameReader::new(stdout);
+        let mut writer = FrameWriter::new(stdin);
 
-        let handshake_result = match handshake_async(&mut reader, &mut writer).await {
+        let handshake_result = match handshake(&mut reader, &mut writer).await {
             Ok(result) => result,
             Err(e) => {
                 // HELLO failure = permanent removal. Binary is broken.
@@ -1169,7 +1169,7 @@ impl PluginHostRuntime {
 
     /// Spawn a writer task that reads frames from a channel and writes to a plugin's stdin.
     fn start_writer_task<W: AsyncWrite + Unpin + Send + 'static>(
-        mut writer: AsyncFrameWriter<W>,
+        mut writer: FrameWriter<W>,
         mut rx: mpsc::UnboundedReceiver<Frame>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
@@ -1189,7 +1189,7 @@ impl PluginHostRuntime {
     /// Spawn a reader task that reads frames from a plugin's stdout and sends events.
     fn start_reader_task<R: AsyncRead + Unpin + Send + 'static>(
         plugin_idx: usize,
-        mut reader: AsyncFrameReader<R>,
+        mut reader: FrameReader<R>,
         event_tx: mpsc::UnboundedSender<PluginEvent>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
@@ -1227,7 +1227,7 @@ impl PluginHostRuntime {
         relay_write: W,
         mut rx: mpsc::UnboundedReceiver<Frame>,
     ) {
-        let mut writer = AsyncFrameWriter::new(relay_write);
+        let mut writer = FrameWriter::new(relay_write);
         while let Some(frame) = rx.recv().await {
             if writer.write(&frame).await.is_err() {
                 break;
@@ -1296,31 +1296,35 @@ mod tests {
     use super::*;
     use crate::standard::caps::CAP_IDENTITY;
     use crate::CapUrn;
+    use tokio::io::{BufReader, BufWriter};
+    use tokio::net::UnixStream;
 
     /// Helper: perform handshake_accept and handle the identity verification REQ.
     /// Returns (FrameReader, FrameWriter) ready for further communication.
-    fn plugin_handshake_with_identity(
-        from_runtime: std::os::unix::net::UnixStream,
-        to_runtime: std::os::unix::net::UnixStream,
+    async fn plugin_handshake_with_identity<R, W>(
+        from_runtime: R,
+        to_runtime: W,
         manifest: &[u8],
-    ) -> (crate::bifaci::io::FrameReader<std::io::BufReader<std::os::unix::net::UnixStream>>,
-          crate::bifaci::io::FrameWriter<std::io::BufWriter<std::os::unix::net::UnixStream>>)
+    ) -> (crate::bifaci::io::FrameReader<BufReader<R>>,
+          crate::bifaci::io::FrameWriter<BufWriter<W>>)
+    where
+        R: tokio::io::AsyncRead + Unpin,
+        W: tokio::io::AsyncWrite + Unpin,
     {
         use crate::bifaci::io::{FrameReader, FrameWriter, handshake_accept};
-        use std::io::{BufReader, BufWriter};
 
         let mut reader = FrameReader::new(BufReader::new(from_runtime));
         let mut writer = FrameWriter::new(BufWriter::new(to_runtime));
-        handshake_accept(&mut reader, &mut writer, manifest).unwrap();
+        handshake_accept(&mut reader, &mut writer, manifest).await.unwrap();
 
         // Handle identity verification REQ
-        let req = reader.read().unwrap().expect("expected identity REQ");
+        let req = reader.read().await.unwrap().expect("expected identity REQ");
         assert_eq!(req.frame_type, FrameType::Req, "first frame after handshake must be REQ");
 
         // Read request body: STREAM_START → CHUNK(s) → STREAM_END → END
         let mut payload = Vec::new();
         loop {
-            let f = reader.read().unwrap().expect("expected frame");
+            let f = reader.read().await.unwrap().expect("expected frame");
             match f.frame_type {
                 FrameType::StreamStart => {}
                 FrameType::Chunk => payload.extend(f.payload.unwrap_or_default()),
@@ -1333,14 +1337,14 @@ mod tests {
         // Echo response: STREAM_START → CHUNK → STREAM_END → END
         let stream_id = "identity-echo".to_string();
         let ss = Frame::stream_start(req.id.clone(), stream_id.clone(), "media:".to_string());
-        writer.write(&ss).unwrap();
+        writer.write(&ss).await.unwrap();
         let checksum = Frame::compute_checksum(&payload);
         let chunk = Frame::chunk(req.id.clone(), stream_id.clone(), 0, payload, 0, checksum);
-        writer.write(&chunk).unwrap();
+        writer.write(&chunk).await.unwrap();
         let se = Frame::stream_end(req.id.clone(), stream_id, 1);
-        writer.write(&se).unwrap();
+        writer.write(&se).await.unwrap();
         let end = Frame::end(req.id, None);
-        writer.write(&end).unwrap();
+        writer.write(&end).await.unwrap();
 
         (reader, writer)
     }
@@ -1575,7 +1579,7 @@ mod tests {
         // Send a REQ through the relay (must have XID since it's from relay)
         let send_handle = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let mut writer = AsyncFrameWriter::new(engine_write_half);
+            let mut writer = FrameWriter::new(engine_write_half);
             let mut req = Frame::req(MessageId::new_uuid(), "cap:in=\"media:void\";op=test;out=\"media:void\"", vec![], "text/plain");
             req.routing_id = Some(MessageId::Uint(1)); // XID from RelaySwitch
             seq.assign(&mut req);
@@ -1604,25 +1608,17 @@ mod tests {
     async fn test416_attach_plugin_handshake_updates_capabilities() {
         let manifest = r#"{"name":"Test","version":"1.0","description":"Test plugin","caps":[{"urn":"cap:in=media:;out=media:","title":"Test","command":"test","args":[]}]}"#;
 
-        // Plugin pipe pair
-        let (plugin_to_runtime_std, runtime_from_plugin_std) =
-            std::os::unix::net::UnixStream::pair().unwrap();
-        let (runtime_to_plugin_std, plugin_from_runtime_std) =
-            std::os::unix::net::UnixStream::pair().unwrap();
-
-        runtime_from_plugin_std.set_nonblocking(true).unwrap();
-        runtime_to_plugin_std.set_nonblocking(true).unwrap();
-
-        let runtime_from_plugin = tokio::net::UnixStream::from_std(runtime_from_plugin_std).unwrap();
-        let runtime_to_plugin = tokio::net::UnixStream::from_std(runtime_to_plugin_std).unwrap();
+        // Plugin pipe pair (tokio sockets)
+        let (plugin_to_runtime, runtime_from_plugin) = UnixStream::pair().unwrap();
+        let (runtime_to_plugin, plugin_from_runtime) = UnixStream::pair().unwrap();
 
         let (plugin_read, _) = runtime_from_plugin.into_split();
         let (_, plugin_write) = runtime_to_plugin.into_split();
 
-        // Plugin thread does handshake + identity verification
+        // Plugin task does handshake + identity verification
         let manifest_bytes = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            plugin_handshake_with_identity(plugin_from_runtime_std, plugin_to_runtime_std, &manifest_bytes);
+        let plugin_handle = tokio::spawn(async move {
+            plugin_handshake_with_identity(plugin_from_runtime, plugin_to_runtime, &manifest_bytes).await;
         });
 
         let mut runtime = PluginHostRuntime::new();
@@ -1642,7 +1638,7 @@ mod tests {
             .map(|u| identity_urn.conforms_to(&u)).unwrap_or(false)),
             "Capabilities must include identity cap");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST417: Route REQ to correct plugin by cap_urn (with two attached plugins)
@@ -1651,58 +1647,49 @@ mod tests {
         let manifest_a = r#"{"name":"PluginA","version":"1.0","description":"Plugin A","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=convert;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
         let manifest_b = r#"{"name":"PluginB","version":"1.0","description":"Plugin B","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=analyze;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
 
-        // Create two plugin pipe pairs
-        let (pa_to_rt_std, rt_from_pa_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_pa_std, pa_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (pb_to_rt_std, rt_from_pb_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_pb_std, pb_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-
-        for s in [&rt_from_pa_std, &rt_to_pa_std, &rt_from_pb_std, &rt_to_pb_std] {
-            s.set_nonblocking(true).unwrap();
-        }
-
-        let rt_from_pa = tokio::net::UnixStream::from_std(rt_from_pa_std).unwrap();
-        let rt_to_pa = tokio::net::UnixStream::from_std(rt_to_pa_std).unwrap();
-        let rt_from_pb = tokio::net::UnixStream::from_std(rt_from_pb_std).unwrap();
-        let rt_to_pb = tokio::net::UnixStream::from_std(rt_to_pb_std).unwrap();
+        // Create two plugin pipe pairs (tokio sockets)
+        let (pa_to_rt, rt_from_pa) = UnixStream::pair().unwrap();
+        let (rt_to_pa, pa_from_rt) = UnixStream::pair().unwrap();
+        let (pb_to_rt, rt_from_pb) = UnixStream::pair().unwrap();
+        let (rt_to_pb, pb_from_rt) = UnixStream::pair().unwrap();
 
         let (pa_read, _) = rt_from_pa.into_split();
         let (_, pa_write) = rt_to_pa.into_split();
         let (pb_read, _) = rt_from_pb.into_split();
         let (_, pb_write) = rt_to_pb.into_split();
 
-        // Plugin A thread
+        // Plugin A task
         let ma = manifest_a.as_bytes().to_vec();
-        let pa_handle = std::thread::spawn(move || {
+        let pa_handle = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let (mut r, mut w) = plugin_handshake_with_identity(pa_from_rt_std, pa_to_rt_std, &ma);
+            let (mut r, mut w) = plugin_handshake_with_identity(pa_from_rt, pa_to_rt, &ma).await;
             // Read one REQ and verify cap
-            let frame = r.read().unwrap().expect("expected REQ");
+            let frame = r.read().await.unwrap().expect("expected REQ");
             assert_eq!(frame.frame_type, FrameType::Req);
             assert_eq!(frame.cap.as_deref(), Some("cap:in=\"media:void\";op=convert;out=\"media:void\""), "Plugin A should receive convert REQ");
             // Send END response
             let stream_id = "s1".to_string();
             let mut ss = Frame::stream_start(frame.id.clone(), stream_id.clone(), "media:".to_string());
             seq.assign(&mut ss);
-            w.write(&ss).unwrap();
+            w.write(&ss).await.unwrap();
             let payload = b"converted".to_vec();
             let checksum = Frame::compute_checksum(&payload);
             let mut chunk = Frame::chunk(frame.id.clone(), stream_id.clone(), 0, payload, 0, checksum);
             seq.assign(&mut chunk);
-            w.write(&chunk).unwrap();
+            w.write(&chunk).await.unwrap();
             let mut se = Frame::stream_end(frame.id.clone(), stream_id, 1);
             seq.assign(&mut se);
-            w.write(&se).unwrap();
+            w.write(&se).await.unwrap();
             let mut end = Frame::end(frame.id.clone(), None);
             seq.assign(&mut end);
-            w.write(&end).unwrap();
+            w.write(&end).await.unwrap();
             seq.remove(&FlowKey { rid: frame.id.clone(), xid: None });
         });
 
-        // Plugin B thread
+        // Plugin B task
         let mb = manifest_b.as_bytes().to_vec();
-        let pb_handle = std::thread::spawn(move || {
-            let (r, w) = plugin_handshake_with_identity(pb_from_rt_std, pb_to_rt_std, &mb);
+        let pb_handle = tokio::spawn(async move {
+            let (r, w) = plugin_handshake_with_identity(pb_from_rt, pb_to_rt, &mb).await;
             // Plugin B should NOT receive the convert REQ
             // It may receive heartbeats, but the REQ should only go to Plugin A
             // Just exit - the runtime will handle heartbeat timeouts
@@ -1715,29 +1702,21 @@ mod tests {
         runtime.attach_plugin(pa_read, pa_write).await.unwrap();
         runtime.attach_plugin(pb_read, pb_write).await.unwrap();
 
-        // Create relay pipes
-        let (relay_rt_read_std, relay_eng_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (relay_eng_read_std, relay_rt_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        for s in [&relay_rt_read_std, &relay_rt_write_std, &relay_eng_write_std, &relay_eng_read_std] {
-            s.set_nonblocking(true).unwrap();
-        }
+        // Create relay pipes (tokio sockets)
+        let (relay_rt_read, relay_eng_write) = UnixStream::pair().unwrap();
+        let (relay_eng_read, relay_rt_write) = UnixStream::pair().unwrap();
 
-        let rt_read = tokio::net::UnixStream::from_std(relay_rt_read_std).unwrap();
-        let rt_write = tokio::net::UnixStream::from_std(relay_rt_write_std).unwrap();
-        let eng_write = tokio::net::UnixStream::from_std(relay_eng_write_std).unwrap();
-        let eng_read = tokio::net::UnixStream::from_std(relay_eng_read_std).unwrap();
-
-        let (rt_read_half, _) = rt_read.into_split();
-        let (_, rt_write_half) = rt_write.into_split();
-        let (_, eng_write_half) = eng_write.into_split();
-        let (eng_read_half, _) = eng_read.into_split();
+        let (rt_read_half, _) = relay_rt_read.into_split();
+        let (_, rt_write_half) = relay_rt_write.into_split();
+        let (_, eng_write_half) = relay_eng_write.into_split();
+        let (eng_read_half, _) = relay_eng_read.into_split();
 
         // Engine: send REQ, read response, THEN close relay
         let req_id = MessageId::new_uuid();
         let engine_task = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let mut w = AsyncFrameWriter::new(eng_write_half);
-            let mut r = AsyncFrameReader::new(eng_read_half);
+            let mut w = FrameWriter::new(eng_write_half);
+            let mut r = FrameReader::new(eng_read_half);
 
             let xid = MessageId::Uint(1);
             let sid = uuid::Uuid::new_v4().to_string();
@@ -1788,8 +1767,8 @@ mod tests {
         let response_payload = engine_task.await.unwrap();
         assert_eq!(response_payload, b"converted");
 
-        pa_handle.join().unwrap();
-        pb_handle.join().unwrap();
+        pa_handle.await.unwrap();
+        pb_handle.await.unwrap();
     }
 
     // TEST419: Plugin HEARTBEAT handled locally (not forwarded to relay)
@@ -1797,29 +1776,26 @@ mod tests {
     async fn test419_plugin_heartbeat_handled_locally() {
         let manifest = r#"{"name":"HBPlugin","version":"1.0","description":"Heartbeat plugin","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=hb;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
 
-        let (p_to_rt_std, rt_from_p_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p_std, p_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p_std.set_nonblocking(true).unwrap();
-        rt_to_p_std.set_nonblocking(true).unwrap();
+        // Plugin pipe pair (tokio sockets)
+        let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
+        let (rt_to_p, p_from_rt) = UnixStream::pair().unwrap();
 
-        let rt_from_p = tokio::net::UnixStream::from_std(rt_from_p_std).unwrap();
-        let rt_to_p = tokio::net::UnixStream::from_std(rt_to_p_std).unwrap();
         let (p_read, _) = rt_from_p.into_split();
         let (_, p_write) = rt_to_p.into_split();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
+        let plugin_handle = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let (mut r, mut w) = plugin_handshake_with_identity(p_from_rt_std, p_to_rt_std, &m);
+            let (mut r, mut w) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
 
             // Send a heartbeat from plugin
             let hb_id = MessageId::new_uuid();
             let mut hb = Frame::heartbeat(hb_id.clone());
             seq.assign(&mut hb);
-            w.write(&hb).unwrap();
+            w.write(&hb).await.unwrap();
 
             // Read the heartbeat response
-            let response = r.read().unwrap().expect("Expected heartbeat response");
+            let response = r.read().await.unwrap().expect("Expected heartbeat response");
             assert_eq!(response.frame_type, FrameType::Heartbeat);
             assert_eq!(response.id, hb_id, "Response must echo the same ID");
 
@@ -1829,27 +1805,20 @@ mod tests {
         let mut runtime = PluginHostRuntime::new();
         runtime.attach_plugin(p_read, p_write).await.unwrap();
 
-        // Relay pipes
-        let (relay_rt_read_std, relay_eng_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (relay_eng_read_std, relay_rt_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        for s in [&relay_rt_read_std, &relay_rt_write_std, &relay_eng_write_std, &relay_eng_read_std] {
-            s.set_nonblocking(true).unwrap();
-        }
+        // Relay pipes (tokio sockets)
+        let (relay_rt_read, relay_eng_write) = UnixStream::pair().unwrap();
+        let (relay_eng_read, relay_rt_write) = UnixStream::pair().unwrap();
 
-        let rt_read = tokio::net::UnixStream::from_std(relay_rt_read_std).unwrap();
-        let rt_write = tokio::net::UnixStream::from_std(relay_rt_write_std).unwrap();
-        let eng_read = tokio::net::UnixStream::from_std(relay_eng_read_std).unwrap();
-
-        let (rt_read_half, _) = rt_read.into_split();
-        let (_, rt_write_half) = rt_write.into_split();
-        let (eng_read_half, _) = eng_read.into_split();
+        let (rt_read_half, _) = relay_rt_read.into_split();
+        let (_, rt_write_half) = relay_rt_write.into_split();
+        let (eng_read_half, _) = relay_eng_read.into_split();
 
         // Drop engine write to close relay after plugin finishes
-        drop(relay_eng_write_std);
+        drop(relay_eng_write);
 
         // Engine reads — should NOT receive any heartbeat frame
         let engine_recv = tokio::spawn(async move {
-            let mut r = AsyncFrameReader::new(eng_read_half);
+            let mut r = FrameReader::new(eng_read_half);
             let mut frames = Vec::new();
             loop {
                 match r.read().await {
@@ -1870,7 +1839,7 @@ mod tests {
             received_types
         );
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST420: Plugin non-HELLO/non-HB frames forwarded to relay (pass-through)
@@ -1878,52 +1847,49 @@ mod tests {
     async fn test420_plugin_frames_forwarded_to_relay() {
         let manifest = r#"{"name":"FwdPlugin","version":"1.0","description":"Forward plugin","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=fwd;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
 
-        let (p_to_rt_std, rt_from_p_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p_std, p_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p_std.set_nonblocking(true).unwrap();
-        rt_to_p_std.set_nonblocking(true).unwrap();
+        // Plugin pipe pair (tokio sockets)
+        let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
+        let (rt_to_p, p_from_rt) = UnixStream::pair().unwrap();
 
-        let rt_from_p = tokio::net::UnixStream::from_std(rt_from_p_std).unwrap();
-        let rt_to_p = tokio::net::UnixStream::from_std(rt_to_p_std).unwrap();
         let (p_read, _) = rt_from_p.into_split();
         let (_, p_write) = rt_to_p.into_split();
 
         let m = manifest.as_bytes().to_vec();
         let req_id = MessageId::new_uuid();
         let req_id_for_plugin = req_id.clone();
-        let plugin_handle = std::thread::spawn(move || {
+        let plugin_handle = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let (mut r, mut w) = plugin_handshake_with_identity(p_from_rt_std, p_to_rt_std, &m);
+            let (mut r, mut w) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
 
             // Read the REQ
-            let frame = r.read().unwrap().expect("Expected REQ");
+            let frame = r.read().await.unwrap().expect("Expected REQ");
             assert_eq!(frame.frame_type, FrameType::Req);
 
             // Consume incoming streams until END
             loop {
-                let f = r.read().unwrap().expect("Expected frame");
+                let f = r.read().await.unwrap().expect("Expected frame");
                 if f.frame_type == FrameType::End { break; }
             }
 
             // Send LOG + response (LOG should be forwarded too)
             let mut log = Frame::log(req_id_for_plugin.clone(), "info", "Processing");
             seq.assign(&mut log);
-            w.write(&log).unwrap();
+            w.write(&log).await.unwrap();
             let sid = "rs".to_string();
             let mut ss = Frame::stream_start(req_id_for_plugin.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut ss);
-            w.write(&ss).unwrap();
+            w.write(&ss).await.unwrap();
             let payload = b"result".to_vec();
             let checksum = Frame::compute_checksum(&payload);
             let mut chunk = Frame::chunk(req_id_for_plugin.clone(), sid.clone(), 0, payload, 0, checksum);
             seq.assign(&mut chunk);
-            w.write(&chunk).unwrap();
+            w.write(&chunk).await.unwrap();
             let mut se = Frame::stream_end(req_id_for_plugin.clone(), sid, 1);
             seq.assign(&mut se);
-            w.write(&se).unwrap();
+            w.write(&se).await.unwrap();
             let mut end = Frame::end(req_id_for_plugin.clone(), None);
             seq.assign(&mut end);
-            w.write(&end).unwrap();
+            w.write(&end).await.unwrap();
             seq.remove(&FlowKey { rid: req_id_for_plugin.clone(), xid: None });
             drop(w);
         });
@@ -1931,29 +1897,21 @@ mod tests {
         let mut runtime = PluginHostRuntime::new();
         runtime.attach_plugin(p_read, p_write).await.unwrap();
 
-        // Relay
-        let (relay_rt_read_std, relay_eng_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (relay_eng_read_std, relay_rt_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        for s in [&relay_rt_read_std, &relay_rt_write_std, &relay_eng_write_std, &relay_eng_read_std] {
-            s.set_nonblocking(true).unwrap();
-        }
+        // Relay (tokio sockets)
+        let (relay_rt_read, relay_eng_write) = UnixStream::pair().unwrap();
+        let (relay_eng_read, relay_rt_write) = UnixStream::pair().unwrap();
 
-        let rt_read = tokio::net::UnixStream::from_std(relay_rt_read_std).unwrap();
-        let rt_write = tokio::net::UnixStream::from_std(relay_rt_write_std).unwrap();
-        let eng_write = tokio::net::UnixStream::from_std(relay_eng_write_std).unwrap();
-        let eng_read = tokio::net::UnixStream::from_std(relay_eng_read_std).unwrap();
-
-        let (rt_read_half, _) = rt_read.into_split();
-        let (_, rt_write_half) = rt_write.into_split();
-        let (_, eng_write_half) = eng_write.into_split();
-        let (eng_read_half, _) = eng_read.into_split();
+        let (rt_read_half, _) = relay_rt_read.into_split();
+        let (_, rt_write_half) = relay_rt_write.into_split();
+        let (_, eng_write_half) = relay_eng_write.into_split();
+        let (eng_read_half, _) = relay_eng_read.into_split();
 
         // Engine: send REQ, read response (keep relay open until response received)
         let req_id_send = req_id.clone();
         let engine_task = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let mut w = AsyncFrameWriter::new(eng_write_half);
-            let mut r = AsyncFrameReader::new(eng_read_half);
+            let mut w = FrameWriter::new(eng_write_half);
+            let mut r = FrameReader::new(eng_read_half);
 
             let xid = MessageId::Uint(1);
             let sid = uuid::Uuid::new_v4().to_string();
@@ -2002,7 +1960,7 @@ mod tests {
         assert!(received_types.contains(&FrameType::Chunk), "CHUNK should be forwarded");
         assert!(received_types.contains(&FrameType::End), "END should be forwarded");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn)
@@ -2013,30 +1971,27 @@ mod tests {
     async fn test418_route_continuation_frames_by_req_id() {
         let manifest = r#"{"name":"ContPlugin","version":"1.0","description":"Continuation plugin","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=cont;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
 
-        let (p_to_rt_std, rt_from_p_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p_std, p_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p_std.set_nonblocking(true).unwrap();
-        rt_to_p_std.set_nonblocking(true).unwrap();
+        // Plugin pipe pair (tokio sockets)
+        let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
+        let (rt_to_p, p_from_rt) = UnixStream::pair().unwrap();
 
-        let rt_from_p = tokio::net::UnixStream::from_std(rt_from_p_std).unwrap();
-        let rt_to_p = tokio::net::UnixStream::from_std(rt_to_p_std).unwrap();
         let (p_read, _) = rt_from_p.into_split();
         let (_, p_write) = rt_to_p.into_split();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
+        let plugin_handle = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let (mut r, mut w) = plugin_handshake_with_identity(p_from_rt_std, p_to_rt_std, &m);
+            let (mut r, mut w) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
 
             // Read REQ
-            let req = r.read().unwrap().expect("Expected REQ");
+            let req = r.read().await.unwrap().expect("Expected REQ");
             assert_eq!(req.frame_type, FrameType::Req);
 
             // Continuation frames must arrive with same req_id
             let mut received_types = Vec::new();
             let mut data = Vec::new();
             loop {
-                let f = r.read().unwrap().expect("Expected frame");
+                let f = r.read().await.unwrap().expect("Expected frame");
                 received_types.push(f.frame_type);
                 if f.frame_type == FrameType::Chunk {
                     data.extend(f.payload.unwrap_or_default());
@@ -2056,18 +2011,18 @@ mod tests {
             let sid = "rs".to_string();
             let mut ss = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut ss);
-            w.write(&ss).unwrap();
+            w.write(&ss).await.unwrap();
             let payload = b"ok".to_vec();
             let checksum = Frame::compute_checksum(&payload);
             let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, payload, 0, checksum);
             seq.assign(&mut chunk);
-            w.write(&chunk).unwrap();
+            w.write(&chunk).await.unwrap();
             let mut se = Frame::stream_end(req.id.clone(), sid, 1);
             seq.assign(&mut se);
-            w.write(&se).unwrap();
+            w.write(&se).await.unwrap();
             let mut end = Frame::end(req.id.clone(), None);
             seq.assign(&mut end);
-            w.write(&end).unwrap();
+            w.write(&end).await.unwrap();
             seq.remove(&FlowKey { rid: req.id.clone(), xid: None });
             drop(w);
         });
@@ -2075,28 +2030,20 @@ mod tests {
         let mut runtime = PluginHostRuntime::new();
         runtime.attach_plugin(p_read, p_write).await.unwrap();
 
-        // Relay
-        let (relay_rt_read_std, relay_eng_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (relay_eng_read_std, relay_rt_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        for s in [&relay_rt_read_std, &relay_rt_write_std, &relay_eng_write_std, &relay_eng_read_std] {
-            s.set_nonblocking(true).unwrap();
-        }
+        // Relay (tokio sockets)
+        let (relay_rt_read, relay_eng_write) = UnixStream::pair().unwrap();
+        let (relay_eng_read, relay_rt_write) = UnixStream::pair().unwrap();
 
-        let rt_read = tokio::net::UnixStream::from_std(relay_rt_read_std).unwrap();
-        let rt_write = tokio::net::UnixStream::from_std(relay_rt_write_std).unwrap();
-        let eng_write = tokio::net::UnixStream::from_std(relay_eng_write_std).unwrap();
-        let eng_read = tokio::net::UnixStream::from_std(relay_eng_read_std).unwrap();
-
-        let (rt_read_half, _) = rt_read.into_split();
-        let (_, rt_write_half) = rt_write.into_split();
-        let (_, eng_write_half) = eng_write.into_split();
-        let (eng_read_half, _) = eng_read.into_split();
+        let (rt_read_half, _) = relay_rt_read.into_split();
+        let (_, rt_write_half) = relay_rt_write.into_split();
+        let (_, eng_write_half) = relay_eng_write.into_split();
+        let (eng_read_half, _) = relay_eng_read.into_split();
 
         let req_id = MessageId::new_uuid();
         let engine_task = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let mut w = AsyncFrameWriter::new(eng_write_half);
-            let mut r = AsyncFrameReader::new(eng_read_half);
+            let mut w = FrameWriter::new(eng_write_half);
+            let mut r = FrameReader::new(eng_read_half);
 
             let xid = MessageId::Uint(1);
             // Send REQ + stream continuation frames
@@ -2147,7 +2094,7 @@ mod tests {
         let response = engine_task.await.unwrap();
         assert_eq!(response, b"ok");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST421: Plugin death updates capability list (caps removed)
@@ -2155,19 +2102,16 @@ mod tests {
     async fn test421_plugin_death_updates_capabilities() {
         let manifest = r#"{"name":"Dying","version":"1.0","description":"Dying plugin","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=die;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
 
-        let (p_to_rt_std, rt_from_p_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p_std, p_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p_std.set_nonblocking(true).unwrap();
-        rt_to_p_std.set_nonblocking(true).unwrap();
+        // Plugin pipe pair (tokio sockets)
+        let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
+        let (rt_to_p, p_from_rt) = UnixStream::pair().unwrap();
 
-        let rt_from_p = tokio::net::UnixStream::from_std(rt_from_p_std).unwrap();
-        let rt_to_p = tokio::net::UnixStream::from_std(rt_to_p_std).unwrap();
         let (p_read, _) = rt_from_p.into_split();
         let (_, p_write) = rt_to_p.into_split();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (r, w) = plugin_handshake_with_identity(p_from_rt_std, p_to_rt_std, &m);
+        let plugin_handle = tokio::spawn(async move {
+            let (r, w) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
             // Die immediately after identity verification
             drop(w);
             drop(r);
@@ -2195,19 +2139,15 @@ mod tests {
         });
         assert!(found, "Capabilities should contain plugin's cap. Expected URN with op=die, got: {:?}", urn_strings);
 
-        // Relay (close immediately to let runtime exit after processing death)
-        let (relay_rt_read_std, _relay_eng_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (_relay_eng_read_std, relay_rt_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        relay_rt_read_std.set_nonblocking(true).unwrap();
-        relay_rt_write_std.set_nonblocking(true).unwrap();
+        // Relay (close immediately to let runtime exit after processing death) - tokio sockets
+        let (relay_rt_read, _relay_eng_write) = UnixStream::pair().unwrap();
+        let (_relay_eng_read, relay_rt_write) = UnixStream::pair().unwrap();
 
-        let rt_read = tokio::net::UnixStream::from_std(relay_rt_read_std).unwrap();
-        let rt_write = tokio::net::UnixStream::from_std(relay_rt_write_std).unwrap();
-        let (rt_read_half, _) = rt_read.into_split();
-        let (_, rt_write_half) = rt_write.into_split();
+        let (rt_read_half, _) = relay_rt_read.into_split();
+        let (_, rt_write_half) = relay_rt_write.into_split();
 
         // Drop engine write side to close relay
-        drop(_relay_eng_write_std);
+        drop(_relay_eng_write);
 
         let _ = runtime.run(rt_read_half, rt_write_half, || vec![]).await;
 
@@ -2231,7 +2171,7 @@ mod tests {
         });
         assert!(found_after, "Dead plugin's known_caps should still be advertised for on-demand respawn. Expected URN with op=die, got: {:?}", urn_strings_after);
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST422: Plugin death sends ERR for all pending requests via relay
@@ -2239,24 +2179,21 @@ mod tests {
     async fn test422_plugin_death_sends_err_for_pending_requests() {
         let manifest = r#"{"name":"DiePlugin","version":"1.0","description":"Die plugin","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=die;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
 
-        let (p_to_rt_std, rt_from_p_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p_std, p_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p_std.set_nonblocking(true).unwrap();
-        rt_to_p_std.set_nonblocking(true).unwrap();
+        // Plugin pipe pair (tokio sockets)
+        let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
+        let (rt_to_p, p_from_rt) = UnixStream::pair().unwrap();
 
-        let rt_from_p = tokio::net::UnixStream::from_std(rt_from_p_std).unwrap();
-        let rt_to_p = tokio::net::UnixStream::from_std(rt_to_p_std).unwrap();
         let (p_read, _) = rt_from_p.into_split();
         let (_, p_write) = rt_to_p.into_split();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (mut r, w) = plugin_handshake_with_identity(p_from_rt_std, p_to_rt_std, &m);
+        let plugin_handle = tokio::spawn(async move {
+            let (mut r, w) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
 
             // Read REQ and consume all frames until END, then die
-            let _req = r.read().unwrap().expect("Expected REQ");
+            let _req = r.read().await.unwrap().expect("Expected REQ");
             loop {
-                match r.read() {
+                match r.read().await {
                     Ok(Some(f)) => { if f.frame_type == FrameType::End { break; } }
                     _ => break,
                 }
@@ -2269,27 +2206,19 @@ mod tests {
         let mut runtime = PluginHostRuntime::new();
         runtime.attach_plugin(p_read, p_write).await.unwrap();
 
-        // Relay
-        let (relay_rt_read_std, relay_eng_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (relay_eng_read_std, relay_rt_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        for s in [&relay_rt_read_std, &relay_rt_write_std, &relay_eng_write_std, &relay_eng_read_std] {
-            s.set_nonblocking(true).unwrap();
-        }
+        // Relay (tokio sockets)
+        let (relay_rt_read, relay_eng_write) = UnixStream::pair().unwrap();
+        let (relay_eng_read, relay_rt_write) = UnixStream::pair().unwrap();
 
-        let rt_read = tokio::net::UnixStream::from_std(relay_rt_read_std).unwrap();
-        let rt_write = tokio::net::UnixStream::from_std(relay_rt_write_std).unwrap();
-        let eng_write = tokio::net::UnixStream::from_std(relay_eng_write_std).unwrap();
-        let eng_read = tokio::net::UnixStream::from_std(relay_eng_read_std).unwrap();
-
-        let (rt_read_half, _) = rt_read.into_split();
-        let (_, rt_write_half) = rt_write.into_split();
-        let (_, eng_write_half) = eng_write.into_split();
-        let (eng_read_half, _) = eng_read.into_split();
+        let (rt_read_half, _) = relay_rt_read.into_split();
+        let (_, rt_write_half) = relay_rt_write.into_split();
+        let (_, eng_write_half) = relay_eng_write.into_split();
+        let (eng_read_half, _) = relay_eng_read.into_split();
 
         let req_id = MessageId::new_uuid();
         let engine_task = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let mut w = AsyncFrameWriter::new(eng_write_half);
+            let mut w = FrameWriter::new(eng_write_half);
 
             let xid = MessageId::Uint(1);
             // Send REQ (plugin will die after reading it)
@@ -2316,7 +2245,7 @@ mod tests {
 
         engine_task.await.unwrap();
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST423: Multiple plugins registered with distinct caps route independently
@@ -2325,74 +2254,66 @@ mod tests {
         let manifest_a = r#"{"name":"PA","version":"1.0","description":"Plugin A","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=alpha;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
         let manifest_b = r#"{"name":"PB","version":"1.0","description":"Plugin B","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=beta;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
 
-        // Plugin A
-        let (pa_to_rt, rt_from_pa) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_pa, pa_from_rt) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_pa.set_nonblocking(true).unwrap();
-        rt_to_pa.set_nonblocking(true).unwrap();
-        let rt_from_pa_t = tokio::net::UnixStream::from_std(rt_from_pa).unwrap();
-        let rt_to_pa_t = tokio::net::UnixStream::from_std(rt_to_pa).unwrap();
-        let (pa_read, _) = rt_from_pa_t.into_split();
-        let (_, pa_write) = rt_to_pa_t.into_split();
+        // Plugin A (tokio sockets)
+        let (pa_to_rt, rt_from_pa) = UnixStream::pair().unwrap();
+        let (rt_to_pa, pa_from_rt) = UnixStream::pair().unwrap();
+        let (pa_read, _) = rt_from_pa.into_split();
+        let (_, pa_write) = rt_to_pa.into_split();
 
-        // Plugin B
-        let (pb_to_rt, rt_from_pb) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_pb, pb_from_rt) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_pb.set_nonblocking(true).unwrap();
-        rt_to_pb.set_nonblocking(true).unwrap();
-        let rt_from_pb_t = tokio::net::UnixStream::from_std(rt_from_pb).unwrap();
-        let rt_to_pb_t = tokio::net::UnixStream::from_std(rt_to_pb).unwrap();
-        let (pb_read, _) = rt_from_pb_t.into_split();
-        let (_, pb_write) = rt_to_pb_t.into_split();
+        // Plugin B (tokio sockets)
+        let (pb_to_rt, rt_from_pb) = UnixStream::pair().unwrap();
+        let (rt_to_pb, pb_from_rt) = UnixStream::pair().unwrap();
+        let (pb_read, _) = rt_from_pb.into_split();
+        let (_, pb_write) = rt_to_pb.into_split();
 
         let ma = manifest_a.as_bytes().to_vec();
-        let pa_handle = std::thread::spawn(move || {
+        let pa_handle = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let (mut r, mut w) = plugin_handshake_with_identity(pa_from_rt, pa_to_rt, &ma);
-            let req = r.read().unwrap().expect("Expected REQ");
+            let (mut r, mut w) = plugin_handshake_with_identity(pa_from_rt, pa_to_rt, &ma).await;
+            let req = r.read().await.unwrap().expect("Expected REQ");
             assert_eq!(req.cap.as_deref(), Some("cap:in=\"media:void\";op=alpha;out=\"media:void\""));
-            loop { let f = r.read().unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
+            loop { let f = r.read().await.unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
             let sid = "a".to_string();
             let mut ss = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut ss);
-            w.write(&ss).unwrap();
+            w.write(&ss).await.unwrap();
             let payload = b"from-A".to_vec();
             let checksum = Frame::compute_checksum(&payload);
             let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, payload, 0, checksum);
             seq.assign(&mut chunk);
-            w.write(&chunk).unwrap();
+            w.write(&chunk).await.unwrap();
             let mut se = Frame::stream_end(req.id.clone(), sid, 1);
             seq.assign(&mut se);
-            w.write(&se).unwrap();
+            w.write(&se).await.unwrap();
             let mut end = Frame::end(req.id.clone(), None);
             seq.assign(&mut end);
-            w.write(&end).unwrap();
+            w.write(&end).await.unwrap();
             seq.remove(&FlowKey { rid: req.id.clone(), xid: None });
             drop(w);
         });
 
         let mb = manifest_b.as_bytes().to_vec();
-        let pb_handle = std::thread::spawn(move || {
+        let pb_handle = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let (mut r, mut w) = plugin_handshake_with_identity(pb_from_rt, pb_to_rt, &mb);
-            let req = r.read().unwrap().expect("Expected REQ");
+            let (mut r, mut w) = plugin_handshake_with_identity(pb_from_rt, pb_to_rt, &mb).await;
+            let req = r.read().await.unwrap().expect("Expected REQ");
             assert_eq!(req.cap.as_deref(), Some("cap:in=\"media:void\";op=beta;out=\"media:void\""));
-            loop { let f = r.read().unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
+            loop { let f = r.read().await.unwrap().expect("f"); if f.frame_type == FrameType::End { break; } }
             let sid = "b".to_string();
             let mut ss = Frame::stream_start(req.id.clone(), sid.clone(), "media:".to_string());
             seq.assign(&mut ss);
-            w.write(&ss).unwrap();
+            w.write(&ss).await.unwrap();
             let payload = b"from-B".to_vec();
             let checksum = Frame::compute_checksum(&payload);
             let mut chunk = Frame::chunk(req.id.clone(), sid.clone(), 0, payload, 0, checksum);
             seq.assign(&mut chunk);
-            w.write(&chunk).unwrap();
+            w.write(&chunk).await.unwrap();
             let mut se = Frame::stream_end(req.id.clone(), sid, 1);
             seq.assign(&mut se);
-            w.write(&se).unwrap();
+            w.write(&se).await.unwrap();
             let mut end = Frame::end(req.id.clone(), None);
             seq.assign(&mut end);
-            w.write(&end).unwrap();
+            w.write(&end).await.unwrap();
             seq.remove(&FlowKey { rid: req.id.clone(), xid: None });
             drop(w);
         });
@@ -2401,20 +2322,13 @@ mod tests {
         runtime.attach_plugin(pa_read, pa_write).await.unwrap();
         runtime.attach_plugin(pb_read, pb_write).await.unwrap();
 
-        // Relay
-        let (relay_rt_read_std, relay_eng_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (relay_eng_read_std, relay_rt_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        for s in [&relay_rt_read_std, &relay_rt_write_std, &relay_eng_write_std, &relay_eng_read_std] {
-            s.set_nonblocking(true).unwrap();
-        }
-        let rt_read = tokio::net::UnixStream::from_std(relay_rt_read_std).unwrap();
-        let rt_write = tokio::net::UnixStream::from_std(relay_rt_write_std).unwrap();
-        let eng_write = tokio::net::UnixStream::from_std(relay_eng_write_std).unwrap();
-        let eng_read = tokio::net::UnixStream::from_std(relay_eng_read_std).unwrap();
-        let (rt_read_half, _) = rt_read.into_split();
-        let (_, rt_write_half) = rt_write.into_split();
-        let (_, eng_write_half) = eng_write.into_split();
-        let (eng_read_half, _) = eng_read.into_split();
+        // Relay (tokio sockets)
+        let (relay_rt_read, relay_eng_write) = UnixStream::pair().unwrap();
+        let (relay_eng_read, relay_rt_write) = UnixStream::pair().unwrap();
+        let (rt_read_half, _) = relay_rt_read.into_split();
+        let (_, rt_write_half) = relay_rt_write.into_split();
+        let (_, eng_write_half) = relay_eng_write.into_split();
+        let (eng_read_half, _) = relay_eng_read.into_split();
 
         let alpha_id = MessageId::new_uuid();
         let beta_id = MessageId::new_uuid();
@@ -2423,8 +2337,8 @@ mod tests {
 
         let engine_task = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let mut w = AsyncFrameWriter::new(eng_write_half);
-            let mut r = AsyncFrameReader::new(eng_read_half);
+            let mut w = FrameWriter::new(eng_write_half);
+            let mut r = FrameReader::new(eng_read_half);
 
             let xid_alpha = MessageId::Uint(1);
             let xid_beta = MessageId::Uint(2);
@@ -2475,8 +2389,8 @@ mod tests {
         assert_eq!(alpha_data, b"from-A", "Alpha response from Plugin A");
         assert_eq!(beta_data, b"from-B", "Beta response from Plugin B");
 
-        pa_handle.join().unwrap();
-        pb_handle.join().unwrap();
+        pa_handle.await.unwrap();
+        pb_handle.await.unwrap();
     }
 
     // TEST424: Concurrent requests to the same plugin are handled independently
@@ -2484,25 +2398,22 @@ mod tests {
     async fn test424_concurrent_requests_to_same_plugin() {
         let manifest = r#"{"name":"ConcPlugin","version":"1.0","description":"Concurrent plugin","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=conc;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
 
-        let (p_to_rt_std, rt_from_p_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p_std, p_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p_std.set_nonblocking(true).unwrap();
-        rt_to_p_std.set_nonblocking(true).unwrap();
-        let rt_from_p = tokio::net::UnixStream::from_std(rt_from_p_std).unwrap();
-        let rt_to_p = tokio::net::UnixStream::from_std(rt_to_p_std).unwrap();
+        // Plugin pipe pair (tokio sockets)
+        let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
+        let (rt_to_p, p_from_rt) = UnixStream::pair().unwrap();
         let (p_read, _) = rt_from_p.into_split();
         let (_, p_write) = rt_to_p.into_split();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
+        let plugin_handle = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let (mut r, mut w) = plugin_handshake_with_identity(p_from_rt_std, p_to_rt_std, &m);
+            let (mut r, mut w) = plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
 
             // Read two REQs and their streams, then respond to each
             let mut pending: Vec<MessageId> = Vec::new();
             let mut active_requests = 0;
             loop {
-                let f = r.read().unwrap().expect("frame");
+                let f = r.read().await.unwrap().expect("frame");
                 match f.frame_type {
                     FrameType::Req => { pending.push(f.id.clone()); active_requests += 1; }
                     FrameType::End => {
@@ -2521,16 +2432,16 @@ mod tests {
                 let sid = format!("s{}", i);
                 let mut ss = Frame::stream_start(req_id.clone(), sid.clone(), "media:".to_string());
                 seq.assign(&mut ss);
-                w.write(&ss).unwrap();
+                w.write(&ss).await.unwrap();
                 let mut chunk = Frame::chunk(req_id.clone(), sid.clone(), 0, data, 0, checksum);
                 seq.assign(&mut chunk);
-                w.write(&chunk).unwrap();
+                w.write(&chunk).await.unwrap();
                 let mut se = Frame::stream_end(req_id.clone(), sid, 1);
                 seq.assign(&mut se);
-                w.write(&se).unwrap();
+                w.write(&se).await.unwrap();
                 let mut end = Frame::end(req_id.clone(), None);
                 seq.assign(&mut end);
-                w.write(&end).unwrap();
+                w.write(&end).await.unwrap();
                 seq.remove(&FlowKey { rid: req_id.clone(), xid: None });
             }
             drop(w);
@@ -2539,20 +2450,13 @@ mod tests {
         let mut runtime = PluginHostRuntime::new();
         runtime.attach_plugin(p_read, p_write).await.unwrap();
 
-        // Relay
-        let (relay_rt_read_std, relay_eng_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (relay_eng_read_std, relay_rt_write_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        for s in [&relay_rt_read_std, &relay_rt_write_std, &relay_eng_write_std, &relay_eng_read_std] {
-            s.set_nonblocking(true).unwrap();
-        }
-        let rt_read = tokio::net::UnixStream::from_std(relay_rt_read_std).unwrap();
-        let rt_write = tokio::net::UnixStream::from_std(relay_rt_write_std).unwrap();
-        let eng_write = tokio::net::UnixStream::from_std(relay_eng_write_std).unwrap();
-        let eng_read = tokio::net::UnixStream::from_std(relay_eng_read_std).unwrap();
-        let (rt_read_half, _) = rt_read.into_split();
-        let (_, rt_write_half) = rt_write.into_split();
-        let (_, eng_write_half) = eng_write.into_split();
-        let (eng_read_half, _) = eng_read.into_split();
+        // Relay (tokio sockets)
+        let (relay_rt_read, relay_eng_write) = UnixStream::pair().unwrap();
+        let (relay_eng_read, relay_rt_write) = UnixStream::pair().unwrap();
+        let (rt_read_half, _) = relay_rt_read.into_split();
+        let (_, rt_write_half) = relay_rt_write.into_split();
+        let (_, eng_write_half) = relay_eng_write.into_split();
+        let (eng_read_half, _) = relay_eng_read.into_split();
 
         let req_id_0 = MessageId::new_uuid();
         let req_id_1 = MessageId::new_uuid();
@@ -2561,8 +2465,8 @@ mod tests {
 
         let engine_task = tokio::spawn(async move {
             let mut seq = SeqAssigner::new();
-            let mut w = AsyncFrameWriter::new(eng_write_half);
-            let mut r = AsyncFrameReader::new(eng_read_half);
+            let mut w = FrameWriter::new(eng_write_half);
+            let mut r = FrameReader::new(eng_read_half);
 
             // Send two REQs concurrently (same cap)
             let xid_0 = MessageId::Uint(1);
@@ -2613,7 +2517,7 @@ mod tests {
         assert_eq!(data_0, b"response-0", "First concurrent request response");
         assert_eq!(data_1, b"response-1", "Second concurrent request response");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST425: find_plugin_for_cap returns None for unregistered cap
@@ -2634,19 +2538,16 @@ mod tests {
     async fn test485_attach_plugin_identity_verification_succeeds() {
         let manifest = r#"{"name":"IdentityTest","version":"1.0","description":"Test","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=test;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
 
-        let (p_to_rt, rt_from_p) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p, p_from_rt) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p.set_nonblocking(true).unwrap();
-        rt_to_p.set_nonblocking(true).unwrap();
+        // Plugin pipe pair (tokio sockets)
+        let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
+        let (rt_to_p, p_from_rt) = UnixStream::pair().unwrap();
 
-        let rt_from = tokio::net::UnixStream::from_std(rt_from_p).unwrap();
-        let rt_to = tokio::net::UnixStream::from_std(rt_to_p).unwrap();
-        let (p_read, _) = rt_from.into_split();
-        let (_, p_write) = rt_to.into_split();
+        let (p_read, _) = rt_from_p.into_split();
+        let (_, p_write) = rt_to_p.into_split();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            plugin_handshake_with_identity(p_from_rt, p_to_rt, &m);
+        let plugin_handle = tokio::spawn(async move {
+            plugin_handshake_with_identity(p_from_rt, p_to_rt, &m).await;
         });
 
         let mut runtime = PluginHostRuntime::new();
@@ -2660,7 +2561,7 @@ mod tests {
             "Must have identity cap");
         assert_eq!(runtime.plugins[0].caps.len(), 2, "Must have both caps");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST486: attach_plugin rejects plugin that fails identity verification
@@ -2668,29 +2569,25 @@ mod tests {
     async fn test486_attach_plugin_identity_verification_fails() {
         let manifest = r#"{"name":"BrokenIdentity","version":"1.0","description":"Test","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]}]}"#;
 
-        let (p_to_rt, rt_from_p) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p, p_from_rt) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p.set_nonblocking(true).unwrap();
-        rt_to_p.set_nonblocking(true).unwrap();
+        // Plugin pipe pair (tokio sockets)
+        let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
+        let (rt_to_p, p_from_rt) = UnixStream::pair().unwrap();
 
-        let rt_from = tokio::net::UnixStream::from_std(rt_from_p).unwrap();
-        let rt_to = tokio::net::UnixStream::from_std(rt_to_p).unwrap();
-        let (p_read, _) = rt_from.into_split();
-        let (_, p_write) = rt_to.into_split();
+        let (p_read, _) = rt_from_p.into_split();
+        let (_, p_write) = rt_to_p.into_split();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
+        let plugin_handle = tokio::spawn(async move {
             use crate::bifaci::io::{FrameReader, FrameWriter, handshake_accept};
-            use std::io::{BufReader, BufWriter};
             let mut reader = FrameReader::new(BufReader::new(p_from_rt));
             let mut writer = FrameWriter::new(BufWriter::new(p_to_rt));
-            handshake_accept(&mut reader, &mut writer, &m).unwrap();
+            handshake_accept(&mut reader, &mut writer, &m).await.unwrap();
 
             // Read identity REQ, respond with ERR (broken identity handler)
-            let req = reader.read().unwrap().expect("expected identity REQ");
+            let req = reader.read().await.unwrap().expect("expected identity REQ");
             assert_eq!(req.frame_type, FrameType::Req);
             let err = Frame::err(req.id, "BROKEN", "identity handler is broken");
-            writer.write(&err).unwrap();
+            writer.write(&err).await.unwrap();
         });
 
         let mut runtime = PluginHostRuntime::new();
@@ -2700,7 +2597,7 @@ mod tests {
         assert!(err.to_string().contains("Identity verification failed"),
             "Error must mention identity verification: {}", err);
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST661: Plugin death keeps known_caps advertised for on-demand respawn
@@ -2809,21 +2706,20 @@ mod tests {
         // Manifest with different caps than known_caps
         let manifest = r#"{"name":"Test","version":"1.0","description":"Test plugin","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:text\";op=uppercase;out=\"media:text\"","title":"Uppercase","command":"uppercase","args":[]}]}"#;
 
-        let (p_to_rt_std, rt_from_p_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p_std, p_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p_std.set_nonblocking(true).unwrap();
-        rt_to_p_std.set_nonblocking(true).unwrap();
+        // Create socket pairs (runtime side and plugin side)
+        let (rt_sock, plugin_sock) = UnixStream::pair().unwrap();
 
-        let rt_from_p = tokio::net::UnixStream::from_std(rt_from_p_std).unwrap();
-        let rt_to_p = tokio::net::UnixStream::from_std(rt_to_p_std).unwrap();
-        let (p_read, _) = rt_from_p.into_split();
-        let (_, p_write) = rt_to_p.into_split();
+        // Split runtime socket for attach_plugin
+        let (p_read, p_write) = rt_sock.into_split();
+
+        // Split plugin socket for handshake
+        let (plugin_from_rt, plugin_to_rt) = plugin_sock.into_split();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (_r, _w) = plugin_handshake_with_identity(p_from_rt_std, p_to_rt_std, &m);
+        let plugin_handle = tokio::spawn(async move {
+            let (_r, _w) = plugin_handshake_with_identity(plugin_from_rt, plugin_to_rt, &m).await;
             // Keep alive for test
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         });
 
         let mut runtime = PluginHostRuntime::new();
@@ -2837,7 +2733,7 @@ mod tests {
 
         // Now attach the actual plugin (which sends different manifest)
         // This simulates what happens when a registered plugin spawns
-        let plugin_idx = runtime.attach_plugin(p_read, p_write).await.unwrap();
+        let _plugin_idx = runtime.attach_plugin(p_read, p_write).await.unwrap();
 
         // The running plugin should use manifest caps, not known_caps
         let caps_json = std::str::from_utf8(runtime.capabilities()).unwrap();
@@ -2854,7 +2750,7 @@ mod tests {
         // separately, so we might also see the known_caps from the first registered plugin
         // unless we remove it. The key test is that uppercase is present (from manifest).
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 
     // TEST665: Cap table uses manifest caps for running, known_caps for non-running
@@ -2863,20 +2759,19 @@ mod tests {
         // Set up a running plugin
         let manifest = r#"{"name":"Running","version":"1.0","description":"Running plugin","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:text\";op=running-op;out=\"media:text\"","title":"RunningOp","command":"running","args":[]}]}"#;
 
-        let (p_to_rt_std, rt_from_p_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (rt_to_p_std, p_from_rt_std) = std::os::unix::net::UnixStream::pair().unwrap();
-        rt_from_p_std.set_nonblocking(true).unwrap();
-        rt_to_p_std.set_nonblocking(true).unwrap();
+        // Create socket pairs (runtime side and plugin side)
+        let (rt_sock, plugin_sock) = UnixStream::pair().unwrap();
 
-        let rt_from_p = tokio::net::UnixStream::from_std(rt_from_p_std).unwrap();
-        let rt_to_p = tokio::net::UnixStream::from_std(rt_to_p_std).unwrap();
-        let (p_read, _) = rt_from_p.into_split();
-        let (_, p_write) = rt_to_p.into_split();
+        // Split runtime socket for attach_plugin
+        let (p_read, p_write) = rt_sock.into_split();
+
+        // Split plugin socket for handshake
+        let (plugin_from_rt, plugin_to_rt) = plugin_sock.into_split();
 
         let m = manifest.as_bytes().to_vec();
-        let plugin_handle = std::thread::spawn(move || {
-            let (_r, _w) = plugin_handshake_with_identity(p_from_rt_std, p_to_rt_std, &m);
-            std::thread::sleep(std::time::Duration::from_millis(200));
+        let plugin_handle = tokio::spawn(async move {
+            let (_r, _w) = plugin_handshake_with_identity(plugin_from_rt, plugin_to_rt, &m).await;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         });
 
         let mut runtime = PluginHostRuntime::new();
@@ -2903,6 +2798,6 @@ mod tests {
         assert!(has_running_op, "Cap table should have running plugin's manifest caps");
         assert!(has_not_running_op, "Cap table should have non-running plugin's known_caps");
 
-        plugin_handle.join().unwrap();
+        plugin_handle.await.unwrap();
     }
 }

@@ -49,10 +49,12 @@ use async_trait::async_trait;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use ops::{Op, OpMetadata, DryContext, WetContext, OpResult, OpError};
 use std::collections::HashMap;
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, Read, Write};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{self, JoinHandle};
+use std::thread;
+use tokio::io::{AsyncWriteExt, BufReader, BufWriter};
+use tokio::task::JoinHandle;
 
 /// Errors that can occur in the plugin runtime
 #[derive(Debug, thiserror::Error)]
@@ -194,7 +196,7 @@ impl Iterator for InputStream {
 /// Returns None after END frame (all args delivered).
 pub struct InputPackage {
     rx: Receiver<Result<InputStream, StreamError>>,
-    _demux_handle: Option<JoinHandle<()>>,
+    _demux_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl InputPackage {
@@ -535,13 +537,14 @@ impl PeerInvoker for NoPeerInvoker {
 
 /// Channel-based frame sender for plugin output.
 /// ALL frames (peer requests AND responses) go through a single output channel.
-/// PluginRuntime has a writer thread that drains this channel and writes to stdout.
+/// PluginRuntime has a writer task that drains this channel and writes to stdout.
 struct ChannelFrameSender {
-    tx: crossbeam_channel::Sender<Frame>,
+    tx: tokio::sync::mpsc::UnboundedSender<Frame>,
 }
 
 impl FrameSender for ChannelFrameSender {
     fn send(&self, frame: &Frame) -> Result<(), RuntimeError> {
+        // UnboundedSender::send is sync-compatible (no .await needed)
         self.tx.send(frame.clone())
             .map_err(|_| RuntimeError::Handler("Output channel closed".to_string()))
     }
@@ -849,7 +852,7 @@ struct PendingPeerRequest {
 
 /// Implementation of PeerInvoker that sends REQ frames to the host.
 struct PeerInvokerImpl {
-    output_tx: crossbeam_channel::Sender<Frame>,
+    output_tx: tokio::sync::mpsc::UnboundedSender<Frame>,
     pending_requests: Arc<Mutex<HashMap<MessageId, PendingPeerRequest>>>,
     max_chunk: usize,
     origin_request_id: MessageId,
@@ -1605,9 +1608,9 @@ pub struct PluginRuntime {
     limits: Limits,
 }
 
-/// Dispatch an Op with a Request via WetContext. Bridges sync handler threads to async Op::perform.
+/// Dispatch an Op with a Request via WetContext.
 /// Closes the output stream on success (sends STREAM_END if stream was started).
-fn dispatch_op(
+async fn dispatch_op(
     op: Box<dyn Op<()>>,
     input: InputPackage,
     output: OutputStream,
@@ -1618,11 +1621,7 @@ fn dispatch_op(
     let mut wet = WetContext::new();
     wet.insert_arc(WET_KEY_REQUEST, req.clone());
 
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| RuntimeError::Handler(format!("Runtime: {}", e)))?;
-    let result = rt.block_on(op.perform(&mut dry, &mut wet))
+    let result = op.perform(&mut dry, &mut wet).await
         .map_err(|e| RuntimeError::Handler(e.to_string()));
 
     if result.is_ok() {
@@ -1786,16 +1785,16 @@ impl PluginRuntime {
     /// **Bidirectional communication** (CBOR mode): Handlers can invoke caps on the host
     /// using the `PeerInvoker` parameter. Response frames from the host are
     /// routed to the appropriate pending request by MessageId.
-    pub fn run(&self) -> Result<(), RuntimeError> {
+    pub async fn run(&self) -> Result<(), RuntimeError> {
         let args: Vec<String> = std::env::args().collect();
 
         // No CLI arguments at all → Plugin CBOR mode
         if args.len() == 1 {
-            return self.run_cbor_mode();
+            return self.run_cbor_mode().await;
         }
 
         // Any CLI arguments → CLI mode
-        self.run_cli_mode(&args)
+        self.run_cli_mode(&args).await
     }
 
 
@@ -1804,7 +1803,7 @@ impl PluginRuntime {
     /// If stdin is piped (binary data), this streams it in chunks and accumulates.
     /// All modes converge: CLI args and stdin data are sent as CBOR frame streams
     /// through InputPackage, so handlers see the same API regardless of mode.
-    fn run_cli_mode(&self, args: &[String]) -> Result<(), RuntimeError> {
+    async fn run_cli_mode(&self, args: &[String]) -> Result<(), RuntimeError> {
         let manifest = self.manifest.as_ref().ok_or_else(|| {
             RuntimeError::Manifest("Failed to parse manifest for CLI mode".to_string())
         })?;
@@ -1984,7 +1983,7 @@ impl PluginRuntime {
         // Invoke Op handler
         let op = factory();
         let peer_arc: Arc<dyn PeerInvoker> = Arc::new(peer);
-        let result = dispatch_op(op, input_package, output, peer_arc);
+        let result = dispatch_op(op, input_package, output, peer_arc).await;
 
         match result {
             Ok(()) => {
@@ -2413,34 +2412,32 @@ impl PluginRuntime {
     }
 
     /// Run in Plugin CBOR mode - binary frame protocol via stdin/stdout.
-    fn run_cbor_mode(&self) -> Result<(), RuntimeError> {
-        let stdin = io::stdin();
-        let stdout = io::stdout();
+    async fn run_cbor_mode(&self) -> Result<(), RuntimeError> {
+        let stdin = tokio::io::stdin();
+        let stdout = tokio::io::stdout();
 
-        // Lock stdin for reading (single reader thread)
-        let reader = BufReader::new(stdin.lock());
-
-        // Use direct stdout for writer (will be moved to writer thread)
+        // Use async buffered readers/writers
+        let reader = BufReader::new(stdin);
         let writer = BufWriter::new(stdout);
 
         let mut frame_reader = FrameReader::new(reader);
         let mut frame_writer = FrameWriter::new(writer);
 
         // Perform handshake - send our manifest in the HELLO response
-        let negotiated_limits = handshake_accept(&mut frame_reader, &mut frame_writer, &self.manifest_data)?;
+        let negotiated_limits = handshake_accept(&mut frame_reader, &mut frame_writer, &self.manifest_data).await?;
         frame_reader.set_limits(negotiated_limits);
         frame_writer.set_limits(negotiated_limits);
 
         // Create output channel - ALL frames (peer requests + responses) go through here
-        let (output_tx, output_rx) = crossbeam_channel::unbounded::<Frame>();
+        let (output_tx, mut output_rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
 
-        // Spawn writer thread to drain output channel and write frames to stdout
-        let writer_handle = std::thread::spawn(move || {
+        // Spawn writer task to drain output channel and write frames to stdout
+        let writer_handle = tokio::spawn(async move {
             let mut seq_assigner = SeqAssigner::new();
-            for mut frame in output_rx {
+            while let Some(mut frame) = output_rx.recv().await {
                 // Assign centralized seq per request ID before writing
                 seq_assigner.assign(&mut frame);
-                if let Err(_) = frame_writer.write(&frame) {
+                if frame_writer.write(&frame).await.is_err() {
                     break;
                 }
                 // Cleanup seq tracking on terminal frames
@@ -2449,7 +2446,7 @@ impl PluginRuntime {
                 }
             }
             // CRITICAL: Flush buffered output before exiting!
-            let _ = frame_writer.inner_mut().flush();
+            let _ = frame_writer.inner_mut().flush().await;
         });
 
         // Track pending peer requests (plugin invoking host caps)
@@ -2459,14 +2456,14 @@ impl PluginRuntime {
         // Track active requests (incoming, handler already spawned)
         let mut active_requests: HashMap<MessageId, ActiveRequest> = HashMap::new();
 
-        // Track active handler threads for cleanup
+        // Track active handler tasks for cleanup
         let mut active_handlers: Vec<JoinHandle<()>> = Vec::new();
 
         // Main loop: simple frame router. No accumulation.
         loop {
             active_handlers.retain(|h| !h.is_finished());
 
-            let frame = match frame_reader.read()? {
+            let frame = match frame_reader.read().await? {
                 Some(f) => f,
                 None => break,
             };
@@ -2507,18 +2504,18 @@ impl PluginRuntime {
 
                     let request_id = frame.id.clone();
 
-                    // Create channel for streaming frames to handler
+                    // Create channel for streaming frames to handler (crossbeam for sync Iterator consumption)
                     let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
                     active_requests.insert(request_id.clone(), ActiveRequest { raw_tx });
 
-                    // Spawn handler thread immediately (not on END)
+                    // Spawn handler task immediately (not on END)
                     let output_tx_clone = output_tx.clone();
                     let pending_clone = Arc::clone(&pending_peer_requests);
                     let manifest_clone = self.manifest.clone();
                     let cap_urn_clone = cap_urn.clone();
                     let max_chunk = negotiated_limits.max_chunk;
 
-                    let handle = thread::spawn(move || {
+                    let handle = tokio::spawn(async move {
                         // Build file-path context for Demux
                         let fp_ctx = FilePathContext::new(&cap_urn_clone, manifest_clone).ok();
 
@@ -2551,7 +2548,7 @@ impl PluginRuntime {
                         // Call Op handler via dispatch
                         let op = factory();
                         let peer_arc: Arc<dyn PeerInvoker> = Arc::new(peer_invoker);
-                        let result = dispatch_op(op, input_package, output, peer_arc);
+                        let result = dispatch_op(op, input_package, output, peer_arc).await;
 
                         match result {
                             Ok(()) => {
@@ -2657,10 +2654,10 @@ impl PluginRuntime {
         // Graceful shutdown
         drop(output_tx);
 
-        let _ = writer_handle.join();
+        let _ = writer_handle.await;
 
         for handle in active_handlers {
-            let _ = handle.join();
+            let _ = handle.await;
         }
 
         Ok(())
@@ -2811,10 +2808,10 @@ mod tests {
     }
 
     /// Helper: invoke a factory-produced Op with test input/output
-    fn invoke_op(factory: &OpFactory, input: InputPackage, output: OutputStream) -> Result<(), RuntimeError> {
+    async fn invoke_op(factory: &OpFactory, input: InputPackage, output: OutputStream) -> Result<(), RuntimeError> {
         let op = factory();
         let peer: Arc<dyn PeerInvoker> = Arc::new(NoPeerInvoker);
-        dispatch_op(op, input, output, peer)
+        dispatch_op(op, input, output, peer).await
     }
 
     /// Create an InputPackage from a list of streams for testing.
@@ -2844,8 +2841,8 @@ mod tests {
 
     /// Create an OutputStream backed by a channel for testing.
     /// Returns (OutputStream, frame_receiver) so tests can inspect output.
-    fn test_output_stream() -> (OutputStream, crossbeam_channel::Receiver<Frame>) {
-        let (out_tx, out_rx) = crossbeam_channel::unbounded();
+    fn test_output_stream() -> (OutputStream, tokio::sync::mpsc::UnboundedReceiver<Frame>) {
+        let (out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel();
         let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender { tx: out_tx });
         let output = OutputStream::new(
             sender,
@@ -3056,8 +3053,8 @@ mod tests {
     }
 
     // TEST249: Test register_op handler echoes bytes directly
-    #[test]
-    fn test249_raw_handler() {
+    #[tokio::test]
+    async fn test249_raw_handler() {
         let mut runtime = PluginRuntime::new(TEST_MANIFEST.as_bytes());
         let received: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let received_clone = Arc::clone(&received);
@@ -3069,13 +3066,13 @@ mod tests {
         let factory = runtime.find_handler("cap:op=raw").unwrap();
         let input = test_input_package(&[("media:", b"echo this")]);
         let (output, _out_rx) = test_output_stream();
-        invoke_op(&factory, input, output).unwrap();
+        invoke_op(&factory, input, output).await.unwrap();
         assert_eq!(&*received.lock().unwrap(), b"echo this", "raw handler must echo payload");
     }
 
     // TEST250: Test Op handler collects input and processes it
-    #[test]
-    fn test250_typed_handler_deserialization() {
+    #[tokio::test]
+    async fn test250_typed_handler_deserialization() {
         /// Test Op: parses JSON, extracts "key" field, emits as bytes
         struct JsonKeyOp {
             received: Arc<Mutex<Vec<u8>>>,
@@ -3112,13 +3109,13 @@ mod tests {
         let factory = runtime.find_handler("cap:op=test").unwrap();
         let input = test_input_package(&[("media:", b"{\"key\":\"hello\"}")]);
         let (output, _out_rx) = test_output_stream();
-        invoke_op(&factory, input, output).unwrap();
+        invoke_op(&factory, input, output).await.unwrap();
         assert_eq!(&*received.lock().unwrap(), b"hello");
     }
 
     // TEST251: Test Op handler propagates errors through RuntimeError::Handler
-    #[test]
-    fn test251_typed_handler_rejects_invalid_json() {
+    #[tokio::test]
+    async fn test251_typed_handler_rejects_invalid_json() {
         /// Op that parses JSON — fails on invalid input
         struct JsonParseOp;
         #[async_trait]
@@ -3143,7 +3140,7 @@ mod tests {
         let factory = runtime.find_handler("cap:op=test").unwrap();
         let input = test_input_package(&[("media:", b"not json {{{{")]);
         let (output, _out_rx) = test_output_stream();
-        let result = invoke_op(&factory, input, output);
+        let result = invoke_op(&factory, input, output).await;
         assert!(result.is_err(), "Invalid JSON must produce error");
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("JSON"), "Error should mention JSON: {}", err_msg);
@@ -3156,9 +3153,9 @@ mod tests {
         assert!(runtime.find_handler("cap:op=nonexistent").is_none());
     }
 
-    // TEST253: Test OpFactory can be cloned via Arc and sent across threads (Send + Sync)
-    #[test]
-    fn test253_handler_is_send_sync() {
+    // TEST253: Test OpFactory can be cloned via Arc and sent across tasks (Send + Sync)
+    #[tokio::test]
+    async fn test253_handler_is_send_sync() {
         let mut runtime = PluginRuntime::new(TEST_MANIFEST.as_bytes());
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_clone = Arc::clone(&received);
@@ -3191,13 +3188,13 @@ mod tests {
         let factory = runtime.find_handler("cap:op=threaded").unwrap();
         let factory_clone = Arc::clone(&factory);
 
-        let handle = std::thread::spawn(move || {
+        let handle = tokio::spawn(async move {
             let input = test_input_package(&[("media:", b"{}")]);
             let (output, _out_rx) = test_output_stream();
-            invoke_op(&factory_clone, input, output).unwrap();
+            invoke_op(&factory_clone, input, output).await.unwrap();
         });
 
-        handle.join().unwrap();
+        handle.await.unwrap();
         assert_eq!(&*received.lock().unwrap(), b"done");
     }
 
@@ -3426,8 +3423,8 @@ mod tests {
     }
 
     // TEST270: Test registering multiple Op handlers for different caps and finding each independently
-    #[test]
-    fn test270_multiple_handlers() {
+    #[tokio::test]
+    async fn test270_multiple_handlers() {
         let mut runtime = PluginRuntime::new(TEST_MANIFEST.as_bytes());
 
         runtime.register_op("cap:op=alpha", || Box::new(EchoTagOp { tag: b"a".to_vec() }));
@@ -3437,22 +3434,22 @@ mod tests {
         let f_alpha = runtime.find_handler("cap:op=alpha").unwrap();
         let input = test_input_package(&[("media:", b"")]);
         let (output, _out_rx) = test_output_stream();
-        invoke_op(&f_alpha, input, output).unwrap();
+        invoke_op(&f_alpha, input, output).await.unwrap();
 
         let f_beta = runtime.find_handler("cap:op=beta").unwrap();
         let input = test_input_package(&[("media:", b"")]);
         let (output, _out_rx) = test_output_stream();
-        invoke_op(&f_beta, input, output).unwrap();
+        invoke_op(&f_beta, input, output).await.unwrap();
 
         let f_gamma = runtime.find_handler("cap:op=gamma").unwrap();
         let input = test_input_package(&[("media:", b"")]);
         let (output, _out_rx) = test_output_stream();
-        invoke_op(&f_gamma, input, output).unwrap();
+        invoke_op(&f_gamma, input, output).await.unwrap();
     }
 
     // TEST271: Test Op handler replacing an existing registration for the same cap URN
-    #[test]
-    fn test271_handler_replacement() {
+    #[tokio::test]
+    async fn test271_handler_replacement() {
         let mut runtime = PluginRuntime::new(TEST_MANIFEST.as_bytes());
 
         let result1: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
@@ -3491,7 +3488,7 @@ mod tests {
         let factory = runtime.find_handler("cap:op=test").unwrap();
         let input = test_input_package(&[("media:", b"")]);
         let (output, _out_rx) = test_output_stream();
-        invoke_op(&factory, input, output).unwrap();
+        invoke_op(&factory, input, output).await.unwrap();
         assert_eq!(&*result2.lock().unwrap(), b"second", "later registration must replace earlier");
         // result1 should NOT have been called
         assert!(result1.lock().unwrap().is_empty(), "first handler must not be called after replacement");
@@ -3617,8 +3614,8 @@ mod tests {
     }
 
     // TEST336: Single file-path arg with stdin source reads file and passes bytes to handler
-    #[test]
-    fn test336_file_path_reads_file_passes_bytes() {
+    #[tokio::test]
+    async fn test336_file_path_reads_file_passes_bytes() {
         use std::sync::{Arc, Mutex};
 
         let temp_dir = std::env::temp_dir();
@@ -3672,7 +3669,7 @@ mod tests {
         // Simulate CLI mode: parse CBOR args → send as streams → InputPackage
         let input = test_input_package(&[("media:", &payload)]);
         let (output, _out_rx) = test_output_stream();
-        invoke_op(&factory, input, output).unwrap();
+        invoke_op(&factory, input, output).await.unwrap();
 
         // Verify handler received file bytes (not file path string)
         let received = received_payload.lock().unwrap();
@@ -4159,8 +4156,8 @@ mod tests {
     }
 
     // TEST350: Integration test - full CLI mode invocation with file-path
-    #[test]
-    fn test350_full_cli_mode_with_file_path_integration() {
+    #[tokio::test]
+    async fn test350_full_cli_mode_with_file_path_integration() {
         use std::sync::{Arc, Mutex};
 
         let temp_dir = std::env::temp_dir();
@@ -4213,7 +4210,7 @@ mod tests {
 
         let input = test_input_package(&[("media:", &payload)]);
         let (output, _out_rx) = test_output_stream();
-        invoke_op(&factory, input, output).unwrap();
+        invoke_op(&factory, input, output).await.unwrap();
 
         // Verify handler received file bytes
         let received = received_payload.lock().unwrap();
@@ -4895,8 +4892,8 @@ mod tests {
     }
 
     // TEST363: CBOR mode with chunked content - send file content streaming as chunks
-    #[test]
-    fn test363_cbor_mode_chunked_content() {
+    #[tokio::test]
+    async fn test363_cbor_mode_chunked_content() {
         use std::sync::{Arc, Mutex};
 
         let pdf_content = vec![0xAA; 10000]; // 10KB of data
@@ -4935,7 +4932,7 @@ mod tests {
         // Send payload as InputPackage
         let input = test_input_package(&[("media:", &payload_bytes)]);
         let (output, _out_rx) = test_output_stream();
-        invoke_op(&factory, input, output).unwrap();
+        invoke_op(&factory, input, output).await.unwrap();
 
         assert_eq!(*received.lock().unwrap(), pdf_content, "Handler receives chunked content");
     }

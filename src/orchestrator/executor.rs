@@ -22,19 +22,18 @@ use super::types::{ResolvedEdge, ResolvedGraph};
 use crate::{
     Frame, FrameType, FrameReader, FrameWriter, Limits,
     PluginHostRuntime, RelaySlave, RelaySwitch, PluginRepo,
-    CapManifest, CapUrn, AsyncFrameReader, AsyncFrameWriter,
-    handshake_async, DEFAULT_MAX_CHUNK,
+    CapManifest, CapUrn, handshake, DEFAULT_MAX_CHUNK,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufReader, BufWriter};
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::time::Duration;
 use thiserror::Error;
+use tokio::io::{BufReader, BufWriter};
+use tokio::net::UnixStream;
 use tokio::process::Command;
+use tokio::sync::mpsc;
 
 /// Cap URN for the identity capability (always available from any plugin runtime).
 const CAP_IDENTITY: &str = "cap:";
@@ -274,10 +273,10 @@ impl PluginManager {
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
 
-        let mut reader = AsyncFrameReader::new(stdout);
-        let mut writer = AsyncFrameWriter::new(stdin);
+        let mut reader = FrameReader::new(stdout);
+        let mut writer = FrameWriter::new(stdin);
 
-        let result = handshake_async(&mut reader, &mut writer)
+        let result = handshake(&mut reader, &mut writer)
             .await
             .map_err(|e| ExecutionError::HostError(format!("Handshake failed: {:?}", e)))?;
 
@@ -534,15 +533,9 @@ impl PluginManager {
 // =============================================================================
 
 /// Handle for cleanup of a master's associated resources.
-///
-/// When a master is added via `add_plugin_host`, we spawn threads and hold
-/// socket clones that need explicit shutdown. This struct tracks those resources.
 struct MasterCleanupHandle {
-    /// Socket clones for force-shutdown. Calling shutdown(Both) on these
-    /// forces all readers/writers on all clones to see errors immediately.
-    shutdown_sockets: Vec<UnixStream>,
-    /// Thread handles to join after shutdown.
-    thread_handles: Vec<std::thread::JoinHandle<()>>,
+    /// Task handles to abort after shutdown.
+    task_handles: Vec<tokio::task::JoinHandle<()>>,
 }
 
 /// Execution context: one RelaySwitch with dynamically added masters.
@@ -567,8 +560,9 @@ impl ExecutionContext {
     ///
     /// The RelaySwitch starts with no masters. Use `add_master()` or
     /// `add_plugin_host()` to add masters before executing caps.
-    pub fn new() -> Result<Self, ExecutionError> {
+    pub async fn new() -> Result<Self, ExecutionError> {
         let switch = RelaySwitch::new(vec![])
+            .await
             .map_err(|e| ExecutionError::HostError(format!("RelaySwitch init: {}", e)))?;
 
         Ok(Self {
@@ -579,18 +573,18 @@ impl ExecutionContext {
         })
     }
 
-    /// Add a master connection from externally managed socket pairs.
+    /// Add a master connection from an externally managed socket.
     ///
     /// The caller is responsible for the lifecycle of the connected endpoint
     /// (e.g., an InProcessPluginHost or external plugin connection).
     ///
     /// Returns the master index on success.
-    pub fn add_master(
+    pub async fn add_master(
         &mut self,
-        read_sock: UnixStream,
-        write_sock: UnixStream,
+        socket: UnixStream,
     ) -> Result<usize, ExecutionError> {
-        let idx = self.switch.add_master(read_sock, write_sock)
+        let idx = self.switch.add_master(socket)
+            .await
             .map_err(|e| ExecutionError::HostError(format!("add_master: {}", e)))?;
 
         self.update_max_chunk();
@@ -601,7 +595,7 @@ impl ExecutionContext {
     ///
     /// This creates:
     /// - PluginHostRuntime (async, in tokio task)
-    /// - RelaySlave (sync, in std::thread)
+    /// - RelaySlave (async, in tokio task)
     /// - Socket pairs connecting them to the switch
     ///
     /// The ExecutionContext manages cleanup of these resources.
@@ -620,29 +614,22 @@ impl ExecutionContext {
         let (slave_int_sock, host_sock) =
             UnixStream::pair().map_err(ExecutionError::IoError)?;
 
-        // Keep clones for explicit shutdown
-        let switch_shutdown = switch_sock.try_clone().map_err(ExecutionError::IoError)?;
-        let slave_int_shutdown = slave_int_sock.try_clone().map_err(ExecutionError::IoError)?;
-
         // --- PluginHostRuntime (async, in tokio task) ---
         let mut host = PluginHostRuntime::new();
         for (path, caps) in &plugins {
             host.register_plugin(path, caps);
         }
 
-        host_sock.set_nonblocking(true)?;
-        let host_async = tokio::net::UnixStream::from_std(host_sock)?;
-        let (host_read, host_write) = host_async.into_split();
+        let (host_read, host_write) = host_sock.into_split();
 
-        tokio::spawn(async move {
+        let host_handle = tokio::spawn(async move {
             if let Err(e) = host.run(host_read, host_write, || Vec::new()).await {
                 eprintln!("[PluginHostRuntime] Fatal: {}", e);
             }
         });
 
-        // --- RelaySlave (sync, in blocking thread) ---
-        let slave_int_read = slave_int_sock.try_clone().map_err(ExecutionError::IoError)?;
-        let slave_int_write = slave_int_sock;
+        // --- RelaySlave (async, in tokio task) ---
+        let (slave_int_read, slave_int_write) = slave_int_sock.into_split();
         let slave = RelaySlave::new(
             BufReader::new(slave_int_read),
             BufWriter::new(slave_int_write),
@@ -653,40 +640,26 @@ impl ExecutionContext {
         let initial_caps_json = serde_json::to_vec(&[CAP_IDENTITY])
             .map_err(|e| ExecutionError::HostError(format!("serialize caps: {}", e)))?;
 
-        let slave_ext_read = slave_ext_sock.try_clone().map_err(ExecutionError::IoError)?;
-        let slave_ext_write = slave_ext_sock;
+        let (slave_ext_read, slave_ext_write) = slave_ext_sock.into_split();
 
-        let slave_handle = std::thread::spawn(move || {
+        let slave_handle = tokio::spawn(async move {
             if let Err(e) = slave.run(
                 FrameReader::new(BufReader::new(slave_ext_read)),
                 FrameWriter::new(BufWriter::new(slave_ext_write)),
                 Some((&initial_caps_json, &Limits::default())),
-            ) {
+            ).await {
                 eprintln!("[RelaySlave] Fatal: {}", e);
             }
         });
 
-        // --- Add to switch (blocking handshake) ---
-        let switch_read = switch_sock.try_clone().map_err(ExecutionError::IoError)?;
-        let switch_write = switch_sock;
-
-        // add_master is sync and blocks on handshake, so run in spawn_blocking
-        let add_result = {
-            // We need to pass &mut self.switch but can't move self into the closure.
-            // Instead, we do the blocking add_master call directly here since we're
-            // already in an async context and add_master does blocking I/O.
-            tokio::task::block_in_place(|| {
-                self.switch.add_master(switch_read, switch_write)
-            })
-        };
-
-        let master_idx = add_result
+        // --- Add to switch ---
+        let master_idx = self.switch.add_master(switch_sock)
+            .await
             .map_err(|e| ExecutionError::HostError(format!("add_master: {}", e)))?;
 
         // Store cleanup handles
         self.cleanup_handles.push(MasterCleanupHandle {
-            shutdown_sockets: vec![switch_shutdown, slave_int_shutdown],
-            thread_handles: vec![slave_handle],
+            task_handles: vec![host_handle, slave_handle],
         });
 
         self.update_max_chunk();
@@ -737,23 +710,16 @@ impl ExecutionContext {
     /// Shut down the infrastructure and return accumulated node data.
     ///
     /// This:
-    /// 1. Drops the switch (releases frame writers and reader threads)
-    /// 2. Force-closes all managed sockets
-    /// 3. Joins all managed threads
+    /// 1. Drops the switch (releases frame writers and reader tasks)
+    /// 2. Aborts all managed tasks
     ///
     /// For masters added via `add_master()`, the caller is responsible for
     /// shutting down their endpoints.
-    pub fn shutdown(mut self) -> HashMap<String, Vec<u8>> {
-        // 1. Drop the switch — releases its FrameWriters and reader_handles.
-        drop(self.switch);
-
-        // 2. Force-close all managed sockets and join threads.
+    pub fn shutdown(self) -> HashMap<String, Vec<u8>> {
+        // Abort all managed tasks
         for handle in self.cleanup_handles {
-            for sock in handle.shutdown_sockets {
-                let _ = sock.shutdown(std::net::Shutdown::Both);
-            }
-            for thread in handle.thread_handles {
-                let _ = thread.join();
+            for task in handle.task_handles {
+                task.abort();
             }
         }
 
@@ -777,7 +743,7 @@ impl ExecutionContext {
     ///   ...
     ///   END
     ///   → collect response chunks → decode CBOR → store at `to` node
-    pub fn execute_fanin(
+    pub async fn execute_fanin(
         &mut self,
         edges: &[ResolvedEdge],
         extra_args: &[(String, Vec<u8>)],
@@ -816,9 +782,10 @@ impl ExecutionContext {
         }
 
         // Open ONE cap invocation for all inputs
-        let (request_id, rx) = self
+        let (request_id, mut rx) = self
             .switch
             .execute_cap(cap_urn, vec![], "application/cbor")
+            .await
             .map_err(|e| ExecutionError::HostError(format!("execute_cap: {}", e)))?;
 
         // Send each input as a separate named stream
@@ -832,6 +799,7 @@ impl ExecutionContext {
             );
             self.switch
                 .send_to_master(ss, None)
+                .await
                 .map_err(|e| ExecutionError::HostError(format!("STREAM_START: {}", e)))?;
 
             let mut offset = 0;
@@ -854,6 +822,7 @@ impl ExecutionContext {
                 );
                 self.switch
                     .send_to_master(chunk, None)
+                    .await
                     .map_err(|e| ExecutionError::HostError(format!("CHUNK: {}", e)))?;
                 seq = 1;
             } else {
@@ -878,6 +847,7 @@ impl ExecutionContext {
                     );
                     self.switch
                         .send_to_master(chunk, None)
+                        .await
                         .map_err(|e| ExecutionError::HostError(format!("CHUNK: {}", e)))?;
 
                     offset = end;
@@ -888,6 +858,7 @@ impl ExecutionContext {
             let se = Frame::stream_end(request_id.clone(), stream_id, seq);
             self.switch
                 .send_to_master(se, None)
+                .await
                 .map_err(|e| ExecutionError::HostError(format!("STREAM_END: {}", e)))?;
         }
 
@@ -895,82 +866,78 @@ impl ExecutionContext {
         let end_frame = Frame::end(request_id.clone(), None);
         self.switch
             .send_to_master(end_frame, None)
+            .await
             .map_err(|e| ExecutionError::HostError(format!("END: {}", e)))?;
 
-        // Collect response: pump read_from_masters, drain response channel.
-        // The pump drives RelaySwitch's internal routing (peer requests between
-        // plugins flow through here). The response channel receives our frames.
-        // No deadline - streaming operations may run indefinitely. Plugin liveness
-        // is monitored via heartbeats, not arbitrary timeouts.
+        // Collect response using tokio::select! to concurrently:
+        // 1. Pump read_from_masters (routes peer requests internally)
+        // 2. Receive response frames on rx
+        //
+        // This is the KEY FIX for the deadlock: we no longer block on
+        // read_from_masters_timeout in a sync loop. Instead, we use async
+        // select! so peer requests (internal provider → external plugin) can
+        // be processed while we wait for the response.
         let mut response_chunks: Vec<u8> = Vec::new();
         let mut got_end = false;
 
         while !got_end {
-            // Pump one frame — routes peer requests internally, returns engine-bound frames
-            match self
-                .switch
-                .read_from_masters_timeout(Duration::from_millis(200))
-            {
-                Ok(Some(frame)) => {
-                    eprintln!(
-                        "  [engine] {:?} id={:?} cap={:?}",
-                        frame.frame_type, frame.id, frame.cap
-                    );
-                }
-                Ok(None) => {
-                    // Timeout or internal frame — peer routing happened, continue
-                }
-                Err(e) => {
-                    return Err(ExecutionError::HostError(format!(
-                        "read_from_masters: {}",
-                        e
-                    )));
-                }
-            }
+            tokio::select! {
+                biased;
 
-            // Drain response channel
-            loop {
-                match rx.try_recv() {
-                    Ok(frame) => {
-                        match frame.frame_type {
-                            FrameType::Chunk => {
-                                if let Some(payload) = &frame.payload {
-                                    response_chunks.extend_from_slice(payload);
-                                }
-                            }
-                            FrameType::End => {
-                                if let Some(payload) = &frame.payload {
-                                    response_chunks.extend_from_slice(payload);
-                                }
-                                got_end = true;
-                                break;
-                            }
-                            FrameType::Err => {
-                                let msg = frame
-                                    .error_message()
-                                    .unwrap_or("Unknown plugin error")
-                                    .to_string();
-                                return Err(ExecutionError::PluginExecutionFailed {
-                                    cap_urn: cap_urn.clone(),
-                                    details: msg,
-                                });
-                            }
-                            FrameType::Log => {
-                                if let Some(payload) = &frame.payload {
-                                    let text = String::from_utf8_lossy(payload);
-                                    eprintln!("  [plugin log] {}", text);
-                                }
-                            }
-                            _ => {
-                                // STREAM_START, STREAM_END — structural, skip
-                            }
+                // Pump one frame from masters — routes peer requests internally
+                pump_result = self.switch.read_from_masters_timeout(Duration::from_millis(200)) => {
+                    match pump_result {
+                        Ok(Some(frame)) => {
+                            eprintln!(
+                                "  [engine] {:?} id={:?} cap={:?}",
+                                frame.frame_type, frame.id, frame.cap
+                            );
+                        }
+                        Ok(None) => {
+                            // Timeout or internal frame — peer routing happened, continue
+                        }
+                        Err(e) => {
+                            return Err(ExecutionError::HostError(format!(
+                                "read_from_masters: {}",
+                                e
+                            )));
                         }
                     }
-                    Err(mpsc::TryRecvError::Empty) => break,
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        return Err(ExecutionError::HostError(
-                            "Response channel disconnected".to_string(),
-                        ));
+                }
+
+                // Receive response frame
+                Some(frame) = rx.recv() => {
+                    match frame.frame_type {
+                        FrameType::Chunk => {
+                            if let Some(payload) = &frame.payload {
+                                response_chunks.extend_from_slice(payload);
+                            }
+                        }
+                        FrameType::End => {
+                            if let Some(payload) = &frame.payload {
+                                response_chunks.extend_from_slice(payload);
+                            }
+                            got_end = true;
+                        }
+                        FrameType::Err => {
+                            let msg = frame
+                                .error_message()
+                                .unwrap_or("Unknown plugin error")
+                                .to_string();
+                            return Err(ExecutionError::PluginExecutionFailed {
+                                cap_urn: cap_urn.clone(),
+                                details: msg,
+                            });
+                        }
+                        FrameType::Log => {
+                            if let Some(payload) = &frame.payload {
+                                let text = String::from_utf8_lossy(payload);
+                                eprintln!("  [plugin log] {}", text);
+                            }
+                        }
+                        _ => {
+                            // STREAM_START, STREAM_END — structural, skip
+                        }
                     }
                 }
             }
@@ -1025,7 +992,7 @@ pub async fn execute_dag(
     }
 
     // 2. Create execution context and add plugin host as master
-    let mut ctx = ExecutionContext::new()?;
+    let mut ctx = ExecutionContext::new().await?;
     ctx.add_plugin_host(plugins).await?;
 
     // 3. Resolve initial inputs to raw bytes and set on nodes
@@ -1046,28 +1013,22 @@ pub async fn execute_dag(
         group_order.len()
     );
 
-    // Execute groups synchronously via spawn_blocking since
-    // RelaySwitch/read_from_masters are blocking operations
-    tokio::task::spawn_blocking(move || {
-        for idx in group_order {
-            // No extra arguments in CLI mode - all data flows through edges
-            ctx.execute_fanin(&groups[idx].edges, &[])?;
-        }
+    // Execute groups - now fully async!
+    for idx in group_order {
+        // No extra arguments in CLI mode - all data flows through edges
+        ctx.execute_fanin(&groups[idx].edges, &[]).await?;
+    }
 
-        eprintln!("\nExecution complete!\n");
+    eprintln!("\nExecution complete!\n");
 
-        // Explicitly shut down infrastructure — prevents hanging from
-        // try_clone'd socket FDs keeping connections alive.
-        let node_data = ctx.shutdown();
+    // Explicitly shut down infrastructure
+    let node_data = ctx.shutdown();
 
-        // Convert back to NodeData for the public API
-        let result: HashMap<String, NodeData> = node_data
-            .into_iter()
-            .map(|(k, v)| (k, NodeData::Bytes(v)))
-            .collect();
+    // Convert back to NodeData for the public API
+    let result: HashMap<String, NodeData> = node_data
+        .into_iter()
+        .map(|(k, v)| (k, NodeData::Bytes(v)))
+        .collect();
 
-        Ok(result)
-    })
-    .await
-    .map_err(|e| ExecutionError::HostError(format!("Join error: {}", e)))?
+    Ok(result)
 }
