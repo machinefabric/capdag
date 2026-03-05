@@ -17,7 +17,53 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
 use tempfile::TempDir;
+
+// =============================================================================
+// Shared Binary Cache — builds all cartridges once per test session
+// =============================================================================
+
+/// All cartridge names that tests might need
+const ALL_CARTRIDGES: &[&str] = &[
+    "pdfcartridge",
+    "txtcartridge",
+    "modelcartridge",
+    "candlecartridge",
+    "ggufcartridge",
+    "testcartridge",
+];
+
+/// Cached binary paths, built once per test session
+static BINARY_CACHE: OnceLock<Result<HashMap<String, PathBuf>, String>> = OnceLock::new();
+
+/// Initialize the binary cache by building all cartridges upfront.
+/// Returns a map of cartridge name -> binary path.
+fn init_binary_cache() -> Result<HashMap<String, PathBuf>, String> {
+    eprintln!("[CartridgeTest] Building all cartridges upfront...");
+    let mut paths = HashMap::new();
+
+    for &name in ALL_CARTRIDGES {
+        match ensure_cartridge_binary(name) {
+            Ok(path) => {
+                eprintln!("[CartridgeTest] Built {}: {:?}", name, path);
+                paths.insert(name.to_string(), path);
+            }
+            Err(e) => {
+                // Return error immediately - fail fast on first build failure
+                return Err(format!("Failed to build {}: {}", name, e));
+            }
+        }
+    }
+
+    eprintln!("[CartridgeTest] All {} cartridges built successfully", paths.len());
+    Ok(paths)
+}
+
+/// Get the shared binary cache, initializing on first call.
+fn get_binary_cache() -> &'static Result<HashMap<String, PathBuf>, String> {
+    BINARY_CACHE.get_or_init(init_binary_cache)
+}
 
 // =============================================================================
 // Cap URN Builders — mirror the exact builder calls in each cartridge
@@ -591,17 +637,25 @@ fn ensure_cartridge_binary(name: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("{} binary not found after build", name))
 }
 
-/// Require specific cartridge binaries. Builds them if missing or outdated.
+/// Require specific cartridge binaries from the shared cache.
+/// All cartridges are built once on first call, then cached for the session.
 fn require_binaries(names: &[&str]) -> Vec<PathBuf> {
+    // Get or initialize the shared cache (builds ALL cartridges on first call)
+    let cache = match get_binary_cache() {
+        Ok(cache) => cache,
+        Err(e) => panic!("Cartridge build failed: {}", e),
+    };
+
+    // Look up requested binaries from cache
     let mut paths = Vec::new();
     for &name in names {
-        match ensure_cartridge_binary(name) {
-            Ok(path) => {
+        match cache.get(name) {
+            Some(path) => {
                 eprintln!("[CartridgeTest] Using {}: {:?}", name, path);
-                paths.push(path);
+                paths.push(path.clone());
             }
-            Err(e) => {
-                panic!("{}", e);
+            None => {
+                panic!("Cartridge {} not in cache (not in ALL_CARTRIDGES list?)", name);
             }
         }
     }
