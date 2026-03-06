@@ -48,7 +48,7 @@ pub const MEDIA_BOOLEAN: &str = "media:bool;textable";
 /// Use MEDIA_JSON for textable JSON objects.
 pub const MEDIA_OBJECT: &str = "media:record";
 /// Media URN for binary data - the most general media type (no constraints)
-pub const MEDIA_BINARY: &str = "media:";
+pub const MEDIA_IDENTITY: &str = "media:";
 
 // Array types - URNs must match base.toml definitions
 /// Media URN for string array type - textable with list marker
@@ -512,7 +512,7 @@ mod tests {
     #[test]
     fn test061_is_binary() {
         // Binary types: no textable tag
-        assert!(MediaUrn::from_string(MEDIA_BINARY).unwrap().is_binary()); // "media:"
+        assert!(MediaUrn::from_string(MEDIA_IDENTITY).unwrap().is_binary()); // "media:"
         assert!(MediaUrn::from_string(MEDIA_PNG).unwrap().is_binary()); // "media:image;png"
         assert!(MediaUrn::from_string(MEDIA_PDF).unwrap().is_binary()); // "media:pdf"
         assert!(MediaUrn::from_string("media:video").unwrap().is_binary());
@@ -599,7 +599,7 @@ mod tests {
         assert!(MediaUrn::from_string(MEDIA_INTEGER).unwrap().is_text()); // "media:integer;textable;numeric"
         assert!(MediaUrn::from_string(MEDIA_JSON).unwrap().is_text()); // "media:json;record;textable"
         // Without textable tag, is_text is false
-        assert!(!MediaUrn::from_string(MEDIA_BINARY).unwrap().is_text()); // "media:"
+        assert!(!MediaUrn::from_string(MEDIA_IDENTITY).unwrap().is_text()); // "media:"
         assert!(!MediaUrn::from_string(MEDIA_PNG).unwrap().is_text()); // "media:image;png"
         assert!(!MediaUrn::from_string(MEDIA_OBJECT).unwrap().is_text()); // "media:record" (no textable)
     }
@@ -631,7 +631,7 @@ mod tests {
         assert!(MediaUrn::from_string(MEDIA_NUMBER).is_ok());
         assert!(MediaUrn::from_string(MEDIA_BOOLEAN).is_ok());
         assert!(MediaUrn::from_string(MEDIA_OBJECT).is_ok());
-        assert!(MediaUrn::from_string(MEDIA_BINARY).is_ok());
+        assert!(MediaUrn::from_string(MEDIA_IDENTITY).is_ok());
         assert!(MediaUrn::from_string(MEDIA_STRING_ARRAY).is_ok());
         assert!(MediaUrn::from_string(MEDIA_INTEGER_ARRAY).is_ok());
         assert!(MediaUrn::from_string(MEDIA_NUMBER_ARRAY).is_ok());
@@ -740,18 +740,18 @@ mod tests {
 #[cfg(test)]
 mod debug_tests {
     use super::*;
-    use crate::standard::media::{MEDIA_BINARY, MEDIA_STRING, MEDIA_OBJECT};
+    use crate::standard::media::{MEDIA_IDENTITY, MEDIA_STRING, MEDIA_OBJECT};
 
     // TEST078: Debug test for conforms_to behavior between different media URN types
     #[test]
     fn debug_matching_behavior() {
-        println!("MEDIA_BINARY = {}", MEDIA_BINARY);
+        println!("MEDIA_IDENTITY = {}", MEDIA_IDENTITY);
         println!("MEDIA_STRING = {}", MEDIA_STRING);
         println!("MEDIA_OBJECT = {}", MEDIA_OBJECT);
 
         let str_urn = MediaUrn::from_string(MEDIA_STRING).unwrap();
         let obj_urn = MediaUrn::from_string(MEDIA_OBJECT).unwrap();
-        let _bin_urn = MediaUrn::from_string(MEDIA_BINARY).unwrap();
+        let _bin_urn = MediaUrn::from_string(MEDIA_IDENTITY).unwrap();
 
         println!("string.conforms_to(string) = {:?}", str_urn.conforms_to(&str_urn));
         println!("object.conforms_to(string) = {:?}", obj_urn.conforms_to(&str_urn));
@@ -849,7 +849,7 @@ mod debug_tests {
         // Non-numeric types
         assert!(!MediaUrn::from_string(MEDIA_STRING).unwrap().is_numeric());
         assert!(!MediaUrn::from_string(MEDIA_BOOLEAN).unwrap().is_numeric());
-        assert!(!MediaUrn::from_string(MEDIA_BINARY).unwrap().is_numeric());
+        assert!(!MediaUrn::from_string(MEDIA_IDENTITY).unwrap().is_numeric());
     }
 
     // TEST550: is_bool returns true only when bool marker tag is present
@@ -862,7 +862,7 @@ mod debug_tests {
         // Non-bool types
         assert!(!MediaUrn::from_string(MEDIA_STRING).unwrap().is_bool());
         assert!(!MediaUrn::from_string(MEDIA_INTEGER).unwrap().is_bool());
-        assert!(!MediaUrn::from_string(MEDIA_BINARY).unwrap().is_bool());
+        assert!(!MediaUrn::from_string(MEDIA_IDENTITY).unwrap().is_bool());
     }
 
     // TEST551: is_file_path returns true for scalar file-path, false for array
@@ -873,7 +873,7 @@ mod debug_tests {
         assert!(!MediaUrn::from_string(MEDIA_FILE_PATH_ARRAY).unwrap().is_file_path());
         // Non-file-path types
         assert!(!MediaUrn::from_string(MEDIA_STRING).unwrap().is_file_path());
-        assert!(!MediaUrn::from_string(MEDIA_BINARY).unwrap().is_file_path());
+        assert!(!MediaUrn::from_string(MEDIA_IDENTITY).unwrap().is_file_path());
     }
 
     // TEST552: is_file_path_array returns true for list file-path, false for scalar

@@ -9,7 +9,7 @@ use crate::{
 };
 use crate::urn::media_urn::{
     // Primitives (needed for coercion functions)
-    MEDIA_STRING, MEDIA_INTEGER, MEDIA_BOOLEAN, MEDIA_OBJECT, MEDIA_BINARY,
+    MEDIA_STRING, MEDIA_INTEGER, MEDIA_BOOLEAN, MEDIA_OBJECT, MEDIA_IDENTITY,
     // Semantic media types
     MEDIA_PNG,
     // Document types
@@ -300,7 +300,7 @@ pub fn model_path_urn() -> CapUrn {
 
 /// Build URN for generate-thumbnail capability.
 ///
-/// `input_media` is the media URN for the input type (e.g., MEDIA_PDF, MEDIA_BINARY).
+/// `input_media` is the media URN for the input type (e.g., MEDIA_PDF, MEDIA_IDENTITY).
 /// Output is always an image (PNG thumbnail).
 pub fn generate_thumbnail_urn(input_media: &str) -> CapUrn {
     CapUrnBuilder::new()
@@ -415,7 +415,7 @@ pub fn recategorization_task_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
         .tag("op", "recategorize_listing")
         .tag("language", lang_code)
-        .in_spec(MEDIA_BINARY) // Binary document
+        .in_spec(MEDIA_IDENTITY) // Binary document
         .out_spec(MEDIA_OBJECT) // Categorization results
         .build()
         .expect("Failed to build recategorization-task cap URN")
@@ -428,7 +428,7 @@ pub fn listing_analysis_task_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
         .tag("op", "request_listing_analysis")
         .tag("language", lang_code)
-        .in_spec(MEDIA_BINARY) // Binary document
+        .in_spec(MEDIA_IDENTITY) // Binary document
         .out_spec(MEDIA_OBJECT) // Analysis results
         .build()
         .expect("Failed to build listing-analysis-task cap URN")

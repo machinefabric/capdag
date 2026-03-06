@@ -22,7 +22,7 @@ These are the fundamental data types with defined constants in `capdag::media_ur
 | `media:textable;numeric;form=scalar` | `MEDIA_NUMBER` | Floating-point number |
 | `media:bool;textable;form=scalar` | `MEDIA_BOOLEAN` | Boolean value (true/false) |
 | `media:textable;form=map` | `MEDIA_OBJECT` | JSON object |
-| `media:bytes` | `MEDIA_BINARY` | Raw binary data |
+| `media:` | `MEDIA_IDENTITY` | Raw binary data |
 
 ---
 
@@ -81,7 +81,7 @@ Array variants of primitive types.
 | `media:extract-outline-output;textable;form=map` | - | Document outline extraction result |
 | `media:disbound-pages;textable;form=list` | - | Document grinding/chunking result |
 | `media:frontmatter-summary-output;textable;form=map` | - | Frontmatter summary result |
-| `media:thumbnail-output;bytes;visual` | - | Thumbnail image output |
+| `media:thumbnail-output;visual` | - | Thumbnail image output |
 
 ### Audio/Video Processing Outputs
 
@@ -105,10 +105,10 @@ Image types use subtype to specify format.
 
 | Media URN | Description |
 |-----------|-------------|
-| `media:image;subtype=png;bytes;visual` | PNG image |
-| `media:image;subtype=jpeg;bytes;visual` | JPEG image |
-| `media:image;subtype=gif;bytes;visual` | GIF image |
-| `media:image;subtype=webp;bytes;visual` | WebP image |
+| `media:image;subtype=png;visual` | PNG image |
+| `media:image;subtype=jpeg;visual` | JPEG image |
+| `media:image;subtype=gif;visual` | GIF image |
+| `media:image;subtype=webp;visual` | WebP image |
 
 ---
 
@@ -118,10 +118,10 @@ Application-specific formats using subtype.
 
 | Media URN | Description |
 |-----------|-------------|
-| `media:application;subtype=pdf;bytes;visual` | PDF document |
+| `media:application;subtype=pdf;visual` | PDF document |
 | `media:application;subtype=json;textable;form=map` | JSON data |
 | `media:application;subtype=xml;textable;form=map` | XML data |
-| `media:application;subtype=epub+zip;bytes` | EPUB e-book |
+| `media:application;subtype=epub+zip` | EPUB e-book |
 
 ---
 
@@ -155,8 +155,8 @@ Text formats with subtype for specific languages/formats.
 1. **For chip content storage:**
    - Text content: `MEDIA_STRING`
    - JSON/structured data: `MEDIA_OBJECT`
-   - Binary/embeddings: `MEDIA_BINARY`
-   - Images: `media:image;subtype=<format>;bytes;visual`
+   - Binary/embeddings: `MEDIA_IDENTITY`
+   - Images: `media:image;subtype=<format>;visual`
 
 2. **For cap arguments:**
    - Use primitive types (`string`, `integer`, `number`, `boolean`)
@@ -166,7 +166,7 @@ Text formats with subtype for specific languages/formats.
 3. **For cap outputs:**
    - Use specific output types where defined
    - Fall back to `MEDIA_OBJECT` for generic JSON responses
-   - Use `MEDIA_BINARY` for raw binary outputs
+   - Use `MEDIA_IDENTITY` for raw binary outputs
 
 ### Type Detection Methods
 

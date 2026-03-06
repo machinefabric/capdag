@@ -57,10 +57,12 @@ use crate::bifaci::frame::{FlowKey, Frame, FrameType, Limits, MessageId, SeqAssi
 use crate::bifaci::io::{CborError, FrameReader, FrameWriter, identity_nonce};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Instant;
 use tokio::io::{BufReader, BufWriter};
 use tokio::net::UnixStream;
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::{mpsc, Mutex, RwLock};
+use tracing::{error, info, warn};
 
 // =============================================================================
 // ERROR TYPES
@@ -113,6 +115,22 @@ struct RoutingEntry {
     destination_master_idx: usize,
 }
 
+/// Health status snapshot for a single master connection.
+/// Returned by `RelaySwitch::get_master_health()` for monitoring.
+#[derive(Debug, Clone)]
+pub struct MasterHealthStatus {
+    /// Master index (0-based)
+    pub index: usize,
+    /// Whether the master is currently healthy
+    pub healthy: bool,
+    /// Number of capabilities registered by this master
+    pub cap_count: usize,
+    /// Time when this master was connected (seconds since connection)
+    pub connected_seconds: u64,
+    /// Last error that caused unhealthy state (if any)
+    pub last_error: Option<String>,
+}
+
 /// Connection to a single RelayMaster with its socket I/O.
 /// Interior mutability: writer and seq_assigner are behind Mutex.
 struct MasterConnection {
@@ -130,6 +148,10 @@ struct MasterConnection {
     healthy: AtomicBool,
     /// Reader task handle
     reader_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Time when this master was connected
+    connected_at: Instant,
+    /// Last error message (if unhealthy)
+    last_error: RwLock<Option<String>>,
 }
 
 impl std::fmt::Debug for MasterConnection {
@@ -348,6 +370,8 @@ impl RelaySwitch {
                 caps: RwLock::new(caps),
                 healthy: AtomicBool::new(true),
                 reader_handle: None, // Spawned in phase 2
+                connected_at: Instant::now(),
+                last_error: RwLock::new(None),
             });
         }
 
@@ -407,6 +431,43 @@ impl RelaySwitch {
     /// Get the negotiated limits (minimum across all masters).
     pub async fn limits(&self) -> Limits {
         self.negotiated_limits.read().await.clone()
+    }
+
+    /// Get health status of all masters.
+    ///
+    /// Returns a snapshot of each master's health status including:
+    /// - Whether the master is healthy
+    /// - Number of capabilities it provides
+    /// - How long it has been connected
+    /// - Last error message if unhealthy
+    pub async fn get_master_health(&self) -> Vec<MasterHealthStatus> {
+        let masters = self.masters.read().await;
+        let mut result = Vec::with_capacity(masters.len());
+        for (idx, master) in masters.iter().enumerate() {
+            let healthy = master.healthy.load(Ordering::SeqCst);
+            let cap_count = master.caps.read().await.len();
+            let connected_seconds = master.connected_at.elapsed().as_secs();
+            let last_error = master.last_error.read().await.clone();
+            result.push(MasterHealthStatus {
+                index: idx,
+                healthy,
+                cap_count,
+                connected_seconds,
+                last_error,
+            });
+        }
+        result
+    }
+
+    /// Get the total count of masters (healthy and unhealthy).
+    pub async fn master_count(&self) -> usize {
+        self.masters.read().await.len()
+    }
+
+    /// Get the count of healthy masters.
+    pub async fn healthy_master_count(&self) -> usize {
+        let masters = self.masters.read().await;
+        masters.iter().filter(|m| m.healthy.load(Ordering::SeqCst)).count()
     }
 
     /// Execute a cap and return a receiver for streaming response frames.
@@ -682,6 +743,7 @@ impl RelaySwitch {
             }
         });
 
+        let cap_count = caps.len();
         self.masters.write().await.push(MasterConnection {
             socket_writer: Mutex::new(socket_writer),
             seq_assigner: Mutex::new(seq_assigner),
@@ -690,12 +752,20 @@ impl RelaySwitch {
             caps: RwLock::new(caps),
             healthy: AtomicBool::new(true),
             reader_handle: Some(reader_handle),
+            connected_at: Instant::now(),
+            last_error: RwLock::new(None),
         });
 
         // Rebuild tables
         self.rebuild_cap_table().await;
         self.rebuild_capabilities().await;
         self.rebuild_limits().await;
+
+        info!(
+            master_idx = master_idx,
+            cap_count = cap_count,
+            "[RelaySwitch] Master connected successfully"
+        );
 
         Ok(master_idx)
     }
@@ -1253,14 +1323,55 @@ impl RelaySwitch {
 
     /// Handle master death: ERR all pending requests, mark unhealthy, rebuild tables.
     async fn handle_master_death(&self, master_idx: usize) -> Result<(), RelaySwitchError> {
-        // Check and update healthy status atomically
+        self.handle_master_death_with_reason(master_idx, "Connection closed unexpectedly").await
+    }
+
+    /// Handle master death with a specific error reason.
+    async fn handle_master_death_with_reason(
+        &self,
+        master_idx: usize,
+        reason: &str,
+    ) -> Result<(), RelaySwitchError> {
+        // Own the reason string for use across await points
+        let reason_owned = reason.to_string();
+
+        // Get master info before marking unhealthy
+        let (was_healthy, cap_count, connected_seconds) = {
+            let masters = self.masters.read().await;
+            if master_idx >= masters.len() {
+                let total = masters.len();
+                error!(
+                    master_idx = master_idx,
+                    total_masters = total,
+                    "[RelaySwitch] handle_master_death called with invalid master index"
+                );
+                return Ok(());
+            }
+            let master = &masters[master_idx];
+            let was_healthy = master.healthy.load(Ordering::SeqCst);
+            let cap_count = master.caps.blocking_read().len();
+            let connected_seconds = master.connected_at.elapsed().as_secs();
+            (was_healthy, cap_count, connected_seconds)
+        };
+
+        if !was_healthy {
+            return Ok(()); // Already handled
+        }
+
+        // Mark unhealthy and record error
         {
             let masters = self.masters.read().await;
-            if !masters[master_idx].healthy.load(Ordering::SeqCst) {
-                return Ok(()); // Already handled
-            }
             masters[master_idx].healthy.store(false, Ordering::SeqCst);
+            *masters[master_idx].last_error.write().await = Some(reason_owned.clone());
         }
+
+        error!(
+            master_idx = master_idx,
+            cap_count = cap_count,
+            connected_seconds = connected_seconds,
+            reason = %reason_owned,
+            "[RelaySwitch] Master died - marking unhealthy and cleaning up"
+        );
 
         // Find all pending requests for this master
         let dead_requests: Vec<((MessageId, MessageId), Option<usize>)> = {
@@ -1271,6 +1382,14 @@ impl RelaySwitch {
                 .collect()
         };
 
+        if !dead_requests.is_empty() {
+            warn!(
+                master_idx = master_idx,
+                pending_requests = dead_requests.len(),
+                "[RelaySwitch] Failing pending requests due to master death"
+            );
+        }
+
         // Send ERR for each pending request
         for (key, source_idx) in dead_requests {
             let (xid, rid) = &key;
@@ -1279,13 +1398,13 @@ impl RelaySwitch {
             let mut err_frame = Frame::err(
                 rid.clone(),
                 "MASTER_DIED",
-                "Relay master connection closed",
+                &format!("Relay master {} connection closed: {}", master_idx, reason),
             );
             err_frame.routing_id = Some(xid.clone());
 
             match source_idx {
                 None => {
-                    // External caller - send to response channel if exists, otherwise log
+                    // External caller - send to response channel if exists
                     let tx_opt = {
                         let channels = self.external_response_channels.read().await;
                         channels.get(&key).cloned()
@@ -1318,6 +1437,19 @@ impl RelaySwitch {
         self.rebuild_capabilities().await;
         self.rebuild_limits().await;
 
+        // Log remaining healthy masters
+        let (healthy_count, total_count) = {
+            let masters = self.masters.read().await;
+            let healthy = masters.iter().filter(|m| m.healthy.load(Ordering::SeqCst)).count();
+            let total = masters.len();
+            (healthy, total)
+        };
+        info!(
+            healthy_masters = healthy_count,
+            total_masters = total_count,
+            "[RelaySwitch] Master health updated after death"
+        );
+
         Ok(())
     }
 
@@ -1341,13 +1473,22 @@ impl RelaySwitch {
     }
 
     /// Rebuild aggregate capabilities (union of all healthy masters).
+    /// Logs changes if the capability set differs from the previous state.
     async fn rebuild_capabilities(&self) {
+        // Collect caps per master for detailed logging
+        let mut caps_by_master: Vec<(usize, bool, Vec<String>)> = Vec::new();
+        let masters = self.masters.read().await;
+        for (idx, master) in masters.iter().enumerate() {
+            let healthy = master.healthy.load(Ordering::SeqCst);
+            let caps = master.caps.read().await.clone();
+            caps_by_master.push((idx, healthy, caps));
+        }
+        drop(masters);
+
         // Collect all caps from healthy masters
         let mut all_caps: Vec<String> = Vec::new();
-        let masters = self.masters.read().await;
-        for master in masters.iter() {
-            if master.healthy.load(Ordering::SeqCst) {
-                let caps = master.caps.read().await;
+        for (_, healthy, caps) in &caps_by_master {
+            if *healthy {
                 all_caps.extend(caps.iter().cloned());
             }
         }
@@ -1356,8 +1497,55 @@ impl RelaySwitch {
         all_caps.sort();
         all_caps.dedup();
 
+        // Compare with previous capabilities
+        let old_caps: Vec<String> = {
+            let old_bytes = self.aggregate_capabilities.read().await;
+            serde_json::from_slice(&old_bytes).unwrap_or_default()
+        };
+
+        let changed = old_caps != all_caps;
+
         // Build manifest as JSON array (same format as RelayNotify payloads)
         *self.aggregate_capabilities.write().await = serde_json::to_vec(&all_caps).unwrap_or_default();
+
+        // Log only if changed
+        if changed {
+            info!(
+                total_caps = all_caps.len(),
+                previous_caps = old_caps.len(),
+                "[RelaySwitch] Capabilities changed"
+            );
+
+            // Log per-master breakdown
+            for (idx, healthy, caps) in &caps_by_master {
+                let status = if *healthy { "healthy" } else { "unhealthy" };
+                info!(
+                    master_idx = idx,
+                    status = status,
+                    cap_count = caps.len(),
+                    "[RelaySwitch] Master {} caps: {} ({})",
+                    idx, caps.len(), status
+                );
+                // Log sample of caps (first 5) for debugging
+                for (i, cap) in caps.iter().take(5).enumerate() {
+                    info!(
+                        master_idx = idx,
+                        cap_idx = i,
+                        cap_urn = cap.as_str(),
+                        "[RelaySwitch]   cap[{}]: {}",
+                        i, cap
+                    );
+                }
+                if caps.len() > 5 {
+                    info!(
+                        master_idx = idx,
+                        remaining = caps.len() - 5,
+                        "[RelaySwitch]   ... and {} more caps",
+                        caps.len() - 5
+                    );
+                }
+            }
+        }
     }
 
     /// Rebuild negotiated limits (minimum across all healthy masters).

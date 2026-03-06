@@ -30,7 +30,7 @@ pub use crate::urn::media_urn::{
     MediaUrn, MediaUrnError,
     MEDIA_VOID, MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN, MEDIA_OBJECT,
     MEDIA_STRING_ARRAY, MEDIA_INTEGER_ARRAY, MEDIA_NUMBER_ARRAY, MEDIA_BOOLEAN_ARRAY, MEDIA_OBJECT_ARRAY,
-    MEDIA_BINARY, MEDIA_FILE_PATH, MEDIA_FILE_PATH_ARRAY,
+    MEDIA_IDENTITY, MEDIA_FILE_PATH, MEDIA_FILE_PATH_ARRAY,
     // Semantic AI input types
     MEDIA_PNG, MEDIA_AUDIO_SPEECH,
     MEDIA_MODEL_SPEC, MEDIA_MODEL_REPO, MEDIA_JSON_SCHEMA,
@@ -64,7 +64,7 @@ mod tests {
         assert!(MEDIA_STRING.starts_with("media:"));
         assert!(MEDIA_INTEGER.starts_with("media:"));
         assert!(MEDIA_OBJECT.starts_with("media:"));
-        assert!(MEDIA_BINARY.starts_with("media:"));
+        assert!(MEDIA_IDENTITY.starts_with("media:"));
     }
 
     // TEST629: Verify profile URL constants all start with capdag.com schema prefix

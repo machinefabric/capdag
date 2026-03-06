@@ -1358,9 +1358,9 @@ mod tests {
 
         // Create a cap that converts binary to str
         // Use full media URN strings for proper matching
-        let media_binary = "media:binary";
+        let media_identity = "media:";
         let cap = Cap {
-            urn: CapUrn::from_string(&format!(r#"cap:in="{}";op=extract_text;out="{}""#, media_binary, MEDIA_STRING)).unwrap(),
+            urn: CapUrn::from_string(&format!(r#"cap:in="{}";op=extract_text;out="{}""#, media_identity, MEDIA_STRING)).unwrap(),
             title: "Text Extractor".to_string(),
             cap_description: Some("Extract text from binary".to_string()),
             metadata: HashMap::new(),
@@ -1379,7 +1379,7 @@ mod tests {
 
         // Check edge was created
         assert!(graph.get_edges().len() >= 1, "Should have at least 1 edge");
-        assert!(graph.has_direct_edge(media_binary, MEDIA_STRING), "Should have edge from binary to string");
+        assert!(graph.has_direct_edge(media_identity, MEDIA_STRING), "Should have edge from binary to string");
     }
 
     // TEST128: Test CapGraph tracks outgoing and incoming edges for spec conversions
