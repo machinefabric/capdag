@@ -659,8 +659,11 @@ impl CliStreamEmitter {
         Ok(())
     }
 
-    fn emit_log(&self, _level: &str, _message: &str) {
-        // In CLI mode, logs go to stderr (currently disabled)
+    fn emit_log(&self, level: &str, message: &str) {
+        // In CLI mode, logs go to stderr
+        let stderr = io::stderr();
+        let mut handle = stderr.lock();
+        let _ = writeln!(handle, "[{}] {}", level, message);
     }
 }
 
@@ -1846,7 +1849,7 @@ impl PluginRuntime {
         if subcommand == "manifest" {
             let json = serde_json::to_string_pretty(manifest)
                 .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
-            tracing::info!("{}", json);
+            println!("{}", json);
             return Ok(());
         }
 
@@ -2430,11 +2433,59 @@ impl PluginRuntime {
     }
 
     /// Print help message showing all available subcommands.
-    fn print_help(&self, _manifest: &CapManifest) {
+    fn print_help(&self, manifest: &CapManifest) {
+        let stderr = std::io::stderr();
+        let mut handle = stderr.lock();
+        use std::io::Write;
+
+        let _ = writeln!(handle, "Usage: {} <command> [options]", manifest.name);
+        let _ = writeln!(handle);
+        let _ = writeln!(handle, "Commands:");
+        let _ = writeln!(handle, "    {:16} Output plugin manifest as JSON", "manifest");
+
+        for cap in &manifest.caps {
+            let desc = cap.cap_description.as_deref().unwrap_or(&cap.title);
+            let padded_command = format!("{:16}", cap.command);
+            let _ = writeln!(handle, "    {}{}", padded_command, desc);
+        }
+        let _ = writeln!(handle);
+        let _ = writeln!(handle, "Run '<command> --help' for more information on a command.");
     }
 
     /// Print help for a specific cap.
-    fn print_cap_help(&self, _cap: &Cap) {
+    fn print_cap_help(&self, cap: &Cap) {
+        let stderr = std::io::stderr();
+        let mut handle = stderr.lock();
+        use std::io::Write;
+
+        let _ = writeln!(handle, "Usage: {} [options]", cap.command);
+        let _ = writeln!(handle);
+        let desc = cap.cap_description.as_deref().unwrap_or(&cap.title);
+        let _ = writeln!(handle, "{}", desc);
+        let _ = writeln!(handle);
+        let _ = writeln!(handle, "Arguments:");
+
+        for arg in &cap.args {
+            let desc = arg.arg_description.as_deref().unwrap_or("");
+            let required_str = if arg.required { " (required)" } else { "" };
+
+            for source in &arg.sources {
+                match source {
+                    ArgSource::CliFlag { cli_flag } => {
+                        let padded_flag = format!("{:16}", cli_flag);
+                        let _ = writeln!(handle, "    {}{}{}", padded_flag, desc, required_str);
+                    }
+                    ArgSource::Position { position } => {
+                        let arg_name = format!("<arg{}>", position);
+                        let padded_arg = format!("{:16}", arg_name);
+                        let _ = writeln!(handle, "    {}{}{}", padded_arg, desc, required_str);
+                    }
+                    ArgSource::Stdin { .. } => {
+                        let _ = writeln!(handle, "    {:16}{}{}", "<stdin>", desc, required_str);
+                    }
+                }
+            }
+        }
     }
 
     /// Run in Plugin CBOR mode - binary frame protocol via stdin/stdout.

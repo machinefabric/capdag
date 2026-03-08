@@ -260,6 +260,13 @@ impl CapUrn {
         }
     }
 
+    /// Check if a marker tag (solo tag with no value) is present.
+    /// A marker tag is stored as key="*" in the cap URN.
+    /// Example: `cap:constrained;...` has marker tag "constrained"
+    pub fn has_marker_tag(&self, tag_name: &str) -> bool {
+        self.tags.get(&tag_name.to_lowercase()).map_or(false, |v| v == "*")
+    }
+
     /// Add or update a tag
     /// Key is normalized to lowercase; value is preserved as-is
     /// Note: Cannot modify 'in' or 'out' tags - use with_in_spec/with_out_spec
