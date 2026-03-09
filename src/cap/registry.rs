@@ -154,6 +154,18 @@ impl CapRegistry {
         // Copy bundled standard capabilities to cache if they don't exist
         registry.install_standard_caps().await?;
 
+        // Always ensure the identity cap is in the cache - it's mandatory
+        registry.ensure_identity_cap();
+
+        // Log the final cap count
+        if let Ok(cached_caps) = registry.cached_caps.lock() {
+            tracing::info!(
+                cap_count = cached_caps.len(),
+                "[CapRegistry] Initialized with {} caps in memory",
+                cached_caps.len()
+            );
+        }
+
         Ok(registry)
     }
 
@@ -161,7 +173,28 @@ impl CapRegistry {
     pub fn config(&self) -> &RegistryConfig {
         &self.config
     }
-    
+
+    /// Ensure the identity cap is always in the cache.
+    /// The identity cap is mandatory for all capsets.
+    fn ensure_identity_cap(&self) {
+        use crate::standard::caps::identity_cap;
+
+        let identity = identity_cap();
+        let urn = identity.urn_string();
+        let normalized_urn = normalize_cap_urn(&urn);
+
+        // Add to in-memory cache
+        if let Ok(mut cached_caps) = self.cached_caps.lock() {
+            if !cached_caps.contains_key(&normalized_urn) {
+                tracing::debug!(
+                    urn = %normalized_urn,
+                    "[CapRegistry] Adding mandatory identity cap to cache"
+                );
+                cached_caps.insert(normalized_urn, identity);
+            }
+        }
+    }
+
     /// Install bundled standard capabilities to cache directory if they don't exist
     async fn install_standard_caps(&self) -> Result<(), RegistryError> {
         for file in STANDARD_CAPS.files() {
@@ -343,8 +376,12 @@ impl CapRegistry {
 
     fn load_all_cached_caps(cache_dir: &PathBuf) -> Result<HashMap<String, Cap>, RegistryError> {
         let mut caps = HashMap::new();
-        
+        let mut loaded_count = 0;
+        let mut expired_count = 0;
+        let mut error_count = 0;
+
         if !cache_dir.exists() {
+            tracing::info!("[CapRegistry] Cache directory does not exist: {:?}", cache_dir);
             return Ok(caps);
         }
         
@@ -366,6 +403,7 @@ impl CapRegistry {
                         Ok(c) => c,
                         Err(e) => {
                             tracing::warn!("Failed to read cache file {:?}: {}", path, e);
+                            error_count += 1;
                             continue;
                         }
                     };
@@ -376,6 +414,7 @@ impl CapRegistry {
                             tracing::warn!("Failed to parse cache file {:?}: {}", path, e);
                             // Try to remove the invalid cache file
                             let _ = fs::remove_file(&path);
+                            error_count += 1;
                             continue;
                         }
                     };
@@ -385,16 +424,25 @@ impl CapRegistry {
                         if let Err(e) = fs::remove_file(&path) {
                             tracing::warn!("Failed to remove expired cache file {:?}: {}", path, e);
                         }
+                        expired_count += 1;
                         continue;
                     }
 
                     let urn = cache_entry.definition.urn_string();
                     let normalized_urn = normalize_cap_urn(&urn);
                     caps.insert(normalized_urn, cache_entry.definition);
+                    loaded_count += 1;
                 }
             }
         }
-        
+
+        tracing::info!(
+            loaded = loaded_count,
+            expired = expired_count,
+            errors = error_count,
+            "[CapRegistry] Loaded caps from file cache"
+        );
+
         Ok(caps)
     }
 

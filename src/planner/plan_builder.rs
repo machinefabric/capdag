@@ -84,26 +84,39 @@ impl CapPlanBuilder {
     /// Looks up cap definitions to find file-path argument names by media URN type.
     ///
     /// Takes a `CapChainPathInfo` from LiveCapGraph which uses typed URNs.
+    /// Handles both capability steps and cardinality transition steps (ForEach/Collect/WrapInList).
+    ///
+    /// ForEach/Collect pairs define iteration boundaries:
+    /// - ForEach marks the start of iteration over a list
+    /// - Caps between ForEach and Collect form the iteration body
+    /// - Collect marks the end, gathering results back into a list
     pub async fn build_plan_from_path(
         &self,
         name: &str,
         path: &CapChainPathInfo,
         input_cardinality: InputCardinality,
     ) -> PlannerResult<CapExecutionPlan> {
+        use super::live_cap_graph::CapChainStepType;
+
         let mut plan = CapExecutionPlan::new(name);
 
         let caps = self.cap_registry.get_cached_caps().await
             .map_err(|e| PlannerError::RegistryError(format!("Failed to get caps: {}", e)))?;
 
         // Build a map from cap_urn string to (file-path arg name, stdin-chainable)
+        // Only for Cap steps (not cardinality transitions)
         let file_path_info: HashMap<String, (Option<String>, bool)> = path.steps
             .iter()
-            .map(|step| {
-                let cap_urn_str = step.cap_urn.to_string();
-                let cap = caps.iter().find(|c| c.urn.to_string() == cap_urn_str);
-                let arg_name = cap.and_then(|c| Self::find_file_path_arg(c));
-                let chainable = cap.map(|c| Self::is_file_path_stdin_chainable(c)).unwrap_or(false);
-                (cap_urn_str, (arg_name, chainable))
+            .filter_map(|step| {
+                if let Some(cap_urn) = step.cap_urn() {
+                    let cap_urn_str = cap_urn.to_string();
+                    let cap = caps.iter().find(|c| c.urn.to_string() == cap_urn_str);
+                    let arg_name = cap.and_then(|c| Self::find_file_path_arg(c));
+                    let chainable = cap.map(|c| Self::is_file_path_stdin_chainable(c)).unwrap_or(false);
+                    Some((cap_urn_str, (arg_name, chainable)))
+                } else {
+                    None
+                }
             })
             .collect();
 
@@ -118,68 +131,158 @@ impl CapPlanBuilder {
             input_cardinality,
         ));
 
+        // First pass: identify ForEach/Collect ranges to determine body boundaries
+        // A ForEach at index i with Collect at index j means steps [i+1, j-1] are the body
+        let foreach_collect_ranges = Self::find_foreach_collect_ranges(&path.steps);
+
         let mut prev_node_id = input_slot_id.to_string();
+        // Track how many cap steps we've seen (outside of ForEach bodies) for determining first cap
+        let mut cap_step_count = 0;
+        // Track which ForEach body we're inside (if any)
+        let mut inside_foreach_body: Option<(usize, String)> = None; // (foreach_step_index, foreach_node_id)
+        let mut body_entry: Option<String> = None;
+        let mut body_exit: Option<String> = None;
 
         for (i, step) in path.steps.iter().enumerate() {
-            let node_id = format!("cap_{}", i);
-            let cap_urn_str = step.cap_urn.to_string();
+            let node_id = format!("step_{}", i);
 
-            let mut bindings = ArgumentBindings::new();
+            match &step.step_type {
+                CapChainStepType::Cap { cap_urn, .. } => {
+                    let cap_urn_str = cap_urn.to_string();
+                    let mut bindings = ArgumentBindings::new();
 
-            let cap = caps.iter().find(|c| c.urn.to_string() == cap_urn_str);
+                    let cap = caps.iter().find(|c| c.urn.to_string() == cap_urn_str);
 
-            let in_spec = cap.map(|c| c.urn.in_spec()).unwrap_or_default();
-            let out_spec = cap.map(|c| c.urn.out_spec()).unwrap_or_default();
+                    let in_spec = cap.map(|c| c.urn.in_spec()).unwrap_or_default();
+                    let out_spec = cap.map(|c| c.urn.out_spec()).unwrap_or_default();
 
-            if let Some((Some(arg_name), stdin_chainable)) = file_path_info.get(&cap_urn_str) {
-                if i == 0 {
-                    bindings.add_file_path(arg_name);
-                } else if *stdin_chainable {
-                    bindings.add(
-                        arg_name.clone(),
-                        ArgumentBinding::PreviousOutput {
-                            node_id: prev_node_id.clone(),
-                            output_field: None,
-                        },
-                    );
-                } else {
-                    bindings.add_file_path(arg_name);
+                    // Inside a ForEach body, file paths come from the iteration item, not the original input
+                    let is_inside_body = inside_foreach_body.is_some();
+
+                    if let Some((Some(arg_name), stdin_chainable)) = file_path_info.get(&cap_urn_str) {
+                        if cap_step_count == 0 && !is_inside_body {
+                            bindings.add_file_path(arg_name);
+                        } else if *stdin_chainable {
+                            bindings.add(
+                                arg_name.to_string(),
+                                ArgumentBinding::PreviousOutput {
+                                    node_id: prev_node_id.clone(),
+                                    output_field: None,
+                                },
+                            );
+                        } else {
+                            bindings.add_file_path(arg_name);
+                        }
+                    }
+
+                    // Add Slot bindings for all non-I/O arguments
+                    if let Some(cap) = cap {
+                        for arg in cap.get_args() {
+                            if arg.media_urn == in_spec || arg.media_urn == out_spec {
+                                continue;
+                            }
+
+                            let is_file_path_type = MediaUrn::from_string(&arg.media_urn)
+                                .map(|urn| urn.is_any_file_path())
+                                .unwrap_or(false);
+                            if is_file_path_type {
+                                continue;
+                            }
+
+                            if bindings.bindings.contains_key(&arg.media_urn) {
+                                continue;
+                            }
+
+                            bindings.add(
+                                arg.media_urn.clone(),
+                                ArgumentBinding::Slot {
+                                    name: arg.media_urn.clone(),
+                                    schema: None,
+                                },
+                            );
+                        }
+                    }
+
+                    let node = CapNode::cap_with_bindings(&node_id, &cap_urn_str, bindings);
+                    plan.add_node(node);
+                    plan.add_edge(CapEdge::direct(&prev_node_id, &node_id));
+
+                    // Track body entry/exit for ForEach
+                    if is_inside_body {
+                        if body_entry.is_none() {
+                            body_entry = Some(node_id.clone());
+                        }
+                        body_exit = Some(node_id.clone());
+                    } else {
+                        cap_step_count += 1;
+                    }
+                }
+
+                CapChainStepType::ForEach { .. } => {
+                    // Mark that we're entering a ForEach body
+                    // The actual ForEach node will be created when we hit the matching Collect
+                    inside_foreach_body = Some((i, node_id.clone()));
+                    body_entry = None;
+                    body_exit = None;
+                    // Don't increment prev_node_id - the body's first cap will connect to the prev node
+                    continue;
+                }
+
+                CapChainStepType::Collect { .. } => {
+                    // We've reached the end of a ForEach body
+                    if let Some((foreach_idx, foreach_node_id)) = inside_foreach_body.take() {
+                        let entry = body_entry.take().unwrap_or_else(|| prev_node_id.clone());
+                        let exit = body_exit.take().unwrap_or_else(|| prev_node_id.clone());
+
+                        // Find the node that feeds into the ForEach (the one before the ForEach step)
+                        let foreach_input = if foreach_idx == 0 {
+                            input_slot_id.to_string()
+                        } else {
+                            format!("step_{}", foreach_idx - 1)
+                        };
+
+                        // Create the ForEach node now that we know the body boundaries
+                        let foreach_node = CapNode::for_each(
+                            &foreach_node_id,
+                            &foreach_input,
+                            &entry,
+                            &exit,
+                        );
+                        plan.add_node(foreach_node);
+                        plan.add_edge(CapEdge::direct(&foreach_input, &foreach_node_id));
+
+                        // Create iteration edge from ForEach to body entry
+                        plan.add_edge(CapEdge::iteration(&foreach_node_id, &entry));
+
+                        // Create the Collect node
+                        let collect_node = CapNode::collect(&node_id, vec![exit.clone()]);
+                        plan.add_node(collect_node);
+                        // Collection edge from body exit to Collect
+                        plan.add_edge(CapEdge::collection(&exit, &node_id));
+                    } else {
+                        return Err(PlannerError::InvalidPath(
+                            "Collect step without matching ForEach".to_string()
+                        ));
+                    }
+                }
+
+                CapChainStepType::WrapInList { .. } => {
+                    // WrapInList is simpler - it's a one-to-one transformation
+                    // We can represent it as a Collect with a single input
+                    let wrap_node = CapNode::collect(&node_id, vec![prev_node_id.clone()]);
+                    plan.add_node(wrap_node);
+                    plan.add_edge(CapEdge::direct(&prev_node_id, &node_id));
                 }
             }
-
-            // Add Slot bindings for all non-I/O arguments
-            if let Some(cap) = cap {
-                for arg in cap.get_args() {
-                    if arg.media_urn == in_spec || arg.media_urn == out_spec {
-                        continue;
-                    }
-
-                    let is_file_path_type = MediaUrn::from_string(&arg.media_urn)
-                        .map(|urn| urn.is_any_file_path())
-                        .unwrap_or(false);
-                    if is_file_path_type {
-                        continue;
-                    }
-
-                    if bindings.bindings.contains_key(&arg.media_urn) {
-                        continue;
-                    }
-
-                    bindings.add(
-                        arg.media_urn.clone(),
-                        ArgumentBinding::Slot {
-                            name: arg.media_urn.clone(),
-                            schema: None,
-                        },
-                    );
-                }
-            }
-
-            let node = CapNode::cap_with_bindings(&node_id, &cap_urn_str, bindings);
-            plan.add_node(node);
-            plan.add_edge(CapEdge::direct(&prev_node_id, &node_id));
 
             prev_node_id = node_id;
+        }
+
+        // Verify no unclosed ForEach
+        if inside_foreach_body.is_some() {
+            return Err(PlannerError::InvalidPath(
+                "ForEach step without matching Collect".to_string()
+            ));
         }
 
         let output_id = "output";
@@ -192,6 +295,31 @@ impl CapPlanBuilder {
         ]));
 
         Ok(plan)
+    }
+
+    /// Find ForEach/Collect ranges in a path.
+    /// Returns pairs of (foreach_index, collect_index).
+    fn find_foreach_collect_ranges(steps: &[super::live_cap_graph::CapChainStepInfo]) -> Vec<(usize, usize)> {
+        use super::live_cap_graph::CapChainStepType;
+
+        let mut ranges = Vec::new();
+        let mut foreach_stack: Vec<usize> = Vec::new();
+
+        for (i, step) in steps.iter().enumerate() {
+            match &step.step_type {
+                CapChainStepType::ForEach { .. } => {
+                    foreach_stack.push(i);
+                }
+                CapChainStepType::Collect { .. } => {
+                    if let Some(foreach_idx) = foreach_stack.pop() {
+                        ranges.push((foreach_idx, i));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        ranges
     }
 }
 
@@ -274,6 +402,9 @@ impl CapPlanBuilder {
     ///
     /// Takes the new typed `CapChainPathInfo` from `live_cap_graph` which uses
     /// typed `MediaUrn` and `CapUrn` values.
+    ///
+    /// Only Cap steps have arguments to analyze. ForEach/Collect/WrapInList steps
+    /// are cardinality transitions with no user-configurable arguments.
     pub async fn analyze_path_arguments(
         &self,
         path: &CapChainPathInfo,
@@ -283,9 +414,17 @@ impl CapPlanBuilder {
 
         let mut step_requirements = Vec::new();
         let mut all_slots = Vec::new();
+        // Track cap step index for determining first cap (affects file_path resolution)
+        let mut cap_step_index = 0;
 
         for (step_index, step) in path.steps.iter().enumerate() {
-            let cap_urn_str = step.cap_urn.to_string();
+            // Only analyze Cap steps - cardinality transitions have no arguments
+            let cap_urn = match step.cap_urn() {
+                Some(urn) => urn,
+                None => continue, // Skip ForEach/Collect/WrapInList steps
+            };
+
+            let cap_urn_str = cap_urn.to_string();
             let cap = caps.iter()
                 .find(|c| c.urn.to_string() == cap_urn_str)
                 .ok_or_else(|| PlannerError::NotFound(format!(
@@ -304,7 +443,7 @@ impl CapPlanBuilder {
                     &arg.media_urn,
                     &in_spec,
                     &out_spec,
-                    step_index,
+                    cap_step_index,
                     arg.required,
                     &arg.default_value,
                 );
@@ -338,10 +477,12 @@ impl CapPlanBuilder {
             step_requirements.push(StepArgumentRequirements {
                 cap_urn: cap_urn_str,
                 step_index,
-                title: step.title.clone(),
+                title: step.title(),
                 arguments,
                 slots,
             });
+
+            cap_step_index += 1;
         }
 
         let can_execute_without_input = all_slots.is_empty();
@@ -829,475 +970,12 @@ mod tests {
     }
 
     // ==========================================================================
-    // AVAILABILITY FILTERING TESTS
-    // ==========================================================================
-
-    fn create_plan_builder_with_available_caps(available: HashSet<String>) -> CapPlanBuilder {
-        create_test_plan_builder().with_available_caps(available)
-    }
-
-    // TEST770: Tests is_cap_available() correctly applies availability filter when set
-    // Verifies that only caps in the available_caps set are considered available
-    #[test]
-    fn test770_is_cap_available_with_filter() {
-        let mut available = HashSet::new();
-        available.insert("cap:in=\"media:a\";op=transform;out=\"media:b\"".to_string());
-
-        let builder = create_plan_builder_with_available_caps(available);
-
-        assert!(builder.is_cap_available("cap:in=\"media:a\";op=transform;out=\"media:b\""));
-        assert!(!builder.is_cap_available("cap:in=\"media:b\";op=convert;out=\"media:c\""));
-    }
-
-    // TEST771: Tests is_cap_available() treats all caps as available when no filter is set
-    // Verifies that without an availability filter, any cap URN is considered available
-    #[test]
-    fn test771_is_cap_available_without_filter() {
-        let builder = create_test_plan_builder();
-
-        assert!(builder.is_cap_available("cap:in=\"media:a\";op=transform;out=\"media:b\""));
-        assert!(builder.is_cap_available("cap:in=\"media:x\";op=anything;out=\"media:y\""));
-    }
-
-    // TEST772: Tests find_all_paths() excludes unavailable caps from pathfinding
-    // Verifies that only paths using available caps are returned when filter is set
-    #[tokio::test]
-    async fn test772_find_all_paths_filters_by_availability() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B")?;
-        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C")?;
-        let cap3 = make_test_cap("direct", "media:a", "media:c", "A to C Direct")?;
-
-        registry.add_caps_to_cache(vec![cap1.clone(), cap2.clone(), cap3.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(cap1.urn.to_string());
-        available.insert(cap2.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let paths = builder.find_all_paths("media:a", "media:c", 5, 10).await.unwrap();
-
-        assert_eq!(paths.len(), 1, "Should only find one path (through available caps)");
-        assert_eq!(paths[0].steps.len(), 2, "Path should have 2 steps (A->B, B->C)");
-        assert_eq!(paths[0].steps[0].title, "A to B");
-        assert_eq!(paths[0].steps[1].title, "B to C");
-        Ok(())
-    }
-
-    // TEST773: Tests find_all_paths() returns empty result when all caps are filtered out
-    // Verifies that pathfinding returns no paths when the availability filter excludes all relevant caps
-    #[tokio::test]
-    async fn test773_find_all_paths_returns_empty_when_no_available_caps() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B")?;
-
-        registry.add_caps_to_cache(vec![cap1]);
-
-        let available = HashSet::new();
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let paths = builder.find_all_paths("media:a", "media:b", 5, 10).await.unwrap();
-
-        assert!(paths.is_empty(), "Should find no paths when no caps are available");
-        Ok(())
-    }
-
-    // TEST774: Tests get_reachable_targets() only considers available caps for reachability
-    // Verifies that target specs are only reachable via caps in the availability filter
-    #[tokio::test]
-    async fn test774_get_reachable_targets_filters_by_availability() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B")?;
-        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C")?;
-        let cap3 = make_test_cap("step3", "media:a", "media:d", "A to D")?;
-
-        registry.add_caps_to_cache(vec![cap1.clone(), cap2.clone(), cap3.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(cap1.urn.to_string());
-        available.insert(cap3.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let targets = builder.get_reachable_targets("media:a").await.unwrap();
-
-        assert_eq!(targets.len(), 2, "Should find 2 reachable targets (B and D)");
-        assert!(targets.contains(&"media:b".to_string()), "B should be reachable");
-        assert!(targets.contains(&"media:d".to_string()), "D should be reachable");
-        assert!(!targets.contains(&"media:c".to_string()), "C should NOT be reachable (cap2 not available)");
-        Ok(())
-    }
-
-    // TEST775: Tests find_path() selects from available caps when multiple paths exist
-    // Verifies that find_path() respects availability filter and prefers available direct paths
-    #[tokio::test]
-    async fn test775_find_path_filters_by_availability() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B")?;
-        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C")?;
-        let cap3 = make_test_cap("direct", "media:a", "media:c", "A to C Direct")?;
-
-        registry.add_caps_to_cache(vec![cap1.clone(), cap2.clone(), cap3.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(cap3.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let path = builder.find_path("media:a", "media:c").await.unwrap();
-
-        assert_eq!(path.len(), 1, "Should find path with 1 step (direct)");
-        assert!(path[0].contains("op=direct"), "Should use the direct cap: {}", path[0]);
-        Ok(())
-    }
-
-    // TEST776: Tests find_path() returns error when required caps are filtered out by availability
-    // Verifies that "No path found" error is returned when filter blocks the only viable path
-    #[tokio::test]
-    async fn test776_find_path_returns_error_when_path_unavailable() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-        let cap1 = make_test_cap("step1", "media:a", "media:b", "A to B")?;
-        let cap2 = make_test_cap("step2", "media:b", "media:c", "B to C")?;
-
-        registry.add_caps_to_cache(vec![cap1.clone(), cap2.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(cap1.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let result = builder.find_path("media:a", "media:c").await;
-
-        assert!(result.is_err(), "Should fail when path requires unavailable caps");
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("No path found"), "Error should indicate no path found: {}", err);
-        Ok(())
-    }
-
-    // ==========================================================================
-    // TYPE MISMATCH TESTS
-    // ==========================================================================
-
-    // TEST777: Tests type checking prevents using PDF-specific cap with PNG input
-    // Verifies that media type compatibility is enforced during pathfinding (PNG cannot use PDF cap)
-    #[tokio::test]
-    async fn test777_type_mismatch_pdf_cap_does_not_match_png_input() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-        let pdf_to_text = make_test_cap("pdf2text", "media:pdf", "media:textable", "PDF to Text")?;
-
-        registry.add_caps_to_cache(vec![pdf_to_text.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(pdf_to_text.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let result = builder.find_path("media:png", "media:textable").await;
-
-        assert!(result.is_err(), "Should NOT find path from PNG to text via PDF cap");
-        Ok(())
-    }
-
-    // TEST778: Tests type checking prevents using PNG-specific cap with PDF input
-    // Verifies that media type compatibility is enforced during pathfinding (PDF cannot use PNG cap)
-    #[tokio::test]
-    async fn test778_type_mismatch_png_cap_does_not_match_pdf_input() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-        let png_to_thumb = make_test_cap("png2thumb", "media:png", "media:thumbnail", "PNG to Thumbnail")?;
-
-        registry.add_caps_to_cache(vec![png_to_thumb.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(png_to_thumb.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let result = builder.find_path("media:pdf", "media:thumbnail").await;
-
-        assert!(result.is_err(), "Should NOT find path from PDF to thumbnail via PNG cap");
-        Ok(())
-    }
-
-    // TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps
-    // Verifies that PNG and PDF inputs reach different targets based on cap input type requirements
-    #[tokio::test]
-    async fn test779_get_reachable_targets_respects_type_matching() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-        let pdf_to_text = make_test_cap("pdf2text", "media:pdf", "media:textable", "PDF to Text")?;
-        let png_to_thumb = make_test_cap("png2thumb", "media:png", "media:thumbnail", "PNG to Thumbnail")?;
-
-        registry.add_caps_to_cache(vec![pdf_to_text.clone(), png_to_thumb.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(pdf_to_text.urn.to_string());
-        available.insert(png_to_thumb.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let png_targets = builder.get_reachable_targets("media:png").await.unwrap();
-        assert_eq!(png_targets.len(), 1, "PNG should only reach 1 target");
-        assert!(png_targets.contains(&"media:thumbnail".to_string()), "PNG should reach thumbnail");
-        assert!(!png_targets.contains(&"media:textable".to_string()), "PNG should NOT reach text (type mismatch)");
-
-        let pdf_targets = builder.get_reachable_targets("media:pdf").await.unwrap();
-        assert_eq!(pdf_targets.len(), 1, "PDF should only reach 1 target");
-        assert!(pdf_targets.contains(&"media:textable".to_string()), "PDF should reach text");
-        assert!(!pdf_targets.contains(&"media:thumbnail".to_string()), "PDF should NOT reach thumbnail (type mismatch)");
-        Ok(())
-    }
-
-    // TEST780: Tests get_reachable_targets_with_metadata() respects type compatibility constraints
-    // Verifies that reachable target metadata only includes type-compatible transformations
-    #[tokio::test]
-    async fn test780_reachable_targets_with_metadata_respects_type_matching() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-        let pdf_to_text = make_test_cap("pdf2text", "media:pdf", "media:textable", "PDF to Text")?;
-        let png_to_thumb = make_test_cap("png2thumb", "media:png", "media:thumbnail", "PNG to Thumbnail")?;
-
-        registry.add_caps_to_cache(vec![pdf_to_text.clone(), png_to_thumb.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(pdf_to_text.urn.to_string());
-        available.insert(png_to_thumb.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let png_targets = builder.get_reachable_targets_with_metadata("media:png", 5).await.unwrap();
-        assert_eq!(png_targets.len(), 1, "PNG should only reach 1 target with metadata");
-        assert_eq!(png_targets[0].media_spec, "media:thumbnail", "PNG target should be thumbnail");
-
-        let pdf_targets = builder.get_reachable_targets_with_metadata("media:pdf", 5).await.unwrap();
-        assert_eq!(pdf_targets.len(), 1, "PDF should only reach 1 target with metadata");
-        assert_eq!(pdf_targets[0].media_spec, "media:textable", "PDF target should be text");
-        Ok(())
-    }
-
-    // TEST781: Tests find_all_paths() enforces type compatibility across multi-step chains
-    // Verifies that paths are only found when all intermediate types are compatible
-    #[tokio::test]
-    async fn test781_find_all_paths_respects_type_chain() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-        let resize_png = make_test_cap("resize", "media:png", "media:resized-png", "Resize PNG")?;
-        let to_thumb = make_test_cap("thumb", "media:resized-png", "media:thumbnail", "To Thumbnail")?;
-
-        registry.add_caps_to_cache(vec![resize_png.clone(), to_thumb.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(resize_png.urn.to_string());
-        available.insert(to_thumb.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let png_paths = builder.find_all_paths("media:png", "media:thumbnail", 5, 10).await.unwrap();
-        assert_eq!(png_paths.len(), 1, "Should find 1 path from PNG to thumbnail");
-        assert_eq!(png_paths[0].steps.len(), 2, "Path should have 2 steps");
-
-        let pdf_paths = builder.find_all_paths("media:pdf", "media:thumbnail", 5, 10).await.unwrap();
-        assert!(pdf_paths.is_empty(), "Should find NO paths from PDF to thumbnail (type mismatch)");
-        Ok(())
-    }
-
-    // ==========================================================================
-    // PATH COHERENCE SCORING
-    // ==========================================================================
-
-    // TEST782: Tests coherence scoring gives 0 deviations for direct single-step paths
-    // Verifies that paths going directly from source to target without detours have perfect coherence
-    #[test]
-    fn test782_coherence_score_zero_for_direct_path() {
-        let path = CapChainPathInfo {
-            steps: vec![CapChainStepInfo {
-                cap_urn: "cap:in=\"media:txt;textable\";op=convert;out=\"media:md;textable\"".to_string(),
-                from_spec: "media:txt;textable".to_string(),
-                to_spec: "media:md;textable".to_string(),
-                title: "Convert TXT to MD".to_string(),
-                file_path_arg_name: None,
-            }],
-            source_spec: "media:txt;textable".to_string(),
-            target_spec: "media:md;textable".to_string(),
-            total_steps: 1,
-            description: "txt → md".to_string(),
-        };
-
-        let source = MediaUrn::from_string("media:txt;textable").unwrap();
-        let target = MediaUrn::from_string("media:md;textable").unwrap();
-        let (deviation, steps) = CapPlanBuilder::path_coherence_score(&path, &source, &target);
-
-        assert_eq!(deviation, 0, "Direct path should have 0 deviations");
-        assert_eq!(steps, 1, "Path should have 1 step");
-    }
-
-    // TEST783: Tests coherence scoring penalizes paths through semantically unrelated intermediates
-    // Verifies that going from textable→thumbnail→textable incurs deviation penalty (thumbnail unrelated)
-    #[test]
-    fn test783_coherence_score_penalizes_unrelated_intermediate() {
-        let path = CapChainPathInfo {
-            steps: vec![
-                CapChainStepInfo {
-                    cap_urn: "cap:in=\"media:txt;textable\";op=to_thumb;out=\"media:thumbnail\"".to_string(),
-                    from_spec: "media:txt;textable".to_string(),
-                    to_spec: "media:thumbnail".to_string(),
-                    title: "To Thumbnail".to_string(),
-                    file_path_arg_name: None,
-                },
-                CapChainStepInfo {
-                    cap_urn: "cap:in=\"media:thumbnail\";op=to_rst;out=\"media:rst;textable\"".to_string(),
-                    from_spec: "media:thumbnail".to_string(),
-                    to_spec: "media:rst;textable".to_string(),
-                    title: "To RST".to_string(),
-                    file_path_arg_name: None,
-                },
-            ],
-            source_spec: "media:txt;textable".to_string(),
-            target_spec: "media:rst;textable".to_string(),
-            total_steps: 2,
-            description: "txt → thumbnail → rst".to_string(),
-        };
-
-        let source = MediaUrn::from_string("media:txt;textable").unwrap();
-        let target = MediaUrn::from_string("media:rst;textable").unwrap();
-        let (deviation, steps) = CapPlanBuilder::path_coherence_score(&path, &source, &target);
-
-        assert_eq!(deviation, 1, "Path through unrelated thumbnail should have 1 deviation");
-        assert_eq!(steps, 2);
-    }
-
-    // TEST784: Tests coherence scoring does not penalize paths through semantically related intermediates
-    // Verifies that going through a supertype (txt→textable→md) maintains coherence with 0 deviations
-    #[test]
-    fn test784_coherence_score_related_intermediate_not_penalized() {
-        let path = CapChainPathInfo {
-            steps: vec![
-                CapChainStepInfo {
-                    cap_urn: "cap:in=\"media:txt;textable\";op=strip;out=\"media:textable\"".to_string(),
-                    from_spec: "media:txt;textable".to_string(),
-                    to_spec: "media:textable".to_string(),
-                    title: "Strip format".to_string(),
-                    file_path_arg_name: None,
-                },
-                CapChainStepInfo {
-                    cap_urn: "cap:in=\"media:textable\";op=to_md;out=\"media:md;textable\"".to_string(),
-                    from_spec: "media:textable".to_string(),
-                    to_spec: "media:md;textable".to_string(),
-                    title: "To MD".to_string(),
-                    file_path_arg_name: None,
-                },
-            ],
-            source_spec: "media:txt;textable".to_string(),
-            target_spec: "media:md;textable".to_string(),
-            total_steps: 2,
-            description: "txt → textable → md".to_string(),
-        };
-
-        let source = MediaUrn::from_string("media:txt;textable").unwrap();
-        let target = MediaUrn::from_string("media:md;textable").unwrap();
-        let (deviation, _) = CapPlanBuilder::path_coherence_score(&path, &source, &target);
-
-        assert_eq!(deviation, 0, "Path through related supertype (textable) should have 0 deviations");
-    }
-
-    // TEST785: Tests find_all_paths() filters out deviating paths when coherent alternatives exist
-    // Verifies that semantically wandering paths are excluded if direct coherent paths are available
-    #[tokio::test]
-    async fn test785_find_all_paths_filters_deviating_when_coherent_exists() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-
-        let direct = make_test_cap("txt2rst", "media:txt;textable", "media:rst;textable", "Direct TXT to RST")?;
-        let to_thumb = make_test_cap("txt2thumb", "media:txt;textable", "media:thumbnail", "TXT to Thumbnail")?;
-        let thumb_to_rst = make_test_cap("thumb2rst", "media:thumbnail", "media:rst;textable", "Thumbnail to RST")?;
-
-        registry.add_caps_to_cache(vec![direct.clone(), to_thumb.clone(), thumb_to_rst.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(direct.urn.to_string());
-        available.insert(to_thumb.urn.to_string());
-        available.insert(thumb_to_rst.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let paths = builder.find_all_paths("media:txt;textable", "media:rst;textable", 5, 10).await.unwrap();
-
-        assert_eq!(paths.len(), 1, "Deviating path should be filtered out when coherent path exists");
-        assert_eq!(paths[0].steps.len(), 1, "Remaining path should be the direct 1-step path");
-        Ok(())
-    }
-
-    // TEST786: Tests find_all_paths() keeps all paths when no coherent path exists
-    // Verifies that all deviating paths are returned if they're the only viable options
-    #[tokio::test]
-    async fn test786_find_all_paths_keeps_all_when_all_deviate() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-
-        let txt_to_thumb = make_test_cap("txt2thumb", "media:txt;textable", "media:thumbnail", "TXT to Thumb")?;
-        let thumb_to_emb = make_test_cap("thumb2emb", "media:thumbnail", "media:embeddings", "Thumb to Embeddings")?;
-
-        let txt_to_audio = make_test_cap("txt2audio", "media:txt;textable", "media:audio", "TXT to Audio")?;
-        let audio_to_thumb = make_test_cap("audio2thumb", "media:audio", "media:thumbnail", "Audio to Thumb")?;
-
-        registry.add_caps_to_cache(vec![
-            txt_to_thumb.clone(), thumb_to_emb.clone(),
-            txt_to_audio.clone(), audio_to_thumb.clone(),
-        ]);
-
-        let mut available = HashSet::new();
-        available.insert(txt_to_thumb.urn.to_string());
-        available.insert(thumb_to_emb.urn.to_string());
-        available.insert(txt_to_audio.urn.to_string());
-        available.insert(audio_to_thumb.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let paths = builder.find_all_paths("media:txt;textable", "media:embeddings", 5, 10).await.unwrap();
-
-        assert!(paths.len() >= 2, "When no coherent path exists, all deviating paths should be kept (got {})", paths.len());
-        assert_eq!(paths[0].steps.len(), 2, "First path should be the shorter 2-step one");
-        Ok(())
-    }
-
-    // TEST787: Tests find_all_paths() sorts coherent paths by length, preferring shorter ones
-    // Verifies that among multiple coherent paths, the shortest is ranked first
-    #[tokio::test]
-    async fn test787_find_all_paths_coherent_sorting_prefers_shorter() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-
-        let direct = make_test_cap("txt2md", "media:txt;textable", "media:md;textable", "Direct")?;
-        let strip = make_test_cap("strip", "media:txt;textable", "media:textable", "Strip Format")?;
-        let to_md = make_test_cap("to_md", "media:textable", "media:md;textable", "To MD")?;
-
-        registry.add_caps_to_cache(vec![direct.clone(), strip.clone(), to_md.clone()]);
-
-        let mut available = HashSet::new();
-        available.insert(direct.urn.to_string());
-        available.insert(strip.urn.to_string());
-        available.insert(to_md.urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        let paths = builder.find_all_paths("media:txt;textable", "media:md;textable", 5, 10).await.unwrap();
-
-        assert!(paths.len() >= 2, "Should find at least 2 paths (got {})", paths.len());
-        assert_eq!(paths[0].steps.len(), 1, "Shortest coherent path should be first");
-        Ok(())
-    }
-
-    // ==========================================================================
     // URN CANONICALIZATION TESTS
     // ==========================================================================
+    // NOTE: Path finding tests (TEST770-787) have been moved to live_cap_graph.rs
+    // as path finding is now handled by LiveCapGraph, not CapPlanBuilder.
+    // Availability filtering (TEST770-776) is now implicit in LiveCapGraph sync.
+    // Path coherence scoring (TEST782-787) has been removed from the architecture.
 
     // TEST1100: Tests that CapUrn normalizes media URN tags to canonical order
     // This is the root cause fix for caps not matching when plugins report URNs with
@@ -1325,90 +1003,12 @@ mod tests {
         Ok(())
     }
 
-    // TEST1101: Tests that is_cap_available matches URNs regardless of original tag ordering
-    // Verifies that a cap from the registry (with one tag order) matches an available cap
-    // from plugins (with different tag order) after normalization
-    #[tokio::test]
-    async fn test1101_is_cap_available_matches_normalized_urns() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-
-        // Registry has cap with tags in one order
-        let registry_cap = make_test_cap(
-            "extract_metadata",
-            "media:pdf",
-            "media:file-metadata;textable;record",  // textable comes first
-            "Extract PDF Metadata"
-        )?;
-        registry.add_caps_to_cache(vec![registry_cap.clone()]);
-
-        // Plugin reports the same cap but with tags in different order
-        // After normalization via CapUrn::from_string().to_string(), order should match
-        let plugin_urn_str = "cap:in=media:pdf;op=extract_metadata;out=\"media:file-metadata;record;textable\"";
-        let plugin_urn = CapUrn::from_string(plugin_urn_str)?;
-        let normalized_plugin_urn = plugin_urn.to_string();
-
-        let mut available = HashSet::new();
-        available.insert(normalized_plugin_urn);
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        // The cap should be found as available because normalization makes URNs match
-        assert!(
-            builder.is_cap_available(&registry_cap.urn.to_string()),
-            "Cap should be available after URN normalization. Registry: {}, Available set should contain normalized form",
-            registry_cap.urn.to_string()
-        );
-
-        Ok(())
-    }
-
-    // TEST1102: Tests that pathfinding works when plugin and registry have different tag ordering
-    // This is an integration test for the full fix: plugins report URNs with one order,
-    // registry has another order, but paths are still found because URNs are normalized
-    #[tokio::test]
-    async fn test1102_pathfinding_works_with_different_tag_ordering() -> Result<(), crate::urn::cap_urn::CapUrnError> {
-        let registry = CapRegistry::new_for_test();
-
-        // Registry cap with output tags in one order
-        let pdf_to_metadata = make_test_cap(
-            "extract_metadata",
-            "media:pdf",
-            "media:file-metadata;textable;record",  // alphabetical: record, textable -> becomes record;textable
-            "Extract PDF Metadata"
-        )?;
-
-        registry.add_caps_to_cache(vec![pdf_to_metadata.clone()]);
-
-        // Simulate plugin reporting same cap with different tag order in output
-        // The key insight: CapUrn::new() now normalizes, so both produce same canonical form
-        let plugin_urn = CapUrn::from_string(
-            "cap:in=media:pdf;op=extract_metadata;out=\"media:file-metadata;record;textable\""
-        )?;
-
-        let mut available = HashSet::new();
-        available.insert(plugin_urn.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        // Should find reachable targets because URNs match after normalization
-        let targets = builder.get_reachable_targets("media:pdf").await.unwrap();
-
-        assert!(
-            !targets.is_empty(),
-            "Should find reachable targets when URNs are normalized. \
-             This test verifies the fix for plugin/registry tag ordering mismatch."
-        );
-
-        Ok(())
-    }
-
-    // TEST1103: Tests that is_cap_available uses is_dispatchable correctly
+    // TEST1103: Tests that is_dispatchable has correct directionality
     // The available cap (provider) must be dispatchable for the requested cap (request).
     // This tests the directionality: provider.is_dispatchable(&request)
+    // NOTE: This now tests CapUrn::is_dispatchable directly, not via CapPlanBuilder
     #[test]
-    fn test1103_is_cap_available_uses_is_dispatchable_correctly() {
+    fn test1103_is_dispatchable_uses_correct_directionality() {
         // A more specific provider should be dispatchable for a general request
         let general_request = CapUrn::from_string(
             "cap:in=media:pdf;op=extract;out=media:text"
@@ -1429,31 +1029,11 @@ mod tests {
             !general_request.is_dispatchable(&specific_provider),
             "General request should NOT be dispatchable for specific provider (missing version tag)"
         );
-
-        // Now test via is_cap_available
-        let registry = CapRegistry::new_for_test();
-        // Registry has the general request
-        let registry_cap = Cap::new(general_request.clone(), "Extract".to_string(), "extract".to_string());
-        registry.add_caps_to_cache(vec![registry_cap]);
-
-        // Plugin provides the specific provider
-        let mut available = HashSet::new();
-        available.insert(specific_provider.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        // is_cap_available checks: does any available cap (provider) dispatch the request?
-        // This should be TRUE because specific_provider is dispatchable for general_request
-        assert!(
-            builder.is_cap_available(&general_request.to_string()),
-            "is_cap_available should return true when available provider can dispatch requested cap"
-        );
     }
 
-    // TEST1104: Tests that is_cap_available rejects when provider cannot dispatch request
+    // TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request
     #[test]
-    fn test1104_is_cap_available_rejects_non_dispatchable() {
+    fn test1104_is_dispatchable_rejects_non_dispatchable() {
         // Request requires specific tag that provider doesn't have
         let request = CapUrn::from_string(
             "cap:in=media:pdf;op=extract;out=media:text;required=yes"
@@ -1467,22 +1047,6 @@ mod tests {
         assert!(
             !provider.is_dispatchable(&request),
             "Provider missing required tag should not be dispatchable for request"
-        );
-
-        let registry = CapRegistry::new_for_test();
-        let registry_cap = Cap::new(request.clone(), "Extract".to_string(), "extract".to_string());
-        registry.add_caps_to_cache(vec![registry_cap]);
-
-        let mut available = HashSet::new();
-        available.insert(provider.to_string());
-
-        let builder = create_test_plan_builder_with_registry(registry)
-            .with_available_caps(available);
-
-        // is_cap_available should return FALSE because provider cannot dispatch request
-        assert!(
-            !builder.is_cap_available(&request.to_string()),
-            "is_cap_available should return false when provider cannot dispatch requested cap"
         );
     }
 }

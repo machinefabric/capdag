@@ -576,6 +576,7 @@ impl InProcessPluginHost {
 mod tests {
     use super::*;
     use crate::bifaci::io::{FrameReader, FrameWriter};
+    use crate::bifaci::decode_chunk_payload;
     use crate::Cap;
     use tokio::io::{BufReader, BufWriter};
     use tokio::net::UnixStream;

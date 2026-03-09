@@ -56,8 +56,8 @@ pub use plan_builder::{
 };
 pub use executor::PlanExecutor;
 pub use live_cap_graph::{
-    LiveCapGraph, LiveCapEdge,
-    ReachableTargetInfo, CapChainStepInfo, CapChainPathInfo,
+    LiveCapGraph, LiveCapEdge, LiveCapEdgeType,
+    ReachableTargetInfo, CapChainStepInfo, CapChainStepType, CapChainPathInfo,
 };
 
 // =============================================================================
@@ -76,6 +76,8 @@ pub enum PlannerError {
     RegistryError(String),
     #[error("Execution error: {0}")]
     ExecutionError(String),
+    #[error("Invalid path: {0}")]
+    InvalidPath(String),
 }
 
 pub type PlannerResult<T> = Result<T, PlannerError>;

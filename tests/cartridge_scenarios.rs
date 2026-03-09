@@ -8,7 +8,7 @@
 //! - Cartridge binaries will be auto-built if missing or outdated
 //! - ML-dependent tests require pre-downloaded models
 
-use capdag::{Cap, CapUrn, CapUrnBuilder};
+use capdag::{Cap, CapUrn, CapUrnBuilder, CapRegistry};
 use capdag::orchestrator::{
     execute_dag, NodeData,
     parse_dot_to_cap_dag, CapRegistryTrait, ParseOrchestrationError,
@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 // =============================================================================
@@ -1394,6 +1395,7 @@ async fn ensure_model_downloaded(model_spec: &str, modelcartridge_bin: &PathBuf)
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         vec![modelcartridge_bin.clone()],
+        create_cap_registry(&registry),
     )
     .await
     {
@@ -1418,6 +1420,13 @@ fn setup_test_env(dev_binaries: Vec<PathBuf>) -> (TempDir, PathBuf, Vec<PathBuf>
     let plugin_dir = temp_dir.path().join("plugins");
     std::fs::create_dir_all(&plugin_dir).expect("Failed to create plugin dir");
     (temp_dir, plugin_dir, dev_binaries)
+}
+
+/// Create an Arc<CapRegistry> from a CartridgeRegistry for execute_dag
+fn create_cap_registry(registry: &CartridgeRegistry) -> Arc<CapRegistry> {
+    let cap_registry = CapRegistry::new_for_test();
+    cap_registry.add_caps_to_cache(registry.caps.values().cloned().collect());
+    Arc::new(cap_registry)
 }
 
 fn extract_bytes(outputs: &HashMap<String, NodeData>, node: &str) -> Vec<u8> {
@@ -1466,6 +1475,7 @@ async fn test948_pdf_document_intelligence() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -1533,6 +1543,7 @@ async fn test949_pdf_thumbnail_to_image_embedding() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -1592,6 +1603,7 @@ async fn test950_pdf_full_intelligence_pipeline() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -1658,6 +1670,7 @@ async fn test951_text_document_intelligence() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -1722,6 +1735,7 @@ async fn test952_multi_format_document_processing() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -1800,6 +1814,7 @@ async fn test953_model_plus_dimensions() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -1855,6 +1870,7 @@ async fn test954_model_availability_plus_status() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -1909,6 +1925,7 @@ async fn test955_text_embedding() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -1965,6 +1982,7 @@ async fn test956_candle_describe_image() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2015,6 +2033,7 @@ async fn test957_audio_transcription() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2064,6 +2083,7 @@ async fn test958_pdf_complete_analysis() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2143,6 +2163,7 @@ async fn test959_model_full_inspection() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2216,6 +2237,7 @@ async fn test960_two_format_full_analysis() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2294,6 +2316,7 @@ async fn test961_model_plus_pdf_combined() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2370,6 +2393,7 @@ async fn test962_three_cartridge_pipeline() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2679,6 +2703,7 @@ async fn test963_txt_document_intelligence() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2733,6 +2758,7 @@ async fn test964_rst_document_intelligence() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2787,6 +2813,7 @@ async fn test965_log_document_intelligence() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2854,6 +2881,7 @@ async fn test966_all_text_formats_intelligence() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2920,6 +2948,7 @@ async fn test967_model_list_models() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -2976,6 +3005,7 @@ async fn test968_gguf_embeddings_dimensions() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3029,6 +3059,7 @@ async fn test969_gguf_llm_model_info() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3084,6 +3115,7 @@ async fn test970_gguf_llm_vocab() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3141,6 +3173,7 @@ async fn test971_gguf_model_info_plus_vocab() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3201,6 +3234,7 @@ async fn test972_gguf_llm_inference() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3254,6 +3288,7 @@ async fn test973_gguf_llm_inference_constrained() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3311,6 +3346,7 @@ async fn test974_gguf_generate_embeddings() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3373,6 +3409,7 @@ async fn test975_gguf_describe_image() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3427,6 +3464,7 @@ async fn test976_pdf_thumbnail_to_gguf_vision() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3495,6 +3533,7 @@ async fn test977_gguf_all_llm_ops() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3569,6 +3608,7 @@ async fn test978_mlx_generate_text() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3617,6 +3657,7 @@ async fn test979_mlx_describe_image() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3665,6 +3706,7 @@ async fn test980_mlx_generate_embeddings() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3713,6 +3755,7 @@ async fn test981_mlx_embeddings_dimensions() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3758,6 +3801,7 @@ async fn test982_model_download() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3810,6 +3854,7 @@ async fn test983_pdf_to_thumbnail_to_describe_to_embed() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3868,6 +3913,7 @@ async fn test984_pdf_thumbnail_to_gguf_describe_fanin() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3915,6 +3961,7 @@ async fn test985_audio_transcribe_to_embed() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -3965,6 +4012,7 @@ async fn test986_pdf_fanout_with_chain() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -4023,6 +4071,7 @@ async fn test987_multi_format_parallel_chains() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -4077,6 +4126,7 @@ async fn test988_deep_chain_with_parallel() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -4140,6 +4190,7 @@ async fn test989_five_cartridge_chain() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");
@@ -4207,6 +4258,7 @@ async fn test990_all_text_formats_to_image_embeds() {
         "https://machinefabric.com/api/plugins".to_string(),
         inputs,
         dev_bins,
+        create_cap_registry(&registry),
     )
     .await
     .expect("Execution failed");

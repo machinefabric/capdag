@@ -10,12 +10,13 @@
 //! The testcartridge binary will be auto-built if missing or outdated
 
 use capdag::orchestrator::{parse_dot_to_cap_dag, execute_dag, NodeData, CapRegistryTrait, ParseOrchestrationError};
-use capdag::{Cap, CapUrn};
+use capdag::{Cap, CapUrn, CapRegistry};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 // =============================================================================
@@ -240,6 +241,46 @@ fn setup_test_env() -> (TempDir, PathBuf, Vec<PathBuf>) {
     (temp_dir, plugin_dir, dev_binaries)
 }
 
+/// Create an Arc<CapRegistry> with all test caps for execute_dag
+fn create_test_cap_registry() -> Arc<CapRegistry> {
+    let registry = CapRegistry::new_for_test();
+
+    // Helper to add a cap
+    let add_cap = |urn_str: &str| -> Cap {
+        let cap_urn = CapUrn::from_string(urn_str).expect("Invalid test cap URN");
+        Cap {
+            urn: cap_urn.clone(),
+            title: format!("Test {}", cap_urn.get_tag("op").map_or("unknown", |s| s.as_str())),
+            cap_description: None,
+            metadata: HashMap::new(),
+            command: "testcartridge".to_string(),
+            media_specs: vec![],
+            args: vec![],
+            output: None,
+            metadata_json: None,
+            registered_by: None,
+        }
+    };
+
+    // Register all testcartridge caps
+    let caps = vec![
+        add_cap(r#"cap:in="media:node1;textable";op=test_edge1;out="media:node2;textable""#),
+        add_cap(r#"cap:in="media:node2;textable";op=test_edge2;out="media:node3;textable""#),
+        add_cap(r#"cap:in="media:node3;textable";op=test_edge3;out="media:node4;list;textable""#),
+        add_cap(r#"cap:in="media:node4;list;textable";op=test_edge4;out="media:node5;textable""#),
+        add_cap(r#"cap:in="media:node3;textable";op=test_edge7;out="media:node6;textable""#),
+        add_cap(r#"cap:in="media:node6;textable";op=test_edge8;out="media:node7;textable""#),
+        add_cap(r#"cap:in="media:node7;textable";op=test_edge9;out="media:node8;textable""#),
+        add_cap(r#"cap:in="media:node8;textable";op=test_edge10;out="media:node1;textable""#),
+        add_cap(r#"cap:in="media:void";op=test_large;out="media:""#),
+        add_cap(r#"cap:in="media:node1;textable";op=test_peer;out="media:node3;textable""#),
+        add_cap(r#"cap:in="media:node1;textable";op=identity;out="media:node1;textable""#),
+    ];
+
+    registry.add_caps_to_cache(caps);
+    Arc::new(registry)
+}
+
 // =============================================================================
 // Phase 1: Basic macino Functionality with testcartridge
 // =============================================================================
@@ -284,12 +325,14 @@ async fn test936_execute_single_edge_dag() {
     initial_inputs.insert("input".to_string(), NodeData::Text("TEST".to_string()));
 
     // Execute DAG
+    let cap_registry = create_test_cap_registry();
     let result = execute_dag(
         &graph,
         plugin_dir,
         "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
+        cap_registry,
     ).await;
 
     assert!(result.is_ok(), "Execution failed: {:?}", result.err());
@@ -324,12 +367,14 @@ async fn test937_execute_edge1_to_edge2_chain() {
     let mut initial_inputs = HashMap::new();
     initial_inputs.insert("A".to_string(), NodeData::Text("CHAIN".to_string()));
 
+    let cap_registry = create_test_cap_registry();
     let outputs = execute_dag(
         &graph,
         plugin_dir,
         "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
+        cap_registry,
     ).await.expect("Execution failed");
 
     let final_output = outputs.get("C").expect("No final output");
@@ -371,6 +416,7 @@ async fn test938_execute_with_file_input() {
         "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
+        create_test_cap_registry(),
     ).await.expect("Execution failed");
 
     let output = outputs.get("output").expect("No output");
@@ -408,6 +454,7 @@ async fn test939_execute_large_payload() {
         "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
+        create_test_cap_registry(),
     ).await.expect("Execution failed");
 
     let output = outputs.get("output").expect("No output");
@@ -453,6 +500,7 @@ async fn test940_fan_in_pattern() {
         "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
+        create_test_cap_registry(),
     ).await.expect("Execution failed");
 
     // Both paths should reach E (one will overwrite the other)
@@ -582,6 +630,7 @@ async fn test945_four_cap_chain() {
         "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
+        create_test_cap_registry(),
     ).await.expect("Execution failed");
 
     let final_output = outputs.get("E").expect("No final output");
@@ -628,6 +677,7 @@ async fn test946_five_cap_chain() {
         "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
+        create_test_cap_registry(),
     ).await.expect("Execution failed");
 
     let final_output = outputs.get("F").expect("No final output");
@@ -673,6 +723,7 @@ async fn test947_six_cap_chain() {
         "https://machinefabric.com/api/plugins".to_string(),
         initial_inputs,
         dev_binaries,
+        create_test_cap_registry(),
     ).await.expect("Execution failed");
 
     let final_output = outputs.get("G").expect("No final output");
