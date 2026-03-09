@@ -2,7 +2,7 @@
 //!
 //! This module provides the standard capability definitions used across
 //! all MACINA providers, including their formal argument specifications.
-//! These definitions should match the TOML definitions in capdag-dot-com/standard/
+//! These definitions should match the TOML definitions in capgraph/src/
 
 use crate::{
     Cap, CapOutput, CapRegistry, CapUrn, CapUrnBuilder, MEDIA_DISBOUND_PAGE, MEDIA_DOCUMENT_OUTLINE, MEDIA_FILE_METADATA, RegistryError

@@ -468,7 +468,7 @@ impl MediaUrnRegistry {
         index.get(&ext_lower).cloned().ok_or_else(|| {
             MediaRegistryError::ExtensionNotFound(format!(
                 "No media spec registered for extension '{}'. \
-                Ensure the media spec is defined in capdag-dot-com/standard/media/ with an 'extension' field.",
+                Ensure the media spec is defined in capgraph/src/media/ with an 'extension' field.",
                 extension
             ))
         })

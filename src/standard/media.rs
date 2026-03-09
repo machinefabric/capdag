@@ -5,7 +5,7 @@
 //! ## Media URNs
 //!
 //! Use media URN constants (e.g., `MEDIA_STRING`) in `media_urn` fields of arguments and outputs.
-//! These are well-known types defined in the media registry (capdag-dot-com/standard/media/).
+//! These are well-known types defined in the media registry (capgraph/src/media/).
 //!
 //! ## Resolution
 //!
