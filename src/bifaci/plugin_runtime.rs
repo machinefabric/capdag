@@ -380,6 +380,54 @@ impl OutputStream {
         Ok(())
     }
 
+    /// Emit a single CBOR value as one item in an RFC 8742 CBOR sequence.
+    ///
+    /// For list outputs: the receiver concatenates raw frame payloads and stores
+    /// the result as a CBOR sequence. This method CBOR-encodes the value, then
+    /// splits the encoded bytes across chunk frames at `max_chunk` boundaries.
+    /// The receiver's concatenation reconstructs the original CBOR encoding,
+    /// producing exactly one self-delimiting CBOR value in the sequence per call.
+    ///
+    /// Unlike `emit_cbor` (which re-wraps each piece as a separate CBOR value),
+    /// this sends raw CBOR bytes as frame payloads directly.
+    pub fn emit_list_item(&self, value: &ciborium::Value) -> Result<(), RuntimeError> {
+        self.ensure_started()?;
+        let mut cbor_bytes = Vec::new();
+        ciborium::into_writer(value, &mut cbor_bytes)
+            .map_err(|e| RuntimeError::Handler(format!("Failed to encode CBOR: {}", e)))?;
+
+        let mut offset = 0;
+        while offset < cbor_bytes.len() {
+            let chunk_size = (cbor_bytes.len() - offset).min(self.max_chunk);
+            let chunk_payload = cbor_bytes[offset..offset + chunk_size].to_vec();
+
+            let chunk_index = {
+                let mut guard = self.chunk_index.lock().unwrap();
+                let current = *guard;
+                *guard += 1;
+                current
+            };
+            {
+                let mut guard = self.chunk_count.lock().unwrap();
+                *guard += 1;
+            }
+
+            let checksum = Frame::compute_checksum(&chunk_payload);
+            let mut frame = Frame::chunk(
+                self.request_id.clone(),
+                self.stream_id.clone(),
+                0,
+                chunk_payload,
+                chunk_index,
+                checksum,
+            );
+            frame.routing_id = self.routing_id.clone();
+            self.sender.send(&frame)?;
+            offset += chunk_size;
+        }
+        Ok(())
+    }
+
     /// Emit a CBOR value. Handles Bytes/Text/Array/Map chunking.
     pub fn emit_cbor(&self, value: &ciborium::Value) -> Result<(), RuntimeError> {
         self.ensure_started()?;
