@@ -859,29 +859,22 @@ impl PluginHostRuntime {
             self.outgoing_rids.remove(rid);
         }
 
-        // incoming_rxids: intentionally leaked routing entries — clean up
-        let failed_incoming_keys: Vec<(MessageId, MessageId)> = self
+        // incoming_rxids: requests from the relay that this plugin was handling
+        let failed_incoming: Vec<(MessageId, MessageId, u64)> = self
             .incoming_rxids
             .iter()
             .filter(|(_, &idx)| idx == plugin_idx)
-            .map(|((xid, rid), _)| (xid.clone(), rid.clone()))
+            .map(|((xid, rid), _)| {
+                let flow_key = FlowKey { rid: rid.clone(), xid: Some(xid.clone()) };
+                let next_seq = self.outgoing_max_seq.remove(&flow_key).map(|s| s + 1).unwrap_or(0);
+                (xid.clone(), rid.clone(), next_seq)
+            })
             .collect();
-        for (xid, rid) in &failed_incoming_keys {
-            self.outgoing_max_seq.remove(&FlowKey { rid: rid.clone(), xid: Some(xid.clone()) });
-        }
         self.incoming_rxids.retain(|(_, _), &mut idx| idx != plugin_idx);
 
-        // Determine whether to send ERR frames.
-        // Ordered shutdown: we asked for this — never send ERR.
-        // Unordered with pending outgoing: genuine crash — send ERR.
-        // Unordered, idle: natural exit — no ERR needed.
-        //
-        // Only outgoing_rids represent genuinely pending work.
-        // incoming_rxids are intentionally leaked after request completion
-        // and do NOT mean work is pending.
-        let has_genuine_pending_work = !was_ordered && !failed_outgoing.is_empty();
-
-        if has_genuine_pending_work {
+        // Unordered death is always an error — a plugin should only exit when
+        // orderedShutdown was set. Send PLUGIN_DIED for ALL pending work.
+        if !was_ordered {
             let error_message = if stderr_content.is_empty() {
                 format!("Plugin {} exited unexpectedly (no stderr output)", self.plugins[plugin_idx].path.display())
             } else {
@@ -896,6 +889,16 @@ impl PluginHostRuntime {
                     "PLUGIN_DIED",
                     &error_message,
                 );
+                err_frame.seq = *next_seq;
+                let _ = outbound_tx.send(err_frame);
+            }
+            for (xid, rid, next_seq) in &failed_incoming {
+                let mut err_frame = Frame::err(
+                    rid.clone(),
+                    "PLUGIN_DIED",
+                    &error_message,
+                );
+                err_frame.routing_id = Some(xid.clone());
                 err_frame.seq = *next_seq;
                 let _ = outbound_tx.send(err_frame);
             }
