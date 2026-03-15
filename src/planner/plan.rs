@@ -932,10 +932,10 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    // TEST721: Tests creation of a simple execution plan with a single capability
+    // TEST920: Tests creation of a simple execution plan with a single capability
     // Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node
     #[test]
-    fn test721_single_cap_plan() {
+    fn test920_single_cap_plan() {
         let plan = CapExecutionPlan::single_cap(
             "cap:test",
             "media:pdf",
@@ -948,10 +948,10 @@ mod tests {
         assert!(plan.validate().is_ok());
     }
 
-    // TEST722: Tests creation of a linear chain of capabilities connected in sequence
+    // TEST921: Tests creation of a linear chain of capabilities connected in sequence
     // Verifies that linear_chain() correctly links multiple caps with proper edges and topological order
     #[test]
-    fn test722_linear_chain_plan() {
+    fn test921_linear_chain_plan() {
         let plan = CapExecutionPlan::linear_chain(
             &["cap:a", "cap:b", "cap:c"],
             "media:pdf",
@@ -966,19 +966,19 @@ mod tests {
         assert_eq!(order.len(), 5);
     }
 
-    // TEST723: Tests creation and validation of an empty execution plan with no nodes
+    // TEST922: Tests creation and validation of an empty execution plan with no nodes
     // Verifies that plans without capabilities are valid and handle zero nodes correctly
     #[test]
-    fn test723_empty_plan() {
+    fn test922_empty_plan() {
         let plan = CapExecutionPlan::new("empty");
         assert_eq!(plan.nodes.len(), 0);
         assert!(plan.validate().is_ok());
     }
 
-    // TEST724: Tests storing and retrieving metadata attached to an execution plan
+    // TEST923: Tests storing and retrieving metadata attached to an execution plan
     // Verifies that arbitrary JSON metadata can be associated with a plan for context preservation
     #[test]
-    fn test724_plan_with_metadata() {
+    fn test923_plan_with_metadata() {
         let mut plan = CapExecutionPlan::new("test");
         let mut metadata = HashMap::new();
         metadata.insert("source".to_string(), json!("pdf"));
@@ -992,10 +992,10 @@ mod tests {
         );
     }
 
-    // TEST725: Tests plan validation detects edges pointing to non-existent nodes
+    // TEST924: Tests plan validation detects edges pointing to non-existent nodes
     // Verifies that validate() returns an error when an edge references a missing to_node
     #[test]
-    fn test725_validate_invalid_edge() {
+    fn test924_validate_invalid_edge() {
         let mut plan = CapExecutionPlan::new("invalid");
         plan.nodes.insert(
             "node_0".to_string(),
@@ -1009,10 +1009,10 @@ mod tests {
         assert!(error.contains("Edge to_node 'nonexistent' not found"));
     }
 
-    // TEST726: Tests topological sort correctly orders a diamond-shaped DAG (A→B,C→D)
+    // TEST925: Tests topological sort correctly orders a diamond-shaped DAG (A->B,C->D)
     // Verifies that nodes with multiple paths respect dependency constraints (A first, D last)
     #[test]
-    fn test726_topological_order_diamond() {
+    fn test925_topological_order_diamond() {
         // Diamond: A -> B, A -> C, B -> D, C -> D
         let mut plan = CapExecutionPlan::new("diamond");
 
@@ -1035,10 +1035,10 @@ mod tests {
         assert_eq!(order[3].id, "D");
     }
 
-    // TEST727: Tests topological sort detects and rejects cyclic dependencies (A→B→C→A)
+    // TEST926: Tests topological sort detects and rejects cyclic dependencies (A->B->C->A)
     // Verifies that circular references produce a "Cycle detected" error
     #[test]
-    fn test727_topological_order_detects_cycle() {
+    fn test926_topological_order_detects_cycle() {
         // Cycle: A -> B -> C -> A
         let mut plan = CapExecutionPlan::new("cyclic");
 
@@ -1095,10 +1095,10 @@ mod tests {
         assert!(matches!(json_field.edge_type, EdgeType::JsonField { field } if field == "data"));
     }
 
-    // TEST730: Tests CapChainExecutionResult structure for successful execution outcomes
+    // TEST927: Tests CapChainExecutionResult structure for successful execution outcomes
     // Verifies that success status, outputs, and primary_output() accessor work correctly
     #[test]
-    fn test730_execution_result() {
+    fn test927_execution_result() {
         let mut outputs = HashMap::new();
         outputs.insert("output".to_string(), json!({"result": "success"}));
 
@@ -1114,10 +1114,10 @@ mod tests {
         assert!(result.primary_output().is_some());
     }
 
-    // TEST731: Tests plan validation detects edges originating from non-existent nodes
+    // TEST928: Tests plan validation detects edges originating from non-existent nodes
     // Verifies that validate() returns an error when an edge references a missing from_node
     #[test]
-    fn test731_validate_invalid_from_node() {
+    fn test928_validate_invalid_from_node() {
         let mut plan = CapExecutionPlan::new("invalid");
         plan.nodes.insert(
             "node_0".to_string(),
@@ -1131,10 +1131,10 @@ mod tests {
         assert!(error.contains("Edge from_node 'nonexistent' not found"));
     }
 
-    // TEST732: Tests plan validation detects invalid entry node references
+    // TEST929: Tests plan validation detects invalid entry node references
     // Verifies that validate() returns an error when entry_nodes contains a non-existent node ID
     #[test]
-    fn test732_validate_invalid_entry_node() {
+    fn test929_validate_invalid_entry_node() {
         let mut plan = CapExecutionPlan::new("invalid_entry");
         plan.nodes.insert(
             "cap_0".to_string(),
@@ -1149,10 +1149,10 @@ mod tests {
         assert!(error.contains("Entry node 'nonexistent_entry' not found"));
     }
 
-    // TEST733: Tests plan validation detects invalid output node references
+    // TEST930: Tests plan validation detects invalid output node references
     // Verifies that validate() returns an error when output_nodes contains a non-existent node ID
     #[test]
-    fn test733_validate_invalid_output_node() {
+    fn test930_validate_invalid_output_node() {
         let mut plan = CapExecutionPlan::new("invalid_output");
         plan.nodes.insert(
             "cap_0".to_string(),
@@ -1306,10 +1306,10 @@ mod tests {
         assert_eq!(result.error, None);
     }
 
-    // TEST740: Tests NodeExecutionResult structure for failed node execution
+    // TEST931: Tests NodeExecutionResult structure for failed node execution
     // Verifies that failure status, error message, and absence of outputs are correctly represented
     #[test]
-    fn test740_node_execution_result_failure() {
+    fn test931_node_execution_result_failure() {
         let result = NodeExecutionResult {
             node_id: "node_0".to_string(),
             success: false,
@@ -1324,10 +1324,10 @@ mod tests {
         assert_eq!(result.error, Some("Cap execution failed".to_string()));
     }
 
-    // TEST741: Tests CapChainExecutionResult structure for failed chain execution
+    // TEST932: Tests CapChainExecutionResult structure for failed chain execution
     // Verifies that failure status, error message, and absence of outputs are correctly represented
     #[test]
-    fn test741_execution_result_failure() {
+    fn test932_execution_result_failure() {
         let result = CapChainExecutionResult {
             success: false,
             node_results: HashMap::new(),
@@ -1537,17 +1537,17 @@ mod tests {
         plan
     }
 
-    // TEST750: find_first_foreach detects ForEach in a plan
+    // TEST934: find_first_foreach detects ForEach in a plan
     #[test]
-    fn test750_find_first_foreach() {
+    fn test934_find_first_foreach() {
         let plan = build_foreach_plan_with_collect();
         let foreach_id = plan.find_first_foreach();
         assert_eq!(foreach_id, Some(&"foreach_0".to_string()));
     }
 
-    // TEST751: find_first_foreach returns None for linear plans
+    // TEST935: find_first_foreach returns None for linear plans
     #[test]
-    fn test751_find_first_foreach_linear() {
+    fn test935_find_first_foreach_linear() {
         let plan = CapExecutionPlan::linear_chain(
             &["cap:a", "cap:b"],
             "media:pdf",
@@ -1557,9 +1557,9 @@ mod tests {
         assert_eq!(plan.find_first_foreach(), None);
     }
 
-    // TEST752: has_foreach_or_collect detects ForEach/Collect
+    // TEST936: has_foreach_or_collect detects ForEach/Collect
     #[test]
-    fn test752_has_foreach_or_collect() {
+    fn test936_has_foreach_or_collect() {
         let foreach_plan = build_foreach_plan_with_collect();
         assert!(foreach_plan.has_foreach_or_collect());
 
@@ -1572,9 +1572,9 @@ mod tests {
         assert!(!linear_plan.has_foreach_or_collect());
     }
 
-    // TEST753: extract_prefix_to extracts input_slot → cap_0 as a standalone plan
+    // TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan
     #[test]
-    fn test753_extract_prefix_to() {
+    fn test937_extract_prefix_to() {
         let plan = build_foreach_plan_with_collect();
 
         // Extract prefix up to cap_0 (the disbind cap that produces the list)

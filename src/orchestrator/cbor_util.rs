@@ -167,9 +167,9 @@ mod tests {
         }
     }
 
-    // TEST781: split_cbor_array with nested maps
+    // TEST955: split_cbor_array with nested maps
     #[test]
-    fn test781_split_map_array() {
+    fn test955_split_map_array() {
         let map1 = ciborium::Value::Map(vec![
             (ciborium::Value::Text("name".to_string()), ciborium::Value::Text("Alice".to_string())),
         ]);
@@ -258,9 +258,9 @@ mod tests {
         assert_eq!(decoded, original);
     }
 
-    // TEST787: assemble then split roundtrip preserves data
+    // TEST956: assemble then split roundtrip preserves data
     #[test]
-    fn test787_roundtrip_assemble_split() {
+    fn test956_roundtrip_assemble_split() {
         let items: Vec<Vec<u8>> = vec![
             cbor_encode(&ciborium::Value::Text("a".to_string())),
             cbor_encode(&ciborium::Value::Text("b".to_string())),
@@ -274,17 +274,17 @@ mod tests {
         assert_eq!(split_back[1], items[1]);
     }
 
-    // TEST788: assemble empty list produces empty CBOR array
+    // TEST961: assemble empty list produces empty CBOR array
     #[test]
-    fn test788_assemble_empty() {
+    fn test961_assemble_empty() {
         let assembled = assemble_cbor_array(&[]).unwrap();
         let value: ciborium::Value = ciborium::de::from_reader(assembled.as_slice()).unwrap();
         assert_eq!(value, ciborium::Value::Array(vec![]));
     }
 
-    // TEST789: assemble rejects invalid CBOR item
+    // TEST962: assemble rejects invalid CBOR item
     #[test]
-    fn test789_assemble_invalid_item() {
+    fn test962_assemble_invalid_item() {
         let items: Vec<Vec<u8>> = vec![
             cbor_encode(&ciborium::Value::Integer(1.into())),
             vec![0xFF, 0xFE], // invalid CBOR
@@ -294,9 +294,9 @@ mod tests {
         assert!(matches!(result, Err(CborUtilError::DeserializeError(_))));
     }
 
-    // TEST790: split preserves CBOR byte strings (binary data — the common case in bifaci)
+    // TEST963: split preserves CBOR byte strings (binary data — the common case in bifaci)
     #[test]
-    fn test790_split_binary_items() {
+    fn test963_split_binary_items() {
         let pdf_bytes = vec![0x25, 0x50, 0x44, 0x46]; // %PDF
         let png_bytes = vec![0x89, 0x50, 0x4E, 0x47]; // .PNG
 
@@ -328,9 +328,9 @@ mod tests {
         result
     }
 
-    // TEST791: split_cbor_sequence splits concatenated CBOR Bytes values
+    // TEST964: split_cbor_sequence splits concatenated CBOR Bytes values
     #[test]
-    fn test791_split_sequence_bytes() {
+    fn test964_split_sequence_bytes() {
         let page1 = b"page1 json data";
         let page2 = b"page2 json data";
         let page3 = b"page3 json data";
@@ -352,9 +352,9 @@ mod tests {
         assert_eq!(d2, ciborium::Value::Bytes(page3.to_vec()));
     }
 
-    // TEST792: split_cbor_sequence splits concatenated CBOR Text values
+    // TEST965: split_cbor_sequence splits concatenated CBOR Text values
     #[test]
-    fn test792_split_sequence_text() {
+    fn test965_split_sequence_text() {
         let seq = build_cbor_sequence(&[
             ciborium::Value::Text("hello".to_string()),
             ciborium::Value::Text("world".to_string()),
@@ -369,9 +369,9 @@ mod tests {
         assert_eq!(d1, ciborium::Value::Text("world".to_string()));
     }
 
-    // TEST793: split_cbor_sequence handles mixed types
+    // TEST966: split_cbor_sequence handles mixed types
     #[test]
-    fn test793_split_sequence_mixed() {
+    fn test966_split_sequence_mixed() {
         let seq = build_cbor_sequence(&[
             ciborium::Value::Bytes(vec![1, 2, 3]),
             ciborium::Value::Text("mixed".to_string()),
@@ -390,9 +390,9 @@ mod tests {
         assert_eq!(d3, ciborium::Value::Integer(99.into()));
     }
 
-    // TEST794: split_cbor_sequence single-item sequence
+    // TEST967: split_cbor_sequence single-item sequence
     #[test]
-    fn test794_split_sequence_single() {
+    fn test967_split_sequence_single() {
         let seq = build_cbor_sequence(&[
             ciborium::Value::Bytes(vec![0xDE, 0xAD]),
         ]);
@@ -403,9 +403,9 @@ mod tests {
         assert_eq!(d0, ciborium::Value::Bytes(vec![0xDE, 0xAD]));
     }
 
-    // TEST795: roundtrip — assemble then split preserves items
+    // TEST968: roundtrip — assemble then split preserves items
     #[test]
-    fn test795_roundtrip_assemble_split_sequence() {
+    fn test968_roundtrip_assemble_split_sequence() {
         let item_values = vec![
             ciborium::Value::Bytes(b"first".to_vec()),
             ciborium::Value::Bytes(b"second".to_vec()),
@@ -422,9 +422,9 @@ mod tests {
         assert_eq!(split_back[2], items[2]);
     }
 
-    // TEST796: roundtrip — split then assemble preserves byte-for-byte
+    // TEST969: roundtrip — split then assemble preserves byte-for-byte
     #[test]
-    fn test796_roundtrip_split_assemble_sequence() {
+    fn test969_roundtrip_split_assemble_sequence() {
         let seq = build_cbor_sequence(&[
             ciborium::Value::Bytes(b"alpha".to_vec()),
             ciborium::Value::Bytes(b"beta".to_vec()),
@@ -436,16 +436,16 @@ mod tests {
         assert_eq!(reassembled, seq, "split then assemble must preserve bytes exactly");
     }
 
-    // TEST797: split_cbor_sequence rejects empty data
+    // TEST970: split_cbor_sequence rejects empty data
     #[test]
-    fn test797_split_sequence_empty() {
+    fn test970_split_sequence_empty() {
         let result = split_cbor_sequence(&[]);
         assert!(matches!(result, Err(CborUtilError::EmptyArray)));
     }
 
-    // TEST798: split_cbor_sequence rejects truncated CBOR
+    // TEST971: split_cbor_sequence rejects truncated CBOR
     #[test]
-    fn test798_split_sequence_truncated() {
+    fn test971_split_sequence_truncated() {
         // Build a valid CBOR Bytes value, then truncate it
         let mut seq = build_cbor_sequence(&[
             ciborium::Value::Bytes(b"complete".to_vec()),
@@ -459,9 +459,9 @@ mod tests {
             "truncated CBOR at end must produce DeserializeError, got {:?}", result);
     }
 
-    // TEST799: assemble_cbor_sequence rejects invalid CBOR item
+    // TEST972: assemble_cbor_sequence rejects invalid CBOR item
     #[test]
-    fn test799_assemble_sequence_invalid_item() {
+    fn test972_assemble_sequence_invalid_item() {
         let items: Vec<Vec<u8>> = vec![
             cbor_encode(&ciborium::Value::Integer(1.into())),
             vec![0xFF, 0xFE], // invalid CBOR
@@ -471,16 +471,16 @@ mod tests {
         assert!(matches!(result, Err(CborUtilError::DeserializeError(_))));
     }
 
-    // TEST800: assemble_cbor_sequence with empty items list produces empty bytes
+    // TEST973: assemble_cbor_sequence with empty items list produces empty bytes
     #[test]
-    fn test800_assemble_sequence_empty() {
+    fn test973_assemble_sequence_empty() {
         let assembled = assemble_cbor_sequence(&[]).unwrap();
         assert!(assembled.is_empty(), "empty sequence must produce empty bytes");
     }
 
-    // TEST801: CBOR sequence is NOT a CBOR array — split_cbor_array rejects a sequence
+    // TEST974: CBOR sequence is NOT a CBOR array — split_cbor_array rejects a sequence
     #[test]
-    fn test801_sequence_is_not_array() {
+    fn test974_sequence_is_not_array() {
         let seq = build_cbor_sequence(&[
             ciborium::Value::Bytes(b"item1".to_vec()),
             ciborium::Value::Bytes(b"item2".to_vec()),
@@ -493,9 +493,9 @@ mod tests {
             "CBOR sequence must not be parseable as a CBOR array, got {:?}", result);
     }
 
-    // TEST802: split_cbor_sequence works on data that is also a valid CBOR array (single top-level value)
+    // TEST975: split_cbor_sequence works on data that is also a valid CBOR array (single top-level value)
     #[test]
-    fn test802_single_value_sequence() {
+    fn test975_single_value_sequence() {
         // A single CBOR value is both a valid CBOR sequence (of 1 item) and a valid CBOR value
         let single = cbor_encode(&ciborium::Value::Bytes(b"solo".to_vec()));
 

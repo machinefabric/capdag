@@ -1258,9 +1258,9 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    // TEST700: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight]
+    // TEST908: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight]
     #[test]
-    fn test700_map_progress_basic_mapping() {
+    fn test908_map_progress_basic_mapping() {
         // Identity mapping: base=0, weight=1
         assert_eq!(map_progress(0.0, 0.0, 1.0), 0.0);
         assert_eq!(map_progress(0.5, 0.0, 1.0), 0.5);
@@ -1276,9 +1276,9 @@ mod tests {
         assert_eq!(map_progress(1.5, 0.2, 0.6), 0.8);  // clamp to 1 → base+weight
     }
 
-    // TEST701: map_progress is deterministic — same inputs always produce same output
+    // TEST909: map_progress is deterministic — same inputs always produce same output
     #[test]
-    fn test701_map_progress_deterministic() {
+    fn test909_map_progress_deterministic() {
         for i in 0..100 {
             let p = i as f32 / 100.0;
             let a = map_progress(p, 0.1, 0.8);
@@ -1287,9 +1287,9 @@ mod tests {
         }
     }
 
-    // TEST702: map_progress output is monotonic for monotonically increasing input
+    // TEST910: map_progress output is monotonic for monotonically increasing input
     #[test]
-    fn test702_map_progress_monotonic() {
+    fn test910_map_progress_monotonic() {
         let mut prev = map_progress(0.0, 0.1, 0.7);
         for i in 1..=100 {
             let p = i as f32 / 100.0;
@@ -1303,9 +1303,9 @@ mod tests {
         }
     }
 
-    // TEST703: map_progress output is bounded within [base, base+weight]
+    // TEST911: map_progress output is bounded within [base, base+weight]
     #[test]
-    fn test703_map_progress_bounded() {
+    fn test911_map_progress_bounded() {
         let base = 0.15;
         let weight = 0.55;
         for i in -10..=110 {
@@ -1319,9 +1319,9 @@ mod tests {
         }
     }
 
-    // TEST704: ProgressMapper correctly maps through a CapProgressFn
+    // TEST912: ProgressMapper correctly maps through a CapProgressFn
     #[test]
-    fn test704_progress_mapper_reports_through_parent() {
+    fn test912_progress_mapper_reports_through_parent() {
         let reported = Arc::new(std::sync::Mutex::new(Vec::new()));
         let reported_clone = Arc::clone(&reported);
         let parent: CapProgressFn = Arc::new(move |p: f32, _cap: &str, msg: &str| {
@@ -1340,9 +1340,9 @@ mod tests {
         assert!((reports[2].0 - 0.8).abs() < 0.001, "100% maps to base+weight=0.8");
     }
 
-    // TEST705: ProgressMapper.as_cap_progress_fn produces same mapping
+    // TEST913: ProgressMapper.as_cap_progress_fn produces same mapping
     #[test]
-    fn test705_progress_mapper_as_cap_progress_fn() {
+    fn test913_progress_mapper_as_cap_progress_fn() {
         let reported = Arc::new(std::sync::Mutex::new(Vec::new()));
         let reported_clone = Arc::clone(&reported);
         let parent: CapProgressFn = Arc::new(move |p: f32, _cap: &str, _msg: &str| {
@@ -1363,9 +1363,9 @@ mod tests {
         assert!((reports[2] - 0.4).abs() < 0.001);
     }
 
-    // TEST706: ProgressMapper.sub_mapper chains correctly
+    // TEST914: ProgressMapper.sub_mapper chains correctly
     #[test]
-    fn test706_progress_mapper_sub_mapper() {
+    fn test914_progress_mapper_sub_mapper() {
         let reported = Arc::new(std::sync::Mutex::new(Vec::new()));
         let reported_clone = Arc::clone(&reported);
         let parent: CapProgressFn = Arc::new(move |p: f32, _cap: &str, _msg: &str| {
@@ -1387,12 +1387,12 @@ mod tests {
         assert!((reports[1] - 0.8).abs() < 0.001, "sub 100% maps to 0.8");
     }
 
-    // TEST707: Per-group subdivision produces monotonic, bounded progress for N groups
+    // TEST915: Per-group subdivision produces monotonic, bounded progress for N groups
     //
     // Uses pre-computed boundaries (same pattern as production code) to guarantee
     // monotonicity regardless of f32 rounding.
     #[test]
-    fn test707_per_group_subdivision_monotonic_bounded() {
+    fn test915_per_group_subdivision_monotonic_bounded() {
         let all_progress = Arc::new(std::sync::Mutex::new(Vec::new()));
         let all_clone = Arc::clone(&all_progress);
         let parent: CapProgressFn = Arc::new(move |p: f32, _cap: &str, _msg: &str| {
@@ -1442,13 +1442,13 @@ mod tests {
         assert!((progress[14] - 1.0).abs() < 0.001);
     }
 
-    // TEST708: ForEach item subdivision produces correct, monotonic ranges
+    // TEST916: ForEach item subdivision produces correct, monotonic ranges
     //
     // Mirrors the production code in interpreter.rs: pre-compute item boundaries
     // from the same formula so the end of item N and the start of item N+1 are
     // the same f32 value (no divergent accumulation paths).
     #[test]
-    fn test708_foreach_item_subdivision() {
+    fn test916_foreach_item_subdivision() {
         let all_progress = Arc::new(std::sync::Mutex::new(Vec::new()));
         let all_clone = Arc::clone(&all_progress);
         let parent: CapProgressFn = Arc::new(move |p: f32, _cap: &str, _msg: &str| {
@@ -1492,10 +1492,10 @@ mod tests {
         }
     }
 
-    // TEST709: High-frequency progress emission does not violate bounds
+    // TEST917: High-frequency progress emission does not violate bounds
     // (Regression test for the deadlock scenario — verifies computation stays bounded)
     #[test]
-    fn test709_high_frequency_progress_bounded() {
+    fn test917_high_frequency_progress_bounded() {
         let count = Arc::new(AtomicU32::new(0));
         let max_val = Arc::new(std::sync::Mutex::new(f32::MIN));
         let min_val = Arc::new(std::sync::Mutex::new(f32::MAX));
@@ -1526,9 +1526,9 @@ mod tests {
         assert!(max <= 0.9, "max {} must be <= base+weight 0.9", max);
     }
 
-    // TEST710: ActivityTimeout error formats correctly
+    // TEST918: ActivityTimeout error formats correctly
     #[test]
-    fn test710_activity_timeout_error_display() {
+    fn test918_activity_timeout_error_display() {
         let err = ExecutionError::ActivityTimeout {
             cap_urn: "cap:op=describe_image".to_string(),
             idle_secs: 125,

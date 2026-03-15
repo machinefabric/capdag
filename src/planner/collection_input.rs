@@ -259,10 +259,10 @@ mod tests {
         assert_eq!(flattened[1].file_path, "/path/sub/file2.pdf");
     }
 
-    // TEST720: Tests CapInputCollection serializes to JSON and deserializes correctly
+    // TEST933: Tests CapInputCollection serializes to JSON and deserializes correctly
     // Verifies JSON round-trip preserves folder_id, folder_name, files and file metadata
     #[test]
-    fn test720_serialization_roundtrip() {
+    fn test933_serialization_roundtrip() {
         let mut collection = CapInputCollection::new(
             "folder-123".to_string(),
             "Test Folder".to_string(),

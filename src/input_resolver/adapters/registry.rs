@@ -220,9 +220,9 @@ mod tests {
         (Arc::new(registry), temp_dir)
     }
 
-    // TEST1031 (registry integration): JSON detection via MediaAdapterRegistry
+    // TEST983 (registry integration): JSON detection via MediaAdapterRegistry
     #[test]
-    fn test1031_json_detection_via_adapter_registry() {
+    fn test983_json_detection_via_adapter_registry() {
         let (media_registry, _temp) = create_test_registry();
         let adapter_registry = MediaAdapterRegistry::new(media_registry.clone());
 

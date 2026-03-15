@@ -505,10 +505,10 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    // TEST788: Tests CapInputFile constructor creates file with correct path and media URN
+    // TEST957: Tests CapInputFile constructor creates file with correct path and media URN
     // Verifies new() initializes file_path, media_urn and leaves metadata/source_id as None
     #[test]
-    fn test788_cap_input_file_new() {
+    fn test957_cap_input_file_new() {
         let file = CapInputFile::new("/path/to/file.pdf".to_string(), "media:pdf".to_string());
         assert_eq!(file.file_path, "/path/to/file.pdf");
         assert_eq!(file.media_urn, "media:pdf");
@@ -516,27 +516,27 @@ mod tests {
         assert!(file.source_id.is_none());
     }
 
-    // TEST789: Tests CapInputFile from_listing sets source metadata correctly
+    // TEST958: Tests CapInputFile from_listing sets source metadata correctly
     // Verifies from_listing() populates source_id and source_type as Listing
     #[test]
-    fn test789_cap_input_file_from_listing() {
+    fn test958_cap_input_file_from_listing() {
         let file = CapInputFile::from_listing("listing-123", "/path/to/file.pdf", "media:pdf");
         assert_eq!(file.source_id, Some("listing-123".to_string()));
         assert_eq!(file.source_type, Some(SourceEntityType::Listing));
     }
 
-    // TEST790: Tests CapInputFile extracts filename from full path correctly
+    // TEST959: Tests CapInputFile extracts filename from full path correctly
     // Verifies filename() returns just the basename without directory path
     #[test]
-    fn test790_cap_input_file_filename() {
+    fn test959_cap_input_file_filename() {
         let file = CapInputFile::new("/path/to/document.pdf".to_string(), "media:pdf".to_string());
         assert_eq!(file.filename(), Some("document.pdf"));
     }
 
-    // TEST791: Tests ArgumentBinding literal_string creates Literal variant with string value
+    // TEST960: Tests ArgumentBinding literal_string creates Literal variant with string value
     // Verifies literal_string() wraps string in JSON Value::String
     #[test]
-    fn test791_argument_binding_literal_string() {
+    fn test960_argument_binding_literal_string() {
         let binding = ArgumentBinding::literal_string("test");
         if let ArgumentBinding::Literal { value } = binding {
             assert_eq!(value, serde_json::Value::String("test".to_string()));

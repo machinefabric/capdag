@@ -1802,9 +1802,9 @@ mod tests {
         assert_eq!(stats.output_spec_count, 2); // str, obj
     }
 
-    // TEST568: CapGraph::find_best_path returns highest-specificity path over shortest
+    // TEST976: CapGraph::find_best_path returns highest-specificity path over shortest
     #[test]
-    fn test568_cap_graph_find_best_path() {
+    fn test976_cap_graph_find_best_path() {
         let mut graph = CapGraph::new();
 
         // Direct path: binary -> obj (low specificity, just op)

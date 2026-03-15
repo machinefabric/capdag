@@ -290,9 +290,9 @@ mod tests {
             "Expected ForEach or Collect rejection, got: {}", err);
     }
 
-    // TEST772: Linear plans (no ForEach/Collect) still convert successfully
+    // TEST953: Linear plans (no ForEach/Collect) still convert successfully
     #[tokio::test]
-    async fn test772_linear_plan_still_works() {
+    async fn test953_linear_plan_still_works() {
         let registry = MockRegistry::new();
         registry.add_cap("cap:in=media:pdf;op=extract;out=media:text").await;
 
@@ -309,12 +309,12 @@ mod tests {
         assert_eq!(result.unwrap().edges.len(), 1);
     }
 
-    // TEST773: WrapInList nodes are handled as pass-through
+    // TEST954: WrapInList nodes are handled as pass-through
     // Plan: input → cap_0 → WrapInList → cap_1 → output
     // The WrapInList is transparent — the resolved edge from WrapInList to cap_1
     // should be rewritten to go from cap_0 to cap_1 directly.
     #[tokio::test]
-    async fn test773_wrap_in_list_passthrough() {
+    async fn test954_wrap_in_list_passthrough() {
         let registry = MockRegistry::new();
         registry.add_cap(r#"cap:in=media:pdf;op=extract;out="media:text;textable""#).await;
         registry.add_cap(r#"cap:in="media:list;text;textable";op=embed;out="media:embedding-vector;record;textable""#).await;
