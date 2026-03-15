@@ -771,12 +771,14 @@ fn generate_diagram(name: &str, graph: &capdag::orchestrator::ResolvedGraph) {
     }
 
     let mermaid = graph.to_mermaid();
-    let png_path = scenarios_dir().join(format!("{}.png", name));
+	let rendered_dir = scenarios_dir().join("rendered");
+	Command::new("mkdir").args(["-p", rendered_dir.to_str().unwrap()]).output().ok();
+    let png_path = rendered_dir.join(format!("{}.png", name));
 
     let mut child = match Command::new("mmdc")
         .args(["-i", "-", "-o"])
         .arg(&png_path)
-        .args(["-t", "dark", "-b", "transparent", "-s", "2"])
+        .args(["-s", "2", "-w", "2000"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
