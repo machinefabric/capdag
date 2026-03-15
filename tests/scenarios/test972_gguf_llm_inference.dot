@@ -1,3 +1,0 @@
-    digraph gguf_llm_inference {
-        request_input -> generation [label="cap:gguf;in=\"media:llm-generation-request;json;record\";llm;ml-model;op=llm_inference;out=\"media:llm-text-stream;ndjson;streaming\""];
-    }

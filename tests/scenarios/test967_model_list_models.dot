@@ -1,3 +1,0 @@
-    digraph model_list_models {
-        repo_input -> model_list [label="cap:in=\"media:model-repo;textable;record\";op=list-models;out=\"media:model-list;textable;record\""];
-    }

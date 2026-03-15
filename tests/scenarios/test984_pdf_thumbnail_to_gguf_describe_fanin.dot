@@ -1,6 +1,0 @@
-    digraph pdf_thumbnail_gguf_describe_fanin {
-        model_spec [media="media:model-spec;textable"];
-        pdf_input -> thumbnail [label="cap:in=media:pdf;op=generate_thumbnail;out=\"media:image;png;thumbnail\""];
-        thumbnail -> description [label="cap:gguf;in=\"media:image;png\";ml-model;op=describe_image;out=\"media:image-description;textable\";vision"];
-        model_spec -> description [label="cap:gguf;in=\"media:image;png\";ml-model;op=describe_image;out=\"media:image-description;textable\";vision"];
-    }

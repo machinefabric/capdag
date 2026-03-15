@@ -1,5 +1,0 @@
-    digraph gguf_generate_embeddings {
-        model_spec [media="media:model-spec;textable"];
-        text_input -> embedding [label="cap:gguf;in=\"media:textable\";ml-model;op=generate_embeddings;out=\"media:embedding-vector;textable;record\""];
-        model_spec -> embedding [label="cap:gguf;in=\"media:textable\";ml-model;op=generate_embeddings;out=\"media:embedding-vector;textable;record\""];
-    }

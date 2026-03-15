@@ -1,6 +1,0 @@
-    digraph model_full_inspection {
-        model_spec -> availability [label="cap:in=\"media:model-spec;textable\";op=model-availability;out=\"media:model-availability;textable;record\""];
-        model_spec -> status [label="cap:in=\"media:model-spec;textable\";op=model-status;out=\"media:model-status;textable;record\""];
-        model_spec -> contents [label="cap:in=\"media:model-spec;textable\";op=model-contents;out=\"media:model-contents;textable;record\""];
-        model_spec -> path [label="cap:in=\"media:model-spec;textable\";op=model-path;out=\"media:model-path;textable;record\""];
-    }

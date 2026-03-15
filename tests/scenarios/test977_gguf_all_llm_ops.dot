@@ -1,6 +1,0 @@
-digraph gguf_all_llm_ops {
-    request_input -> model_info [label="cap:gguf;in=\"media:llm-generation-request;json;record\";llm;ml-model;op=llm_model_info;out=\"media:llm-model-info;json;record\""];
-    request_input -> vocab [label="cap:gguf;in=\"media:llm-generation-request;json;record\";llm;ml-model;op=llm_vocab;out=\"media:llm-vocab-response;json;record\""];
-    request_input -> generation [label="cap:gguf;in=\"media:llm-generation-request;json;record\";llm;ml-model;op=llm_inference;out=\"media:llm-text-stream;ndjson;streaming\""];
-    request_input -> constrained_generation [label="cap:constrained;gguf;in=\"media:llm-generation-request;json;record\";llm;ml-model;op=llm_inference_constrained;out=\"media:llm-text-stream;ndjson;streaming\""];
-}

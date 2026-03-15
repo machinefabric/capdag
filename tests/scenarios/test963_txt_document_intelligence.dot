@@ -1,5 +1,0 @@
-    digraph txt_document_intelligence {
-        txt_input -> metadata [label="cap:in=\"media:txt;textable\";op=extract_metadata;out=\"media:file-metadata;textable;record\""];
-        txt_input -> outline [label="cap:in=\"media:txt;textable\";op=extract_outline;out=\"media:document-outline;textable;record\""];
-        txt_input -> thumbnail [label="cap:in=\"media:txt;textable\";op=generate_thumbnail;out=\"media:image;png;thumbnail\""];
-    }

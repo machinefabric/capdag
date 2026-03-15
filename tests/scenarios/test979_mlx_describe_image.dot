@@ -1,3 +1,0 @@
-    digraph mlx_describe_image {
-        image_input -> description [label="cap:in=\"media:image;png\";ml-model;mlx;op=describe_image;out=\"media:image-description;textable\";vision"];
-    }

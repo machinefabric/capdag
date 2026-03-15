@@ -1,3 +1,0 @@
-    digraph mlx_generate_embeddings {
-        text_input -> embedding [label="cap:in=\"media:textable\";ml-model;mlx;op=generate_embeddings;out=\"media:embedding-vector;textable;record\""];
-    }

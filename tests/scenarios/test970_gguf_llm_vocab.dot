@@ -1,3 +1,0 @@
-    digraph gguf_llm_vocab {
-        request_input -> vocab [label="cap:gguf;in=\"media:llm-generation-request;json;record\";llm;ml-model;op=llm_vocab;out=\"media:llm-vocab-response;json;record\""];
-    }

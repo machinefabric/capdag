@@ -1,3 +1,0 @@
-    digraph gguf_llm_model_info {
-        request_input -> model_info [label="cap:gguf;in=\"media:llm-generation-request;json;record\";llm;ml-model;op=llm_model_info;out=\"media:llm-model-info;json;record\""];
-    }

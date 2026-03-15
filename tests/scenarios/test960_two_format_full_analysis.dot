@@ -1,9 +1,0 @@
-    digraph two_format_full_analysis {
-        pdf_input -> pdf_metadata [label="cap:in=media:pdf;op=extract_metadata;out=\"media:file-metadata;textable;record\""];
-        pdf_input -> pdf_outline [label="cap:in=media:pdf;op=extract_outline;out=\"media:document-outline;textable;record\""];
-        pdf_input -> pdf_thumbnail [label="cap:in=media:pdf;op=generate_thumbnail;out=\"media:image;png;thumbnail\""];
-        pdf_input -> pdf_pages [label="cap:in=media:pdf;op=disbind;out=\"media:disbound-page;textable;list\""];
-        md_input -> md_metadata [label="cap:in=\"media:md;textable\";op=extract_metadata;out=\"media:file-metadata;textable;record\""];
-        md_input -> md_outline [label="cap:in=\"media:md;textable\";op=extract_outline;out=\"media:document-outline;textable;record\""];
-        md_input -> md_thumbnail [label="cap:in=\"media:md;textable\";op=generate_thumbnail;out=\"media:image;png;thumbnail\""];
-    }

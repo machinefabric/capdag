@@ -1,5 +1,0 @@
-    digraph gguf_vision {
-        model_spec [media="media:model-spec;textable"];
-        image_input -> description [label="cap:gguf;in=\"media:image;png\";ml-model;op=describe_image;out=\"media:image-description;textable\";vision"];
-        model_spec -> description [label="cap:gguf;in=\"media:image;png\";ml-model;op=describe_image;out=\"media:image-description;textable\";vision"];
-    }

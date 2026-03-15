@@ -1,3 +1,0 @@
-    digraph text_embedding {
-        text_input -> embedding [label="cap:candle;in=\"media:textable\";ml-model;op=generate_embeddings;out=\"media:embedding-vector;textable;record\""];
-    }

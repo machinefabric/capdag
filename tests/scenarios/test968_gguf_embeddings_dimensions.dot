@@ -1,3 +1,0 @@
-    digraph gguf_embeddings_dimensions {
-        model_spec -> dimensions [label="cap:gguf;in=\"media:model-spec;textable\";ml-model;op=embeddings_dimensions;out=\"media:integer;textable;numeric\""];
-    }

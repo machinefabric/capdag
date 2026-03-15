@@ -1,3 +1,0 @@
-    digraph candle_describe_image {
-        image_input -> description [label="cap:candle;in=\"media:image;png\";ml-model;op=describe_image;out=\"media:image-description;textable\""];
-    }

@@ -1,6 +1,0 @@
-    digraph pdf_fanout_with_chain {
-        pdf_input -> metadata [label="cap:in=media:pdf;op=extract_metadata;out=\"media:file-metadata;textable;record\""];
-        pdf_input -> outline [label="cap:in=media:pdf;op=extract_outline;out=\"media:document-outline;textable;record\""];
-        pdf_input -> thumbnail [label="cap:in=media:pdf;op=generate_thumbnail;out=\"media:image;png;thumbnail\""];
-        thumbnail -> img_embedding [label="cap:candle;in=\"media:image;png\";ml-model;op=generate_image_embeddings;out=\"media:embedding-vector;textable;record\""];
-    }

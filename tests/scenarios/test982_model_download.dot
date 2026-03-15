@@ -1,3 +1,0 @@
-    digraph model_download {
-        model_spec -> download_result [label="cap:in=\"media:model-spec;textable\";op=download-model;out=\"media:download-result;textable;record\""];
-    }

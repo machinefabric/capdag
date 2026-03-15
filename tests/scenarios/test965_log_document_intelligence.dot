@@ -1,5 +1,0 @@
-    digraph log_document_intelligence {
-        log_input -> metadata [label="cap:in=\"media:log;textable\";op=extract_metadata;out=\"media:file-metadata;textable;record\""];
-        log_input -> outline [label="cap:in=\"media:log;textable\";op=extract_outline;out=\"media:document-outline;textable;record\""];
-        log_input -> thumbnail [label="cap:in=\"media:log;textable\";op=generate_thumbnail;out=\"media:image;png;thumbnail\""];
-    }

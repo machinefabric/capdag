@@ -1,7 +1,0 @@
-    digraph deep_chain_with_parallel {
-        pdf_input -> metadata [label="cap:in=media:pdf;op=extract_metadata;out=\"media:file-metadata;textable;record\""];
-        pdf_input -> thumbnail [label="cap:in=media:pdf;op=generate_thumbnail;out=\"media:image;png;thumbnail\""];
-        thumbnail -> description [label="cap:candle;in=\"media:image;png\";ml-model;op=describe_image;out=\"media:image-description;textable\""];
-        description -> desc_embedding [label="cap:candle;in=\"media:textable\";ml-model;op=generate_embeddings;out=\"media:embedding-vector;textable;record\""];
-        thumbnail -> img_embedding [label="cap:candle;in=\"media:image;png\";ml-model;op=generate_image_embeddings;out=\"media:embedding-vector;textable;record\""];
-    }

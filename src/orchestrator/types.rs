@@ -94,6 +94,60 @@ pub struct ResolvedGraph {
     pub graph_name: Option<String>,
 }
 
+impl ResolvedGraph {
+    /// Generate Mermaid flowchart code from this resolved graph.
+    pub fn to_mermaid(&self) -> String {
+        use std::collections::HashSet;
+        let mut out = String::new();
+        out.push_str("graph LR\n");
+
+        let mut targets: HashSet<&str> = HashSet::new();
+        let mut sources: HashSet<&str> = HashSet::new();
+        for edge in &self.edges {
+            sources.insert(&edge.from);
+            targets.insert(&edge.to);
+        }
+
+        for (name, media_urn) in &self.nodes {
+            let is_input = sources.contains(name.as_str()) && !targets.contains(name.as_str());
+            let is_output = targets.contains(name.as_str()) && !sources.contains(name.as_str());
+
+            let esc_name = mermaid_escape(name);
+            let esc_urn = mermaid_escape(media_urn);
+
+            if is_input {
+                out.push_str(&format!("    {}([\"{}<br/><small>{}</small>\"])\n", name, esc_name, esc_urn));
+            } else if is_output {
+                out.push_str(&format!("    {}(((\"{}<br/><small>{}</small>\")))\n", name, esc_name, esc_urn));
+            } else {
+                out.push_str(&format!("    {}[\"{}<br/><small>{}</small>\"]\n", name, esc_name, esc_urn));
+            }
+        }
+
+        out.push('\n');
+
+        let mut seen_edges: HashSet<(String, String, String)> = HashSet::new();
+        for edge in &self.edges {
+            let key = (edge.from.clone(), edge.to.clone(), edge.cap_urn.clone());
+            if !seen_edges.insert(key) {
+                continue;
+            }
+            let title = mermaid_escape(&edge.cap.title);
+            let urn = mermaid_escape(&edge.cap_urn);
+            out.push_str(&format!("    {} -->|\"{}<br/><small>{}</small>\"| {}\n", edge.from, title, urn, edge.to));
+        }
+
+        out
+    }
+}
+
+fn mermaid_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "#quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 // =============================================================================
 // Cap Registry Trait
 // =============================================================================

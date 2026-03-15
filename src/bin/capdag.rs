@@ -2,7 +2,7 @@
 //!
 //! A unified CLI for executing and validating route notation pipelines.
 
-use capdag::orchestrator::{parse_route_to_cap_dag, execute_dag, NodeData, ResolvedGraph};
+use capdag::orchestrator::{parse_route_to_cap_dag, execute_dag, NodeData};
 use capdag::route::RouteGraph;
 use capdag::{CapProgressFn, CapRegistry};
 use std::collections::HashMap;
@@ -42,12 +42,12 @@ fn expand_dev_binary_path(path: &str) -> Vec<PathBuf> {
                     .collect()
             }
             Err(e) => {
-                tracing::error!("Error reading dev-bins directory '{}': {}", path, e);
+                eprintln!("Error reading dev-bins directory '{}': {}", path, e);
                 vec![]
             }
         }
     } else {
-        tracing::error!("Dev binary path does not exist: {}", path);
+        eprintln!("Dev binary path does not exist: {}", path);
         vec![]
     }
 }
@@ -60,7 +60,7 @@ fn find_input_nodes(route_content: &str) -> Vec<String> {
     let graph = match RouteGraph::from_string(route_content) {
         Ok(g) => g,
         Err(e) => {
-            tracing::error!("Failed to parse route notation for input node detection: {}", e);
+            eprintln!("Failed to parse route notation for input node detection: {}", e);
             return vec![];
         }
     };
@@ -73,7 +73,7 @@ fn find_input_nodes(route_content: &str) -> Vec<String> {
     let pairs = match RouteParser::parse(Rule::program, route_content.trim()) {
         Ok(p) => p,
         Err(e) => {
-            tracing::error!("Failed to re-parse route notation: {}", e);
+            eprintln!("Failed to re-parse route notation: {}", e);
             return vec![];
         }
     };
@@ -183,12 +183,12 @@ fn expand_input_path(path: &str) -> Vec<PathBuf> {
                     .filter(|p| p.is_file())
                     .collect();
                 if files.is_empty() {
-                    tracing::warn!("No files matched glob pattern '{}'", path);
+                    eprintln!("No files matched glob pattern '{}'", path);
                 }
                 files
             }
             Err(e) => {
-                tracing::error!("Error parsing glob pattern '{}': {}", path, e);
+                eprintln!("Error parsing glob pattern '{}': {}", path, e);
                 vec![]
             }
         }
@@ -203,95 +203,21 @@ fn expand_input_path(path: &str) -> Vec<PathBuf> {
                     .collect()
             }
             Err(e) => {
-                tracing::error!("Error reading directory '{}': {}", path, e);
+                eprintln!("Error reading directory '{}': {}", path, e);
                 vec![]
             }
         }
     } else if path_buf.is_file() {
         vec![path_buf]
     } else {
-        tracing::error!("Path does not exist: {}", path);
+        eprintln!("Path does not exist: {}", path);
         vec![]
     }
 }
 
-/// Escape text for Mermaid labels (double-quoted strings).
-fn mermaid_escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "#quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-/// Generate Mermaid flowchart code from a resolved graph.
-fn generate_mermaid(graph: &ResolvedGraph) -> String {
-    let mut out = String::new();
-    out.push_str("graph LR\n");
-
-    // Collect which nodes are input (not a target of any edge) vs output (not a source)
-    let mut targets: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let mut sources: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    for edge in &graph.edges {
-        sources.insert(&edge.from);
-        targets.insert(&edge.to);
-    }
-
-    // Emit node definitions with media URN subtitle
-    for (name, media_urn) in &graph.nodes {
-        let is_input = sources.contains(name.as_str()) && !targets.contains(name.as_str());
-        let is_output = targets.contains(name.as_str()) && !sources.contains(name.as_str());
-
-        let escaped_name = mermaid_escape(name);
-        let escaped_urn = mermaid_escape(media_urn);
-
-        if is_input {
-            // Stadium shape for inputs
-            out.push_str(&format!(
-                "    {}([\"{}<br/><small>{}</small>\"])\n",
-                name, escaped_name, escaped_urn
-            ));
-        } else if is_output {
-            // Double-circle shape for outputs
-            out.push_str(&format!(
-                "    {}(((\"{}<br/><small>{}</small>\")))\n",
-                name, escaped_name, escaped_urn
-            ));
-        } else {
-            // Rectangle for intermediate nodes
-            out.push_str(&format!(
-                "    {}[\"{}<br/><small>{}</small>\"]\n",
-                name, escaped_name, escaped_urn
-            ));
-        }
-    }
-
-    out.push('\n');
-
-    // Emit edges with cap title + URN subtitle
-    // Deduplicate fan-in edges (multiple edges to same target with same cap)
-    let mut seen_edges: std::collections::HashSet<(String, String, String)> =
-        std::collections::HashSet::new();
-
-    for edge in &graph.edges {
-        let key = (edge.from.clone(), edge.to.clone(), edge.cap_urn.clone());
-        if !seen_edges.insert(key) {
-            continue;
-        }
-
-        let title = mermaid_escape(&edge.cap.title);
-        let urn = mermaid_escape(&edge.cap_urn);
-
-        out.push_str(&format!(
-            "    {} -->|\"{}<br/><small>{}</small>\"| {}\n",
-            edge.from, title, urn, edge.to
-        ));
-    }
-
-    out
-}
 
 fn print_usage(program: &str) {
-    tracing::info!(
+    eprintln!(
         "Usage: {} [options] <route-file> [input-paths...]\n\n\
          Execute a route notation pipeline on input files.\n\n\
          Options:\n\
@@ -344,7 +270,7 @@ async fn main() {
                 {
                     let expanded = expand_dev_binary_path(&args[arg_idx]);
                     if expanded.is_empty() {
-                        tracing::error!("No executables found in: {}", args[arg_idx]);
+                        eprintln!("No executables found in: {}", args[arg_idx]);
                         process::exit(1);
                     }
                     dev_binaries.extend(expanded);
@@ -356,7 +282,7 @@ async fn main() {
     }
 
     if arg_idx >= args.len() {
-        tracing::error!("Missing route file argument");
+        eprintln!("Missing route file argument");
         print_usage(&args[0]);
         process::exit(1);
     }
@@ -368,7 +294,7 @@ async fn main() {
     let route_content = match fs::read_to_string(route_file) {
         Ok(content) => content,
         Err(e) => {
-            tracing::error!("Error reading route file '{}': {}", route_file, e);
+            eprintln!("Error reading route file '{}': {}", route_file, e);
             process::exit(1);
         }
     };
@@ -377,7 +303,7 @@ async fn main() {
     let registry = match CapRegistry::new().await {
         Ok(reg) => Arc::new(reg),
         Err(e) => {
-            tracing::error!("Error creating CapDag registry: {}", e);
+            eprintln!("Error creating CapDag registry: {}", e);
             process::exit(1);
         }
     };
@@ -386,21 +312,21 @@ async fn main() {
     let graph = match parse_route_to_cap_dag(&route_content, registry.as_ref()).await {
         Ok(g) => g,
         Err(e) => {
-            tracing::error!("Validation failed: {}", e);
+            eprintln!("Validation failed: {}", e);
             process::exit(1);
         }
     };
 
     // --mermaid: output diagram and exit
     if mermaid_mode {
-        println!("{}", generate_mermaid(&graph));
+        println!("{}", graph.to_mermaid());
         process::exit(0);
     }
 
     // Find input nodes automatically
     let input_nodes = find_input_nodes(&route_content);
     if input_nodes.is_empty() {
-        tracing::error!("No input nodes found in route notation");
+        eprintln!("No input nodes found in route notation");
         process::exit(1);
     }
 
@@ -412,7 +338,7 @@ async fn main() {
     }
 
     if all_files.is_empty() {
-        tracing::error!("No input files found");
+        eprintln!("No input files found");
         process::exit(1);
     }
 
@@ -422,17 +348,17 @@ async fn main() {
     // For now, use the first input node for all files
     let input_node = &input_nodes[0];
 
-    tracing::info!("=== capdag: Route Notation Execution ===\n");
-    tracing::info!("Route file: {}", route_file);
-    tracing::info!("Input node: {}", input_node);
-    tracing::info!("Input files: {}", all_files.len());
+    eprintln!("=== capdag: Route Notation Execution ===\n");
+    eprintln!("Route file: {}", route_file);
+    eprintln!("Input node: {}", input_node);
+    eprintln!("Input files: {}", all_files.len());
     for f in &all_files {
-        tracing::info!("  - {}", f.display());
+        eprintln!("  - {}", f.display());
     }
 
-    tracing::info!("Parsing and validating route notation...");
-    tracing::info!("  Nodes: {}", graph.nodes.len());
-    tracing::info!("  Edges: {}", graph.edges.len());
+    eprintln!("Parsing and validating route notation...");
+    eprintln!("  Nodes: {}", graph.nodes.len());
+    eprintln!("  Edges: {}", graph.edges.len());
 
     // Set up plugin directory
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -441,11 +367,11 @@ async fn main() {
     // Registry URL
     let registry_url = "https://machinefabric.com/api/plugins".to_string();
 
-    tracing::info!("\n=== Executing DAG ===\n");
+    eprintln!("\n=== Executing DAG ===\n");
     if !dev_binaries.is_empty() {
-        tracing::info!("Dev mode: {} local binaries", dev_binaries.len());
+        eprintln!("Dev mode: {} local binaries", dev_binaries.len());
         for bin in &dev_binaries {
-            tracing::info!("  - {}", bin.display());
+            eprintln!("  - {}", bin.display());
         }
     }
 
@@ -454,7 +380,7 @@ async fn main() {
     let mut error_count = 0;
 
     for file in &all_files {
-        tracing::info!("--- Processing: {} ---", file.display());
+        eprintln!("--- Processing: {} ---", file.display());
 
         let mut initial_inputs = HashMap::new();
         initial_inputs.insert(input_node.clone(), NodeData::FilePath(file.clone()));
@@ -465,33 +391,33 @@ async fn main() {
 
         match execute_dag(&graph, plugin_dir.clone(), registry_url.clone(), initial_inputs, dev_binaries.clone(), registry.clone(), Some(&progress)).await {
             Ok(outputs) => {
-                tracing::info!("Results:");
+                eprintln!("Results:");
                 for (node, data) in outputs {
                     match data {
-                        NodeData::Bytes(ref b) => tracing::info!("  {}: {} bytes", node, b.len()),
+                        NodeData::Bytes(ref b) => eprintln!("  {}: {} bytes", node, b.len()),
                         NodeData::Text(ref t) => {
                             let preview = if t.len() > 80 { &t[..80] } else { t };
-                            tracing::info!("  {}: {}", node, preview.replace('\n', " "));
+                            eprintln!("  {}: {}", node, preview.replace('\n', " "));
                         }
-                        NodeData::FilePath(ref p) => tracing::info!("  {}: {}", node, p.display()),
+                        NodeData::FilePath(ref p) => eprintln!("  {}: {}", node, p.display()),
                     }
                 }
                 success_count += 1;
             }
             Err(e) => {
-                tracing::error!("{}", e);
+                eprintln!("{}", e);
                 error_count += 1;
             }
         }
     }
 
-    tracing::info!("=== Summary ===");
-    tracing::info!("Processed: {}", all_files.len());
-    tracing::info!("Success: {}", success_count);
+    eprintln!("=== Summary ===");
+    eprintln!("Processed: {}", all_files.len());
+    eprintln!("Success: {}", success_count);
     if error_count > 0 {
-        tracing::error!("Errors: {}", error_count);
+        eprintln!("Errors: {}", error_count);
     } else {
-        tracing::info!("Errors: {}", error_count);
+        eprintln!("Errors: {}", error_count);
     }
 
     if error_count > 0 {

@@ -1,4 +1,0 @@
-    digraph model_plus_dimensions {
-        model_spec -> availability [label="cap:in=\"media:model-spec;textable\";op=model-availability;out=\"media:model-availability;textable;record\""];
-        model_spec -> dimensions [label="cap:candle;in=\"media:model-spec;textable\";ml-model;op=embeddings_dimensions;out=\"media:model-dim;integer;textable;numeric\""];
-    }

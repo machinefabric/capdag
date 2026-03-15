@@ -746,11 +746,62 @@ fn scenarios_dir() -> PathBuf {
         .join("scenarios")
 }
 
-/// Load a route notation file from the scenarios directory.
-fn load_scenario_route(name: &str) -> String {
+/// Load a route notation file and parse it into a resolved graph.
+/// Also generates a PNG diagram if mmdc is available.
+async fn load_and_parse_scenario(name: &str) -> (String, capdag::orchestrator::ResolvedGraph) {
     let route_path = scenarios_dir().join(format!("{}.route", name));
-    std::fs::read_to_string(&route_path)
-        .unwrap_or_else(|e| panic!("Failed to read route file {}: {}", route_path.display(), e))
+    let route = std::fs::read_to_string(&route_path)
+        .unwrap_or_else(|e| panic!("Failed to read route file {}: {}", route_path.display(), e));
+    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
+        .await
+        .unwrap_or_else(|e| panic!("Parse failed for {}: {}", name, e));
+    generate_diagram(name, &graph);
+    (route, graph)
+}
+
+/// Generate a PNG diagram from a resolved graph if mmdc is available.
+/// Writes to scenarios/{name}.png alongside the .route file.
+fn generate_diagram(name: &str, graph: &capdag::orchestrator::ResolvedGraph) {
+    static MMDC_AVAILABLE: LazyLock<bool> = LazyLock::new(|| {
+        Command::new("mmdc").arg("--version").output().is_ok()
+    });
+
+    if !*MMDC_AVAILABLE {
+        return;
+    }
+
+    let mermaid = graph.to_mermaid();
+    let png_path = scenarios_dir().join(format!("{}.png", name));
+
+    let mut child = match Command::new("mmdc")
+        .args(["-i", "-", "-o"])
+        .arg(&png_path)
+        .args(["-t", "dark", "-b", "transparent", "-s", "2"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(mermaid.as_bytes());
+    }
+
+    match child.wait() {
+        Ok(status) if status.success() => {
+            eprintln!("[Diagram] Generated {}.png", name);
+        }
+        Ok(status) => {
+            eprintln!("[Diagram] mmdc failed for {} (exit {})", name, status);
+        }
+        Err(e) => {
+            eprintln!("[Diagram] mmdc error for {}: {}", name, e);
+        }
+    }
 }
 
 // =============================================================================
@@ -853,12 +904,7 @@ fn extract_text(outputs: &HashMap<String, NodeData>, node: &str) -> String {
 async fn test948_pdf_document_intelligence() {
     let dev_binaries = require_binaries(&["pdfcartridge"]);
 
-    let route = load_scenario_route("test948_pdf_document_intelligence");
-    eprintln!("[TEST014] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test948_pdf_document_intelligence").await;
     assert_eq!(graph.edges.len(), 3);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -918,12 +964,7 @@ async fn test949_pdf_thumbnail_to_image_embedding() {
     }).expect("modelcartridge binary required").clone();
     ensure_model_downloaded(MODEL_CLIP, modelcartridge_bin).await;
 
-    let route = load_scenario_route("test949_pdf_thumbnail_to_image_embedding");
-    eprintln!("[TEST015] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test949_pdf_thumbnail_to_image_embedding").await;
     assert_eq!(graph.edges.len(), 2);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -972,12 +1013,7 @@ async fn test950_pdf_full_intelligence_pipeline() {
     }).expect("modelcartridge binary required").clone();
     ensure_model_downloaded(MODEL_CLIP, modelcartridge_bin).await;
 
-    let route = load_scenario_route("test950_pdf_full_intelligence_pipeline");
-    eprintln!("[TEST016] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test950_pdf_full_intelligence_pipeline").await;
     assert_eq!(graph.edges.len(), 4);
     assert_eq!(graph.nodes.len(), 5); // pdf_input, metadata, outline, thumbnail, img_embedding
 
@@ -1033,12 +1069,7 @@ async fn test950_pdf_full_intelligence_pipeline() {
 async fn test951_text_document_intelligence() {
     let dev_binaries = require_binaries(&["txtcartridge"]);
 
-    let route = load_scenario_route("test951_text_document_intelligence");
-    eprintln!("[TEST017] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test951_text_document_intelligence").await;
     assert_eq!(graph.edges.len(), 3);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -1089,12 +1120,7 @@ async fn test951_text_document_intelligence() {
 async fn test952_multi_format_document_processing() {
     let dev_binaries = require_binaries(&["pdfcartridge", "txtcartridge"]);
 
-    let route = load_scenario_route("test952_multi_format_document_processing");
-    eprintln!("[TEST018] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test952_multi_format_document_processing").await;
     assert_eq!(graph.edges.len(), 6);
     assert_eq!(graph.nodes.len(), 8); // 2 inputs + 6 outputs
 
@@ -1167,12 +1193,7 @@ async fn test953_model_plus_dimensions() {
     }).expect("modelcartridge binary required").clone();
     ensure_model_downloaded(MODEL_BERT, modelcartridge_bin).await;
 
-    let route = load_scenario_route("test953_model_plus_dimensions");
-    eprintln!("[TEST019] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test953_model_plus_dimensions").await;
     assert_eq!(graph.edges.len(), 2);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -1220,12 +1241,7 @@ async fn test953_model_plus_dimensions() {
 async fn test954_model_availability_plus_status() {
     let dev_binaries = require_binaries(&["modelcartridge"]);
 
-    let route = load_scenario_route("test954_model_availability_plus_status");
-    eprintln!("[TEST020] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test954_model_availability_plus_status").await;
     assert_eq!(graph.edges.len(), 2);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -1274,12 +1290,7 @@ async fn test955_text_embedding() {
     }).expect("modelcartridge binary required").clone();
     ensure_model_downloaded(MODEL_BERT, modelcartridge_bin).await;
 
-    let route = load_scenario_route("test955_text_embedding");
-    eprintln!("[TEST021] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test955_text_embedding").await;
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
     let mut inputs = HashMap::new();
@@ -1329,12 +1340,7 @@ async fn test956_candle_describe_image() {
     }).expect("modelcartridge binary required").clone();
     ensure_model_downloaded(MODEL_BLIP, modelcartridge_bin).await;
 
-    let route = load_scenario_route("test956_candle_describe_image");
-    eprintln!("[TEST022] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test956_candle_describe_image").await;
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
     let mut inputs = HashMap::new();
@@ -1378,12 +1384,7 @@ async fn test957_audio_transcription() {
     }).expect("modelcartridge binary required").clone();
     ensure_model_downloaded(MODEL_WHISPER, modelcartridge_bin).await;
 
-    let route = load_scenario_route("test957_audio_transcription");
-    eprintln!("[TEST023] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test957_audio_transcription").await;
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
     let mut inputs = HashMap::new();
@@ -1424,12 +1425,7 @@ async fn test957_audio_transcription() {
 async fn test958_pdf_complete_analysis() {
     let dev_binaries = require_binaries(&["pdfcartridge"]);
 
-    let route = load_scenario_route("test958_pdf_complete_analysis");
-    eprintln!("[TEST024] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test958_pdf_complete_analysis").await;
     assert_eq!(graph.edges.len(), 4, "4 edges expected");
     assert_eq!(graph.nodes.len(), 5, "1 input + 4 outputs");
 
@@ -1488,12 +1484,7 @@ async fn test958_pdf_complete_analysis() {
 async fn test959_model_full_inspection() {
     let dev_binaries = require_binaries(&["modelcartridge"]);
 
-    let route = load_scenario_route("test959_model_full_inspection");
-    eprintln!("[TEST025] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test959_model_full_inspection").await;
     assert_eq!(graph.edges.len(), 4);
     assert_eq!(graph.nodes.len(), 5);
 
@@ -1561,12 +1552,7 @@ async fn test959_model_full_inspection() {
 async fn test960_two_format_full_analysis() {
     let dev_binaries = require_binaries(&["pdfcartridge", "txtcartridge"]);
 
-    let route = load_scenario_route("test960_two_format_full_analysis");
-    eprintln!("[TEST026] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test960_two_format_full_analysis").await;
     assert_eq!(graph.edges.len(), 7, "7 edges expected");
     assert_eq!(graph.nodes.len(), 9, "2 inputs + 7 outputs");
 
@@ -1634,12 +1620,7 @@ async fn test960_two_format_full_analysis() {
 async fn test961_model_plus_pdf_combined() {
     let dev_binaries = require_binaries(&["modelcartridge", "pdfcartridge"]);
 
-    let route = load_scenario_route("test961_model_plus_pdf_combined");
-    eprintln!("[TEST027] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test961_model_plus_pdf_combined").await;
     assert_eq!(graph.edges.len(), 5);
     assert_eq!(graph.nodes.len(), 7); // 2 inputs + 5 outputs
 
@@ -1700,12 +1681,7 @@ async fn test961_model_plus_pdf_combined() {
 async fn test962_three_cartridge_pipeline() {
     let dev_binaries = require_binaries(&["modelcartridge", "pdfcartridge", "txtcartridge"]);
 
-    let route = load_scenario_route("test962_three_cartridge_pipeline");
-    eprintln!("[TEST028] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test962_three_cartridge_pipeline").await;
     assert_eq!(graph.edges.len(), 6);
     assert_eq!(graph.nodes.len(), 9); // 3 inputs + 6 outputs
 
@@ -1828,12 +1804,7 @@ fn build_llm_constrained_request(model_spec: &str, prompt: &str) -> Vec<u8> {
 async fn test963_txt_document_intelligence() {
     let dev_binaries = require_binaries(&["txtcartridge"]);
 
-    let route = load_scenario_route("test963_txt_document_intelligence");
-    eprintln!("[TEST029] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test963_txt_document_intelligence").await;
     assert_eq!(graph.edges.len(), 2);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -1875,12 +1846,7 @@ async fn test963_txt_document_intelligence() {
 async fn test964_rst_document_intelligence() {
     let dev_binaries = require_binaries(&["txtcartridge"]);
 
-    let route = load_scenario_route("test964_rst_document_intelligence");
-    eprintln!("[TEST030] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test964_rst_document_intelligence").await;
     assert_eq!(graph.edges.len(), 3);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -1926,12 +1892,7 @@ async fn test964_rst_document_intelligence() {
 async fn test965_log_document_intelligence() {
     let dev_binaries = require_binaries(&["txtcartridge"]);
 
-    let route = load_scenario_route("test965_log_document_intelligence");
-    eprintln!("[TEST031] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test965_log_document_intelligence").await;
     assert_eq!(graph.edges.len(), 2);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -1972,12 +1933,7 @@ async fn test965_log_document_intelligence() {
 async fn test966_all_text_formats_intelligence() {
     let dev_binaries = require_binaries(&["txtcartridge"]);
 
-    let route = load_scenario_route("test966_all_text_formats_intelligence");
-    eprintln!("[TEST032] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test966_all_text_formats_intelligence").await;
     // md: 3 ops (metadata, outline, thumbnail), rst: 3 ops, txt: 2 ops, log: 2 ops = 10
     assert_eq!(graph.edges.len(), 10, "10 edges expected");
     // 4 inputs + 10 outputs = 14 nodes
@@ -2042,12 +1998,7 @@ async fn test966_all_text_formats_intelligence() {
 async fn test967_model_list_models() {
     let dev_binaries = require_binaries(&["modelcartridge"]);
 
-    let route = load_scenario_route("test967_model_list_models");
-    eprintln!("[TEST033] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test967_model_list_models").await;
     assert_eq!(graph.edges.len(), 1);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -2096,12 +2047,7 @@ async fn test968_gguf_embeddings_dimensions() {
         .clone();
     ensure_model_downloaded(MODEL_GGUF_EMBED, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test968_gguf_embeddings_dimensions");
-    eprintln!("[TEST034] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test968_gguf_embeddings_dimensions").await;
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
     let mut inputs = HashMap::new();
@@ -2148,12 +2094,7 @@ async fn test969_gguf_llm_model_info() {
         .clone();
     ensure_model_downloaded(MODEL_GGUF_LLM, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test969_gguf_llm_model_info");
-    eprintln!("[TEST035] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test969_gguf_llm_model_info").await;
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
     let mut inputs = HashMap::new();
@@ -2202,12 +2143,7 @@ async fn test970_gguf_llm_vocab() {
         .clone();
     ensure_model_downloaded(MODEL_GGUF_LLM, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test970_gguf_llm_vocab");
-    eprintln!("[TEST036] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test970_gguf_llm_vocab").await;
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
     let mut inputs = HashMap::new();
@@ -2256,12 +2192,7 @@ async fn test971_gguf_model_info_plus_vocab() {
         .clone();
     ensure_model_downloaded(MODEL_GGUF_LLM, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test971_gguf_model_info_plus_vocab");
-    eprintln!("[TEST037] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test971_gguf_model_info_plus_vocab").await;
     assert_eq!(graph.edges.len(), 2);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -2313,12 +2244,7 @@ async fn test972_gguf_llm_inference() {
         .clone();
     ensure_model_downloaded(MODEL_GGUF_LLM, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test972_gguf_llm_inference");
-    eprintln!("[TEST038] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test972_gguf_llm_inference").await;
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
     let mut inputs = HashMap::new();
@@ -2365,12 +2291,7 @@ async fn test973_gguf_llm_inference_constrained() {
         .clone();
     ensure_model_downloaded(MODEL_GGUF_LLM, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test973_gguf_llm_inference_constrained");
-    eprintln!("[TEST039] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test973_gguf_llm_inference_constrained").await;
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
     let mut inputs = HashMap::new();
@@ -2420,12 +2341,7 @@ async fn test974_gguf_generate_embeddings() {
         .clone();
     ensure_model_downloaded(MODEL_GGUF_EMBED, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test974_gguf_generate_embeddings");
-    eprintln!("[TEST040] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test974_gguf_generate_embeddings").await;
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
     let mut inputs = HashMap::new();
@@ -2481,12 +2397,7 @@ async fn test975_gguf_describe_image() {
     // Vision model is large (~1.8GB) — pre-download; test proceeds regardless of download outcome
     ensure_model_downloaded(MODEL_GGUF_VISION, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test975_gguf_describe_image");
-    eprintln!("[TEST041] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test975_gguf_describe_image").await;
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
     let mut inputs = HashMap::new();
@@ -2535,12 +2446,7 @@ async fn test976_pdf_thumbnail_to_gguf_vision() {
         .clone();
     ensure_model_downloaded(MODEL_GGUF_VISION, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test976_pdf_thumbnail_to_gguf_vision");
-    eprintln!("[TEST042] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed — thumbnail→vision media URN compatibility check");
+    let (_route, graph) = load_and_parse_scenario("test976_pdf_thumbnail_to_gguf_vision").await;
     assert_eq!(graph.edges.len(), 3);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -2595,12 +2501,7 @@ async fn test977_gguf_all_llm_ops() {
         .clone();
     ensure_model_downloaded(MODEL_GGUF_LLM, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test977_gguf_all_llm_ops");
-    eprintln!("[TEST043] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test977_gguf_all_llm_ops").await;
     assert_eq!(graph.edges.len(), 4);
     assert_eq!(graph.nodes.len(), 5); // 1 input + 4 outputs
 
@@ -2662,7 +2563,6 @@ async fn test977_gguf_all_llm_ops() {
 /// Flow: single cap
 /// Tests: mlxcartridge generate_text cap
 #[tokio::test]
-#[ignore] // MLX cartridge requires macOS with Apple Silicon
 async fn test978_mlx_generate_text() {
     let dev_binaries = require_binaries(&["mlxcartridge", "modelcartridge"]);
 
@@ -2673,12 +2573,7 @@ async fn test978_mlx_generate_text() {
         .clone();
     ensure_model_downloaded(MODEL_MLX_LLM, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test978_mlx_generate_text");
-    eprintln!("[TEST044] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test978_mlx_generate_text").await;
     assert_eq!(graph.edges.len(), 1);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -2709,7 +2604,6 @@ async fn test978_mlx_generate_text() {
 /// Flow: single cap
 /// Tests: mlxcartridge describe_image cap (vision)
 #[tokio::test]
-#[ignore] // MLX cartridge requires macOS with Apple Silicon
 async fn test979_mlx_describe_image() {
     let dev_binaries = require_binaries(&["mlxcartridge", "modelcartridge"]);
 
@@ -2720,12 +2614,7 @@ async fn test979_mlx_describe_image() {
         .clone();
     ensure_model_downloaded(MODEL_MLX_VISION, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test979_mlx_describe_image");
-    eprintln!("[TEST045] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test979_mlx_describe_image").await;
     assert_eq!(graph.edges.len(), 1);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -2756,7 +2645,6 @@ async fn test979_mlx_describe_image() {
 /// Flow: single cap
 /// Tests: mlxcartridge generate_embeddings cap
 #[tokio::test]
-#[ignore] // MLX cartridge requires macOS with Apple Silicon
 async fn test980_mlx_generate_embeddings() {
     let dev_binaries = require_binaries(&["mlxcartridge", "modelcartridge"]);
 
@@ -2767,12 +2655,7 @@ async fn test980_mlx_generate_embeddings() {
         .clone();
     ensure_model_downloaded(MODEL_MLX_EMBED, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test980_mlx_generate_embeddings");
-    eprintln!("[TEST046] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test980_mlx_generate_embeddings").await;
     assert_eq!(graph.edges.len(), 1);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -2803,7 +2686,6 @@ async fn test980_mlx_generate_embeddings() {
 /// Flow: single cap
 /// Tests: mlxcartridge embeddings_dimensions cap
 #[tokio::test]
-#[ignore] // MLX cartridge requires macOS with Apple Silicon
 async fn test981_mlx_embeddings_dimensions() {
     let dev_binaries = require_binaries(&["mlxcartridge", "modelcartridge"]);
 
@@ -2814,12 +2696,7 @@ async fn test981_mlx_embeddings_dimensions() {
         .clone();
     ensure_model_downloaded(MODEL_MLX_EMBED, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test981_mlx_embeddings_dimensions");
-    eprintln!("[TEST047] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test981_mlx_embeddings_dimensions").await;
     assert_eq!(graph.edges.len(), 1);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -2858,12 +2735,7 @@ async fn test981_mlx_embeddings_dimensions() {
 async fn test982_model_download() {
     let dev_binaries = require_binaries(&["modelcartridge"]);
 
-    let route = load_scenario_route("test982_model_download");
-    eprintln!("[TEST048] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test982_model_download").await;
     assert_eq!(graph.edges.len(), 1);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -2910,12 +2782,7 @@ async fn test983_pdf_to_thumbnail_to_describe_to_embed() {
     ensure_model_downloaded(MODEL_BLIP, &modelcartridge_bin).await;
     ensure_model_downloaded(MODEL_BERT, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test983_pdf_to_thumbnail_to_describe_to_embed");
-    eprintln!("[TEST049] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test983_pdf_to_thumbnail_to_describe_to_embed").await;
     assert_eq!(graph.edges.len(), 3, "3-step chain");
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -2961,12 +2828,7 @@ async fn test984_pdf_thumbnail_to_gguf_describe_fanin() {
         .clone();
     ensure_model_downloaded(MODEL_GGUF_VISION, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test984_pdf_thumbnail_to_gguf_describe_fanin");
-    eprintln!("[TEST050] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test984_pdf_thumbnail_to_gguf_describe_fanin").await;
     // 3 edges: pdf→thumbnail, thumbnail→description, model_spec→description
     assert_eq!(graph.edges.len(), 3, "Chain + fan-in pattern");
 
@@ -3012,12 +2874,7 @@ async fn test985_audio_transcribe_to_embed() {
         .clone();
     ensure_model_downloaded(MODEL_WHISPER, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test985_audio_transcribe_to_embed");
-    eprintln!("[TEST051] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test985_audio_transcribe_to_embed").await;
     assert_eq!(graph.edges.len(), 1);
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -3058,12 +2915,7 @@ async fn test986_pdf_fanout_with_chain() {
         .clone();
     ensure_model_downloaded(MODEL_CLIP, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test986_pdf_fanout_with_chain");
-    eprintln!("[TEST052] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test986_pdf_fanout_with_chain").await;
     assert_eq!(graph.edges.len(), 4, "3 fan-out + 1 chain");
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -3109,12 +2961,7 @@ async fn test987_multi_format_parallel_chains() {
         .clone();
     ensure_model_downloaded(MODEL_CLIP, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test987_multi_format_parallel_chains");
-    eprintln!("[TEST053] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test987_multi_format_parallel_chains").await;
     assert_eq!(graph.edges.len(), 4, "2 parallel chains × 2 steps");
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -3162,12 +3009,7 @@ async fn test988_deep_chain_with_parallel() {
     ensure_model_downloaded(MODEL_BERT, &modelcartridge_bin).await;
     ensure_model_downloaded(MODEL_CLIP, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test988_deep_chain_with_parallel");
-    eprintln!("[TEST054] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test988_deep_chain_with_parallel").await;
     assert_eq!(graph.edges.len(), 5, "Complex 5-edge graph");
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -3216,12 +3058,7 @@ async fn test989_five_cartridge_chain() {
     ensure_model_downloaded(MODEL_BLIP, &modelcartridge_bin).await;
     ensure_model_downloaded(MODEL_BERT, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test989_five_cartridge_chain");
-    eprintln!("[TEST055] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test989_five_cartridge_chain").await;
     assert_eq!(graph.edges.len(), 5, "5 edges in stress test");
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);
@@ -3267,12 +3104,7 @@ async fn test990_all_text_formats_to_image_embeds() {
         .clone();
     ensure_model_downloaded(MODEL_CLIP, &modelcartridge_bin).await;
 
-    let route = load_scenario_route("test990_all_text_formats_to_image_embeds");
-    eprintln!("[TEST056] Route:\n{}", route);
-
-    let graph = parse_route_to_cap_dag(&route, &*standard_registry())
-        .await
-        .expect("Parse failed");
+    let (_route, graph) = load_and_parse_scenario("test990_all_text_formats_to_image_embeds").await;
     assert_eq!(graph.edges.len(), 8, "4 formats × 2 steps = 8 edges");
 
     let (_temp, plugin_dir, dev_bins) = setup_test_env(dev_binaries);

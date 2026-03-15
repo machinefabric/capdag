@@ -1,3 +1,0 @@
-    digraph audio_transcribe_embed_chain {
-        audio_input -> transcription [label="cap:candle;in=\"media:audio;wav;speech\";ml-model;op=transcribe;out=\"media:transcription;textable;record\""];
-    }

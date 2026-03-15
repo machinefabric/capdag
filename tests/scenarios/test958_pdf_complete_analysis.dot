@@ -1,6 +1,0 @@
-    digraph pdf_complete_analysis {
-        pdf_input -> metadata [label="cap:in=media:pdf;op=extract_metadata;out=\"media:file-metadata;textable;record\""];
-        pdf_input -> outline [label="cap:in=media:pdf;op=extract_outline;out=\"media:document-outline;textable;record\""];
-        pdf_input -> thumbnail [label="cap:in=media:pdf;op=generate_thumbnail;out=\"media:image;png;thumbnail\""];
-        pdf_input -> pages [label="cap:in=media:pdf;op=disbind;out=\"media:disbound-page;textable;list\""];
-    }

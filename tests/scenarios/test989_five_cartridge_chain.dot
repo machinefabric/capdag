@@ -1,7 +1,0 @@
-    digraph five_cartridge_stress_test {
-        model_spec -> availability [label="cap:in=\"media:model-spec;textable\";op=model-availability;out=\"media:model-availability;textable;record\""];
-        model_spec -> status [label="cap:in=\"media:model-spec;textable\";op=model-status;out=\"media:model-status;textable;record\""];
-        pdf_input -> thumbnail [label="cap:in=media:pdf;op=generate_thumbnail;out=\"media:image;png;thumbnail\""];
-        thumbnail -> description [label="cap:candle;in=\"media:image;png\";ml-model;op=describe_image;out=\"media:image-description;textable\""];
-        description -> embedding [label="cap:candle;in=\"media:textable\";ml-model;op=generate_embeddings;out=\"media:embedding-vector;textable;record\""];
-    }

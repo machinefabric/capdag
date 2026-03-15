@@ -1,5 +1,0 @@
-    digraph rst_document_intelligence {
-        rst_input -> metadata [label="cap:in=\"media:rst;textable\";op=extract_metadata;out=\"media:file-metadata;textable;record\""];
-        rst_input -> outline [label="cap:in=\"media:rst;textable\";op=extract_outline;out=\"media:document-outline;textable;record\""];
-        rst_input -> thumbnail [label="cap:in=\"media:rst;textable\";op=generate_thumbnail;out=\"media:image;png;thumbnail\""];
-    }

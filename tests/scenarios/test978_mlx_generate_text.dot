@@ -1,3 +1,0 @@
-    digraph mlx_generate_text {
-        model_spec -> generated_text [label="cap:in=\"media:model-spec;textable\";llm;ml-model;mlx;op=generate_text;out=\"media:generated-text;textable;record\""];
-    }

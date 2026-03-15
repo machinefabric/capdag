@@ -1,3 +1,0 @@
-    digraph mlx_embeddings_dimensions {
-        model_spec -> dimensions [label="cap:in=\"media:model-spec;textable\";ml-model;mlx;op=embeddings_dimensions;out=\"media:model-dim;integer;textable;numeric\""];
-    }
