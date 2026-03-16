@@ -25,15 +25,22 @@ Let:
 Then:
 
 ```
-Dispatch(p, r)  ⟺  i_r ⪯ i_p  ∧  o_p ⪯ o_r  ∧  y_r ⪯ y_p
+Dispatch(p, r)  ⟺  (i_r = ⊤ ∨ i_r ⪯ i_p)  ∧  (o_r = ⊤ ∨ o_p ⪯ o_r)  ∧  y_r ⪯ y_p
 ```
+
+Where `⊤ = media:` (the identity/top of the media partial order). A request dimension
+set to `⊤` is **unconstrained** — the axis is vacuously true.
+
+Note: provider wildcards need no special case. `i_p = ⊤` passes because `∀x, x ⪯ ⊤`.
+`o_p = ⊤` correctly fails for specific `o_r` because `⊤ ⪯ o_r` is false (top does not
+conform to a more specific type).
 
 ### 2.2 The Three Conjuncts
 
 | Axis | Condition | Variance | Meaning |
 |------|-----------|----------|---------|
-| Input | i_r ⪯ i_p | Contravariant | Request's input conforms to provider's accepted input |
-| Output | o_p ⪯ o_r | Covariant | Provider's output conforms to request's required output |
+| Input | i_r = ⊤ ∨ i_r ⪯ i_p | Contravariant | Request unconstrained, or input conforms to provider |
+| Output | o_r = ⊤ ∨ o_p ⪯ o_r | Covariant | Request unconstrained, or provider output conforms |
 | Cap-tags | y_r ⪯ y_p | Invariant/Refinement | Provider satisfies request's constraints |
 
 ---
@@ -126,27 +133,30 @@ The input condition `i_r ⪯ i_p` means:
 
 ### 4.2 Why Asymmetry Matters
 
-When request has `in=media:` (wildcard/identity):
-- Request says "I might send anything"
-- Provider with `in=media:model-spec` says "I only accept model-spec"
-- Can provider handle this? **NO** — request might send non-model-spec
-- `media: ⪯ media:model-spec` is FALSE (identity is NOT more specific)
-
 When request has `in=media:model-spec`:
 - Request says "I will send model-spec"
 - Provider with `in=media:bytes` says "I accept any bytes"
 - Can provider handle this? **YES** — model-spec conforms to bytes
 - `media:model-spec ⪯ media:bytes` is TRUE
 
+When request has `in=media:bytes`:
+- Request says "I will send bytes"
+- Provider with `in=media:model-spec` says "I only accept model-spec"
+- Can provider handle this? **NO** — bytes does not conform to model-spec
+- `media:bytes ⪯ media:model-spec` is FALSE
+
 ### 4.3 Wildcard Handling
+
+`media:` is the identity (top of the partial order). As a dimension value in dispatch, it means
+"unconstrained" — the axis imposes no restriction and is vacuously true.
 
 For dispatch validity with wildcards:
 
 | Request Input | Provider Input | Dispatch? | Reason |
 |---------------|----------------|-----------|--------|
-| `media:` | `media:` | ✓ | Both accept any |
-| `media:` | `media:pdf` | ✗ | Request might send non-pdf |
-| `media:pdf` | `media:` | ✓ | Provider accepts any, request sends pdf |
+| `media:` | `media:` | ✓ | Both unconstrained |
+| `media:` | `media:pdf` | ✓ | Request unconstrained |
+| `media:pdf` | `media:` | ✓ | Provider accepts any |
 | `media:pdf` | `media:bytes` | ✓ | pdf conforms to bytes |
 | `media:pdf` | `media:image` | ✗ | pdf does not conform to image |
 
@@ -158,7 +168,7 @@ For dispatch validity with wildcards:
 
 | Request In | Provider In | Dispatchable? | Reason |
 |------------|-------------|---------------|--------|
-| `media:` (any) | any | ✓ | Request doesn't constrain |
+| `media:` (any) | any | ✓ | Request unconstrained |
 | specific | `media:` (any) | ✓ | Provider accepts any |
 | specific | same | ✓ | Exact match |
 | more specific | less specific | ✓ | Provider accepts broader class |
@@ -169,9 +179,8 @@ For dispatch validity with wildcards:
 
 | Provider Out | Request Out | Dispatchable? | Reason |
 |--------------|-------------|---------------|--------|
-| any | `media:` (any) | ✓ | Request accepts any output |
-| `media:` (any) | specific | ✗ | Provider might not produce required |
-| specific | `media:` (any) | ✓ | Request accepts any |
+| any | `media:` (any) | ✓ | Request unconstrained |
+| `media:` (any) | specific | ✗ | Provider can't guarantee required |
 | same | same | ✓ | Exact match |
 | more specific | less specific | ✓ | Provider exceeds requirement |
 | less specific | more specific | ✗ | Provider may not meet requirement |
@@ -199,11 +208,11 @@ For dispatch validity with wildcards:
 Request:  cap:op=download-model
 Provider: cap:in="media:model-spec";op=download-model;out="media:download-result"
 
-Input:  i_r=media:, i_p=media:model-spec
-        Request doesn't constrain input → PASS ✓
+Input:  i_r=media: (⊤), i_p=media:model-spec
+        Request unconstrained → PASS ✓
 
-Output: o_p=media:download-result, o_r=media:
-        Request accepts any output → PASS ✓
+Output: o_p=media:download-result, o_r=media: (⊤)
+        Request unconstrained → PASS ✓
 
 Tags:   y_r={op:download-model}, y_p={op:download-model}
         Provider has required op → PASS ✓
@@ -312,20 +321,29 @@ if provider.is_dispatchable(&request) {
 
 ```rust
 fn is_dispatchable(&self, request: &CapUrn) -> bool {
-    // Input axis: request input must conform to provider input
-    // (Contravariant: provider can be looser)
-    let req_in = MediaUrn::from_string(&request.in_urn);
-    let prov_in = MediaUrn::from_string(&self.in_urn);
-    if !req_in.conforms_to(&prov_in) {
-        return false;
+    // Input axis (contravariant)
+    // media: is unconstrained — vacuously true on either side
+    if request.in_urn != "media:" && self.in_urn != "media:" {
+        let req_in = MediaUrn::from_string(&request.in_urn);
+        let prov_in = MediaUrn::from_string(&self.in_urn);
+        if !req_in.conforms_to(&prov_in) {
+            return false;
+        }
     }
 
-    // Output axis: provider output must conform to request output
-    // (Covariant: provider must be same or tighter)
-    let prov_out = MediaUrn::from_string(&self.out_urn);
-    let req_out = MediaUrn::from_string(&request.out_urn);
-    if !prov_out.conforms_to(&req_out) {
-        return false;
+    // Output axis (covariant)
+    // Request media: = unconstrained (accept anything) → pass
+    // Provider media: = no guarantee → fail when request is specific
+    if request.out_urn == "media:" {
+        // Request unconstrained — pass
+    } else if self.out_urn == "media:" {
+        return false; // Provider can't guarantee specific output
+    } else {
+        let prov_out = MediaUrn::from_string(&self.out_urn);
+        let req_out = MediaUrn::from_string(&request.out_urn);
+        if !prov_out.conforms_to(&req_out) {
+            return false;
+        }
     }
 
     // Cap-tags axis: provider must satisfy request constraints
@@ -375,8 +393,10 @@ All three axes must be checked.
 The dispatch predicate is:
 
 ```
-Dispatch(p, r)  ⟺  i_r ⪯ i_p  ∧  o_p ⪯ o_r  ∧  y_r ⪯ y_p
+Dispatch(p, r)  ⟺  (i_r = ⊤ ∨ i_r ⪯ i_p)  ∧  (o_r = ⊤ ∨ o_p ⪯ o_r)  ∧  y_r ⪯ y_p
 ```
+
+Where `⊤ = media:` (unconstrained).
 
 | Property | Value |
 |----------|-------|

@@ -441,12 +441,12 @@ impl CapUrn {
     /// Check if provider's input is dispatchable for request's input.
     ///
     /// Input is CONTRAVARIANT: provider with looser input constraint can handle
-    /// request with stricter input. A provider accepting `media:` (any) can handle
-    /// a request specifying `media:pdf` (specific).
+    /// request with stricter input. `media:` is the identity (top) and means
+    /// "unconstrained" — vacuously true on either side.
     ///
-    /// The check is: does request's input conform to provider's input requirement?
-    /// - Provider `in=media:` (accepts any) + Request `in=media:pdf` -> YES (pdf conforms to any)
-    /// - Provider `in=media:pdf` + Request `in=media:` -> NO (any doesn't conform to pdf)
+    /// - Request `in=media:` (unconstrained) + any provider -> YES (no constraint)
+    /// - Provider `in=media:` (accepts any) + Request `in=media:pdf` -> YES (provider accepts any)
+    /// - Both specific -> request input must conform to provider's accepted input
     fn input_dispatchable(&self, request: &CapUrn) -> bool {
         // Request wildcard: any provider input is fine (request doesn't constrain what it sends)
         if request.in_urn == "media:" {
@@ -2216,5 +2216,218 @@ mod tier_tests {
         // And dispatch should work
         assert!(provider.is_dispatchable(&request),
             "Provider should dispatch request with same tags in different order");
+    }
+
+    // TEST823: is_dispatchable — exact match provider dispatches request
+    #[test]
+    fn test823_dispatch_exact_match() {
+        let provider = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:record;textable""#
+        ).unwrap();
+        let request = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:record;textable""#
+        ).unwrap();
+        assert!(provider.is_dispatchable(&request));
+    }
+
+    // TEST824: is_dispatchable — provider with broader input handles specific request (contravariance)
+    #[test]
+    fn test824_dispatch_contravariant_input() {
+        let provider = CapUrn::from_string(
+            r#"cap:in="media:";op=analyze;out="media:record;textable""#
+        ).unwrap();
+        let request = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=analyze;out="media:record;textable""#
+        ).unwrap();
+        assert!(provider.is_dispatchable(&request));
+    }
+
+    // TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider
+    // media: on the request input axis means "unconstrained" — vacuously true
+    #[test]
+    fn test825_dispatch_request_unconstrained_input() {
+        let provider = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=analyze;out="media:record;textable""#
+        ).unwrap();
+        let request = CapUrn::from_string(
+            r#"cap:in="media:";op=analyze;out="media:record;textable""#
+        ).unwrap();
+        assert!(provider.is_dispatchable(&request),
+            "Request in=media: is unconstrained — axis is vacuously true");
+    }
+
+    // TEST826: is_dispatchable — provider output must satisfy request output (covariance)
+    #[test]
+    fn test826_dispatch_covariant_output() {
+        let provider = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:record;textable""#
+        ).unwrap();
+        let request = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:textable""#
+        ).unwrap();
+        assert!(provider.is_dispatchable(&request),
+            "Provider output record;textable conforms to request output textable");
+    }
+
+    // TEST827: is_dispatchable — provider with generic output cannot satisfy specific request
+    #[test]
+    fn test827_dispatch_generic_output_fails() {
+        let provider = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:""#
+        ).unwrap();
+        let request = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:record;textable""#
+        ).unwrap();
+        assert!(!provider.is_dispatchable(&request),
+            "Provider out=media: cannot guarantee specific output");
+    }
+
+    // TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject
+    #[test]
+    fn test828_dispatch_wildcard_requires_tag_presence() {
+        let provider = CapUrn::from_string(
+            r#"cap:in="media:model-spec";op=run-inference;out="media:record;textable""#
+        ).unwrap();
+        let request = CapUrn::from_string(
+            r#"cap:in="media:model-spec";candle=*;op=run-inference;out="media:record;textable""#
+        ).unwrap();
+        assert!(!provider.is_dispatchable(&request),
+            "Wildcard * means tag must be present — provider has no candle tag");
+    }
+
+    // TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept
+    #[test]
+    fn test829_dispatch_wildcard_with_tag_present() {
+        let provider = CapUrn::from_string(
+            r#"cap:candle=metal;in="media:model-spec";op=run-inference;out="media:record;textable""#
+        ).unwrap();
+        let request = CapUrn::from_string(
+            r#"cap:in="media:model-spec";candle=*;op=run-inference;out="media:record;textable""#
+        ).unwrap();
+        assert!(provider.is_dispatchable(&request),
+            "Provider has candle=metal, request has candle=* — tag present, any value OK");
+    }
+
+    // TEST830: is_dispatchable — provider extra tags are refinement, always OK
+    #[test]
+    fn test830_dispatch_provider_extra_tags() {
+        let provider = CapUrn::from_string(
+            r#"cap:candle=metal;in="media:model-spec";op=run-inference;out="media:record;textable""#
+        ).unwrap();
+        let request = CapUrn::from_string(
+            r#"cap:in="media:model-spec";op=run-inference;out="media:record;textable""#
+        ).unwrap();
+        assert!(provider.is_dispatchable(&request),
+            "Provider extra tag candle=metal is refinement — always OK");
+    }
+
+    // TEST831: is_dispatchable — cross-backend mismatch prevented
+    #[test]
+    fn test831_dispatch_cross_backend_mismatch() {
+        let gguf_provider = CapUrn::from_string(
+            r#"cap:gguf=q4_k_m;in="media:model-spec";op=run-inference;out="media:record;textable""#
+        ).unwrap();
+        let candle_request = CapUrn::from_string(
+            r#"cap:candle=*;in="media:model-spec";op=run-inference;out="media:record;textable""#
+        ).unwrap();
+        assert!(!gguf_provider.is_dispatchable(&candle_request),
+            "GGUF provider has no candle tag — cross-backend mismatch");
+    }
+
+    // TEST832: is_dispatchable is NOT symmetric
+    #[test]
+    fn test832_dispatch_asymmetric() {
+        let broad = CapUrn::from_string(
+            r#"cap:in="media:";op=process;out="media:record;textable""#
+        ).unwrap();
+        let narrow = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=process;out="media:textable""#
+        ).unwrap();
+        // broad provider CAN dispatch narrow request:
+        //   input:  provider in=media: accepts anything → OK
+        //   output: provider out=media:record;textable conforms to request out=media:textable → OK
+        assert!(broad.is_dispatchable(&narrow));
+        // narrow provider CANNOT dispatch broad request:
+        //   input:  request in=media: unconstrained → OK
+        //   output: provider out=media:textable, request out=media:record;textable
+        //           textable does NOT conform to record;textable → FAIL
+        assert!(!narrow.is_dispatchable(&broad));
+    }
+
+    // TEST833: is_comparable — both directions checked
+    #[test]
+    fn test833_comparable_symmetric() {
+        let a = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:textable""#
+        ).unwrap();
+        let b = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:record;textable""#
+        ).unwrap();
+        assert!(a.is_comparable(&b));
+        assert!(b.is_comparable(&a));
+    }
+
+    // TEST834: is_comparable — unrelated caps are NOT comparable
+    #[test]
+    fn test834_comparable_unrelated() {
+        let a = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:textable""#
+        ).unwrap();
+        let b = CapUrn::from_string(
+            r#"cap:in="media:audio";op=transcribe;out="media:record;textable""#
+        ).unwrap();
+        assert!(!a.is_comparable(&b));
+        assert!(!b.is_comparable(&a));
+    }
+
+    // TEST835: is_equivalent — identical caps
+    #[test]
+    fn test835_equivalent_identical() {
+        let a = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:record;textable""#
+        ).unwrap();
+        let b = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:record;textable""#
+        ).unwrap();
+        assert!(a.is_equivalent(&b));
+        assert!(b.is_equivalent(&a));
+    }
+
+    // TEST836: is_equivalent — non-equivalent comparable caps
+    #[test]
+    fn test836_equivalent_non_equivalent() {
+        let a = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:textable""#
+        ).unwrap();
+        let b = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:record;textable""#
+        ).unwrap();
+        assert!(a.is_comparable(&b));
+        assert!(!a.is_equivalent(&b));
+    }
+
+    // TEST837: is_dispatchable — op tag mismatch rejects
+    #[test]
+    fn test837_dispatch_op_mismatch() {
+        let provider = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:record;textable""#
+        ).unwrap();
+        let request = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=summarize;out="media:record;textable""#
+        ).unwrap();
+        assert!(!provider.is_dispatchable(&request));
+    }
+
+    // TEST838: is_dispatchable — request with wildcard output accepts any provider output
+    #[test]
+    fn test838_dispatch_request_wildcard_output() {
+        let provider = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:record;textable""#
+        ).unwrap();
+        let request = CapUrn::from_string(
+            r#"cap:in="media:pdf";op=extract;out="media:""#
+        ).unwrap();
+        assert!(provider.is_dispatchable(&request),
+            "Request out=media: is unconstrained — any provider output accepted");
     }
 }
