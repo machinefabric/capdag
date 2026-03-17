@@ -562,8 +562,6 @@ pub struct PathArgumentRequirements {
     pub target_spec: String,
     /// Requirements for each step
     pub steps: Vec<StepArgumentRequirements>,
-    /// All slots across all steps that need user input
-    pub all_slots: Vec<ArgumentInfo>,
     /// Whether this path can execute without any user input
     pub can_execute_without_input: bool,
 }
@@ -584,7 +582,6 @@ impl CapPlanBuilder {
             .map_err(|e| PlannerError::RegistryError(format!("Failed to get caps: {}", e)))?;
 
         let mut step_requirements = Vec::new();
-        let mut all_slots = Vec::new();
         // Track cap step index for determining first cap (affects file_path resolution)
         let mut cap_step_index = 0;
 
@@ -640,7 +637,6 @@ impl CapPlanBuilder {
 
                 if !is_io_arg {
                     slots.push(arg_info.clone());
-                    all_slots.push(arg_info.clone());
                 }
                 arguments.push(arg_info);
             }
@@ -656,13 +652,12 @@ impl CapPlanBuilder {
             cap_step_index += 1;
         }
 
-        let can_execute_without_input = all_slots.is_empty();
+        let can_execute_without_input = step_requirements.iter().all(|s| s.slots.is_empty());
 
         Ok(PathArgumentRequirements {
             source_spec: path.source_spec.to_string(),
             target_spec: path.target_spec.to_string(),
             steps: step_requirements,
-            all_slots,
             can_execute_without_input,
         })
     }
@@ -1065,7 +1060,6 @@ mod tests {
                     slots: vec![],
                 },
             ],
-            all_slots: vec![],
             can_execute_without_input: true,
         };
 
@@ -1120,24 +1114,12 @@ mod tests {
                     ],
                 },
             ],
-            all_slots: vec![
-                ArgumentInfo {
-                    name: "target_language".to_string(),
-                    media_urn: "media:string".to_string(),
-                    description: "Target language code".to_string(),
-                    resolution: ArgumentResolution::RequiresUserInput,
-                    default_value: None,
-                    is_required: true,
-                    validation: None,
-                },
-            ],
             can_execute_without_input: false,
         };
 
         assert!(!requirements.can_execute_without_input);
-        assert_eq!(requirements.all_slots.len(), 1);
-        assert_eq!(requirements.all_slots[0].name, "target_language");
         assert_eq!(requirements.steps[0].slots.len(), 1);
+        assert_eq!(requirements.steps[0].slots[0].name, "target_language");
     }
 
     // ==========================================================================

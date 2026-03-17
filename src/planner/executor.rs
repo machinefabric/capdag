@@ -398,7 +398,7 @@ impl<E: CapExecutor> PlanExecutor<E> {
         for (name, binding) in &arg_bindings.bindings {
             let is_required = arg_required.get(name).copied().unwrap_or(false);
 
-            match resolve_binding(binding, &context, cap_urn, arg_defaults.get(name), is_required) {
+            match resolve_binding(binding, &context, cap_urn, node_id, arg_defaults.get(name), is_required) {
                 Ok(Some(resolved)) => {
                     let arg_media_urn = if resolved.source == ArgumentSource::InputFile {
                         crate::MEDIA_FILE_PATH.to_string()

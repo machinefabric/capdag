@@ -257,10 +257,14 @@ fn json_value_to_bytes(value: &serde_json::Value) -> Vec<u8> {
 }
 
 /// Resolve an argument binding to raw bytes.
+///
+/// `cap_urn` is used for CapSetting lookups and error messages.
+/// `node_id` is used for slot_values key construction (e.g., "step_0:media:width").
 pub fn resolve_binding(
     binding: &ArgumentBinding,
     context: &ArgumentResolutionContext,
     cap_urn: &str,
+    node_id: &str,
     default_value: Option<&serde_json::Value>,
     is_required: bool,
 ) -> Result<Option<ResolvedArgument>, PlannerError> {
@@ -344,7 +348,7 @@ pub fn resolve_binding(
         ArgumentBinding::Literal { value } => (json_value_to_bytes(value), ArgumentSource::Literal),
 
         ArgumentBinding::Slot { name, .. } => {
-            let key = format!("{}:{}", cap_urn, name);
+            let key = format!("{}:{}", node_id, name);
 
             if let Some(slot_values) = context.slot_values {
                 if let Some(bytes) = slot_values.get(&key) {
@@ -446,6 +450,7 @@ impl ArgumentBindings {
         &self,
         context: &ArgumentResolutionContext,
         cap_urn: &str,
+        node_id: &str,
         cap_defaults: Option<&HashMap<String, serde_json::Value>>,
         arg_required: Option<&HashMap<String, bool>>,
     ) -> Result<Vec<ResolvedArgument>, PlannerError> {
@@ -455,7 +460,7 @@ impl ArgumentBindings {
             let default = cap_defaults.and_then(|d| d.get(name));
             let is_required = arg_required.and_then(|r| r.get(name)).copied().unwrap_or(false);
 
-            if let Some(mut arg) = resolve_binding(binding, context, cap_urn, default, is_required)? {
+            if let Some(mut arg) = resolve_binding(binding, context, cap_urn, node_id, default, is_required)? {
                 arg.name = name.clone();
                 resolved.push(arg);
             }
@@ -611,7 +616,7 @@ mod tests {
             slot_values: None,
         };
         let binding = ArgumentBinding::InputFilePath;
-        let result = resolve_binding(&binding, &context, "cap:test", None, true).unwrap().unwrap();
+        let result = resolve_binding(&binding, &context, "cap:test", "step_0", None, true).unwrap().unwrap();
         assert_eq!(result.value, b"/path/to/file.pdf".to_vec());
         assert_eq!(result.source, ArgumentSource::InputFile);
     }
@@ -631,7 +636,7 @@ mod tests {
             slot_values: None,
         };
         let binding = ArgumentBinding::Literal { value: json!(42) };
-        let result = resolve_binding(&binding, &context, "cap:test", None, true).unwrap().unwrap();
+        let result = resolve_binding(&binding, &context, "cap:test", "step_0", None, true).unwrap().unwrap();
         assert_eq!(result.value, serde_json::to_vec(&json!(42)).unwrap());
         assert_eq!(result.source, ArgumentSource::Literal);
     }
@@ -655,7 +660,7 @@ mod tests {
             node_id: "node_0".to_string(),
             output_field: Some("result_path".to_string()),
         };
-        let result = resolve_binding(&binding, &context, "cap:test", None, true).unwrap().unwrap();
+        let result = resolve_binding(&binding, &context, "cap:test", "step_0", None, true).unwrap().unwrap();
         assert_eq!(result.value, b"/output/result.png".to_vec());
         assert_eq!(result.source, ArgumentSource::PreviousOutput);
     }
@@ -720,7 +725,7 @@ mod tests {
         let prev_outputs = HashMap::new();
         let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();
         slot_values.insert(
-            "cap:in=\"media:pdf\";op=resize;out=\"media:pdf\":media:width;textable;numeric".to_string(),
+            "step_0:media:width;textable;numeric".to_string(),
             b"800".to_vec(),
         );
         let context = ArgumentResolutionContext {
@@ -738,6 +743,7 @@ mod tests {
         let result = resolve_binding(
             &binding, &context,
             "cap:in=\"media:pdf\";op=resize;out=\"media:pdf\"",
+            "step_0",
             None, true,
         ).unwrap().unwrap();
         assert_eq!(result.value, b"800".to_vec());
@@ -761,7 +767,7 @@ mod tests {
             schema: None,
         };
         let default = json!(85);
-        let result = resolve_binding(&binding, &context, "cap:op=compress", Some(&default), false)
+        let result = resolve_binding(&binding, &context, "cap:op=compress", "step_0", Some(&default), false)
             .unwrap().unwrap();
         assert_eq!(result.value, serde_json::to_vec(&json!(85)).unwrap());
         assert_eq!(result.source, ArgumentSource::CapDefault);
@@ -783,7 +789,7 @@ mod tests {
             name: "media:question;textable".to_string(),
             schema: None,
         };
-        let result = resolve_binding(&binding, &context, "cap:op=generate", None, true);
+        let result = resolve_binding(&binding, &context, "cap:op=generate", "step_0", None, true);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("media:question;textable"));
@@ -805,7 +811,7 @@ mod tests {
             name: "media:suffix;textable".to_string(),
             schema: None,
         };
-        let result = resolve_binding(&binding, &context, "cap:op=rename", None, false).unwrap();
+        let result = resolve_binding(&binding, &context, "cap:op=rename", "step_0", None, false).unwrap();
         assert!(result.is_none());
     }
 
@@ -823,5 +829,193 @@ mod tests {
             cardinality: InputCardinality::Single,
         };
         assert!(!input.is_valid());
+    }
+
+    // TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids.
+    // This is the core disambiguation scenario that step-index keying was designed to solve.
+    #[test]
+    fn test1105_two_steps_same_cap_urn_different_slot_values() {
+        let cap_urn = "cap:in=\"media:pdf\";op=make_decision;out=\"media:bool;textable\"";
+        let slot_name = "media:question;textable;list";
+        let files = vec![];
+        let prev_outputs = HashMap::new();
+        let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();
+        slot_values.insert(format!("step_0:{}", slot_name), b"Is this a contract?".to_vec());
+        slot_values.insert(format!("step_2:{}", slot_name), b"Is this confidential?".to_vec());
+
+        let context = ArgumentResolutionContext {
+            input_files: &files,
+            current_file_index: 0,
+            previous_outputs: &prev_outputs,
+            plan_metadata: None,
+            cap_settings: None,
+            slot_values: Some(&slot_values),
+        };
+        let binding = ArgumentBinding::Slot {
+            name: slot_name.to_string(),
+            schema: None,
+        };
+
+        // step_0 resolves to "Is this a contract?"
+        let r0 = resolve_binding(&binding, &context, cap_urn, "step_0", None, true)
+            .unwrap().unwrap();
+        assert_eq!(r0.value, b"Is this a contract?");
+        assert_eq!(r0.source, ArgumentSource::Slot);
+
+        // step_2 resolves to "Is this confidential?"
+        let r2 = resolve_binding(&binding, &context, cap_urn, "step_2", None, true)
+            .unwrap().unwrap();
+        assert_eq!(r2.value, b"Is this confidential?");
+        assert_eq!(r2.source, ArgumentSource::Slot);
+
+        // Confirm they differ
+        assert_ne!(r0.value, r2.value);
+    }
+
+    // TEST1106: Slot resolution falls through to cap_settings when no slot_value exists.
+    // cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
+    #[test]
+    fn test1106_slot_falls_through_to_cap_settings_shared() {
+        let cap_urn = "cap:in=\"media:pdf\";op=make_decision;out=\"media:bool;textable\"";
+        let slot_name = "media:language;textable";
+        let files = vec![];
+        let prev_outputs = HashMap::new();
+        let mut cap_settings: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+        let mut decision_settings = HashMap::new();
+        decision_settings.insert(slot_name.to_string(), json!("en"));
+        cap_settings.insert(cap_urn.to_string(), decision_settings);
+
+        let context = ArgumentResolutionContext {
+            input_files: &files,
+            current_file_index: 0,
+            previous_outputs: &prev_outputs,
+            plan_metadata: None,
+            cap_settings: Some(&cap_settings),
+            slot_values: None, // no per-step values
+        };
+        let binding = ArgumentBinding::Slot {
+            name: slot_name.to_string(),
+            schema: None,
+        };
+
+        // Both steps fall through to cap_settings — same value
+        let r0 = resolve_binding(&binding, &context, cap_urn, "step_0", None, false)
+            .unwrap().unwrap();
+        let r1 = resolve_binding(&binding, &context, cap_urn, "step_1", None, false)
+            .unwrap().unwrap();
+        assert_eq!(r0.value, b"en");
+        assert_eq!(r1.value, b"en");
+        assert_eq!(r0.source, ArgumentSource::CapSetting);
+        assert_eq!(r1.source, ArgumentSource::CapSetting);
+    }
+
+    // TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings.
+    // Proves per-step override works while shared settings remain as fallback.
+    #[test]
+    fn test1107_slot_value_overrides_cap_settings_per_step() {
+        let cap_urn = "cap:in=\"media:pdf\";op=make_decision;out=\"media:bool;textable\"";
+        let slot_name = "media:language;textable";
+        let files = vec![];
+        let prev_outputs = HashMap::new();
+
+        let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();
+        slot_values.insert(format!("step_0:{}", slot_name), b"fr".to_vec());
+        // step_1 has no slot_value entry
+
+        let mut cap_settings: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+        let mut decision_settings = HashMap::new();
+        decision_settings.insert(slot_name.to_string(), json!("en"));
+        cap_settings.insert(cap_urn.to_string(), decision_settings);
+
+        let context = ArgumentResolutionContext {
+            input_files: &files,
+            current_file_index: 0,
+            previous_outputs: &prev_outputs,
+            plan_metadata: None,
+            cap_settings: Some(&cap_settings),
+            slot_values: Some(&slot_values),
+        };
+        let binding = ArgumentBinding::Slot {
+            name: slot_name.to_string(),
+            schema: None,
+        };
+
+        // step_0: slot_value "fr" (priority 1)
+        let r0 = resolve_binding(&binding, &context, cap_urn, "step_0", None, false)
+            .unwrap().unwrap();
+        assert_eq!(r0.value, b"fr");
+        assert_eq!(r0.source, ArgumentSource::Slot);
+
+        // step_1: no slot_value → falls to cap_settings "en" (priority 2)
+        let r1 = resolve_binding(&binding, &context, cap_urn, "step_1", None, false)
+            .unwrap().unwrap();
+        assert_eq!(r1.value, b"en");
+        assert_eq!(r1.source, ArgumentSource::CapSetting);
+    }
+
+    // TEST1108: ResolveAll with node_id threads correctly through to each binding.
+    #[test]
+    fn test1108_resolve_all_passes_node_id() {
+        let files = vec![];
+        let prev_outputs = HashMap::new();
+        let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();
+        slot_values.insert("step_3:media:width;textable;numeric".to_string(), b"1024".to_vec());
+        slot_values.insert("step_3:media:quality;textable;numeric".to_string(), b"95".to_vec());
+
+        let context = ArgumentResolutionContext {
+            input_files: &files,
+            current_file_index: 0,
+            previous_outputs: &prev_outputs,
+            plan_metadata: None,
+            cap_settings: None,
+            slot_values: Some(&slot_values),
+        };
+
+        let mut bindings = ArgumentBindings::new();
+        bindings.add("media:width;textable;numeric".to_string(),
+            ArgumentBinding::Slot { name: "media:width;textable;numeric".to_string(), schema: None });
+        bindings.add("media:quality;textable;numeric".to_string(),
+            ArgumentBinding::Slot { name: "media:quality;textable;numeric".to_string(), schema: None });
+
+        let results = bindings.resolve_all(&context, "cap:op=resize", "step_3", None, None)
+            .unwrap();
+        assert_eq!(results.len(), 2);
+
+        let width = results.iter().find(|r| r.name == "media:width;textable;numeric").unwrap();
+        assert_eq!(width.value, b"1024");
+        assert_eq!(width.source, ArgumentSource::Slot);
+
+        let quality = results.iter().find(|r| r.name == "media:quality;textable;numeric").unwrap();
+        assert_eq!(quality.value, b"95");
+        assert_eq!(quality.source, ArgumentSource::Slot);
+    }
+
+    // TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match.
+    #[test]
+    fn test1109_slot_key_uses_node_id_not_cap_urn() {
+        let cap_urn = "cap:in=\"media:pdf\";op=resize;out=\"media:pdf\"";
+        let slot_name = "media:width;textable;numeric";
+        let files = vec![];
+        let prev_outputs = HashMap::new();
+        let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();
+        // Deliberately key by cap_urn (the OLD format) — should NOT match
+        slot_values.insert(format!("{}:{}", cap_urn, slot_name), b"800".to_vec());
+
+        let context = ArgumentResolutionContext {
+            input_files: &files,
+            current_file_index: 0,
+            previous_outputs: &prev_outputs,
+            plan_metadata: None,
+            cap_settings: None,
+            slot_values: Some(&slot_values),
+        };
+        let binding = ArgumentBinding::Slot {
+            name: slot_name.to_string(),
+            schema: None,
+        };
+
+        // Should NOT find the value because the key format is wrong (cap_urn instead of node_id)
+        let result = resolve_binding(&binding, &context, cap_urn, "step_0", None, false).unwrap();
+        assert!(result.is_none(), "Old cap_urn-based key must not match node_id-based lookup");
     }
 }
