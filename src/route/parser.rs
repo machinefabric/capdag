@@ -1,7 +1,7 @@
 //! Route notation parser — pest-generated PEG parser
 //!
 //! Parses the machine notation format into a `Machine` using a formal
-//! PEG grammar defined in `route.pest`.
+//! PEG grammar defined in `machine.pest`.
 //!
 //! ## Grammar (PEG / EBNF)
 //!
@@ -47,7 +47,7 @@ use super::error::MachineSyntaxError;
 use super::graph::{MachineEdge, Machine};
 
 #[derive(Parser)]
-#[grammar = "route/route.pest"]
+#[grammar = "route/machine.pest"]
 pub struct MachineParser;
 
 /// Parse machine notation into a `Machine`.
