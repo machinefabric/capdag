@@ -193,6 +193,76 @@ impl InputStream {
     }
 }
 
+/// A single item from a peer response — either decoded data or a LOG frame.
+///
+/// `PeerResponse::recv()` yields these interleaved in arrival order. Handlers
+/// match on each variant to decide how to react (e.g., forward progress, accumulate data).
+pub enum PeerResponseItem {
+    /// A decoded CBOR data chunk from the peer response.
+    Data(Result<ciborium::Value, StreamError>),
+    /// A LOG frame from the peer (progress, status messages, etc.).
+    Log(Frame),
+}
+
+/// Response from a peer call — yields both data items and LOG frames from a single receiver.
+///
+/// The handler drains this with `recv()` and reacts to each `PeerResponseItem` as it arrives.
+/// For callers that don't care about LOG frames, `collect_bytes()` and `collect_value()`
+/// silently discard them and return only data.
+pub struct PeerResponse {
+    media_urn: String,
+    rx: tokio::sync::mpsc::UnboundedReceiver<PeerResponseItem>,
+}
+
+impl PeerResponse {
+    /// Media URN of this stream (from STREAM_START).
+    pub fn media_urn(&self) -> &str {
+        &self.media_urn
+    }
+
+    /// Receive the next item (data or LOG) from the peer response.
+    /// Returns None when the stream ends.
+    pub async fn recv(&mut self) -> Option<PeerResponseItem> {
+        self.rx.recv().await
+    }
+
+    /// Collect all data chunks into a single byte vector, discarding LOG frames.
+    ///
+    /// WARNING: Only call this if you know the stream is finite.
+    pub async fn collect_bytes(mut self) -> Result<Vec<u8>, StreamError> {
+        let mut result = Vec::new();
+        while let Some(item) = self.recv().await {
+            match item {
+                PeerResponseItem::Data(Ok(value)) => match value {
+                    ciborium::Value::Bytes(b) => result.extend(b),
+                    ciborium::Value::Text(s) => result.extend(s.into_bytes()),
+                    other => {
+                        let mut buf = Vec::new();
+                        ciborium::into_writer(&other, &mut buf)
+                            .map_err(|e| StreamError::Decode(format!("Failed to encode CBOR: {}", e)))?;
+                        result.extend(buf);
+                    }
+                },
+                PeerResponseItem::Data(Err(e)) => return Err(e),
+                PeerResponseItem::Log(_) => {} // Discard LOG frames
+            }
+        }
+        Ok(result)
+    }
+
+    /// Collect a single CBOR data value (expects exactly one data chunk), discarding LOG frames.
+    pub async fn collect_value(mut self) -> Result<ciborium::Value, StreamError> {
+        while let Some(item) = self.recv().await {
+            match item {
+                PeerResponseItem::Data(Ok(value)) => return Ok(value),
+                PeerResponseItem::Data(Err(e)) => return Err(e),
+                PeerResponseItem::Log(_) => {} // Discard LOG frames
+            }
+        }
+        Err(StreamError::Closed)
+    }
+}
+
 /// The bundle of all input arg streams for one request.
 /// Yields InputStream objects as STREAM_START frames arrive from the wire.
 /// Returns None after END frame (all args delivered).
@@ -490,21 +560,6 @@ impl OutputStream {
         let _ = self.sender.send(&frame);
     }
 
-    /// Clone the sender for use in spawned tasks (e.g., peer LOG forwarding).
-    pub fn sender_clone(&self) -> Arc<dyn FrameSender> {
-        Arc::clone(&self.sender)
-    }
-
-    /// Clone the request ID.
-    pub fn request_id_clone(&self) -> MessageId {
-        self.request_id.clone()
-    }
-
-    /// Clone the routing ID.
-    pub fn routing_id_clone(&self) -> Option<MessageId> {
-        self.routing_id.clone()
-    }
-
     /// Close the output stream (sends STREAM_END). Idempotent.
     /// If stream was never started, sends STREAM_START first.
     pub fn close(&self) -> Result<(), RuntimeError> {
@@ -528,7 +583,7 @@ impl OutputStream {
 
 /// Handle for an in-progress peer invocation.
 /// Handler creates arg streams with `arg()`, writes data, then calls `finish()`
-/// to get the single response InputStream.
+/// to get a `PeerResponse` that yields both data and LOG frames.
 pub struct PeerCall {
     sender: Arc<dyn FrameSender>,
     request_id: MessageId,
@@ -551,21 +606,13 @@ impl PeerCall {
         )
     }
 
-    /// Finish sending args and get the response stream.
+    /// Finish sending args and get the peer response.
     /// Sends END for the peer request, spawns Demux on response channel.
     ///
-    /// Peer LOG frames (including progress) are mapped to the caller's progress range
-    /// and forwarded via the caller's emitter. `base` is the progress value at the start
-    /// of this peer call, `weight` is the fraction of overall progress this call represents.
-    /// For example, if this peer call is 5%–25% of the handler's work: base=0.05, weight=0.20.
-    ///
-    /// A peer reporting progress=0.50 will cause emitter.progress(0.05 + 0.50 * 0.20 = 0.15).
-    pub async fn finish(
-        mut self,
-        emitter: &OutputStream,
-        base: f32,
-        weight: f32,
-    ) -> Result<InputStream, RuntimeError> {
+    /// Returns a `PeerResponse` that yields `PeerResponseItem::Data` and
+    /// `PeerResponseItem::Log` interleaved in arrival order. The handler
+    /// decides how to react to each (e.g., forward progress, accumulate data).
+    pub async fn finish(mut self) -> Result<PeerResponse, RuntimeError> {
         // Send END frame for the peer request
         tracing::info!("[PeerCall] finish: sending END for peer_rid={:?}", self.request_id);
         let end_frame = Frame::end(self.request_id.clone(), None);
@@ -575,38 +622,12 @@ impl PeerCall {
         let response_rx = self.response_rx.take()
             .ok_or_else(|| RuntimeError::PeerRequest("PeerCall already finished".to_string()))?;
 
-        // Set up LOG frame forwarding channel
-        let (log_tx, mut log_rx) = tokio::sync::mpsc::unbounded_channel();
-
         // Spawn single-stream Demux for the response
         tracing::info!("[PeerCall] finish: awaiting peer response for peer_rid={:?}", self.request_id);
-        let input_stream = demux_single_stream(response_rx, Some(log_tx)).await?;
+        let peer_response = demux_single_stream(response_rx).await?;
         tracing::info!("[PeerCall] finish: peer response received for peer_rid={:?}", self.request_id);
 
-        // Spawn a task to forward peer LOG frames as caller's progress
-        let emitter_sender = emitter.sender_clone();
-        let emitter_request_id = emitter.request_id_clone();
-        let emitter_routing_id = emitter.routing_id_clone();
-        tokio::spawn(async move {
-            while let Some(frame) = log_rx.recv().await {
-                if let Some(peer_progress) = frame.log_progress() {
-                    // Map peer's [0.0, 1.0] to caller's [base, base+weight]
-                    let mapped = crate::map_progress(peer_progress, base, weight);
-                    let msg = frame.log_message().unwrap_or("");
-                    let mut progress_frame = Frame::progress(emitter_request_id.clone(), mapped, msg);
-                    progress_frame.routing_id = emitter_routing_id.clone();
-                    let _ = emitter_sender.send(&progress_frame);
-                } else if let Some(msg) = frame.log_message() {
-                    // Forward non-progress LOG frames from peer as regular logs
-                    let level = frame.log_level().unwrap_or("info");
-                    let mut log_frame = Frame::log(emitter_request_id.clone(), level, msg);
-                    log_frame.routing_id = emitter_routing_id.clone();
-                    let _ = emitter_sender.send(&log_frame);
-                }
-            }
-        });
-
-        Ok(input_stream)
+        Ok(peer_response)
     }
 }
 
@@ -617,7 +638,7 @@ impl PeerCall {
 ///
 /// The `call` method starts a peer invocation and returns a `PeerCall`.
 /// The handler creates arg streams with `call.arg()`, writes data, then
-/// calls `call.finish()` to get the single response `InputStream`.
+/// calls `call.finish()` to get a `PeerResponse` with data + LOG frames.
 #[async_trait]
 pub trait PeerInvoker: Send + Sync {
     /// Start a peer call. Sends REQ, registers response channel.
@@ -625,23 +646,20 @@ pub trait PeerInvoker: Send + Sync {
 
     /// Convenience: open call, write each arg's bytes, finish, return response.
     ///
-    /// `emitter` is the caller's output stream for forwarding peer LOG/progress frames.
-    /// `base` and `weight` define the progress range this peer call maps to.
+    /// Returns a `PeerResponse` — use `collect_bytes()` / `collect_value()` to
+    /// discard LOG frames, or `recv()` to process them alongside data.
     async fn call_with_bytes(
         &self,
         cap_urn: &str,
         args: &[(&str, &[u8])],
-        emitter: &OutputStream,
-        base: f32,
-        weight: f32,
-    ) -> Result<InputStream, RuntimeError> {
+    ) -> Result<PeerResponse, RuntimeError> {
         let call = self.call(cap_urn)?;
         for &(media_urn, data) in args {
             let arg = call.arg(media_urn);
             arg.write(data)?;
             arg.close()?;
         }
-        call.finish(emitter, base, weight).await
+        call.finish().await
     }
 }
 
@@ -1632,15 +1650,15 @@ fn demux_multi_stream(
 }
 
 /// Demux for single-stream mode (peer response).
-/// Reads frames from tokio channel expecting a single stream. Returns InputStream.
+/// Reads frames from tokio channel expecting a single stream. Returns PeerResponse
+/// that yields both data items and LOG frames through a single receiver.
 ///
 /// Fully async - spawns a tokio task (not blocking) to process frames
-/// and forwards decoded chunks to the InputStream for async consumption.
+/// and forwards decoded chunks and LOG frames as PeerResponseItems.
 async fn demux_single_stream(
     mut raw_rx: tokio::sync::mpsc::UnboundedReceiver<Frame>,
-    log_tx: Option<tokio::sync::mpsc::UnboundedSender<Frame>>,
-) -> Result<InputStream, RuntimeError> {
-    let (chunk_tx, chunk_rx) = tokio::sync::mpsc::unbounded_channel();
+) -> Result<PeerResponse, RuntimeError> {
+    let (item_tx, item_rx) = tokio::sync::mpsc::unbounded_channel();
     let (meta_tx, meta_rx) = tokio::sync::oneshot::channel::<String>();
 
     tokio::spawn(async move {
@@ -1663,29 +1681,27 @@ async fn demux_single_stream(
                         let expected_checksum = match frame.checksum {
                             Some(c) => c,
                             None => {
-                                let _ = chunk_tx.send(Err(StreamError::Protocol(
+                                let _ = item_tx.send(PeerResponseItem::Data(Err(StreamError::Protocol(
                                     "CHUNK frame missing required checksum field".to_string()
-                                )));
+                                ))));
                                 continue;
                             }
                         };
                         let actual = Frame::compute_checksum(&payload);
                         if actual != expected_checksum {
-                            let _ = chunk_tx.send(Err(StreamError::Protocol(
+                            let _ = item_tx.send(PeerResponseItem::Data(Err(StreamError::Protocol(
                                 format!("Checksum mismatch: expected={}, actual={}", expected_checksum, actual)
-                            )));
+                            ))));
                             continue;
                         }
                         match ciborium::from_reader::<ciborium::Value, _>(&payload[..]) {
-                            Ok(value) => { let _ = chunk_tx.send(Ok(value)); }
-                            Err(e) => { let _ = chunk_tx.send(Err(StreamError::Decode(e.to_string()))); }
+                            Ok(value) => { let _ = item_tx.send(PeerResponseItem::Data(Ok(value))); }
+                            Err(e) => { let _ = item_tx.send(PeerResponseItem::Data(Err(StreamError::Decode(e.to_string())))); }
                         }
                     }
                 }
                 FrameType::Log => {
-                    if let Some(ref tx) = log_tx {
-                        let _ = tx.send(frame);
-                    }
+                    let _ = item_tx.send(PeerResponseItem::Log(frame));
                 }
                 FrameType::StreamEnd | FrameType::End => {
                     break;
@@ -1693,7 +1709,7 @@ async fn demux_single_stream(
                 FrameType::Err => {
                     let code = frame.error_code().unwrap_or("UNKNOWN").to_string();
                     let message = frame.error_message().unwrap_or("Unknown error").to_string();
-                    let _ = chunk_tx.send(Err(StreamError::RemoteError { code, message }));
+                    let _ = item_tx.send(PeerResponseItem::Data(Err(StreamError::RemoteError { code, message })));
                     break;
                 }
                 _ => {}
@@ -1704,9 +1720,9 @@ async fn demux_single_stream(
     // Await media_urn from the first STREAM_START
     let media_urn = meta_rx.await.unwrap_or_else(|_| "*".to_string());
 
-    Ok(InputStream {
+    Ok(PeerResponse {
         media_urn,
-        rx: chunk_rx,
+        rx: item_rx,
     })
 }
 
@@ -2801,8 +2817,8 @@ impl PluginRuntime {
                     active_handlers.push(handle);
                 }
 
-                // Route STREAM_START / CHUNK / STREAM_END to active request or peer response
-                FrameType::StreamStart | FrameType::Chunk | FrameType::StreamEnd => {
+                // Route STREAM_START / CHUNK / STREAM_END / LOG to active request or peer response
+                FrameType::StreamStart | FrameType::Chunk | FrameType::StreamEnd | FrameType::Log => {
                     // Try active request first
                     if let Some(ar) = active_requests.get(&frame.id) {
                         tracing::debug!(target: "plugin_runtime", "Routing {:?} to active_request rid={:?}", frame.frame_type, frame.id);
@@ -2867,26 +2883,6 @@ impl PluginRuntime {
                 FrameType::Hello => {
                     let err_frame = Frame::err(frame.id, "PROTOCOL_ERROR", "Unexpected HELLO after handshake");
                     let _ = output_tx.send(err_frame);
-                }
-
-                FrameType::Log => {
-                    // Forward peer response LOG frames back on the original request.
-                    // Re-stamp with origin RID/XID so the engine sees them as progress
-                    // on the cap execution that triggered the peer call.
-                    let peer = pending_peer_requests.lock().unwrap();
-                    if let Some(pr) = peer.get(&frame.id) {
-                        let message = frame.log_message().unwrap_or("");
-                        let mut forwarded = if let Some(p) = frame.log_progress() {
-                            // Preserve progress value — this is the canonical progress signal.
-                            Frame::progress(pr.origin_request_id.clone(), p, message)
-                        } else {
-                            let level = frame.log_level().unwrap_or("INFO");
-                            Frame::log(pr.origin_request_id.clone(), level, message)
-                        };
-                        forwarded.routing_id = pr.origin_routing_id.clone();
-                        let _ = output_tx.send(forwarded);
-                    }
-                    drop(peer);
                 }
 
                 FrameType::RelayNotify | FrameType::RelayState => {
@@ -3463,16 +3459,7 @@ mod tests {
     #[tokio::test]
     async fn test255_no_peer_invoker_with_arguments() {
         let no_peer = NoPeerInvoker;
-        let (sender, _frames) = MockFrameSender::new();
-        let emitter = OutputStream::new(
-            Arc::new(sender),
-            "s".to_string(),
-            "media:void".to_string(),
-            MessageId::new_uuid(),
-            None,
-            256_000,
-        );
-        let result = no_peer.call_with_bytes("cap:op=test", &[("media:test", b"value".as_slice())], &emitter, 0.0, 1.0).await;
+        let result = no_peer.call_with_bytes("cap:op=test", &[("media:test", b"value".as_slice())]).await;
         assert!(result.is_err());
     }
 
@@ -5949,16 +5936,7 @@ mod tests {
             response_rx: Some(response_rx),
         };
 
-        let (emitter_sender, _emitter_frames) = MockFrameSender::new();
-        let emitter = OutputStream::new(
-            Arc::new(emitter_sender),
-            "emitter-stream".to_string(),
-            "media:void".to_string(),
-            MessageId::new_uuid(),
-            None,
-            256_000,
-        );
-        let _response = peer.finish(&emitter, 0.0, 1.0).await.expect("finish must succeed");
+        let _response = peer.finish().await.expect("finish must succeed");
 
         let captured = frames.lock().unwrap();
         let end_frame = captured.iter().find(|f| f.frame_type == FrameType::End)
@@ -5967,7 +5945,7 @@ mod tests {
         assert_eq!(end_frame.id, request_id, "END must have correct request ID");
     }
 
-    // TEST545: PeerCall::finish returns InputStream for response
+    // TEST545: PeerCall::finish returns PeerResponse with data
     #[tokio::test]
     async fn test545_peer_call_finish_returns_response_stream() {
         let (sender, _frames) = MockFrameSender::new();
@@ -6007,20 +5985,172 @@ mod tests {
             response_rx: Some(response_rx),
         };
 
-        let (emitter_sender, _emitter_frames) = MockFrameSender::new();
-        let emitter = OutputStream::new(
-            Arc::new(emitter_sender),
-            "emitter-stream".to_string(),
-            "media:void".to_string(),
-            MessageId::new_uuid(),
-            None,
-            256_000,
-        );
-        let response_stream = peer.finish(&emitter, 0.0, 1.0).await.expect("finish must succeed");
-        assert_eq!(response_stream.media_urn(), "media:response");
+        let response = peer.finish().await.expect("finish must succeed");
+        assert_eq!(response.media_urn(), "media:response");
 
-        let bytes = response_stream.collect_bytes().await.expect("collect must succeed");
+        let bytes = response.collect_bytes().await.expect("collect must succeed");
         assert_eq!(bytes, b"response data");
+    }
+
+    // TEST546: PeerResponse delivers LOG frames interleaved with data
+    #[tokio::test]
+    async fn test546_peer_response_delivers_log_frames() {
+        let (sender, _frames) = MockFrameSender::new();
+        let (response_tx, response_rx) = unbounded_channel();
+
+        let req_id = MessageId::new_uuid();
+
+        // STREAM_START
+        let mut start = Frame::new(FrameType::StreamStart, req_id.clone());
+        start.stream_id = Some("s1".to_string());
+        start.media_urn = Some("media:binary".to_string());
+        response_tx.send(start).unwrap();
+
+        // LOG frame (progress)
+        response_tx.send(Frame::progress(req_id.clone(), 0.5, "downloading")).unwrap();
+
+        // CHUNK
+        let raw_data = b"payload".to_vec();
+        let mut cbor_payload = Vec::new();
+        ciborium::into_writer(&Value::Bytes(raw_data.clone()), &mut cbor_payload).unwrap();
+        let checksum = Frame::compute_checksum(&cbor_payload);
+        response_tx.send(Frame::chunk(
+            req_id.clone(), "s1".to_string(), 0, cbor_payload, 0, checksum,
+        )).unwrap();
+
+        // LOG frame (status)
+        response_tx.send(Frame::log(req_id.clone(), "info", "complete")).unwrap();
+
+        // STREAM_END
+        response_tx.send(Frame::stream_end(req_id.clone(), "s1".to_string(), 1)).unwrap();
+        drop(response_tx);
+
+        let peer = PeerCall {
+            sender: Arc::new(sender),
+            request_id: req_id,
+            max_chunk: 256_000,
+            response_rx: Some(response_rx),
+        };
+
+        let mut response = peer.finish().await.expect("finish must succeed");
+        assert_eq!(response.media_urn(), "media:binary");
+
+        // Verify interleaved delivery: LOG, Data, LOG
+        let item1 = response.recv().await.expect("first item");
+        match item1 {
+            PeerResponseItem::Log(f) => {
+                assert_eq!(f.log_progress(), Some(0.5));
+                assert_eq!(f.log_message(), Some("downloading"));
+            }
+            PeerResponseItem::Data(_) => panic!("expected LOG frame first, got Data"),
+        }
+
+        let item2 = response.recv().await.expect("second item");
+        match item2 {
+            PeerResponseItem::Data(Ok(value)) => {
+                assert_eq!(value, Value::Bytes(b"payload".to_vec()));
+            }
+            PeerResponseItem::Data(Err(e)) => panic!("expected data, got error: {}", e),
+            PeerResponseItem::Log(_) => panic!("expected Data, got LOG"),
+        }
+
+        let item3 = response.recv().await.expect("third item");
+        match item3 {
+            PeerResponseItem::Log(f) => {
+                assert_eq!(f.log_message(), Some("complete"));
+            }
+            PeerResponseItem::Data(_) => panic!("expected LOG frame, got Data"),
+        }
+
+        // Stream should be done
+        assert!(response.recv().await.is_none(), "stream must end after STREAM_END");
+    }
+
+    // TEST547: PeerResponse::collect_bytes discards LOG frames
+    #[tokio::test]
+    async fn test547_peer_response_collect_bytes_discards_logs() {
+        let (sender, _frames) = MockFrameSender::new();
+        let (response_tx, response_rx) = unbounded_channel();
+
+        let req_id = MessageId::new_uuid();
+
+        // STREAM_START
+        let mut start = Frame::new(FrameType::StreamStart, req_id.clone());
+        start.stream_id = Some("s1".to_string());
+        start.media_urn = Some("media:binary".to_string());
+        response_tx.send(start).unwrap();
+
+        // LOG frame (should be discarded by collect_bytes)
+        response_tx.send(Frame::progress(req_id.clone(), 0.25, "working")).unwrap();
+        response_tx.send(Frame::progress(req_id.clone(), 0.75, "almost")).unwrap();
+
+        // CHUNK
+        let mut cbor_payload = Vec::new();
+        ciborium::into_writer(&Value::Bytes(b"hello".to_vec()), &mut cbor_payload).unwrap();
+        let checksum = Frame::compute_checksum(&cbor_payload);
+        response_tx.send(Frame::chunk(
+            req_id.clone(), "s1".to_string(), 0, cbor_payload, 0, checksum,
+        )).unwrap();
+
+        // Another LOG
+        response_tx.send(Frame::log(req_id.clone(), "info", "done")).unwrap();
+
+        // STREAM_END
+        response_tx.send(Frame::stream_end(req_id.clone(), "s1".to_string(), 1)).unwrap();
+        drop(response_tx);
+
+        let peer = PeerCall {
+            sender: Arc::new(sender),
+            request_id: req_id,
+            max_chunk: 256_000,
+            response_rx: Some(response_rx),
+        };
+
+        let response = peer.finish().await.expect("finish must succeed");
+        let bytes = response.collect_bytes().await.expect("collect must succeed");
+        assert_eq!(bytes, b"hello", "collect_bytes must return only data, discarding all LOG frames");
+    }
+
+    // TEST548: PeerResponse::collect_value discards LOG frames
+    #[tokio::test]
+    async fn test548_peer_response_collect_value_discards_logs() {
+        let (sender, _frames) = MockFrameSender::new();
+        let (response_tx, response_rx) = unbounded_channel();
+
+        let req_id = MessageId::new_uuid();
+
+        // STREAM_START
+        let mut start = Frame::new(FrameType::StreamStart, req_id.clone());
+        start.stream_id = Some("s1".to_string());
+        start.media_urn = Some("media:binary".to_string());
+        response_tx.send(start).unwrap();
+
+        // LOG frames before the data value
+        response_tx.send(Frame::progress(req_id.clone(), 0.5, "half")).unwrap();
+        response_tx.send(Frame::log(req_id.clone(), "debug", "processing")).unwrap();
+
+        // Single CHUNK with a CBOR integer
+        let mut cbor_payload = Vec::new();
+        ciborium::into_writer(&Value::Integer(42.into()), &mut cbor_payload).unwrap();
+        let checksum = Frame::compute_checksum(&cbor_payload);
+        response_tx.send(Frame::chunk(
+            req_id.clone(), "s1".to_string(), 0, cbor_payload, 0, checksum,
+        )).unwrap();
+
+        // STREAM_END
+        response_tx.send(Frame::stream_end(req_id.clone(), "s1".to_string(), 1)).unwrap();
+        drop(response_tx);
+
+        let peer = PeerCall {
+            sender: Arc::new(sender),
+            request_id: req_id,
+            max_chunk: 256_000,
+            response_rx: Some(response_rx),
+        };
+
+        let response = peer.finish().await.expect("finish must succeed");
+        let value = response.collect_value().await.expect("collect must succeed");
+        assert_eq!(value, Value::Integer(42.into()), "collect_value must skip LOG frames and return first data value");
     }
 
     // ==================== find_stream / require_stream Tests ====================
