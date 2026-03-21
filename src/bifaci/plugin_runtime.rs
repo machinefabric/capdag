@@ -207,19 +207,14 @@ pub enum PeerResponseItem {
 /// Response from a peer call — yields both data items and LOG frames from a single receiver.
 ///
 /// The handler drains this with `recv()` and reacts to each `PeerResponseItem` as it arrives.
+/// LOG frames are delivered in real-time as they arrive (not buffered until data starts).
 /// For callers that don't care about LOG frames, `collect_bytes()` and `collect_value()`
 /// silently discard them and return only data.
 pub struct PeerResponse {
-    media_urn: String,
     rx: tokio::sync::mpsc::UnboundedReceiver<PeerResponseItem>,
 }
 
 impl PeerResponse {
-    /// Media URN of this stream (from STREAM_START).
-    pub fn media_urn(&self) -> &str {
-        &self.media_urn
-    }
-
     /// Receive the next item (data or LOG) from the peer response.
     /// Returns None when the stream ends.
     pub async fn recv(&mut self) -> Option<PeerResponseItem> {
@@ -622,10 +617,10 @@ impl PeerCall {
         let response_rx = self.response_rx.take()
             .ok_or_else(|| RuntimeError::PeerRequest("PeerCall already finished".to_string()))?;
 
-        // Spawn single-stream Demux for the response
-        tracing::info!("[PeerCall] finish: awaiting peer response for peer_rid={:?}", self.request_id);
-        let peer_response = demux_single_stream(response_rx).await?;
-        tracing::info!("[PeerCall] finish: peer response received for peer_rid={:?}", self.request_id);
+        // Start demux — returns immediately so LOG frames can be consumed
+        // before data arrives (critical for keeping activity timer alive)
+        let peer_response = demux_single_stream(response_rx);
+        tracing::info!("[PeerCall] finish: demux started for peer_rid={:?}", self.request_id);
 
         Ok(peer_response)
     }
@@ -1653,27 +1648,19 @@ fn demux_multi_stream(
 /// Reads frames from tokio channel expecting a single stream. Returns PeerResponse
 /// that yields both data items and LOG frames through a single receiver.
 ///
-/// Fully async - spawns a tokio task (not blocking) to process frames
-/// and forwards decoded chunks and LOG frames as PeerResponseItems.
-async fn demux_single_stream(
+/// Returns immediately — LOG frames are delivered in real-time as they arrive,
+/// not blocked until the first data frame. This is critical for keeping the
+/// engine's activity timer alive during long peer calls (e.g., model downloads).
+fn demux_single_stream(
     mut raw_rx: tokio::sync::mpsc::UnboundedReceiver<Frame>,
-) -> Result<PeerResponse, RuntimeError> {
+) -> PeerResponse {
     let (item_tx, item_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (meta_tx, meta_rx) = tokio::sync::oneshot::channel::<String>();
 
     tokio::spawn(async move {
-        let mut media_urn_sent = false;
-        let mut meta_tx = Some(meta_tx);
         while let Some(frame) = raw_rx.recv().await {
             match frame.frame_type {
                 FrameType::StreamStart => {
-                    if !media_urn_sent {
-                        let urn = frame.media_urn.as_ref().cloned().unwrap_or_else(|| "*".to_string());
-                        if let Some(tx) = meta_tx.take() {
-                            let _ = tx.send(urn);
-                        }
-                        media_urn_sent = true;
-                    }
+                    // Structural frame — no item to deliver
                 }
                 FrameType::Chunk => {
                     if let Some(payload) = frame.payload {
@@ -1717,13 +1704,9 @@ async fn demux_single_stream(
         }
     });
 
-    // Await media_urn from the first STREAM_START
-    let media_urn = meta_rx.await.unwrap_or_else(|_| "*".to_string());
-
-    Ok(PeerResponse {
-        media_urn,
+    PeerResponse {
         rx: item_rx,
-    })
+    }
 }
 
 // =============================================================================
@@ -5986,31 +5969,78 @@ mod tests {
         };
 
         let response = peer.finish().await.expect("finish must succeed");
-        assert_eq!(response.media_urn(), "media:response");
 
         let bytes = response.collect_bytes().await.expect("collect must succeed");
         assert_eq!(bytes, b"response data");
     }
 
-    // TEST546: PeerResponse delivers LOG frames interleaved with data
+    // TEST546: LOG frames arriving BEFORE StreamStart are delivered immediately
+    //
+    // This tests the critical fix: during a peer call, the peer (e.g., modelcartridge)
+    // sends LOG frames for minutes during model download BEFORE sending any data
+    // (StreamStart + Chunk). The handler must receive these LOGs in real-time so it
+    // can re-emit progress and keep the engine's activity timer alive.
+    //
+    // Previously, demux_single_stream blocked on awaiting StreamStart before returning
+    // PeerResponse, which meant the handler couldn't call recv() until data arrived —
+    // causing 120s activity timeouts during long downloads.
     #[tokio::test]
-    async fn test546_peer_response_delivers_log_frames() {
+    async fn test546_peer_response_delivers_logs_before_stream_start() {
         let (sender, _frames) = MockFrameSender::new();
         let (response_tx, response_rx) = unbounded_channel();
 
         let req_id = MessageId::new_uuid();
 
-        // STREAM_START
+        // Send LOG frames BEFORE any StreamStart — simulates modelcartridge
+        // sending download progress before the actual data response
+        response_tx.send(Frame::progress(req_id.clone(), 0.1, "downloading file 1/10")).unwrap();
+        response_tx.send(Frame::progress(req_id.clone(), 0.5, "downloading file 5/10")).unwrap();
+        response_tx.send(Frame::log(req_id.clone(), "status", "large file in progress")).unwrap();
+
+        let peer = PeerCall {
+            sender: Arc::new(sender),
+            request_id: req_id.clone(),
+            max_chunk: 256_000,
+            response_rx: Some(response_rx),
+        };
+
+        // finish() must return immediately — NOT block waiting for StreamStart
+        let mut response = peer.finish().await.expect("finish must succeed");
+
+        // Handler must be able to recv() LOG frames right away
+        let item1 = response.recv().await.expect("first LOG must arrive");
+        match item1 {
+            PeerResponseItem::Log(f) => {
+                assert_eq!(f.log_progress(), Some(0.1));
+                assert_eq!(f.log_message(), Some("downloading file 1/10"));
+            }
+            PeerResponseItem::Data(_) => panic!("expected LOG frame, got Data"),
+        }
+
+        let item2 = response.recv().await.expect("second LOG must arrive");
+        match item2 {
+            PeerResponseItem::Log(f) => {
+                assert_eq!(f.log_progress(), Some(0.5));
+                assert_eq!(f.log_message(), Some("downloading file 5/10"));
+            }
+            PeerResponseItem::Data(_) => panic!("expected LOG frame, got Data"),
+        }
+
+        let item3 = response.recv().await.expect("third LOG must arrive");
+        match item3 {
+            PeerResponseItem::Log(f) => {
+                assert_eq!(f.log_message(), Some("large file in progress"));
+            }
+            PeerResponseItem::Data(_) => panic!("expected LOG frame, got Data"),
+        }
+
+        // Now send the actual data (StreamStart, Chunk, StreamEnd, End)
         let mut start = Frame::new(FrameType::StreamStart, req_id.clone());
         start.stream_id = Some("s1".to_string());
         start.media_urn = Some("media:binary".to_string());
         response_tx.send(start).unwrap();
 
-        // LOG frame (progress)
-        response_tx.send(Frame::progress(req_id.clone(), 0.5, "downloading")).unwrap();
-
-        // CHUNK
-        let raw_data = b"payload".to_vec();
+        let raw_data = b"model output".to_vec();
         let mut cbor_payload = Vec::new();
         ciborium::into_writer(&Value::Bytes(raw_data.clone()), &mut cbor_payload).unwrap();
         let checksum = Frame::compute_checksum(&cbor_payload);
@@ -6018,51 +6048,19 @@ mod tests {
             req_id.clone(), "s1".to_string(), 0, cbor_payload, 0, checksum,
         )).unwrap();
 
-        // LOG frame (status)
-        response_tx.send(Frame::log(req_id.clone(), "info", "complete")).unwrap();
-
-        // STREAM_END
         response_tx.send(Frame::stream_end(req_id.clone(), "s1".to_string(), 1)).unwrap();
         drop(response_tx);
 
-        let peer = PeerCall {
-            sender: Arc::new(sender),
-            request_id: req_id,
-            max_chunk: 256_000,
-            response_rx: Some(response_rx),
-        };
-
-        let mut response = peer.finish().await.expect("finish must succeed");
-        assert_eq!(response.media_urn(), "media:binary");
-
-        // Verify interleaved delivery: LOG, Data, LOG
-        let item1 = response.recv().await.expect("first item");
-        match item1 {
-            PeerResponseItem::Log(f) => {
-                assert_eq!(f.log_progress(), Some(0.5));
-                assert_eq!(f.log_message(), Some("downloading"));
-            }
-            PeerResponseItem::Data(_) => panic!("expected LOG frame first, got Data"),
-        }
-
-        let item2 = response.recv().await.expect("second item");
-        match item2 {
+        // Data must arrive after the LOGs
+        let item4 = response.recv().await.expect("data item must arrive");
+        match item4 {
             PeerResponseItem::Data(Ok(value)) => {
-                assert_eq!(value, Value::Bytes(b"payload".to_vec()));
+                assert_eq!(value, Value::Bytes(b"model output".to_vec()));
             }
             PeerResponseItem::Data(Err(e)) => panic!("expected data, got error: {}", e),
             PeerResponseItem::Log(_) => panic!("expected Data, got LOG"),
         }
 
-        let item3 = response.recv().await.expect("third item");
-        match item3 {
-            PeerResponseItem::Log(f) => {
-                assert_eq!(f.log_message(), Some("complete"));
-            }
-            PeerResponseItem::Data(_) => panic!("expected LOG frame, got Data"),
-        }
-
-        // Stream should be done
         assert!(response.recv().await.is_none(), "stream must end after STREAM_END");
     }
 

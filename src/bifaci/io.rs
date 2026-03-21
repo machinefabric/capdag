@@ -895,6 +895,100 @@ mod tests {
         assert_eq!(decoded.log_message(), Some("Something happened"));
     }
 
+    // TEST208b: Test progress LOG frame encode/decode roundtrip preserves progress float
+    #[test]
+    fn test208b_progress_frame_roundtrip() {
+        let id = MessageId::new_uuid();
+
+        // Test several progress values including edge cases AND the f64→f32→f64 chain
+        // that modelcartridge uses (ProgressInfo.progress is f64, cast to f32, then back to f64)
+        let test_values: Vec<(f32, &str)> = vec![
+            (0.0, "zero"),
+            (0.0f64 as f32, "zero via f64"),
+            (0.03333333f64 as f32, "1/30 via f64"),
+            (0.06666667f64 as f32, "2/30 via f64"),
+            (0.13333334f64 as f32, "4/30 via f64"),
+            (0.25, "quarter"),
+            (0.5, "half"),
+            (0.75, "three-quarter"),
+            (1.0, "one"),
+        ];
+
+        for (progress, label) in &test_values {
+            let original = Frame::progress(id.clone(), *progress, "test phase");
+
+            // Inspect raw Value before encode
+            let raw_progress_val = original.meta.as_ref().unwrap().get("progress").unwrap();
+            eprintln!("[{}] raw Value before encode: {:?}", label, raw_progress_val);
+
+            let bytes = encode_frame(&original).expect("encode should succeed");
+
+            // Inspect raw CBOR bytes for the meta section
+            eprintln!("[{}] encoded frame: {} bytes", label, bytes.len());
+
+            let decoded = decode_frame(&bytes).expect("decode should succeed");
+
+            // Inspect decoded Value
+            let decoded_progress_val = decoded.meta.as_ref().unwrap().get("progress").unwrap();
+            eprintln!("[{}] decoded Value: {:?}", label, decoded_progress_val);
+
+            assert_eq!(decoded.frame_type, FrameType::Log);
+            assert_eq!(decoded.log_level(), Some("progress"));
+            assert_eq!(decoded.log_message(), Some("test phase"));
+
+            let decoded_progress = decoded.log_progress();
+            assert!(
+                decoded_progress.is_some(),
+                "log_progress() must return Some for progress={} ({}), decoded Value={:?}, meta={:?}",
+                progress, label, decoded_progress_val, decoded.meta
+            );
+            let p = decoded_progress.unwrap();
+            assert!(
+                (p - progress).abs() < 0.001,
+                "progress roundtrip for {} ({}): expected {}, got {}",
+                label, progress, progress, p
+            );
+        }
+    }
+
+    // TEST208c: Double roundtrip (modelcartridge → relay → candlecartridge)
+    #[test]
+    fn test208c_progress_double_roundtrip() {
+        let id = MessageId::new_uuid();
+
+        for progress in [0.0f32, 0.03333333, 0.06666667, 0.13333334, 0.5, 1.0] {
+            let original = Frame::progress(id.clone(), progress, "test");
+
+            // First roundtrip (modelcartridge → relay_switch)
+            let bytes1 = encode_frame(&original).expect("encode 1");
+            let mut decoded1 = decode_frame(&bytes1).expect("decode 1");
+
+            // Relay switch modifies seq (like SeqAssigner does)
+            decoded1.seq = 42;
+
+            // Second roundtrip (relay_switch → candlecartridge)
+            let bytes2 = encode_frame(&decoded1).expect("encode 2");
+            let decoded2 = decode_frame(&bytes2).expect("decode 2");
+
+            let raw_val = decoded2.meta.as_ref().unwrap().get("progress").unwrap();
+            let lp = decoded2.log_progress();
+            eprintln!(
+                "[progress={}] after double roundtrip: raw={:?} log_progress={:?}",
+                progress, raw_val, lp
+            );
+            assert!(
+                lp.is_some(),
+                "progress={}: log_progress() returned None, raw={:?}",
+                progress, raw_val
+            );
+            assert!(
+                (lp.unwrap() - progress).abs() < 0.001,
+                "progress={}: expected {}, got {}",
+                progress, progress, lp.unwrap()
+            );
+        }
+    }
+
     // TEST209 REMOVED: RES frame removed - old protocol no longer supported
     // NEW PROTOCOL: Use stream multiplexing (STREAM_START + CHUNK + STREAM_END + END)
 
