@@ -215,6 +215,7 @@ cargo test
 
 ## Performance
 
+Tests conducted on a MacBook Pro M1 Pro (2021) with 16GB RAM, using a simple echo capability(the identity) that accepts binary input and produces binary output. Each host language (Rust, Go, Python, Swift) was tested with plugins implemented in each of the four languages, measuring throughput in MB/s.
 
 ### Throughput Matrix (MB/s) — Router: Rust
 
