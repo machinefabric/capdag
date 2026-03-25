@@ -1,4 +1,4 @@
-//! Route notation parsing and Cap URN resolution for orchestration
+//! Machine notation parsing and Cap URN resolution for orchestration
 //!
 //! Parses machine notation and resolves cap URNs via a registry, validates
 //! the graph, and produces a validated, executable DAG IR.
@@ -6,7 +6,7 @@
 use super::types::{CapRegistryTrait, ParseOrchestrationError, ResolvedEdge, ResolvedGraph};
 use super::validation::validate_dag;
 use crate::{InputStructure, MediaUrn};
-use crate::route::graph::Machine;
+use crate::machine::graph::Machine;
 use std::collections::HashMap;
 
 /// Check if two media URNs are on the same specialization chain.
@@ -49,7 +49,7 @@ fn check_structure_compatibility(
 
 /// Parse machine notation and produce a validated orchestration graph.
 ///
-/// Route notation format:
+/// Machine notation format:
 ///
 /// ```text
 /// [extract cap:in="media:pdf";op=extract;out="media:txt;textable"]
@@ -64,31 +64,31 @@ fn check_structure_compatibility(
 ///
 /// Returns `ParseOrchestrationError` for any validation failure.
 pub async fn parse_machine_to_cap_dag(
-    route: &str,
+    notation: &str,
     registry: &dyn CapRegistryTrait,
 ) -> Result<ResolvedGraph, ParseOrchestrationError> {
     // Step 1: Parse machine notation into a Machine.
     // This validates syntax, resolves aliases, checks media type consistency,
     // and derives media URNs from cap in/out specs.
-    let machine = Machine::from_string(route)
+    let machine = Machine::from_string(notation)
         .map_err(|e| ParseOrchestrationError::MachineSyntaxParseFailed(format!("{}", e)))?;
 
     // Step 2: Extract node names from the machine notation.
     // Machine discards node names (they're serialization concerns), but
     // the executor uses them as data-flow keys.
-    let wiring_info = extract_wiring_info(route)?;
+    let wiring_info = extract_wiring_info(notation)?;
 
     // Validate that wiring count matches edge count. These must align because
-    // the route parser builds edges in wiring statement order.
+    // the machine parser builds edges in wiring statement order.
     if wiring_info.len() != machine.edges().len() {
         return Err(ParseOrchestrationError::MachineSyntaxParseFailed(format!(
-            "internal error: {} wirings but {} edges — route parser edge ordering invariant violated",
+            "internal error: {} wirings but {} edges — machine parser edge ordering invariant violated",
             wiring_info.len(),
             machine.edges().len()
         )));
     }
 
-    // Step 3: For each edge in the route graph, resolve the cap via registry
+    // Step 3: For each edge in the machine graph, resolve the cap via registry
     // and build ResolvedEdge entries. Validate media type and structure
     // compatibility at every node.
     let mut node_media: HashMap<String, MediaUrn> = HashMap::new();
@@ -203,11 +203,11 @@ struct WiringInfo {
 /// The Machine model intentionally discards alias/node names (they're
 /// serialization concerns). But the executor uses node names as data-flow
 /// keys. This function extracts them from the wiring statements in order.
-fn extract_wiring_info(route: &str) -> Result<Vec<WiringInfo>, ParseOrchestrationError> {
+fn extract_wiring_info(notation: &str) -> Result<Vec<WiringInfo>, ParseOrchestrationError> {
     use pest::Parser;
-    use crate::route::parser::{MachineParser, Rule};
+    use crate::machine::parser::{MachineParser, Rule};
 
-    let pairs = MachineParser::parse(Rule::program, route.trim())
+    let pairs = MachineParser::parse(Rule::program, notation.trim())
         .map_err(|e| ParseOrchestrationError::MachineSyntaxParseFailed(format!("{}", e)))?;
 
     let mut wirings: Vec<WiringInfo> = Vec::new();
@@ -334,16 +334,16 @@ mod tests {
     // =========================================================================
 
     #[tokio::test]
-    async fn parse_simple_route() {
+    async fn parse_simple_machine() {
         let mut registry = MockRegistry::new();
         registry.add_cap(r#"cap:in="media:pdf";op=extract;out="media:txt;textable""#);
 
-        let route = concat!(
+        let notation = concat!(
             r#"[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]"#,
             "[A -> extract -> B]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
 
         let graph = result.unwrap();
@@ -368,14 +368,14 @@ mod tests {
         registry.add_cap(r#"cap:in="media:pdf";op=extract;out="media:txt;textable""#);
         registry.add_cap(r#"cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable""#);
 
-        let route = concat!(
+        let notation = concat!(
             r#"[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]"#,
             r#"[embed cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"]"#,
             "[A -> extract -> B]",
             "[B -> embed -> C]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
 
         let graph = result.unwrap();
@@ -400,7 +400,7 @@ mod tests {
         registry.add_cap(r#"cap:in="media:pdf";op=extract_outline;out="media:document-outline;record;textable""#);
         registry.add_cap(r#"cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail""#);
 
-        let route = concat!(
+        let notation = concat!(
             r#"[meta cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;record;textable"]"#,
             r#"[outline cap:in="media:pdf";op=extract_outline;out="media:document-outline;record;textable"]"#,
             r#"[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]"#,
@@ -409,7 +409,7 @@ mod tests {
             "[doc -> thumb -> thumbnail]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
 
         let graph = result.unwrap();
@@ -428,7 +428,7 @@ mod tests {
         registry.add_cap(r#"cap:in="media:model-spec;textable";op=download;out="media:model-spec;textable""#);
         registry.add_cap(r#"cap:in="media:image;png";op=describe_image;out="media:image-description;textable""#);
 
-        let route = concat!(
+        let notation = concat!(
             r#"[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]"#,
             r#"[model_dl cap:in="media:model-spec;textable";op=download;out="media:model-spec;textable"]"#,
             r#"[describe cap:in="media:image;png";op=describe_image;out="media:image-description;textable"]"#,
@@ -437,7 +437,7 @@ mod tests {
             "[(thumbnail, model_spec) -> describe -> description]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
 
         let graph = result.unwrap();
@@ -455,12 +455,12 @@ mod tests {
         let mut registry = MockRegistry::new();
         registry.add_cap(r#"cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable""#);
 
-        let route = concat!(
+        let notation = concat!(
             r#"[p2t cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable"]"#,
             "[pages -> LOOP p2t -> texts]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
 
         let graph = result.unwrap();
@@ -475,12 +475,12 @@ mod tests {
     #[tokio::test]
     async fn cap_not_found_in_registry() {
         let registry = MockRegistry::new();
-        let route = concat!(
+        let notation = concat!(
             r#"[ex cap:in="media:unknown";op=test;out="media:unknown"]"#,
             "[A -> ex -> B]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(matches!(result, Err(ParseOrchestrationError::CapNotFound { .. })),
             "Expected CapNotFound, got {:?}", result);
     }
@@ -507,14 +507,14 @@ mod tests {
         registry.add_cap(r#"cap:in="media:txt;textable";op=process;out="media:txt;textable""#);
 
         // A -> B -> C -> A creates a cycle
-        let route = concat!(
+        let notation = concat!(
             r#"[proc cap:in="media:txt;textable";op=process;out="media:txt;textable"]"#,
             "[A -> proc -> B]",
             "[B -> proc -> C]",
             "[C -> proc -> A]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(matches!(result, Err(ParseOrchestrationError::NotADag { .. })),
             "Expected NotADag for cyclic graph, got {:?}", result);
     }
@@ -533,15 +533,15 @@ mod tests {
 
         // B is the shared node: cap A says it should be media:pdf,
         // cap B says it should be media:audio;wav. These are incompatible.
-        let route = concat!(
+        let notation = concat!(
             r#"[produce cap:in="media:void";op=produce_pdf;out="media:pdf"]"#,
             r#"[transcribe cap:in="media:audio;wav";op=transcribe;out="media:txt;textable"]"#,
             "[A -> produce -> B]",
             "[B -> transcribe -> C]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
-        // Route notation catches media conflicts during parsing, before orchestrator validation
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
+        // Machine notation catches media conflicts during parsing, before orchestrator validation
         assert!(matches!(result, Err(ParseOrchestrationError::MachineSyntaxParseFailed(_))),
             "Expected MachineSyntaxParseFailed for pdf vs audio at shared node, got {:?}", result);
     }
@@ -558,14 +558,14 @@ mod tests {
         // Cap B inputs media:image;png;bytes (more specific, but on same chain)
         registry.add_cap(r#"cap:in="media:image;png;bytes";op=embed_image;out="media:embedding-vector;record;textable""#);
 
-        let route = concat!(
+        let notation = concat!(
             r#"[thumb cap:in="media:pdf";op=thumbnail;out="media:image;png"]"#,
             r#"[embed_image cap:in="media:image;png;bytes";op=embed_image;out="media:embedding-vector;record;textable"]"#,
             "[A -> thumb -> B]",
             "[B -> embed_image -> C]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(result.is_ok(),
             "Compatible media URNs (image;png vs image;png;bytes) should not conflict: {:?}",
             result.err());
@@ -583,14 +583,14 @@ mod tests {
         // Cap B inputs opaque (no record tag)
         registry.add_cap(r#"cap:in="media:json;textable";op=process;out="media:txt;textable""#);
 
-        let route = concat!(
+        let notation = concat!(
             r#"[produce cap:in="media:void";op=produce;out="media:json;record;textable"]"#,
             r#"[process cap:in="media:json;textable";op=process;out="media:txt;textable"]"#,
             "[A -> produce -> B]",
             "[B -> process -> C]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(matches!(result, Err(ParseOrchestrationError::StructureMismatch { .. })),
             "Record to opaque structure mismatch must be detected: {:?}", result);
     }
@@ -605,14 +605,14 @@ mod tests {
         registry.add_cap(r#"cap:in="media:void";op=produce;out="media:json;record;textable""#);
         registry.add_cap(r#"cap:in="media:json;record;textable";op=transform;out="media:result;record;textable""#);
 
-        let route = concat!(
+        let notation = concat!(
             r#"[produce cap:in="media:void";op=produce;out="media:json;record;textable"]"#,
             r#"[transform cap:in="media:json;record;textable";op=transform;out="media:result;record;textable"]"#,
             "[A -> produce -> B]",
             "[B -> transform -> C]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(result.is_ok(),
             "Record to record should be accepted: {:?}", result.err());
     }
@@ -627,14 +627,14 @@ mod tests {
         registry.add_cap(r#"cap:in="media:void";op=produce;out="media:json;textable""#);
         registry.add_cap(r#"cap:in="media:json;textable";op=format;out="media:txt;textable""#);
 
-        let route = concat!(
+        let notation = concat!(
             r#"[produce cap:in="media:void";op=produce;out="media:json;textable"]"#,
             r#"[format cap:in="media:json;textable";op=format;out="media:txt;textable"]"#,
             "[A -> produce -> B]",
             "[B -> format -> C]"
         );
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(result.is_ok(),
             "Opaque to opaque should be accepted: {:?}", result.err());
     }
@@ -644,16 +644,16 @@ mod tests {
     // =========================================================================
 
     #[tokio::test]
-    async fn parse_multiline_route() {
+    async fn parse_multiline_machine() {
         let mut registry = MockRegistry::new();
         registry.add_cap(r#"cap:in="media:pdf";op=extract;out="media:txt;textable""#);
 
-        let route = r#"
+        let notation = r#"
 [extract cap:in="media:pdf";op=extract;out="media:txt;textable"]
 [doc -> extract -> text]
 "#;
 
-        let result = parse_machine_to_cap_dag(route, &registry).await;
+        let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(result.is_ok(), "Multi-line parse failed: {:?}", result.err());
     }
 }

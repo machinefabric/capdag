@@ -1,4 +1,4 @@
-//! Route graph — typed DAG representation for machine notation
+//! Machine graph — typed DAG representation for machine notation
 //!
 //! A `Machine` is the semantic model behind machine notation. It represents
 //! a directed acyclic graph of capability edges, where each edge transforms
@@ -19,7 +19,7 @@ use std::fmt;
 use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::MediaUrn;
 
-/// A single edge in the route graph.
+/// A single edge in the machine graph.
 ///
 /// Each edge represents a capability that transforms one or more source
 /// media types into a target media type. The `is_loop` flag indicates
@@ -105,7 +105,7 @@ impl PartialEq for MachineEdge {
 
 impl Eq for MachineEdge {}
 
-/// A route graph — the semantic model behind machine notation.
+/// A machine graph — the semantic model behind machine notation.
 ///
 /// The graph is a collection of directed edges where each edge is a capability
 /// that transforms source media types into a target media type. The graph
@@ -124,12 +124,12 @@ pub struct Machine {
 }
 
 impl Machine {
-    /// Create a new route graph from a vector of edges.
+    /// Create a new machine graph from a vector of edges.
     pub fn new(edges: Vec<MachineEdge>) -> Self {
         Self { edges }
     }
 
-    /// Create an empty route graph.
+    /// Create an empty machine graph.
     pub fn empty() -> Self {
         Self { edges: Vec::new() }
     }
@@ -154,7 +154,7 @@ impl Machine {
         self.edges.is_empty()
     }
 
-    /// Check if two route graphs are semantically equivalent.
+    /// Check if two machine graphs are semantically equivalent.
     ///
     /// Two graphs are equivalent if they have the same set of edges
     /// (compared using `MachineEdge::is_equivalent`). Edge ordering

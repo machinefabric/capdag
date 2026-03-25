@@ -4,7 +4,7 @@ Machine notation parsing, DAG construction, and cap resolution.
 
 ## Overview
 
-The orchestrator bridges textual DAG descriptions and the execution engine. It takes either a machine notation string (from the route module) or a `MachinePlan` (from the planner) and produces a `ResolvedGraph` — a validated DAG with concrete cap definitions, media types, and wiring — ready for execution.
+The orchestrator bridges textual DAG descriptions and the execution engine. It takes either a machine notation string (from the machine module) or a `MachinePlan` (from the planner) and produces a `ResolvedGraph` — a validated DAG with concrete cap definitions, media types, and wiring — ready for execution.
 
 ```mermaid
 flowchart LR
@@ -70,7 +70,7 @@ Source: `capdag/src/route/parser.rs`.
 
 `parse_machine_to_cap_dag()` converts machine notation into a `ResolvedGraph`:
 
-1. **Parse** the notation into a `Machine` graph (route module). This produces nodes (media URN endpoints) and edges (cap invocations).
+1. **Parse** the notation into a `Machine` graph (machine module). This produces nodes (media URN endpoints) and edges (cap invocations).
 2. **Resolve cap URNs**: For each edge, look up the cap URN in the `CapRegistry` to get the full `Cap` definition with arguments, metadata, and validated URN structure.
 3. **Validate media compatibility**: Check that each node's media URN is consistent across all edges connecting to it. A node that is both the output of one cap (producing `media:text`) and the input of another (expecting `media:pdf`) is a conflict.
 4. **Check for cycles**: Verify the graph is a DAG. Cycles produce a `NotADag` error listing the involved nodes.
@@ -140,7 +140,7 @@ Source: `capdag/src/orchestrator/validation.rs`.
 
 ```rust
 pub enum ParseOrchestrationError {
-    MachineSyntaxParseFailed(String),     // route notation parse failed
+    MachineSyntaxParseFailed(String),     // machine notation parse failed
     CapNotFound { cap_urn: String },       // cap URN not in registry
     NodeMediaConflict { node, existing, required_by_cap }, // conflicting media URNs
     NotADag { cycle_nodes: Vec<String> },  // graph has a cycle

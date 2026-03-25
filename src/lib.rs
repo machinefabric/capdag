@@ -35,7 +35,7 @@ pub mod bifaci;
 pub mod standard;
 pub mod planner;
 pub mod orchestrator;
-pub mod route;
+pub mod machine;
 pub mod input_resolver;
 
 // URN types
@@ -122,8 +122,8 @@ pub use planner::{
     MachineExecutor,
 };
 
-// Route notation — typed DAG path identifiers
-pub use route::{Machine, MachineEdge, MachineSyntaxError, parse_machine};
+// Machine notation — typed DAG path identifiers
+pub use machine::{Machine, MachineEdge, MachineSyntaxError, parse_machine};
 
 // Orchestrator — machine notation parsing and DAG execution
 pub use orchestrator::{

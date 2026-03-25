@@ -13,8 +13,8 @@ use thiserror::Error;
 /// Errors that can occur during machine notation parsing and orchestration
 #[derive(Debug, Error)]
 pub enum ParseOrchestrationError {
-    /// Route notation parsing failed
-    #[error("Route notation parse failed: {0}")]
+    /// Machine notation parsing failed
+    #[error("Machine notation parse failed: {0}")]
     MachineSyntaxParseFailed(String),
 
     /// Cap URN not found in registry

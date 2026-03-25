@@ -1,9 +1,9 @@
-//! capdag: Route notation DAG executor for Cap pipelines
+//! capdag: Machine notation DAG executor for Cap pipelines
 //!
 //! A unified CLI for executing and validating machine notation pipelines.
 
 use capdag::orchestrator::{parse_machine_to_cap_dag, execute_dag, NodeData};
-use capdag::route::Machine;
+use capdag::machine::Machine;
 use capdag::{CapProgressFn, CapRegistry};
 use std::collections::HashMap;
 use std::env;
@@ -56,8 +56,8 @@ fn expand_dev_binary_path(path: &str) -> Vec<PathBuf> {
 ///
 /// Parses the machine notation into a Machine and returns the node names
 /// that are root sources (not produced by any cap).
-fn find_input_nodes(route_content: &str) -> Vec<String> {
-    let graph = match Machine::from_string(route_content) {
+fn find_input_nodes(notation: &str) -> Vec<String> {
+    let graph = match Machine::from_string(notation) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("Failed to parse machine notation for input node detection: {}", e);
@@ -68,9 +68,9 @@ fn find_input_nodes(route_content: &str) -> Vec<String> {
     // Re-parse to get node names — Machine discards them.
     // Use the same pest extraction as the orchestrator.
     use pest::Parser;
-    use capdag::route::parser::{MachineParser, Rule};
+    use capdag::machine::parser::{MachineParser, Rule};
 
-    let pairs = match MachineParser::parse(Rule::program, route_content.trim()) {
+    let pairs = match MachineParser::parse(Rule::program, notation.trim()) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Failed to re-parse machine notation: {}", e);
@@ -218,7 +218,7 @@ fn expand_input_path(path: &str) -> Vec<PathBuf> {
 
 fn print_usage(program: &str) {
     eprintln!(
-        "Usage: {} [options] <route-file> [input-paths...]\n\n\
+        "Usage: {} [options] <machine-file> [input-paths...]\n\n\
          Execute a machine notation pipeline on input files.\n\n\
          Options:\n\
            --mermaid                Output Mermaid diagram code and exit\n\
@@ -282,19 +282,19 @@ async fn main() {
     }
 
     if arg_idx >= args.len() {
-        eprintln!("Missing route file argument");
+        eprintln!("Missing machine file argument");
         print_usage(&args[0]);
         process::exit(1);
     }
 
-    let route_file = &args[arg_idx];
+    let machine_file = &args[arg_idx];
     arg_idx += 1;
 
-    // Read route file
-    let route_content = match fs::read_to_string(route_file) {
+    // Read machine file
+    let notation = match fs::read_to_string(machine_file) {
         Ok(content) => content,
         Err(e) => {
-            eprintln!("Error reading route file '{}': {}", route_file, e);
+            eprintln!("Error reading machine file '{}': {}", machine_file, e);
             process::exit(1);
         }
     };
@@ -309,7 +309,7 @@ async fn main() {
     };
 
     // Parse and validate machine notation
-    let graph = match parse_machine_to_cap_dag(&route_content, registry.as_ref()).await {
+    let graph = match parse_machine_to_cap_dag(&notation, registry.as_ref()).await {
         Ok(g) => g,
         Err(e) => {
             eprintln!("Validation failed: {}", e);
@@ -324,7 +324,7 @@ async fn main() {
     }
 
     // Find input nodes automatically
-    let input_nodes = find_input_nodes(&route_content);
+    let input_nodes = find_input_nodes(&notation);
     if input_nodes.is_empty() {
         eprintln!("No input nodes found in machine notation");
         process::exit(1);
@@ -349,7 +349,7 @@ async fn main() {
     let input_node = &input_nodes[0];
 
     eprintln!("=== capdag: Machine Notation Execution ===\n");
-    eprintln!("Route file: {}", route_file);
+    eprintln!("Machine file: {}", machine_file);
     eprintln!("Input node: {}", input_node);
     eprintln!("Input files: {}", all_files.len());
     for f in &all_files {

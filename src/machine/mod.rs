@@ -1,6 +1,6 @@
-//! Route notation — compact, round-trippable DAG path identifiers
+//! Machine notation — compact, round-trippable DAG path identifiers
 //!
-//! Route notation replaces the DOT file format for describing capability
+//! Machine notation replaces the DOT file format for describing capability
 //! transformation paths. It provides:
 //!
 //! - A typed graph model (`Machine`, `MachineEdge`) with semantic equivalence

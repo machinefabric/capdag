@@ -1,4 +1,4 @@
-//! Route notation parser — pest-generated PEG parser
+//! Machine notation parser — pest-generated PEG parser
 //!
 //! Parses the machine notation format into a `Machine` using a formal
 //! PEG grammar defined in `machine.pest`.
@@ -47,7 +47,7 @@ use super::error::MachineSyntaxError;
 use super::graph::{MachineEdge, Machine};
 
 #[derive(Parser)]
-#[grammar = "route/machine.pest"]
+#[grammar = "machine/machine.pest"]
 pub struct MachineParser;
 
 /// Parse machine notation into a `Machine`.
@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn fan_in_secondary_unassigned_gets_wildcard() {
-        // Unassigned secondary sources get wildcard media: at the route level.
+        // Unassigned secondary sources get wildcard media: at the machine level.
         // The orchestrator parser resolves the real type from cap.args.
         let input = concat!(
             r#"[describe cap:in="media:image;png";op=describe_image;out="media:image-description;textable"]"#,

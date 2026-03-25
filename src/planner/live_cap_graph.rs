@@ -239,12 +239,12 @@ pub struct Strand {
 }
 
 impl Strand {
-    /// Convert this resolved path to a route graph.
+    /// Convert this resolved path to a machine graph.
     ///
     /// Cap steps become edges; ForEach sets `is_loop` on the next cap;
     /// Collect and WrapInList are elided (implicit in transitions).
-    pub fn knit(&self) -> crate::route::Machine {
-        crate::route::Machine::from_path(self)
+    pub fn knit(&self) -> crate::machine::Machine {
+        crate::machine::Machine::from_path(self)
     }
 
     /// Serialize this resolved path to canonical one-line machine notation.

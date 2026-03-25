@@ -22,13 +22,13 @@ Both implementations cover the same core functionality:
 ### Rust Only
 
 - **Orchestrator executor** (`capdag/src/orchestrator/executor.rs`): Process spawning, Unix socket management, relay lifecycle. This is deeply platform-dependent and not ported.
-- **Route notation parser** (`capdag/src/route/`): PEG-based machine notation grammar (`machine.pest`). Swift uses a different parsing approach.
+- **Machine notation parser** (`capdag/src/machine/`): PEG-based machine notation grammar (`machine.pest`). Swift uses a different parsing approach.
 - **Input resolver** (`capdag/src/input_resolver/`): File type detection and media adapters.
 - **In-process host** (`capdag/src/bifaci/in_process_host.rs`): Testing helper for dispatching to handlers without process spawning.
 
 ### Swift Only
 
-- **DOT graph parser** (`capdag-objc/Sources/Bifaci/Orchestrator/DotParser.swift`): Used instead of the PEG route parser. Parses DOT/Graphviz notation for DAG descriptions.
+- **DOT graph parser** (`capdag-objc/Sources/Bifaci/Orchestrator/DotParser.swift`): Used instead of the PEG machine parser. Parses DOT/Graphviz notation for DAG descriptions.
 - **Objective-C foundation layer** (`capdag-objc/Sources/CapDAG/`): `CSCapUrn`, `CSCap`, etc. — C-compatible API for interoperability with Objective-C code and the macOS app shell.
 
 ## Language-Specific Patterns

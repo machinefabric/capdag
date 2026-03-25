@@ -1,4 +1,4 @@
-//! Route notation serializer — deterministic canonical form
+//! Machine notation serializer — deterministic canonical form
 //!
 //! Converts a `Machine` to its machine notation string representation.
 //! The output is deterministic: the same graph always produces the same string.
@@ -63,7 +63,7 @@ impl Machine {
         Self::new(edges)
     }
 
-    /// Serialize this route graph to canonical one-line machine notation.
+    /// Serialize this machine graph to canonical one-line machine notation.
     ///
     /// The output is deterministic: same graph → same string. This is the
     /// primary serialization format for accessibility identifiers and

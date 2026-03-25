@@ -37,8 +37,8 @@ pub enum MachineSyntaxError {
     #[error("invalid header at statement {position}: {details}")]
     InvalidHeader { position: usize, details: String },
 
-    /// The parsed route graph has no edges (headers were defined but no wirings)
-    #[error("route has headers but no wirings — define at least one edge")]
+    /// The parsed machine graph has no edges (headers were defined but no wirings)
+    #[error("machine has headers but no wirings — define at least one edge")]
     NoEdges,
 
     /// A wiring references an alias used as a node name that collides with a header alias
