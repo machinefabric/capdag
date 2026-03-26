@@ -29,6 +29,7 @@ use crate::bifaci::frame::{FlowKey, Frame, FrameType, Limits, MessageId, SeqAssi
 use crate::bifaci::io::{handshake, verify_identity, FrameReader, FrameWriter, CborError};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -39,6 +40,60 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Maximum time to wait for a heartbeat response before considering a plugin unhealthy.
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(10);
+
+// =============================================================================
+// PLUGIN PROCESS INFO — External visibility into managed plugin processes
+// =============================================================================
+
+/// Snapshot of a managed plugin process.
+#[derive(Debug, Clone)]
+pub struct PluginProcessInfo {
+    /// Index of the plugin in the host's plugin list.
+    pub plugin_index: usize,
+    /// OS process ID (from `Child::id()` on Rust side, `pid_t` on Swift side).
+    pub pid: u32,
+    /// Binary name (e.g. "ggufcartridge", "modelcartridge").
+    pub name: String,
+    /// Whether the plugin is currently running and responsive.
+    pub running: bool,
+    /// Cap URN strings this plugin handles.
+    pub caps: Vec<String>,
+    /// Physical memory footprint in MB (self-reported by plugin via heartbeat).
+    /// This is `ri_phys_footprint` — the metric macOS jetsam uses for kill decisions.
+    /// Updated every 30s when the plugin responds to a heartbeat probe.
+    pub memory_footprint_mb: u64,
+    /// Resident set size in MB (self-reported by plugin via heartbeat).
+    pub memory_rss_mb: u64,
+}
+
+/// Commands that can be sent to the host runtime from external code.
+pub enum HostCommand {
+    /// Kill a plugin process by PID. The host sets `ordered_shutdown = true`
+    /// before killing, so death handling treats it as intentional.
+    KillPlugin { pid: u32 },
+}
+
+/// Thread-safe handle for querying plugin process info and sending commands
+/// to a running `PluginHostRuntime`. Obtained via `process_handle()` before
+/// calling `run()`. The handle remains valid for the lifetime of `run()`.
+#[derive(Clone)]
+pub struct PluginProcessHandle {
+    snapshot: Arc<RwLock<Vec<PluginProcessInfo>>>,
+    command_tx: mpsc::UnboundedSender<HostCommand>,
+}
+
+impl PluginProcessHandle {
+    /// Get a snapshot of all managed plugin processes (running or not).
+    pub fn running_plugins(&self) -> Vec<PluginProcessInfo> {
+        self.snapshot.read().unwrap().clone()
+    }
+
+    /// Request that the host kill a specific plugin process by PID.
+    /// Returns `Err(())` if the host's run loop has exited.
+    pub fn kill_plugin(&self, pid: u32) -> Result<(), ()> {
+        self.command_tx.send(HostCommand::KillPlugin { pid }).map_err(|_| ())
+    }
+}
 
 // =============================================================================
 // ERROR TYPES
@@ -219,6 +274,12 @@ struct ManagedPlugin {
     /// intentional. handle_plugin_death checks this to avoid treating ordered
     /// shutdowns as unexpected crashes.
     ordered_shutdown: bool,
+    /// Physical memory footprint in MB (self-reported via heartbeat response meta).
+    /// Updated every 30s when the plugin echoes a heartbeat probe with its
+    /// `ri_phys_footprint` from `proc_pid_rusage(getpid())`.
+    memory_footprint_mb: u64,
+    /// Resident set size in MB (self-reported via heartbeat response meta).
+    memory_rss_mb: u64,
 }
 
 impl ManagedPlugin {
@@ -239,6 +300,8 @@ impl ManagedPlugin {
             stderr_handle: None,
             last_death_message: None,
             ordered_shutdown: false,
+            memory_footprint_mb: 0,
+            memory_rss_mb: 0,
         }
     }
 
@@ -262,6 +325,8 @@ impl ManagedPlugin {
             stderr_handle: None,
             last_death_message: None,
             ordered_shutdown: false,
+            memory_footprint_mb: 0,
+            memory_rss_mb: 0,
         }
     }
 }
@@ -295,6 +360,12 @@ pub struct PluginHostRuntime {
     event_tx: mpsc::UnboundedSender<PluginEvent>,
     /// Channel receiver for plugin events (consumed by run()).
     event_rx: Option<mpsc::UnboundedReceiver<PluginEvent>>,
+    /// Shared process snapshot, readable from outside the run loop via `PluginProcessHandle`.
+    process_snapshot: Arc<RwLock<Vec<PluginProcessInfo>>>,
+    /// Channel for receiving external commands (e.g., kill requests).
+    command_tx: mpsc::UnboundedSender<HostCommand>,
+    /// Receiver end — consumed by `run()`.
+    command_rx: Option<mpsc::UnboundedReceiver<HostCommand>>,
 }
 
 impl PluginHostRuntime {
@@ -304,6 +375,7 @@ impl PluginHostRuntime {
     /// attach pre-connected plugins with `attach_plugin()`, then call `run()`.
     pub fn new() -> Self {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
         Self {
             plugins: Vec::new(),
             cap_table: Vec::new(),
@@ -313,6 +385,19 @@ impl PluginHostRuntime {
             capabilities: Vec::new(),
             event_tx,
             event_rx: Some(event_rx),
+            process_snapshot: Arc::new(RwLock::new(Vec::new())),
+            command_tx,
+            command_rx: Some(command_rx),
+        }
+    }
+
+    /// Get a handle for querying plugin process info and sending commands.
+    /// Must be called before `run()`. The returned handle is `Send + Sync + Clone`
+    /// and remains valid for the lifetime of the `run()` loop.
+    pub fn process_handle(&self) -> PluginProcessHandle {
+        PluginProcessHandle {
+            snapshot: self.process_snapshot.clone(),
+            command_tx: self.command_tx.clone(),
         }
     }
 
@@ -433,6 +518,7 @@ impl PluginHostRuntime {
         });
 
         let mut event_rx = self.event_rx.take().expect("run() must only be called once");
+        let mut command_rx = self.command_rx.take().expect("run() must only be called once");
 
         let mut heartbeat_interval = tokio::time::interval(HEARTBEAT_INTERVAL);
         heartbeat_interval.tick().await; // skip initial tick
@@ -503,6 +589,13 @@ impl PluginHostRuntime {
                 // Periodic heartbeat probes
                 _ = heartbeat_interval.tick() => {
                     self.send_heartbeats_and_check_timeouts(&outbound_tx);
+                }
+
+                // External commands via PluginProcessHandle
+                Some(cmd) = command_rx.recv() => {
+                    if let Err(e) = self.handle_command(cmd, &outbound_tx).await {
+                        break Err(e);
+                    }
                 }
             }
         };
@@ -708,7 +801,21 @@ impl PluginHostRuntime {
                     .is_some();
 
                 if is_our_probe {
-                    // Response to our health probe — plugin is alive
+                    // Response to our health probe — plugin is alive.
+                    // Extract self-reported memory from heartbeat response meta.
+                    // Plugins include their own ri_phys_footprint and ri_resident_size
+                    // (via proc_pid_rusage(getpid())) in the meta map.
+                    if let Some(ref meta) = frame.meta {
+                        if let Some(ciborium::Value::Integer(v)) = meta.get("footprint_mb") {
+                            self.plugins[plugin_idx].memory_footprint_mb =
+                                u64::try_from(*v).unwrap_or(0);
+                        }
+                        if let Some(ciborium::Value::Integer(v)) = meta.get("rss_mb") {
+                            self.plugins[plugin_idx].memory_rss_mb =
+                                u64::try_from(*v).unwrap_or(0);
+                        }
+                    }
+                    self.update_process_snapshot();
                 } else {
                     // Plugin-initiated heartbeat — respond immediately
                     let response = Frame::heartbeat(frame.id.clone());
@@ -937,7 +1044,45 @@ impl PluginHostRuntime {
         // Rebuild cap table for on-demand respawn routing
         self.update_cap_table();
         self.rebuild_capabilities(Some(outbound_tx));
+        self.update_process_snapshot();
 
+        Ok(())
+    }
+
+    /// Handle an external command received via the `PluginProcessHandle`.
+    async fn handle_command(
+        &mut self,
+        command: HostCommand,
+        outbound_tx: &mpsc::UnboundedSender<Frame>,
+    ) -> Result<(), AsyncHostError> {
+        match command {
+            HostCommand::KillPlugin { pid } => {
+                // Find the plugin with the matching PID
+                let plugin_idx = self.plugins.iter().position(|p| {
+                    p.running && p.process.as_ref().and_then(|c| c.id()) == Some(pid)
+                });
+                if let Some(idx) = plugin_idx {
+                    tracing::info!(
+                        target: "host_runtime",
+                        pid = pid,
+                        plugin = %self.plugins[idx].path.display(),
+                        "Killing plugin by external command (memory pressure)"
+                    );
+                    self.plugins[idx].ordered_shutdown = true;
+                    if let Some(ref mut child) = self.plugins[idx].process {
+                        let _ = child.kill().await;
+                    }
+                    // Death event will arrive via the reader task; handle_plugin_death
+                    // will do the full cleanup.
+                } else {
+                    tracing::warn!(
+                        target: "host_runtime",
+                        pid = pid,
+                        "Kill command for unknown/dead PID — ignoring"
+                    );
+                }
+            }
+        }
         Ok(())
     }
 
@@ -1052,8 +1197,34 @@ impl PluginHostRuntime {
         plugin.last_death_message = None; // Clear any previous death message
 
         self.update_cap_table();
+        self.update_process_snapshot();
 
         Ok(())
+    }
+
+    /// Update the shared process snapshot with current plugin state.
+    /// Called after every spawn and death event.
+    fn update_process_snapshot(&self) {
+        let mut snap = self.process_snapshot.write().unwrap();
+        snap.clear();
+        for (idx, plugin) in self.plugins.iter().enumerate() {
+            if let Some(ref child) = plugin.process {
+                if let Some(pid) = child.id() {
+                    snap.push(PluginProcessInfo {
+                        plugin_index: idx,
+                        pid,
+                        name: plugin.path.file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned(),
+                        running: plugin.running,
+                        caps: plugin.caps.iter().map(|c| c.urn.to_string()).collect(),
+                        memory_footprint_mb: plugin.memory_footprint_mb,
+                        memory_rss_mb: plugin.memory_rss_mb,
+                    });
+                }
+            }
+        }
     }
 
     /// Send a frame to a specific plugin's stdin.
@@ -2961,5 +3132,73 @@ mod tests {
         assert!(has_not_running_op, "Cap table should have non-running plugin's known_caps");
 
         plugin_handle.await.unwrap();
+    }
+
+    // =========================================================================
+    // TEST: PluginProcessHandle — snapshot and kill
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_process_handle_snapshot_empty_initially() {
+        let runtime = PluginHostRuntime::new();
+        let handle = runtime.process_handle();
+        let plugins = handle.running_plugins();
+        assert!(plugins.is_empty(), "Snapshot should be empty before any plugins are spawned");
+    }
+
+    #[tokio::test]
+    async fn test_process_handle_snapshot_excludes_attached_plugins() {
+        // Attached plugins are connected via socketpair, not spawned as separate
+        // processes — they have no PID and should not appear in the process snapshot.
+        let (runtime_sock, plugin_sock) = UnixStream::pair().unwrap();
+        let (r_read, r_write) = runtime_sock.into_split();
+        let (p_read, p_write) = plugin_sock.into_split();
+
+        let manifest = r#"{"name":"SnapPlugin","version":"1.0","description":"Snapshot test","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=snap;out=\"media:void\"","title":"Test","command":"test","args":[]}]}"#;
+
+        let plugin_handle = tokio::spawn(async move {
+            let (_reader, _writer) = plugin_handshake_with_identity(p_read, p_write, manifest.as_bytes()).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        });
+
+        let mut runtime = PluginHostRuntime::new();
+        let handle = runtime.process_handle();
+
+        runtime.attach_plugin(r_read, r_write).await.unwrap();
+
+        // Attached plugins have process=None → no PID → excluded from snapshot
+        let plugins = handle.running_plugins();
+        assert!(plugins.is_empty(), "Attached plugins have no PID and should not appear in process snapshot");
+
+        plugin_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_process_handle_is_clone_and_send() {
+        let runtime = PluginHostRuntime::new();
+        let handle = runtime.process_handle();
+        let handle2 = handle.clone();
+
+        // Verify Send + Sync by moving to another task
+        let join = tokio::spawn(async move {
+            handle2.running_plugins()
+        });
+        let result = join.await.unwrap();
+        assert!(result.is_empty());
+
+        // Original handle still works
+        assert!(handle.running_plugins().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_process_handle_kill_unknown_pid_is_noop() {
+        let runtime = PluginHostRuntime::new();
+        let handle = runtime.process_handle();
+
+        // Kill for a PID that doesn't exist should succeed (command sent)
+        // but do nothing (the run loop would handle it as a no-op).
+        // Since run() hasn't been called, the command sits in the channel.
+        let result = handle.kill_plugin(99999);
+        assert!(result.is_ok(), "kill_plugin should succeed even if PID is unknown — command is async");
     }
 }

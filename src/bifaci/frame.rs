@@ -1168,6 +1168,40 @@ mod tests {
         assert_eq!(frame.seq, 0);
     }
 
+    // TEST190B: Heartbeat frame with self-reported memory in meta — verifies the
+    // protocol extension where plugins include ri_phys_footprint in heartbeat responses.
+    #[test]
+    fn test190b_heartbeat_frame_with_memory_meta() {
+        let id = MessageId::new_uuid();
+        let mut frame = Frame::heartbeat(id.clone());
+
+        // Simulate plugin attaching memory info to heartbeat response
+        let mut meta = std::collections::BTreeMap::new();
+        meta.insert("footprint_mb".to_string(), ciborium::Value::Integer(4096i128));
+        meta.insert("rss_mb".to_string(), ciborium::Value::Integer(5120i128));
+        frame.meta = Some(meta);
+
+        assert_eq!(frame.frame_type, FrameType::Heartbeat);
+        assert_eq!(frame.id, id);
+
+        // Verify memory values can be extracted (same pattern as host_runtime.rs)
+        let meta = frame.meta.as_ref().unwrap();
+        match meta.get("footprint_mb") {
+            Some(ciborium::Value::Integer(v)) => {
+                let mb: u64 = (*v).try_into().unwrap();
+                assert_eq!(mb, 4096);
+            }
+            other => panic!("Expected Integer(4096), got {:?}", other),
+        }
+        match meta.get("rss_mb") {
+            Some(ciborium::Value::Integer(v)) => {
+                let mb: u64 = (*v).try_into().unwrap();
+                assert_eq!(mb, 5120);
+            }
+            other => panic!("Expected Integer(5120), got {:?}", other),
+        }
+    }
+
     // TEST191: Test error_code and error_message return None for non-Err frame types
     #[test]
     fn test191_error_accessors_on_non_err_frame() {

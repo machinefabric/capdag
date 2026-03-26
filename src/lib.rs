@@ -93,6 +93,9 @@ pub use bifaci::host_runtime::{
 pub use bifaci::host_runtime::PluginHostRuntime;
 pub use bifaci::host_runtime::AsyncHostError;
 
+// Plugin process monitoring
+pub use bifaci::host_runtime::{PluginProcessInfo, PluginProcessHandle, HostCommand};
+
 // Relay exports
 pub use bifaci::relay::{RelaySlave, RelayMaster};
 pub use bifaci::relay_switch::{RelaySwitch, RelaySwitchError, MasterHealthStatus};

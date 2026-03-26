@@ -3049,7 +3049,16 @@ impl PluginRuntime {
                 }
 
                 FrameType::Heartbeat => {
-                    let response = Frame::heartbeat(frame.id);
+                    let mut response = Frame::heartbeat(frame.id);
+                    // Self-report memory in heartbeat response. proc_pid_rusage(getpid())
+                    // always works, even in a sandbox — the sandbox only blocks querying
+                    // OTHER processes. This data flows to the host's PluginProcessInfo.
+                    if let Some((footprint_mb, rss_mb)) = get_own_memory_mb() {
+                        let mut meta = std::collections::BTreeMap::new();
+                        meta.insert("footprint_mb".into(), ciborium::Value::Integer(footprint_mb.into()));
+                        meta.insert("rss_mb".into(), ciborium::Value::Integer(rss_mb.into()));
+                        response.meta = Some(meta);
+                    }
                     let _ = output_tx.send(response);
                 }
 
@@ -3085,6 +3094,34 @@ impl PluginRuntime {
     }
 }
 
+/// Get this process's own physical memory footprint and RSS in MB.
+/// Uses `proc_pid_rusage(getpid(), RUSAGE_INFO_V4)` which is always permitted,
+/// even inside a macOS sandbox (the sandbox only blocks querying OTHER processes).
+/// Returns `(footprint_mb, rss_mb)` or `None` on failure.
+#[cfg(target_os = "macos")]
+fn get_own_memory_mb() -> Option<(u64, u64)> {
+    let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        libc::proc_pid_rusage(
+            std::process::id() as libc::pid_t,
+            4, // RUSAGE_INFO_V4
+            &mut info as *mut _ as *mut libc::rusage_info_t,
+        )
+    };
+    if result == 0 {
+        Some((
+            info.ri_phys_footprint / (1024 * 1024),
+            info.ri_resident_size / (1024 * 1024),
+        ))
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn get_own_memory_mb() -> Option<(u64, u64)> {
+    None
+}
 
 #[cfg(test)]
 mod tests {
@@ -6516,5 +6553,21 @@ mod tests {
         // Verify log frame
         assert_eq!(captured[1].log_level(), Some("info"));
         assert_eq!(captured[1].log_message(), Some("loading complete"));
+    }
+
+    /// Verify get_own_memory_mb returns non-zero values on macOS.
+    /// This function calls proc_pid_rusage(getpid()) which must always work —
+    /// even in a sandbox. If it returns None on macOS, the self-reporting
+    /// mechanism is broken and plugins will report 0 footprint.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_get_own_memory_mb_returns_values() {
+        let result = get_own_memory_mb();
+        assert!(result.is_some(), "proc_pid_rusage(getpid()) must succeed on macOS");
+        let (footprint_mb, rss_mb) = result.unwrap();
+        // A running test process should use at least some memory
+        assert!(rss_mb > 0, "RSS should be non-zero for a running process, got {}", rss_mb);
+        // Footprint should also be non-zero (it's the physical memory charged to us)
+        assert!(footprint_mb > 0, "Footprint should be non-zero for a running process, got {}", footprint_mb);
     }
 }

@@ -343,6 +343,34 @@ fn build_manifest() -> CapManifest {
     ));
     caps.push(peer_test);
 
+    // TEST-MEMORY-HOG: Allocate memory via mmap (same pattern as safetensors/GGUF model loading)
+    // to test OOM watchdog detection and kill mechanisms.
+    let hog_urn = CapUrn::from_string("cap:in=\"media:void\";op=test_memory_hog;out=\"media:textable\"")
+        .expect("Valid memory hog URN");
+    let mut hog = Cap::with_description(
+        hog_urn,
+        "Test Memory Hog".to_string(),
+        "test-memory-hog".to_string(),
+        "Allocate memory via mmap to test OOM watchdog".to_string(),
+    );
+    let mut hog_size = CapArg::with_description(
+        "media:hog-size-mb;textable;numeric",
+        false,
+        vec![ArgSource::CliFlag { cli_flag: "--size-mb".to_string() }],
+        "Amount of memory to mmap in MB (max 6144)".to_string(),
+    );
+    hog_size.default_value = Some(json!(2048));
+    hog.add_arg(hog_size);
+    let mut hog_hold = CapArg::with_description(
+        "media:hog-hold-seconds;textable;numeric",
+        false,
+        vec![ArgSource::CliFlag { cli_flag: "--hold-seconds".to_string() }],
+        "Seconds to hold the mmap before releasing (max 120)".to_string(),
+    );
+    hog_hold.default_value = Some(json!(30));
+    hog.add_arg(hog_hold);
+    caps.push(hog);
+
     CapManifest::new(
         "testcartridge".to_string(),
         env!("CARGO_PKG_VERSION").to_string(),
@@ -656,9 +684,6 @@ impl Op<()> for PeerOp {
         let edge1_response = req.peer().call_with_bytes(
             edge1_urn,
             &[("media:node1;textable", input)],
-            req.output(),
-            0.0,
-            0.50,
         ).await.map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
 
         // Collect edge1 response and decode CBOR
@@ -674,9 +699,6 @@ impl Op<()> for PeerOp {
         let edge2_response = req.peer().call_with_bytes(
             edge2_urn,
             &[("media:node2;textable", &edge1_bytes)],
-            req.output(),
-            0.50,
-            0.50,
         ).await.map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
 
         let edge2_cbor = edge2_response.collect_value().await
@@ -684,6 +706,156 @@ impl Op<()> for PeerOp {
         emit(req.output(), &edge2_cbor)
     }
     fn metadata(&self) -> OpMetadata { OpMetadata::builder("PeerOp").build() }
+}
+
+// =============================================================================
+// Memory Hog Op — sustained memory pressure simulation
+// =============================================================================
+
+#[derive(Default)]
+struct MemoryHogOp;
+
+#[async_trait]
+impl Op<()> for MemoryHogOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let streams = collect_args(&req).await?;
+
+        let size_mb = find_stream_str(&streams, "media:hog-size-mb;textable;numeric")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(2048);
+
+        let hold_seconds = find_stream_str(&streams, "media:hog-hold-seconds;textable;numeric")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(30)
+            .min(120);
+
+        let size_bytes: usize = size_mb * 1024 * 1024;
+        let ps = req.output().progress_sender();
+
+        ps.log("info", &format!(
+            "memory_hog: allocating {}MB, hold {}s",
+            size_mb, hold_seconds
+        ));
+
+        // Simulate GGUF model load memory pressure.
+        //
+        // The challenge: macOS aggressively compresses and swaps anonymous pages.
+        // Even pseudo-random data gets compressed within seconds. mlock() fails
+        // at large sizes due to process ulimit.
+        //
+        // Real model loads use Metal shared buffers that the GPU actively
+        // references — preventing compression/swap.
+        //
+        // We simulate this with a continuous page sweep: a thread that writes
+        // to every page in a tight loop. Pages that are actively dirty and
+        // recently-accessed cannot be compressed or swapped by the kernel.
+        // Two layers:
+        //   1. mlock() — if it succeeds, pages are wired (best case)
+        //   2. Continuous sweep — keeps pages hot even if mlock fails
+        extern "C" {
+            fn arc4random_buf(buf: *mut libc::c_void, nbytes: libc::size_t);
+        }
+
+        let result: std::result::Result<String, String> = req.output().run_with_keepalive(
+            0.1,
+            &format!("Allocating {}MB", size_mb),
+            move || {
+                // Continuous allocation attack.
+                //
+                // The initial fill phase (seconds 0-6 in testing) creates real
+                // pressure — ~1GB/s of new page faults overwhelms the kernel's
+                // compressor. But the moment we stop allocating, the kernel
+                // catches up and compresses everything within seconds.
+                //
+                // Strategy: NEVER STOP. Keep mmap'ing fresh regions and writing
+                // to them. Each new mmap forces new page faults. The kernel must
+                // handle each fault synchronously — it can't compress what hasn't
+                // been faulted in yet. Multiple threads compound the pressure.
+                //
+                // This continues for hold_seconds or until we get killed.
+
+                let chunk_bytes = 64 * 1024 * 1024usize; // 64MB per mmap region
+                let mut regions: Vec<(*mut libc::c_void, usize)> = Vec::new();
+                let mut total_allocated: usize = 0;
+                let start = std::time::Instant::now();
+                let deadline = std::time::Duration::from_secs(hold_seconds);
+
+                ps.log("info", "memory_hog: continuous allocation attack started");
+
+                while start.elapsed() < deadline {
+                    // mmap a fresh 64MB region
+                    let addr = unsafe {
+                        libc::mmap(
+                            std::ptr::null_mut(),
+                            chunk_bytes,
+                            libc::PROT_READ | libc::PROT_WRITE,
+                            libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+                            -1,
+                            0,
+                        )
+                    };
+                    if addr == libc::MAP_FAILED {
+                        ps.log("warn", &format!(
+                            "memory_hog: mmap failed at {}MB: {}",
+                            total_allocated / (1024 * 1024),
+                            std::io::Error::last_os_error()
+                        ));
+                        // mmap failed — we've pushed the system to its limit.
+                        // Hold what we have until deadline.
+                        let remaining = deadline.saturating_sub(start.elapsed());
+                        if remaining > std::time::Duration::ZERO {
+                            std::thread::sleep(remaining);
+                        }
+                        break;
+                    }
+
+                    // Write to every page immediately — this is the attack.
+                    // arc4random_buf forces page faults + fills with data.
+                    unsafe {
+                        arc4random_buf(addr, chunk_bytes);
+                    }
+
+                    regions.push((addr, chunk_bytes));
+                    total_allocated += chunk_bytes;
+
+                    let elapsed_secs = start.elapsed().as_secs();
+                    let pct = 0.1 + 0.85 * (elapsed_secs as f32 / hold_seconds as f32);
+                    ps.progress(pct.min(0.95), &format!(
+                        "Attacking: {}MB allocated ({}/{}s)",
+                        total_allocated / (1024 * 1024),
+                        elapsed_secs,
+                        hold_seconds
+                    ));
+                }
+
+                let total_mb = total_allocated / (1024 * 1024);
+                let elapsed = start.elapsed().as_secs();
+                ps.log("info", &format!(
+                    "memory_hog: attack done — allocated {}MB in {}s",
+                    total_mb, elapsed
+                ));
+
+                // Release all regions
+                for (addr, len) in &regions {
+                    unsafe { libc::munmap(*addr, *len); }
+                }
+
+                let result_msg = format!(
+                    "Released {}MB after {}s (not killed by watchdog)",
+                    total_mb, elapsed
+                );
+                ps.progress(0.98, "Released");
+                Ok(result_msg)
+            },
+        ).await;
+
+        match result {
+            Ok(msg) => emit(req.output(), &ciborium::Value::Bytes(msg.into_bytes())),
+            Err(e) => Err(OpError::ExecutionFailed(e)),
+        }
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("MemoryHogOp").build() }
 }
 
 // =============================================================================
@@ -731,6 +903,9 @@ async fn main() -> Result<()> {
     );
     runtime.register_op_type::<PeerOp>(
         "cap:in=\"media:node1;textable\";op=test_peer;out=\"media:node5;textable\"",
+    );
+    runtime.register_op_type::<MemoryHogOp>(
+        "cap:in=\"media:void\";op=test_memory_hog;out=\"media:textable\"",
     );
 
     // Run the plugin runtime (handles both CLI and CBOR modes)
