@@ -859,35 +859,145 @@ impl OutputStream {
         let ticker_rid = request_id.clone();
         let ticker_xid = routing_id.clone();
         let ticker_msg = msg.clone();
+        // Diagnostic hooks — keepalive ticker observability emitted
+        // as Log frames (not tracing). Tracing inside the cartridge
+        // process either goes to stderr (drained, not surfaced) or
+        // to a subscriber the cartridge installs at startup; neither
+        // reaches the engine reliably. Log frames travel the same
+        // wire path as the keepalive itself, so they're guaranteed
+        // visible end-to-end. When a long-running blocking handler
+        // (e.g. GGUF model load) hits the engine's 120s activity
+        // timeout despite this mechanism being in place, the cause
+        // is one of:
+        //   1. The work thread panicked / crashed before the ticker
+        //      could fire (we'll see a [keepalive] panic Log frame).
+        //   2. The ticker is firing but the frame writer wedged
+        //      (we see ticker-start, then no further ticks).
+        //   3. The OS thread is starved (no [keepalive] frames at
+        //      all — diagnose by absence).
+        let tick_counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let tick_counter_for_ticker = tick_counter.clone();
+
+        // Helper: build a Log frame stamped with the request's rid +
+        // routing_id, with the given level and message. Mirrors
+        // `Frame::log` but lets us pick the level explicitly so we
+        // can use "debug" for normal ticks and "warn"/"error" for
+        // anomalies.
+        fn keepalive_log_frame(
+            rid: &MessageId,
+            xid: &Option<MessageId>,
+            level: &str,
+            message: &str,
+        ) -> Frame {
+            let mut meta = std::collections::BTreeMap::new();
+            meta.insert(
+                "level".to_string(),
+                ciborium::Value::Text(level.to_string()),
+            );
+            meta.insert(
+                "message".to_string(),
+                ciborium::Value::Text(message.to_string()),
+            );
+            let mut frame = Frame::new(FrameType::Log, rid.clone());
+            frame.routing_id = xid.clone();
+            frame.meta = Some(meta);
+            frame
+        }
+
+        // Emit a one-shot "ticker started" Log frame so absence of
+        // this line in the log means the ticker thread itself never
+        // ran (OS thread exhaustion, panic on spawn).
+        {
+            let started = keepalive_log_frame(
+                &ticker_rid,
+                &ticker_xid,
+                "debug",
+                &format!("[keepalive] ticker started (interval=5s, msg={:?})", msg),
+            );
+            let _ = sender.send(&started);
+        }
+
         std::thread::spawn(move || {
             loop {
-                // Park for 30s or until done signal arrives.
                 // 5s interval — short enough to survive OS thread suspension under
                 // memory pressure (e.g. Metal loading large models) while still
                 // resetting the engine's 120s activity timer with plenty of margin.
                 match done_rx.recv_timeout(std::time::Duration::from_secs(5)) {
-                    Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        let n = tick_counter_for_ticker.load(std::sync::atomic::Ordering::Relaxed);
+                        let stopped = keepalive_log_frame(
+                            &ticker_rid,
+                            &ticker_xid,
+                            "debug",
+                            &format!("[keepalive] ticker stopped after {} ticks", n),
+                        );
+                        let _ = ticker_sender.send(&stopped);
+                        break;
+                    }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        let n = tick_counter_for_ticker.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                         let mut frame = Frame::progress(ticker_rid.clone(), progress, &ticker_msg);
                         frame.routing_id = ticker_xid.clone();
-                        let _ = ticker_sender.send(&frame);
+                        if ticker_sender.send(&frame).is_err() {
+                            // Sender closed — frame writer is gone.
+                            // Can't even emit a Log frame to report
+                            // it; the channel is dead. Just bail.
+                            break;
+                        }
                     }
                 }
             }
         });
 
-        // Run the blocking work on a dedicated OS thread.
+        // Run the blocking work on a dedicated OS thread. Catch
+        // panics so the ticker gets a clean shutdown signal even on
+        // FFI explosion (Metal/CUDA/etc. can panic from native code)
+        // and the panic payload reaches the engine as a Log frame.
+        let panic_sender = Arc::clone(&sender);
+        let panic_rid = request_id.clone();
+        let panic_xid = routing_id.clone();
         let (result_tx, result_rx) = std::sync::mpsc::channel::<T>();
         std::thread::spawn(move || {
-            let result = f();
-            let _ = result_tx.send(result);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+            match result {
+                Ok(v) => {
+                    let _ = result_tx.send(v);
+                }
+                Err(payload) => {
+                    let payload_str = if let Some(s) = payload.downcast_ref::<&'static str>() {
+                        (*s).to_string()
+                    } else if let Some(s) = payload.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "<non-string panic payload>".to_string()
+                    };
+                    let panic_frame = keepalive_log_frame(
+                        &panic_rid,
+                        &panic_xid,
+                        "error",
+                        &format!("[keepalive] work thread panicked: {}", payload_str),
+                    );
+                    let _ = panic_sender.send(&panic_frame);
+                    // Drop result_tx → result_rx.recv() returns Err → spawn_blocking awaits an Err
+                }
+            }
             // Dropping done_tx signals the ticker to stop.
             drop(done_tx);
         });
 
         // Await result without blocking the async runtime.
-        tokio::task::spawn_blocking(move || result_rx.recv().expect("work thread panicked")).await
-            .expect("spawn_blocking join failed")
+        // `result_rx.recv()` returns Err when the work thread
+        // panicked (sender dropped without sending) — re-panic with
+        // a clear message so callers see it as a handler error
+        // rather than a silent hang. The panic-catch wrapper above
+        // already logged the original payload.
+        tokio::task::spawn_blocking(move || {
+            result_rx
+                .recv()
+                .unwrap_or_else(|_| panic!("run_with_keepalive: work thread panicked (see [keepalive] log line above for payload)"))
+        })
+        .await
+        .expect("spawn_blocking join failed")
     }
 
     /// Close the output stream (sends STREAM_END). Idempotent.

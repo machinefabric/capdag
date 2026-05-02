@@ -59,7 +59,7 @@ use crate::cap::registry::CapRegistry;
 use crate::planner::live_cap_fab::{LiveCapFab, ReachableTargetInfo, Strand};
 use crate::urn::media_urn::MediaUrn;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::{BufReader, BufWriter};
@@ -356,6 +356,24 @@ pub struct RelaySwitch {
     live_cap_fab: RwLock<LiveCapFab>,
     /// Cap registry for looking up Cap definitions
     cap_registry: Arc<CapRegistry>,
+    /// Number of masters this engine intends to register at startup.
+    /// `all_masters_ready` only returns true once `masters.len() >=
+    /// expected_master_count` AND every connected master is ready —
+    /// this prevents a premature "ready" signal during boot when
+    /// only the internal master has finished registering and the
+    /// external-providers master is still spawning cartridges.
+    ///
+    /// Both editions expect 2:
+    ///   - internal master (engine's in-process providers)
+    ///   - external master (engine-spawned external providers in
+    ///     MAS, or the XPC-service-backed master in WEBSITE).
+    ///
+    /// Set once via `set_expected_master_count` shortly after
+    /// construction (RelaySwitch ctor doesn't take it because the
+    /// caller decides the count from edition + provider discovery).
+    /// Atomic so reads from the readiness predicate don't need to
+    /// take the masters lock.
+    expected_master_count: AtomicUsize,
     /// Stop flag for the persistent background drain pump. Set by `Drop`
     /// so the pump task exits on its next iteration.
     background_pump_stop: Arc<AtomicBool>,
@@ -662,6 +680,13 @@ impl RelaySwitch {
             rid_to_xid: RwLock::new(HashMap::new()),
             live_cap_fab: RwLock::new(LiveCapFab::new()),
             cap_registry,
+            // Default 0 — readiness predicate returns false until
+            // the engine calls `set_expected_master_count` after
+            // it knows how many masters it intends to register.
+            // Without that explicit declaration we'd have no way to
+            // distinguish "still booting, more masters coming" from
+            // "no more masters expected; ready".
+            expected_master_count: AtomicUsize::new(0),
             background_pump_stop: Arc::new(AtomicBool::new(false)),
             background_pump_handle: std::sync::Mutex::new(None),
         };
@@ -861,6 +886,62 @@ impl RelaySwitch {
             .iter()
             .filter(|m| m.healthy.load(Ordering::SeqCst))
             .count()
+    }
+
+    /// Declare how many RelayMasters this engine intends to register
+    /// at startup. The readiness predicate (`all_masters_ready`) only
+    /// returns true once `masters.len() >= expected` AND every
+    /// connected master is ready. Without this an engine that has
+    /// only finished registering its internal master would falsely
+    /// report ready before the external-providers master finished
+    /// spawning + HELLO + cap-probing its cartridges.
+    ///
+    /// Both editions expect 2 masters (internal + external/XPC).
+    /// Set once at engine boot from the same call site that registers
+    /// the providers.
+    pub fn set_expected_master_count(&self, expected: usize) {
+        self.expected_master_count.store(expected, Ordering::SeqCst);
+    }
+
+    /// True when:
+    ///   1. The number of connected masters is at least
+    ///      `expected_master_count` (declared via
+    ///      `set_expected_master_count`), AND
+    ///   2. Every connected master is healthy AND has reported a
+    ///      non-empty cap set via RelayNotify.
+    ///
+    /// This is the engine-side definition of "cartridges fully
+    /// initialized" — same in both editions:
+    ///   - WEBSITE: the master backed by CartridgeXPCService has
+    ///     forwarded its discovered XPC cartridges' caps via
+    ///     RelayNotify.
+    ///   - MAS: the master backed by engine-spawned external
+    ///     providers has RelayNotify'd its caps after spawn +
+    ///     HELLO + cap-probe completed.
+    ///
+    /// The host app polls this (via SendHeartbeatResponse.cartridges_ready)
+    /// to flip its own readiness gate from `.configuring` to `.ready`.
+    pub async fn all_masters_ready(&self) -> bool {
+        let expected = self.expected_master_count.load(Ordering::SeqCst);
+        if expected == 0 {
+            // Engine never declared an expected count — treat as
+            // not-yet-configured rather than guess. Caller bug.
+            return false;
+        }
+        let masters = self.masters.read().await;
+        if masters.len() < expected {
+            return false;
+        }
+        for master in masters.iter() {
+            // An unhealthy master is by definition not ready.
+            if !master.healthy.load(Ordering::SeqCst) {
+                return false;
+            }
+            if master.caps.read().await.is_empty() {
+                return false;
+            }
+        }
+        true
     }
 
     /// Execute a cap and return a receiver for streaming response frames.
