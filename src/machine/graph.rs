@@ -643,6 +643,23 @@ mod tests {
         )
     }
 
+    // TEST1135: MachineStrand::node_urn(id) returns the MediaUrn at that NodeId. For a single-cap
+    // strand (pdf → extract → txt), there are exactly two nodes and each returns a valid URN.
+    #[test]
+    fn test1135_strand_node_urn_returns_media_urn_at_node_id() {
+        let registry = registry_with(vec![extract_cap_def()]);
+        let m = Machine::from_strand(&pdf_to_txt_strand(), &registry).unwrap();
+        let strand = &m.strands()[0];
+
+        for (id, _node) in strand.nodes().iter().enumerate() {
+            let urn = strand.node_urn(id as u32);
+            assert!(
+                !urn.to_string().is_empty(),
+                "node_urn({id}) must return a non-empty URN"
+            );
+        }
+    }
+
     // TEST1155: Building a machine from one strand produces one strand with one resolved edge.
     #[test]
     fn test1155_from_strand_produces_single_strand_machine() {

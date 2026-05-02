@@ -257,12 +257,12 @@ mod tests {
         assert!(manifest.author.is_none());
     }
 
-    // TEST148b: A manifest's channel round-trips through serde and the
+    // TEST117: A manifest's channel round-trips through serde and the
     // serialized form uses the canonical lowercase wire word
     // ("release" / "nightly"). A missing or unrecognized channel is
     // a hard parse error — no defaults.
     #[test]
-    fn test148b_cap_manifest_channel_roundtrip() {
+    fn test117_cap_manifest_channel_roundtrip() {
         let urn = CapUrn::from_string(&test_urn("op=extract;target=metadata")).unwrap();
         let cap = Cap::new(urn, "Extract Metadata".to_string(), "extract-metadata".to_string());
 
@@ -329,13 +329,13 @@ mod tests {
         );
     }
 
-    // TEST148c: A dev manifest (built without `MFR_REGISTRY_URL`) carries
+    // TEST118: A dev manifest (built without `MFR_REGISTRY_URL`) carries
     // `registry_url: null` and serializes the field explicitly. The
     // null-vs-absent distinction matters because the parser refuses
-    // to accept absent (test148b) — so an old SDK can't accidentally
+    // to accept absent (test117) — so an old SDK can't accidentally
     // pass for a dev build.
     #[test]
-    fn test148c_dev_manifest_registry_url_is_explicit_null() {
+    fn test118_dev_manifest_registry_url_is_explicit_null() {
         let urn = CapUrn::from_string(&test_urn("op=dev")).unwrap();
         let cap = Cap::new(urn, "Dev".to_string(), "dev".to_string());
         let manifest = CapManifest::new(

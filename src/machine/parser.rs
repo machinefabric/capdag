@@ -730,4 +730,19 @@ mod tests {
             MachineParseError::Syntax(MachineSyntaxError::Empty)
         ));
     }
+
+    // TEST1136: parse_machine with an undefined cap alias raises MachineParseError wrapping
+    // MachineSyntaxError::UndefinedAlias. This pins the error path so an alias lookup failure
+    // is always surfaced as a syntax error (not a resolution error or a panic).
+    #[test]
+    fn test1136_parse_machine_undefined_alias_raises_syntax_error() {
+        let registry = registry_with(vec![]);
+        let notation = "[doc -> undefined_alias -> text]";
+        let err = parse_machine(notation, &registry).unwrap_err();
+        assert!(
+            matches!(err, MachineParseError::Syntax(MachineSyntaxError::UndefinedAlias { .. })),
+            "undefined alias must produce a MachineParseError::Syntax(UndefinedAlias), got {:?}",
+            err
+        );
+    }
 }

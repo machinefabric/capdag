@@ -627,4 +627,44 @@ mod tests {
             .unwrap();
         assert_eq!(payload, "{\"strands\":[]}");
     }
+
+    // TEST1137: A machine built from two independent strands serializes to a non-empty notation
+    // string that contains both op tags. Checks that multi-strand serialization doesn't lose or
+    // merge strands.
+    #[test]
+    fn test1137_two_strand_machine_serializes_to_notation_containing_both_ops() {
+        let caption_cap = build_cap(
+            "cap:in=media:image;op=caption;out=\"media:txt;textable\"",
+            "caption",
+            &["media:image"],
+            "media:txt;textable",
+        );
+        let registry = registry_with(vec![extract_cap_def(), caption_cap]);
+
+        let extract_strand = strand_from_steps(
+            vec![cap_step(
+                "cap:in=media:pdf;op=extract;out=\"media:txt;textable\"",
+                "extract",
+                "media:pdf",
+                "media:txt;textable",
+            )],
+            "extract strand",
+        );
+        let caption_strand = strand_from_steps(
+            vec![cap_step(
+                "cap:in=media:image;op=caption;out=\"media:txt;textable\"",
+                "caption",
+                "media:image",
+                "media:txt;textable",
+            )],
+            "caption strand",
+        );
+
+        let machine = Machine::from_strands(&[extract_strand, caption_strand], &registry).unwrap();
+        let notation = machine.to_machine_notation().unwrap();
+
+        assert!(!notation.is_empty(), "notation must be non-empty for a two-strand machine");
+        assert!(notation.contains("extract"), "notation must contain the 'extract' op tag");
+        assert!(notation.contains("caption"), "notation must contain the 'caption' op tag");
+    }
 }

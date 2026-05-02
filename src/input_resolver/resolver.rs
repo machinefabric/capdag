@@ -657,6 +657,40 @@ mod tests {
         }
     }
 
+    // TEST1139: resolve_inputs_confirmed delegates to detect_file_confirmed and returns the
+    // resolved URN for each file. A mock invoker returning a single URN must propagate through
+    // to the ResolvedInputSet.
+    #[tokio::test]
+    async fn test1139_resolve_inputs_confirmed_delegates_to_detect_file_confirmed() {
+        let dir = create_test_dir();
+        let path = create_file(&dir, "data.json", br#"{"key":"value"}"#);
+
+        let (media_registry, _temp) = create_test_media_registry();
+        let mut adapter_registry = MediaAdapterRegistry::new(media_registry);
+        adapter_registry
+            .register_cap_group("test-group", &["media:json".to_string()], "test-cartridge")
+            .unwrap();
+
+        let invoker = MockInvoker {
+            response: Some(vec!["media:json;record;textable".to_string()]),
+        };
+
+        let result = resolve_inputs_confirmed(
+            vec![InputItem::File(path)],
+            &adapter_registry,
+            &invoker,
+        )
+        .await
+        .expect("resolve_inputs_confirmed must succeed when adapter returns a URN");
+
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(
+            result.files[0].media_urn,
+            "media:json;record;textable",
+            "resolved URN must match what the adapter returned"
+        );
+    }
+
     // TEST1285: detect_file_confirmed fails when no adapters are registered for the extension
     #[tokio::test]
     async fn test1285_confirmed_no_adapters_fails() {

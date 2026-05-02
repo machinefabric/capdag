@@ -732,12 +732,13 @@ fn sort_ready(ready: &mut Vec<usize>, edges: &[MachineEdge], nodes: &[MediaUrn])
 
 #[cfg(test)]
 mod tests {
-    use super::{match_sources_to_args, resolve_strand};
+    use super::{match_sources_to_args, resolve_pre_interned, resolve_strand, PreInternedWiring};
     use crate::machine::error::MachineAbstractionError;
     use crate::machine::test_fixtures::{
         build_cap, build_cap_with_slot_stdin_pairs, cap, cap_step, collect_step, for_each_step,
         media, registry_with, strand_from_steps,
     };
+    use crate::urn::cap_urn::CapUrn;
 
     // ----- match_sources_to_args -------------------------------------------
 
@@ -1260,6 +1261,54 @@ mod tests {
             source_urn.is_equivalent(&media("media:pdf")).unwrap(),
             "source node URN must be media:pdf (the data-type URN), got: {}",
             source_urn
+        );
+    }
+
+    // TEST1138: EdgeAssignmentBinding list is sorted by cap_arg_media_urn for canonical form.
+    // A two-source cap whose args are added in reverse-alphabetical order must still produce
+    // bindings sorted alphabetically by cap_arg_media_urn, enabling canonical comparison
+    // regardless of creation order.
+    #[test]
+    fn test1138_assignment_bindings_are_sorted_by_cap_arg_media_urn() {
+        // Cap with two stdin args: textable (later alphabetically) and pdf (earlier).
+        // Args are listed in reverse order so the test fails if sorting is skipped.
+        let merge_cap = build_cap(
+            "cap:in=media:pdf;op=merge;out=\"media:txt;textable\"",
+            "merge",
+            &["media:textable", "media:pdf"],
+            "media:txt;textable",
+        );
+        let registry = registry_with(vec![merge_cap]);
+
+        // Pre-interned nodes: 0=pdf, 1=textable, 2=txt;textable (output)
+        let nodes = vec![
+            media("media:pdf"),
+            media("media:textable"),
+            media("media:txt;textable"),
+        ];
+        let cap_urn = CapUrn::from_string(
+            "cap:in=media:pdf;op=merge;out=\"media:txt;textable\""
+        ).unwrap();
+        let wirings = vec![PreInternedWiring {
+            cap_urn,
+            source_node_ids: vec![0, 1], // pdf first, textable second
+            target_node_id: 2,
+            is_loop: false,
+        }];
+
+        let strand = resolve_pre_interned(&nodes, &wirings, &registry, 0).unwrap();
+        assert_eq!(strand.edges().len(), 1);
+
+        let bindings = &strand.edges()[0].assignment;
+        assert_eq!(bindings.len(), 2);
+
+        let slot_urns: Vec<String> = bindings.iter().map(|b| b.cap_arg_media_urn.to_string()).collect();
+        let mut sorted = slot_urns.clone();
+        sorted.sort();
+        assert_eq!(
+            slot_urns, sorted,
+            "bindings must be sorted by cap_arg_media_urn, got: {:?}",
+            slot_urns
         );
     }
 }

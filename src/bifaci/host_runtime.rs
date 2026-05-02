@@ -2844,7 +2844,7 @@ mod tests {
     /// register an observer (engine in-process runtime, in-process
     /// host tests, integration tests).
     #[tokio::test]
-    async fn test999_observer_is_optional() {
+    async fn test990_observer_is_optional() {
         let mut runtime = CartridgeHostRuntime::new();
         // Ensure nothing fires when no observer is set and we
         // immediately tear the runtime down.
@@ -2856,7 +2856,7 @@ mod tests {
     /// subsequent lifecycle moment doesn't fire into a torn-down
     /// bridge. Matches the Swift `setObserver(nil)` test.
     #[tokio::test]
-    async fn test999_set_observer_none_clears_previous() {
+    async fn test989_set_observer_none_clears_previous() {
         let observer = Arc::new(RecordingObserver::new());
         let mut runtime = CartridgeHostRuntime::new();
         runtime.set_observer(Some(observer.clone() as Arc<dyn CartridgeHostObserver>));
@@ -3201,6 +3201,28 @@ mod tests {
         assert_eq!(chunk.offset, cloned.offset);
         assert_eq!(chunk.len, cloned.len);
         assert_eq!(chunk.is_eof, cloned.is_eof);
+    }
+
+    // TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for
+    // multi-chunk responses: concatenated returns all chunk data joined; final_payload returns
+    // only the last chunk. A consumer that confuses the two will silently drop all but the
+    // last chunk of a multi-chunk response.
+    #[test]
+    fn test119_cartridge_response_concatenated_and_final_payload_diverge_for_multi_chunk() {
+        let chunks = vec![
+            ResponseChunk { payload: b"AAAA".to_vec(), seq: 0, offset: None, len: None, is_eof: false },
+            ResponseChunk { payload: b"BBBB".to_vec(), seq: 1, offset: None, len: None, is_eof: false },
+            ResponseChunk { payload: b"CCCC".to_vec(), seq: 2, offset: None, len: None, is_eof: true },
+        ];
+        let response = CartridgeResponse::Streaming(chunks);
+
+        assert_eq!(response.concatenated(), b"AAAABBBBCCCC");
+        assert_eq!(response.final_payload(), Some(b"CCCC".as_ref()));
+        assert_ne!(
+            response.concatenated(),
+            response.final_payload().unwrap_or_default(),
+            "concatenated and final_payload must diverge for multi-chunk responses"
+        );
     }
 
     // TEST413: Register cartridge adds entries to cap_table
@@ -5215,7 +5237,7 @@ mod tests {
     /// pre-state crossed the hard cap before insertion completed,
     /// which production prevents by gc-ing on every insert).
     #[test]
-    fn test999_gc_reduces_table_below_soft_watermark_in_one_pass() {
+    fn test988_gc_reduces_table_below_soft_watermark_in_one_pass() {
         let mut runtime = CartridgeHostRuntime::new();
         let pre_count = CartridgeHostRuntime::ROUTING_TABLE_SOFT_WATERMARK + 256;
         assert!(
@@ -5327,7 +5349,7 @@ mod tests {
     /// to recover headroom and the table could grow without bound
     /// between bursts.
     #[test]
-    fn test999_gc_secondary_pass_enforces_hard_cap() {
+    fn test987_gc_secondary_pass_enforces_hard_cap() {
         let mut runtime = CartridgeHostRuntime::new();
         // Size the seed so a SINGLE eviction-fraction pass is NOT
         // enough to bring the table under the hard cap. We need

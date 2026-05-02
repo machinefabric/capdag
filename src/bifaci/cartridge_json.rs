@@ -425,11 +425,11 @@ mod tests {
         assert_eq!(parsed.registry_url.as_deref(), Some(TEST_REGISTRY));
     }
 
-    // TEST1243b: Channel round-trips correctly. A nightly cartridge.json
+    // TEST1506: Channel round-trips correctly. A nightly cartridge.json
     // must deserialize back to the Nightly variant — channels are
     // independent namespaces, conflating them would be a real bug.
     #[test]
-    fn test1243b_channel_roundtrip_nightly() {
+    fn test1506_channel_roundtrip_nightly() {
         let cj = CartridgeJson {
             name: "pdfcartridge".to_string(),
             version: "0.168.411".to_string(),
@@ -455,11 +455,11 @@ mod tests {
         assert_eq!(parsed.channel, CartridgeChannel::Nightly);
     }
 
-    // TEST1243c: Reading a cartridge.json without `channel` is a hard
+    // TEST1507: Reading a cartridge.json without `channel` is a hard
     // error. We never assume a default — that would let an
     // unrecognized install silently masquerade as release.
     #[test]
-    fn test1243c_missing_channel_fails_to_parse() {
+    fn test1507_missing_channel_fails_to_parse() {
         let json = r#"{
             "name": "pdfcartridge",
             "version": "0.168.411",
@@ -476,14 +476,14 @@ mod tests {
         );
     }
 
-    // TEST1243d: Reading a cartridge.json without `registry_url` is a
+    // TEST1508: Reading a cartridge.json without `registry_url` is a
     // hard error too. The field is required-but-nullable; absence
     // means the file was written by a pre-registry-aware installer
     // and we can't tell whether it was meant to be dev or registry —
     // both cases fail the three-place check, so we surface the
     // schema gap immediately.
     #[test]
-    fn test1243d_missing_registry_url_fails_to_parse() {
+    fn test1508_missing_registry_url_fails_to_parse() {
         let json = r#"{
             "name": "pdfcartridge",
             "version": "0.168.411",
@@ -614,14 +614,14 @@ mod tests {
         assert_eq!(loaded.resolve_entry_point(dir.path()), binary_path);
     }
 
-    // TEST1247b: Three-place rule — a registry cartridge whose folder
+    // TEST1509: Three-place rule — a registry cartridge whose folder
     // slug doesn't match `slug_for(registry_url)` is rejected. This
     // catches the case where a cartridge tree was hand-copied
     // between registry roots, or a buggy installer wrote the wrong
     // slug. The error names both slugs so the operator can tell at
     // a glance which side is wrong.
     #[test]
-    fn test1247b_read_from_dir_rejects_slug_mismatch() {
+    fn test1509_read_from_dir_rejects_slug_mismatch() {
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("mycartridge");
         std::fs::write(&binary_path, b"#!/bin/sh\necho hello").unwrap();
@@ -659,13 +659,13 @@ mod tests {
         }
     }
 
-    // TEST1247c: Three-place rule — a dev cartridge.json under a
+    // TEST1510: Three-place rule — a dev cartridge.json under a
     // non-dev folder is rejected. Equivalent to a dev-built
     // cartridge being moved into a registry's folder; the host
     // refuses because the binary was never built/signed for that
     // registry.
     #[test]
-    fn test1247c_read_from_dir_rejects_dev_in_registry_folder() {
+    fn test1510_read_from_dir_rejects_dev_in_registry_folder() {
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("mycartridge");
         std::fs::write(&binary_path, b"#!/bin/sh\necho hello").unwrap();
@@ -693,13 +693,13 @@ mod tests {
         );
     }
 
-    // TEST1247d: Three-place rule — a registry cartridge.json under
+    // TEST1511: Three-place rule — a registry cartridge.json under
     // the dev folder is rejected. Equivalent to a published
     // cartridge being dropped into the dev tree; the dev tree is
     // explicitly the only place a null `registry_url` is allowed,
     // so a non-null one here means the layout is corrupted.
     #[test]
-    fn test1247d_read_from_dir_rejects_registry_in_dev_folder() {
+    fn test1511_read_from_dir_rejects_registry_in_dev_folder() {
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("mycartridge");
         std::fs::write(&binary_path, b"#!/bin/sh\necho hello").unwrap();
@@ -727,12 +727,12 @@ mod tests {
         );
     }
 
-    // TEST1247e: A dev cartridge.json under the dev folder is
+    // TEST1512: A dev cartridge.json under the dev folder is
     // accepted. This is the only path that ends with a successful
-    // dev install; together with 1247c/1247d it pins the rule that
+    // dev install; together with 1510/1511 it pins the rule that
     // dev provenance and the dev folder are an inseparable pair.
     #[test]
-    fn test1247e_read_from_dir_accepts_dev_in_dev_folder() {
+    fn test1512_read_from_dir_accepts_dev_in_dev_folder() {
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("mycartridge");
         std::fs::write(&binary_path, b"#!/bin/sh\necho hello").unwrap();

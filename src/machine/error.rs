@@ -149,6 +149,35 @@ pub enum MachineParseError {
 mod tests {
     use super::*;
 
+    // TEST1134: All MachineAbstractionError variants are of type MachineAbstractionError and
+    // are convertible to MachineParseError::Resolution. This pins the error hierarchy so a
+    // refactor that accidentally changes the type relationship is caught immediately.
+    #[test]
+    fn test1134_all_abstraction_error_variants_are_machine_abstraction_error() {
+        let variants: Vec<MachineAbstractionError> = vec![
+            MachineAbstractionError::NoCapabilitySteps,
+            MachineAbstractionError::UnknownCap { cap_urn: "cap:op=x".to_string() },
+            MachineAbstractionError::UnmatchedSourceInCapArgs {
+                strand_index: 0,
+                cap_urn: "cap:op=x".to_string(),
+                source_urn: "media:pdf".to_string(),
+            },
+            MachineAbstractionError::AmbiguousMachineNotation {
+                strand_index: 1,
+                cap_urn: "cap:op=y".to_string(),
+            },
+            MachineAbstractionError::CyclicMachineStrand { strand_index: 2 },
+        ];
+
+        for variant in variants {
+            let parse_error: MachineParseError = variant.into();
+            assert!(
+                matches!(parse_error, MachineParseError::Resolution(_)),
+                "every MachineAbstractionError must convert to MachineParseError::Resolution"
+            );
+        }
+    }
+
     // TEST1147: MachineSyntaxError Display includes position and detail for each variant
     #[test]
     fn test1147_machine_syntax_error_display_is_specific() {

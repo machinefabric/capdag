@@ -1612,10 +1612,10 @@ mod tests {
         assert!(server.get_cartridge_by_id(CartridgeChannel::Nightly, "testcartridge").unwrap().is_none());
     }
 
-    // TEST326b: A cartridge with the same id can independently exist in
+    // TEST300: A cartridge with the same id can independently exist in
     // both channels. Each lookup must return the channel-specific entry.
     #[test]
-    fn test326b_get_cartridge_by_id_channel_isolation() {
+    fn test300_get_cartridge_by_id_channel_isolation() {
         let mut release_entry = build_registry_entry(
             "Foo (release)",
             vec![build_cap_group("g", vec![build_cap("cap:in=media:;out=media:", "Identity", "identity")], vec![])],
@@ -1920,11 +1920,11 @@ mod tests {
         assert_eq!(cartridge.iter_caps().count(), 1);
     }
 
-    // TEST336: A registry response with a malformed cap URN inside
+    // TEST319: A registry response with a malformed cap URN inside
     // cap_groups must propagate as ParseError when indexed into the
     // cache, not silently disappear.
     #[tokio::test]
-    async fn test336_update_cache_rejects_malformed_cap_urn() {
+    async fn test319_update_cache_rejects_malformed_cap_urn() {
         let repo = CartridgeRepo::new(3600);
         let registry = CartridgeRegistryResponse {
             cartridges: vec![build_cartridge_info(
