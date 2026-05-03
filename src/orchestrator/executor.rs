@@ -1235,11 +1235,23 @@ impl ExecutionContext {
                 .ok_or_else(|| ExecutionError::NoIncomingData {
                     node: edge.from.clone(),
                 })?;
-            let is_seq = self
+            // Strict lookup: every node in `node_data` MUST also
+            // have an entry in `node_is_sequence`. Initial inputs
+            // get theirs from `execute_dag`'s init loop;
+            // intermediate caps get theirs from the output-write
+            // branches above (both `true` and `false` cases now
+            // insert explicitly). A miss here is a wiring bug.
+            let is_seq = *self
                 .node_is_sequence
                 .get(&edge.from)
-                .copied()
-                .unwrap_or(false);
+                .ok_or_else(|| ExecutionError::HostError(format!(
+                    "execute_fanin: node '{}' has data but no \
+                     sequence flag — initial inputs must declare \
+                     scalar/sequence in `initial_is_sequence`, and \
+                     intermediate caps must set the flag when they \
+                     write their output node.",
+                    edge.from,
+                )))?;
             inputs.push((data.as_slice(), edge.in_media.as_str(), is_seq));
         }
         // Open ONE cap invocation for all inputs
@@ -1376,6 +1388,12 @@ impl ExecutionContext {
             // Scalar: decoded_items has one entry with concatenated raw bytes
             let output_bytes = decoded_items.into_iter().next().unwrap_or_default();
             self.node_data.insert(to.clone(), output_bytes);
+            // Explicit false flag matches the strict invariant the
+            // dispatch path requires (see send-stream loop above).
+            // The previous code relied on absent-key-defaults-to-false,
+            // which forced every consumer to do permissive lookups
+            // and made the contract ambiguous.
+            self.node_is_sequence.insert(to.clone(), false);
         }
         Ok(())
     }
@@ -1386,12 +1404,37 @@ impl ExecutionContext {
 // =============================================================================
 
 /// Execute a resolved DAG: discover cartridges, set up infrastructure, run edge groups.
+/// Execute a resolved DAG end-to-end.
+///
+/// `initial_is_sequence` is the per-node sequence-flag map that
+/// mirrors machfab's interpreter contract (see
+/// `machfab::cap::capdag_service::execute_dag` and
+/// `machfab::ops::cap_interpreter::interpreter::resolve_inputs`).
+/// For every node in `initial_inputs` there MUST be a matching
+/// entry here declaring whether the bytes are a CBOR sequence
+/// (`true` — multiple self-delimiting items, dispatched as
+/// separate chunks) or a scalar blob (`false` — one chunk,
+/// wrapped in `Value::Bytes`).
+///
+/// Missing or extra entries are not papered over — they're a
+/// programmer error and we fail hard so the call site is fixed
+/// at the source. A silent default would let a sequence input
+/// flow into a scalar-shaped chunk on the wire (or vice-versa)
+/// and produce confusing downstream parse errors hours later
+/// inside the receiving cap.
+///
+/// The flag flows through to `send_one_stream`
+/// (orchestrator/stream_io.rs) which branches on it: sequence →
+/// split self-delimiting CBOR values into per-chunk frames;
+/// scalar → wrap raw bytes in `Value::Bytes` and chunk by
+/// `max_chunk`.
 pub async fn execute_dag(
     graph: &ResolvedGraph,
     cartridge_dir: PathBuf,
     registry_url: String,
     channel: crate::bifaci::cartridge_repo::CartridgeChannel,
     initial_inputs: HashMap<String, NodeData>,
+    initial_is_sequence: HashMap<String, bool>,
     dev_binaries: Vec<PathBuf>,
     cap_registry: Arc<CapRegistry>,
     progress_fn: Option<&CapProgressFn>,
@@ -1415,8 +1458,43 @@ pub async fn execute_dag(
     // namespace.
     ctx.add_cartridge_host(cartridges, channel).await?;
 
-    // 3. Resolve initial inputs to raw bytes and set on nodes
+    // 3. Resolve initial inputs to raw bytes and set on nodes.
+    //    Enforce strict 1:1 correspondence between
+    //    `initial_inputs` and `initial_is_sequence`: every input
+    //    node has an explicit sequence flag, every flag entry
+    //    refers to an input node. Missing or extra entries are a
+    //    programmer error, not a silent default.
+    let inputs_keys: HashSet<&str> =
+        initial_inputs.keys().map(|s| s.as_str()).collect();
+    let flags_keys: HashSet<&str> =
+        initial_is_sequence.keys().map(|s| s.as_str()).collect();
+    let missing_flags: Vec<&str> =
+        inputs_keys.difference(&flags_keys).copied().collect();
+    if !missing_flags.is_empty() {
+        return Err(ExecutionError::HostError(format!(
+            "execute_dag: initial_is_sequence is missing entries for input \
+             node(s) {:?}. Every entry in `initial_inputs` requires an \
+             explicit sequence/scalar flag — see machfab's `resolve_inputs` \
+             for the canonical population pattern.",
+            missing_flags,
+        )));
+    }
+    let extra_flags: Vec<&str> =
+        flags_keys.difference(&inputs_keys).copied().collect();
+    if !extra_flags.is_empty() {
+        return Err(ExecutionError::HostError(format!(
+            "execute_dag: initial_is_sequence has flag(s) for node(s) \
+             {:?} that are not present in `initial_inputs`. Either drop \
+             the stale flags or supply the matching input data.",
+            extra_flags,
+        )));
+    }
     for (node, data) in initial_inputs {
+        // unwrap is sound: presence checked exhaustively above.
+        let is_seq = *initial_is_sequence
+            .get(&node)
+            .expect("initial_is_sequence key set verified above");
+        ctx.set_node_is_sequence(node.clone(), is_seq);
         let bytes = data.into_bytes().await?;
         ctx.set_node_data(node, bytes);
     }

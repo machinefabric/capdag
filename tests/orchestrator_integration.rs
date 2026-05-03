@@ -241,6 +241,17 @@ fn setup_test_env() -> (TempDir, PathBuf, Vec<PathBuf>) {
     (temp_dir, cartridge_dir, dev_binaries)
 }
 
+/// Build the `initial_is_sequence` map that pairs with the
+/// caller's `initial_inputs`, declaring every input node as
+/// scalar. The orchestrator now requires a 1:1 match between
+/// the keys of `initial_inputs` and `initial_is_sequence`
+/// (missing or extra entries are a hard error). Every test in
+/// this file feeds scalar inputs (single text/bytes/file blob
+/// per input node), so this helper covers them all.
+fn all_scalar(inputs: &HashMap<String, NodeData>) -> HashMap<String, bool> {
+    inputs.keys().map(|k| (k.clone(), false)).collect()
+}
+
 /// Create an `Arc<CapRegistry>` with all testcartridge caps.
 /// Used by both `parse_machine_to_cap_dag` (which needs the
 /// resolver's `args` lists) and `execute_dag` (which looks up
@@ -333,12 +344,14 @@ async fn test889_execute_single_edge_dag() {
 
     // Execute DAG
     let cap_registry = create_test_cap_registry();
+    let initial_is_sequence = all_scalar(&initial_inputs);
     let result = execute_dag(
         &graph,
         cartridge_dir,
         "https://cartridges.machinefabric.com/manifest".to_string(),
         capdag::CartridgeChannel::Release,
         initial_inputs,
+        initial_is_sequence,
         dev_binaries,
         cap_registry,
         None,
@@ -381,12 +394,14 @@ async fn test888_execute_edge1_to_edge2_chain() {
     initial_inputs.insert("A".to_string(), NodeData::Text("CHAIN".to_string()));
 
     let cap_registry = create_test_cap_registry();
+    let initial_is_sequence = all_scalar(&initial_inputs);
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
         "https://cartridges.machinefabric.com/manifest".to_string(),
         capdag::CartridgeChannel::Release,
         initial_inputs,
+        initial_is_sequence,
         dev_binaries,
         cap_registry,
         None,
@@ -429,12 +444,14 @@ async fn test887_execute_with_file_input() {
     let mut initial_inputs = HashMap::new();
     initial_inputs.insert("input".to_string(), NodeData::FilePath(input_file));
 
+    let initial_is_sequence = all_scalar(&initial_inputs);
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
         "https://cartridges.machinefabric.com/manifest".to_string(),
         capdag::CartridgeChannel::Release,
         initial_inputs,
+        initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
         None,
@@ -473,12 +490,14 @@ async fn test952_execute_large_payload() {
     let mut initial_inputs = HashMap::new();
     initial_inputs.insert("input".to_string(), NodeData::Bytes(vec![]));
 
+    let initial_is_sequence = all_scalar(&initial_inputs);
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
         "https://cartridges.machinefabric.com/manifest".to_string(),
         capdag::CartridgeChannel::Release,
         initial_inputs,
+        initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
         None,
@@ -526,12 +545,14 @@ async fn test951_fan_in_pattern() {
     initial_inputs.insert("A".to_string(), NodeData::Text("PATH1".to_string()));
     initial_inputs.insert("C".to_string(), NodeData::Text("PATH2".to_string()));
 
+    let initial_is_sequence = all_scalar(&initial_inputs);
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
         "https://cartridges.machinefabric.com/manifest".to_string(),
         capdag::CartridgeChannel::Release,
         initial_inputs,
+        initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
         None,
@@ -677,12 +698,14 @@ async fn test946_four_machine() {
     let mut initial_inputs = HashMap::new();
     initial_inputs.insert("A".to_string(), NodeData::Text("hello".to_string()));
 
+    let initial_is_sequence = all_scalar(&initial_inputs);
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
         "https://cartridges.machinefabric.com/manifest".to_string(),
         capdag::CartridgeChannel::Release,
         initial_inputs,
+        initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
         None,
@@ -734,12 +757,14 @@ async fn test945_five_machine() {
     let mut initial_inputs = HashMap::new();
     initial_inputs.insert("A".to_string(), NodeData::Text("hello".to_string()));
 
+    let initial_is_sequence = all_scalar(&initial_inputs);
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
         "https://cartridges.machinefabric.com/manifest".to_string(),
         capdag::CartridgeChannel::Release,
         initial_inputs,
+        initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
         None,
@@ -791,12 +816,14 @@ async fn test944_six_machine() {
     let mut initial_inputs = HashMap::new();
     initial_inputs.insert("A".to_string(), NodeData::Text("hello".to_string()));
 
+    let initial_is_sequence = all_scalar(&initial_inputs);
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
         "https://cartridges.machinefabric.com/manifest".to_string(),
         capdag::CartridgeChannel::Release,
         initial_inputs,
+        initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
         None,

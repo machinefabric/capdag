@@ -1,10 +1,10 @@
 # Rust Test Catalog
 
-**Total Tests:** 1075
+**Total Tests:** 1079
 
 **Numbered Tests:** 1075
 
-**Unnumbered Tests:** 0
+**Unnumbered Tests:** 4
 
 **Numbered Tests Missing Descriptions:** 0
 
@@ -737,10 +737,10 @@ This catalog lists all tests in the Rust codebase.
 | test839 | `test839_peer_response_delivers_logs_before_stream_start` | TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive. Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads. | src/bifaci/cartridge_runtime.rs:7972 |
 | test840 | `test840_peer_response_collect_bytes_discards_logs` | TEST840: PeerResponse::collect_bytes discards LOG frames | src/bifaci/cartridge_runtime.rs:8083 |
 | test841 | `test841_peer_response_collect_value_discards_logs` | TEST841: PeerResponse::collect_value discards LOG frames | src/bifaci/cartridge_runtime.rs:8149 |
-| test842 | `test842_run_with_keepalive_returns_result` | TEST842: run_with_keepalive returns closure result (fast operation, no keepalive frames) | src/bifaci/cartridge_runtime.rs:8308 |
-| test843 | `test843_run_with_keepalive_returns_result_type` | TEST843: run_with_keepalive returns Ok/Err from closure | src/bifaci/cartridge_runtime.rs:8340 |
-| test844 | `test844_run_with_keepalive_propagates_error` | TEST844: run_with_keepalive propagates errors from closure | src/bifaci/cartridge_runtime.rs:8359 |
-| test845 | `test845_progress_sender_emits_frames` | TEST845: ProgressSender emits progress and log frames independently of OutputStream | src/bifaci/cartridge_runtime.rs:8385 |
+| test842 | `test842_run_with_keepalive_returns_result` | TEST842: run_with_keepalive returns closure result (fast operation, no keepalive PROGRESS frames). `run_with_keepalive` emits two distinct families of Log frames: keepalive PROGRESS ticks (built via `Frame::progress`, `meta.level == "progress"`, fired only when the 5s ticker expires) and diagnostic ticker-lifecycle frames (built via the local `keepalive_log_frame` helper, `meta.level == "debug"`, ALWAYS fired once at start and once at stop — independent of how long the work took). For an instant operation we expect exactly the two diagnostic frames and zero progress frames. Filtering by `frame_type == Log` alone would also match the diagnostic frames and produce a false positive; the test must discriminate by the `level` meta field, not the frame type. | src/bifaci/cartridge_runtime.rs:8321 |
+| test843 | `test843_run_with_keepalive_returns_result_type` | TEST843: run_with_keepalive returns Ok/Err from closure | src/bifaci/cartridge_runtime.rs:8371 |
+| test844 | `test844_run_with_keepalive_propagates_error` | TEST844: run_with_keepalive propagates errors from closure | src/bifaci/cartridge_runtime.rs:8390 |
+| test845 | `test845_progress_sender_emits_frames` | TEST845: ProgressSender emits progress and log frames independently of OutputStream | src/bifaci/cartridge_runtime.rs:8416 |
 | test846 | `test846_progress_frame_roundtrip` | TEST846: Test progress LOG frame encode/decode roundtrip preserves progress float | src/bifaci/io.rs:1008 |
 | test847 | `test847_progress_double_roundtrip` | TEST847: Double roundtrip (modelcartridge → relay → candlecartridge) | src/bifaci/io.rs:1057 |
 | test848 | `test848_relay_notify_roundtrip` | TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits | src/bifaci/io.rs:1746 |
@@ -1050,7 +1050,7 @@ This catalog lists all tests in the Rust codebase.
 | test1267 | `test1267_structure_match_both_record` | TEST1267: Record-shaped outputs can feed record-shaped inputs without error. | src/orchestrator/parser.rs:704 |
 | test1268 | `test1268_structure_match_both_opaque` | TEST1268: Opaque outputs can feed opaque inputs without triggering structure conflicts. | src/orchestrator/parser.rs:739 |
 | test1269 | `test1269_parse_multiline_machine` | TEST1269: Multi-line machine notation parses successfully with the same semantics as inline notation. | src/orchestrator/parser.rs:774 |
-| test1270 | `test1270_get_own_memory_mb_returns_values` | TEST1270: Runtime memory inspection returns non-negative resident and virtual memory values. | src/bifaci/cartridge_runtime.rs:8419 |
+| test1270 | `test1270_get_own_memory_mb_returns_values` | TEST1270: Runtime memory inspection returns non-negative resident and virtual memory values. | src/bifaci/cartridge_runtime.rs:8450 |
 | test1271 | `test1271_media_adapter_selection_constant` | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags | src/urn/media_urn.rs:1286 |
 | test1272 | `test1272_adapter_cap_constant_parses` | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn | src/standard/caps.rs:1253 |
 | test1273 | `test1273_adapter_selection_urn_builder` | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs | src/standard/caps.rs:1264 |
@@ -1091,11 +1091,27 @@ This catalog lists all tests in the Rust codebase.
 | test1510 | `test1510_read_from_dir_rejects_dev_in_registry_folder` | TEST1510: Three-place rule — a dev cartridge.json under a non-dev folder is rejected. Equivalent to a dev-built cartridge being moved into a registry's folder; the host refuses because the binary was never built/signed for that registry. | src/bifaci/cartridge_json.rs:668 |
 | test1511 | `test1511_read_from_dir_rejects_registry_in_dev_folder` | TEST1511: Three-place rule — a registry cartridge.json under the dev folder is rejected. Equivalent to a published cartridge being dropped into the dev tree; the dev tree is explicitly the only place a null `registry_url` is allowed, so a non-null one here means the layout is corrupted. | src/bifaci/cartridge_json.rs:702 |
 | test1512 | `test1512_read_from_dir_accepts_dev_in_dev_folder` | TEST1512: A dev cartridge.json under the dev folder is accepted. This is the only path that ends with a successful dev install; together with 1510/1511 it pins the rule that dev provenance and the dev folder are an inseparable pair. | src/bifaci/cartridge_json.rs:735 |
+| | | | |
+| unnumbered | `test_all_masters_ready_does_not_overshoot` |  | src/bifaci/relay_switch.rs:4305 |
+| unnumbered | `test_all_masters_ready_false_when_expected_count_unset` |  | src/bifaci/relay_switch.rs:4260 |
+| unnumbered | `test_all_masters_ready_false_when_partially_connected` |  | src/bifaci/relay_switch.rs:4277 |
+| unnumbered | `test_all_masters_ready_true_when_expectation_met` |  | src/bifaci/relay_switch.rs:4292 |
+---
+
+## Unnumbered Tests
+
+The following tests are cataloged but do not currently participate in numeric test indexing.
+
+- `test_all_masters_ready_does_not_overshoot` — src/bifaci/relay_switch.rs:4305
+- `test_all_masters_ready_false_when_expected_count_unset` — src/bifaci/relay_switch.rs:4260
+- `test_all_masters_ready_false_when_partially_connected` — src/bifaci/relay_switch.rs:4277
+- `test_all_masters_ready_true_when_expectation_met` — src/bifaci/relay_switch.rs:4292
+
 ---
 
 *Generated from Rust source tree*
-*Total tests: 1075*
+*Total tests: 1079*
 *Total numbered tests: 1075*
-*Total unnumbered tests: 0*
+*Total unnumbered tests: 4*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 0*
