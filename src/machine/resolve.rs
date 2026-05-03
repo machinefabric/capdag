@@ -1296,7 +1296,7 @@ mod tests {
             is_loop: false,
         }];
 
-        let strand = resolve_pre_interned(&nodes, &wirings, &registry, 0).unwrap();
+        let strand = resolve_pre_interned(nodes, &wirings, &registry, 0).unwrap();
         assert_eq!(strand.edges().len(), 1);
 
         let bindings = &strand.edges()[0].assignment;

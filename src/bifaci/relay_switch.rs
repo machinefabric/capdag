@@ -4210,4 +4210,111 @@ mod tests {
         drop(st_extra);
         drop(ht_extra);
     }
+
+    // =========================================================================
+    // all_masters_ready / set_expected_master_count
+    // =========================================================================
+    //
+    // The host's `.configuring → .ready` advance is gated on this
+    // predicate returning true, so its corner cases matter:
+    //
+    //   - Returns false when expected count is unset (default 0).
+    //     This catches the "engine forgot to declare its expected
+    //     count at boot" case — better to hang at .configuring than
+    //     to advance prematurely.
+    //
+    //   - Returns false when only some of the expected masters have
+    //     connected. This is the bug we hit live: with the internal
+    //     master alone connected (4 caps from t=0), the host saw
+    //     ready immediately, before external providers had spawned.
+    //
+    //   - Returns true exactly once the expected count is met AND
+    //     every connected master is healthy with non-empty caps.
+
+    /// Helper: build a switch whose constructor reads RelayNotify from
+    /// `n` slaves, each registering one cap. Returns the switch ready
+    /// for `set_expected_master_count` / `all_masters_ready` calls.
+    async fn build_switch_with_n_masters(n: usize) -> Arc<RelaySwitch> {
+        let mut engine_socks = Vec::with_capacity(n);
+        for i in 0..n {
+            let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
+            engine_socks.push(engine_sock);
+            let cap = format!("cap:in=\"media:t{}\";op=noop;out=\"media:t{}\"", i, i);
+            tokio::spawn(async move {
+                slave_notify_with_identity(
+                    slave_sock,
+                    &serde_json::json!(["cap:in=media:;out=media:", cap]),
+                    &Limits::default(),
+                )
+                .await;
+            });
+        }
+        Arc::new(
+            RelaySwitch::new(engine_socks, test_cap_registry())
+                .await
+                .unwrap(),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_all_masters_ready_false_when_expected_count_unset() {
+        // Even with a connected, fully-RelayNotify'd master, the
+        // predicate must return false until the engine explicitly
+        // declares its expected master count via
+        // set_expected_master_count. The default-zero policy is the
+        // safety net that makes "engine boot forgot to declare its
+        // expected count" surface as a hung readiness gate rather
+        // than a false-positive ready signal.
+        let switch = build_switch_with_n_masters(1).await;
+        assert_eq!(
+            switch.all_masters_ready().await,
+            false,
+            "all_masters_ready must return false when expected_master_count is 0"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_all_masters_ready_false_when_partially_connected() {
+        // 1 master connected, 2 expected. This is the live regression
+        // we shipped: the internal master had caps from t=0 but the
+        // external-providers master was still spawning cartridges.
+        // The host saw ready immediately and the bidi never started.
+        let switch = build_switch_with_n_masters(1).await;
+        switch.set_expected_master_count(2);
+        assert_eq!(
+            switch.all_masters_ready().await,
+            false,
+            "all_masters_ready must return false until masters.len() reaches expected_master_count"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_all_masters_ready_true_when_expectation_met() {
+        // 2 masters connected, 2 expected, both healthy with caps —
+        // the only state where readiness should fire.
+        let switch = build_switch_with_n_masters(2).await;
+        switch.set_expected_master_count(2);
+        assert_eq!(
+            switch.all_masters_ready().await,
+            true,
+            "all_masters_ready must return true when expected count is met and every master has caps"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_all_masters_ready_does_not_overshoot() {
+        // 2 masters connected, 1 expected. The predicate should
+        // still report ready — the engine got more masters than it
+        // declared, which is fine; "at least expected" is the
+        // semantic. (A regression that used `==` instead of `>=`
+        // would make this case false and break edition setups where
+        // an extra master arrives later.)
+        let switch = build_switch_with_n_masters(2).await;
+        switch.set_expected_master_count(1);
+        assert_eq!(
+            switch.all_masters_ready().await,
+            true,
+            "all_masters_ready uses >= not == against expected_master_count"
+        );
+    }
 }

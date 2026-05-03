@@ -8303,7 +8303,20 @@ mod tests {
         assert!(found.is_none(), "Invalid URN must return None, not panic");
     }
 
-    // TEST842: run_with_keepalive returns closure result (fast operation, no keepalive frames)
+    // TEST842: run_with_keepalive returns closure result (fast operation, no keepalive PROGRESS frames).
+    //
+    // `run_with_keepalive` emits two distinct families of Log
+    // frames: keepalive PROGRESS ticks (built via `Frame::progress`,
+    // `meta.level == "progress"`, fired only when the 5s ticker
+    // expires) and diagnostic ticker-lifecycle frames (built via
+    // the local `keepalive_log_frame` helper, `meta.level ==
+    // "debug"`, ALWAYS fired once at start and once at stop —
+    // independent of how long the work took). For an instant
+    // operation we expect exactly the two diagnostic frames and
+    // zero progress frames. Filtering by `frame_type == Log`
+    // alone would also match the diagnostic frames and produce a
+    // false positive; the test must discriminate by the `level`
+    // meta field, not the frame type.
     #[tokio::test]
     async fn test842_run_with_keepalive_returns_result() {
         let (sender, frames) = MockFrameSender::new();
@@ -8316,22 +8329,40 @@ mod tests {
             DEFAULT_MAX_CHUNK,
         );
 
-        // Run a fast operation — no keepalive frame expected (interval is 30s)
+        // Run a fast operation — no keepalive PROGRESS frame
+        // expected (the 5s ticker won't fire before completion).
         let result: i32 = stream
             .run_with_keepalive(0.25, "Loading model", || 42)
             .await;
         assert_eq!(result, 42, "Closure result must be returned");
 
-        // No keepalive frame should have been emitted (operation was instant)
         let captured = frames.lock().unwrap();
-        let progress_frames: Vec<_> = captured
+        let progress_ticks: Vec<_> = captured
             .iter()
-            .filter(|f| f.frame_type == FrameType::Log)
+            .filter(|f| {
+                if f.frame_type != FrameType::Log {
+                    return false;
+                }
+                f.meta
+                    .as_ref()
+                    .and_then(|m| m.get("level"))
+                    .and_then(|v| match v {
+                        ciborium::Value::Text(s) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    == Some("progress")
+            })
             .collect();
         assert_eq!(
-            progress_frames.len(),
+            progress_ticks.len(),
             0,
-            "No keepalive frame for instant operation"
+            "No keepalive PROGRESS tick for instant operation. \
+             Diagnostic ticker-lifecycle frames (level=\"debug\") are expected \
+             and not counted here. Total Log frames captured: {}.",
+            captured
+                .iter()
+                .filter(|f| f.frame_type == FrameType::Log)
+                .count()
         );
     }
 
