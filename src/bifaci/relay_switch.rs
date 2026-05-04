@@ -234,7 +234,30 @@ impl CartridgeRuntimeStats {
 /// The field is required-but-nullable on the wire — missing
 /// `registry_url` is a parse error so a downstream reader can never
 /// silently accept an old-schema payload.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+/// Order-theoretic note: this struct derives only `PartialEq`/`Eq` —
+/// not `PartialOrd`/`Ord` via `derive`. The relay sorts and dedups
+/// these for inventory aggregation, and the natural sort key is the
+/// install's **identity tuple** `(registry_url, channel, id,
+/// version, sha256)` — five flat strings/enums that ARE totally
+/// ordered. The `cap_groups` field, on the other hand, contains
+/// `Cap` URNs whose semantic order is the triple partial order of
+/// `(in, out, y)` with mixed variance (see `docs/02-FORMAL-FOUNDATIONS.md`).
+/// Cap URNs intentionally do NOT implement `Ord`: a totally-ordered
+/// `Ord::cmp` would either flatten the 3D mixed-variance domain (one
+/// of capdag's documented failure modes — §18 of formal foundations)
+/// or pick a meaningless lexicographic-of-canonical-form ordering.
+///
+/// We therefore implement `PartialOrd`/`Ord` *manually*, comparing
+/// only the identity tuple and ignoring `cap_groups` for purposes of
+/// sortability. Two installs of the same identity but different
+/// manifests still compare equal under this ordering — which is the
+/// correct semantic for an *inventory* sort: the inventory is keyed
+/// by identity. Equality (`PartialEq`/`Eq`) still includes
+/// `cap_groups` (manifest changes are real changes the watcher must
+/// notice), but we drop `cap_groups` from `Hash` for the same reason
+/// — actually we don't derive `Hash`, so this only matters for the
+/// `Eq`-implies-`Hash`-consistency rule via the manual impls below.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InstalledCartridgeIdentity {
     /// Registry URL the cartridge was published from. `None` ⇔ dev
     /// install. Compared byte-wise; never normalized.
@@ -243,6 +266,15 @@ pub struct InstalledCartridgeIdentity {
     pub id: String,
     pub version: String,
     pub sha256: String,
+    /// Cap groups exactly as the cartridge declared them in its
+    /// manifest. Each group bundles a set of caps with the
+    /// `adapter_urns` it volunteers to inspect. Empty when the
+    /// cartridge failed attachment before its manifest could be parsed.
+    /// This is the per-cartridge ground truth; the relay's flat cap
+    /// snapshot is computed from these groups, not stored separately
+    /// on the wire.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cap_groups: Vec<crate::bifaci::manifest::CapGroup>,
     /// Present when the cartridge failed attachment (manifest, handshake,
     /// identity, etc.). Absent when the cartridge is attached and healthy.
     /// Serialized field name is `attachment_error` so the Swift-side
@@ -257,18 +289,88 @@ pub struct InstalledCartridgeIdentity {
 }
 
 impl InstalledCartridgeIdentity {
+    /// Order key for inventory sort/dedup. Only the five fields that
+    /// uniquely identify an install participate in the lexicographic
+    /// comparison — `cap_groups` / `attachment_error` / `runtime_stats`
+    /// carry content that has no natural total order (cap URNs are
+    /// 3D mixed-variance partial orders; runtime stats are observation-
+    /// time data), so they're excluded from the sort key.
+    ///
+    /// This is the same five-field tuple that `dedup_by` collapses
+    /// after sorting, so identical identities become adjacent and
+    /// dedup regardless of whether their manifests or runtime stats
+    /// happened to differ at snapshot time.
+    pub fn identity_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (
+            &self.registry_url,
+            &self.channel,
+            &self.id,
+            &self.version,
+            &self.sha256,
+        )
+            .cmp(&(
+                &other.registry_url,
+                &other.channel,
+                &other.id,
+                &other.version,
+                &other.sha256,
+            ))
+    }
+}
+
+impl InstalledCartridgeIdentity {
     /// On-disk slug derived from `registry_url`. Dev installs hash to
     /// the literal `dev`; published installs hash to the first 16
     /// hex chars of the URL's SHA-256.
     pub fn registry_slug(&self) -> String {
         crate::bifaci::cartridge_slug::slug_for(self.registry_url.as_deref())
     }
+
+    /// Flat cap-URN view across this cartridge's groups, deduplicated
+    /// while preserving the order in which urns first appear. Returned
+    /// rather than stored on the wire — `cap_groups` is the canonical
+    /// source.
+    pub fn cap_urns(&self) -> Vec<String> {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut out: Vec<String> = Vec::new();
+        for group in &self.cap_groups {
+            for cap in &group.caps {
+                let urn = cap.urn.to_string();
+                if seen.insert(urn.clone()) {
+                    out.push(urn);
+                }
+            }
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RelayNotifyCapabilitiesPayload {
-    pub caps: Vec<String>,
     pub installed_cartridges: Vec<InstalledCartridgeIdentity>,
+}
+
+impl RelayNotifyCapabilitiesPayload {
+    /// Construct a payload from a list of installed-cartridge identities.
+    pub fn new(installed_cartridges: Vec<InstalledCartridgeIdentity>) -> Self {
+        Self { installed_cartridges }
+    }
+
+    /// Flat cap-URN union across every cartridge in the payload,
+    /// deduplicated while preserving first-seen order. Computed view —
+    /// not stored on the wire.
+    pub fn cap_urns(&self) -> Vec<String> {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut out: Vec<String> = Vec::new();
+        for cart in &self.installed_cartridges {
+            for urn in cart.cap_urns() {
+                if seen.insert(urn.clone()) {
+                    out.push(urn);
+                }
+            }
+        }
+        out
+    }
 }
 
 /// Connection to a single RelayMaster with its socket I/O.
@@ -374,14 +476,29 @@ pub struct RelaySwitch {
     /// Atomic so reads from the readiness predicate don't need to
     /// take the masters lock.
     expected_master_count: AtomicUsize,
-    /// Stop flag for the persistent background drain pump. Set by `Drop`
-    /// so the pump task exits on its next iteration.
+    /// Stop flag for the persistent background drain pump and the
+    /// runtime identity-probe driver. Set by `Drop` so both tasks
+    /// exit on their next iteration.
     background_pump_stop: Arc<AtomicBool>,
-    /// Handle for the persistent background drain pump, stored so `Drop`
-    /// can abort the task when the switch goes away. `None` until
-    /// `start_background_pump` is called exactly once after the switch is
-    /// Arc-wrapped.
-    background_pump_handle: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Handles for the persistent background tasks (frame pump +
+    /// identity-probe driver), stored so `Drop` can abort them when
+    /// the switch goes away. Empty until `start_background_pump` is
+    /// called exactly once after the switch is Arc-wrapped.
+    background_pump_handle: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    /// Queue of master indexes whose advertised cap set transitioned
+    /// from empty to non-empty since the last identity probe. The
+    /// background pump drains this queue and runs end-to-end identity
+    /// probes against each named master, gating cap-table publication
+    /// on probe success — the runtime counterpart to the synchronous
+    /// `add_master` probe that fires at handshake. We push from
+    /// `handle_master_frame`'s RelayNotify-update branch and consume
+    /// from a dedicated task in `start_background_pump`.
+    pending_identity_probes_tx: mpsc::UnboundedSender<usize>,
+    /// Receive end of the probe queue, owned by the relay so we can
+    /// hand it to the background pump's verification task at startup.
+    /// `Mutex<Option<…>>` so the pump can `take` it exactly once;
+    /// re-call attempts are caller-error.
+    pending_identity_probes_rx: std::sync::Mutex<Option<mpsc::UnboundedReceiver<usize>>>,
 }
 
 impl std::fmt::Debug for RelaySwitch {
@@ -451,7 +568,7 @@ impl RelaySwitch {
                 .to_vec();
 
             let mut payload = parse_relay_notify_payload(&caps_payload)?;
-            let mut caps = payload.caps.clone();
+            let mut caps = payload.cap_urns();
             let mut limits = notify_frame.relay_notify_limits().unwrap_or_default();
 
             let mut seq_assigner = SeqAssigner::new();
@@ -461,7 +578,7 @@ impl RelaySwitch {
             // list means "no cartridges attached successfully" and there is
             // no handler chain to test. The master still joins so its
             // `installed_cartridges` attachment errors reach the engine.
-            if !payload.caps.is_empty() {
+            if !caps.is_empty() {
                 let xid_val = xid_counter.fetch_add(1, Ordering::SeqCst) + 1;
                 let xid = MessageId::Uint(xid_val);
 
@@ -565,7 +682,7 @@ impl RelaySwitch {
                             if let Some(manifest) = frame.relay_notify_manifest() {
                                 caps_payload = manifest.to_vec();
                                 payload = parse_relay_notify_payload(&caps_payload)?;
-                                caps = payload.caps.clone();
+                                caps = payload.cap_urns();
                             }
                             if let Some(l) = frame.relay_notify_limits() {
                                 limits = l;
@@ -662,6 +779,7 @@ impl RelaySwitch {
         }
 
         let (aggregate_installed_cartridges_tx, _) = tokio::sync::watch::channel(Vec::new());
+        let (probes_tx, probes_rx) = mpsc::unbounded_channel::<usize>();
         let switch = Self {
             masters: RwLock::new(masters),
             cap_table: RwLock::new(Vec::new()),
@@ -688,7 +806,9 @@ impl RelaySwitch {
             // "no more masters expected; ready".
             expected_master_count: AtomicUsize::new(0),
             background_pump_stop: Arc::new(AtomicBool::new(false)),
-            background_pump_handle: std::sync::Mutex::new(None),
+            background_pump_handle: std::sync::Mutex::new(Vec::new()),
+            pending_identity_probes_tx: probes_tx,
+            pending_identity_probes_rx: std::sync::Mutex::new(Some(probes_rx)),
         };
 
         // Build routing tables from already-populated caps
@@ -742,7 +862,7 @@ impl RelaySwitch {
             .background_pump_handle
             .lock()
             .expect("background_pump_handle mutex poisoned");
-        if guard.is_some() {
+        if !guard.is_empty() {
             return;
         }
 
@@ -779,7 +899,87 @@ impl RelaySwitch {
                 }
             }
         });
-        *guard = Some(handle);
+        guard.push(handle);
+
+        // Spawn the runtime identity-probe driver. It owns the
+        // `pending_identity_probes_rx` receiver (taken once) and
+        // serially probes each master that flipped from empty caps
+        // to non-empty caps in the last RelayNotify update. Probes
+        // run in their own task so they never block the frame pump
+        // — the probe writes via `write_to_master_idx`, the frame
+        // pump still drives master reads, and the response routes
+        // back through the registered `external_response_channels`
+        // entry that `run_identity_probe_via_relay` set up.
+        let probes_rx = self
+            .pending_identity_probes_rx
+            .lock()
+            .expect("pending_identity_probes_rx mutex poisoned")
+            .take()
+            .expect("start_background_pump called twice");
+        let weak_probe = Arc::downgrade(self);
+        let stop_probe = self.background_pump_stop.clone();
+        let probe_handle = tokio::spawn(async move {
+            let mut rx = probes_rx;
+            loop {
+                if stop_probe.load(Ordering::Relaxed) {
+                    break;
+                }
+                let master_idx = match rx.recv().await {
+                    Some(idx) => idx,
+                    None => break, // sender dropped — relay torn down
+                };
+                let Some(switch) = weak_probe.upgrade() else {
+                    break;
+                };
+                match switch.run_identity_probe_via_relay(master_idx).await {
+                    Ok(()) => {
+                        // Probe passed — flip the master back to
+                        // healthy and rebuild the cap table so its
+                        // caps become routable. We held the master
+                        // unhealthy from the moment caps went non-
+                        // empty until verification completed; this
+                        // is the natural reverse.
+                        let masters = switch.masters.read().await;
+                        if let Some(master) = masters.get(master_idx) {
+                            master.healthy.store(true, Ordering::SeqCst);
+                            master.last_error.write().await.take();
+                        }
+                        drop(masters);
+                        switch.rebuild_cap_table().await;
+                        switch.rebuild_capabilities().await;
+                        info!(
+                            target: "relay_switch",
+                            master_idx = master_idx,
+                            "[RelaySwitch] runtime identity probe passed — master is now healthy"
+                        );
+                    }
+                    Err(detail) => {
+                        // Probe failed — keep the master unhealthy
+                        // and stamp `last_error` so the inventory
+                        // surface shows the reason. The master's
+                        // caps stay published as-is (they came from
+                        // the host's RelayNotify), but `cap_table`
+                        // skips unhealthy masters during dispatch
+                        // so engine REQs won't route here.
+                        tracing::error!(
+                            target: "relay_switch",
+                            master_idx = master_idx,
+                            error = %detail,
+                            "[RelaySwitch] runtime identity probe FAILED — master remains unhealthy"
+                        );
+                        let masters = switch.masters.read().await;
+                        if let Some(master) = masters.get(master_idx) {
+                            master.healthy.store(false, Ordering::SeqCst);
+                            *master.last_error.write().await = Some(detail);
+                        }
+                        drop(masters);
+                        switch.rebuild_cap_table().await;
+                        switch.rebuild_capabilities().await;
+                    }
+                }
+            }
+        });
+        guard.push(probe_handle);
     }
 
     /// Get the negotiated limits (minimum across all masters).
@@ -1161,6 +1361,175 @@ impl RelaySwitch {
         Ok((xid, rx))
     }
 
+    /// Run an end-to-end identity probe against an already-registered
+    /// master, using the relay's normal frame routing (writes via
+    /// `write_to_master_idx`, response collected via the same
+    /// `external_response_channels` machinery as `execute_cap`).
+    ///
+    /// This is the post-registration counterpart to the synchronous
+    /// probe `add_master` runs at handshake time. It is required for
+    /// any RelayNotify update that transitions a master's cap set
+    /// from empty to non-empty: `add_master` skipped the probe at the
+    /// initial empty advertisement, so the runtime path must not let
+    /// the master start serving caps without proving its handler
+    /// chain answers identity end-to-end.
+    ///
+    /// On success returns `Ok(())`. On failure returns a typed error
+    /// string suitable for `MasterConnection.last_error`.
+    async fn run_identity_probe_via_relay(
+        &self,
+        master_idx: usize,
+    ) -> Result<(), String> {
+        use crate::standard::caps::CAP_IDENTITY;
+        use std::time::Duration;
+
+        const RUNTIME_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+        // Build (xid, rid) and a one-shot response channel keyed by
+        // them. The frame loop's `external_response_channels` lookup
+        // delivers the master's reply frames here.
+        let xid = MessageId::Uint(self.xid_counter.fetch_add(1, Ordering::SeqCst) + 1);
+        let rid = MessageId::new_uuid();
+        let key = (xid.clone(), rid.clone());
+
+        let (tx, mut rx) = mpsc::unbounded_channel::<Frame>();
+        self.external_response_channels
+            .write()
+            .await
+            .insert(key.clone(), tx);
+        self.origin_map.write().await.insert(key.clone(), None);
+        self.request_routing.write().await.insert(
+            key.clone(),
+            RoutingEntry {
+                source_master_idx: None,
+                destination_master_idx: master_idx,
+            },
+        );
+        self.rid_to_xid
+            .write()
+            .await
+            .insert(rid.clone(), xid.clone());
+
+        let nonce = identity_nonce();
+        let stream_id = "identity-verify-runtime".to_string();
+
+        // Inner async block that runs the probe round-trip. Wrapped
+        // so the function tail can clean up the registered channel
+        // and routing maps regardless of which branch produced the
+        // outcome.
+        let probe_outcome = async {
+            // Build and send the probe frames. All five carry the
+            // same (xid, rid) so the master returns its echo on the
+            // same flow.
+            let mut req =
+                Frame::req(rid.clone(), CAP_IDENTITY, vec![], "application/cbor");
+            req.routing_id = Some(xid.clone());
+            let mut ss = Frame::stream_start(
+                rid.clone(),
+                stream_id.clone(),
+                "media:".to_string(),
+                None,
+            );
+            ss.routing_id = Some(xid.clone());
+            let checksum = Frame::compute_checksum(&nonce);
+            let mut chunk = Frame::chunk(
+                rid.clone(),
+                stream_id.clone(),
+                0,
+                nonce.clone(),
+                0,
+                checksum,
+            );
+            chunk.routing_id = Some(xid.clone());
+            let mut se = Frame::stream_end(rid.clone(), stream_id.clone(), 1);
+            se.routing_id = Some(xid.clone());
+            let mut end = Frame::end(rid.clone(), None);
+            end.routing_id = Some(xid.clone());
+
+            for mut frame in [req, ss, chunk, se, end] {
+                self.write_to_master_idx(master_idx, &mut frame)
+                    .await
+                    .map_err(|e| format!("identity probe send failed: {}", e))?;
+            }
+
+            // Drain response frames. Cartridge contract: the
+            // identity handler echoes the nonce back as STREAM_START
+            // + CHUNK(nonce) + STREAM_END + END.
+            let started_at = Instant::now();
+            let mut accumulated = Vec::new();
+            loop {
+                let elapsed = started_at.elapsed();
+                let remaining = RUNTIME_PROBE_TIMEOUT
+                    .checked_sub(elapsed)
+                    .unwrap_or(Duration::ZERO);
+                if remaining.is_zero() {
+                    return Err(format!(
+                        "runtime identity probe timed out after {:?}",
+                        RUNTIME_PROBE_TIMEOUT
+                    ));
+                }
+                let frame = match tokio::time::timeout(remaining, rx.recv()).await {
+                    Ok(Some(f)) => f,
+                    Ok(None) => {
+                        return Err(
+                            "runtime identity probe channel closed before END".to_string(),
+                        );
+                    }
+                    Err(_) => {
+                        return Err(format!(
+                            "runtime identity probe timed out after {:?}",
+                            RUNTIME_PROBE_TIMEOUT
+                        ));
+                    }
+                };
+                match frame.frame_type {
+                    FrameType::StreamStart => {}
+                    FrameType::Chunk => {
+                        if let Some(payload) = frame.payload {
+                            accumulated.extend_from_slice(&payload);
+                        }
+                    }
+                    FrameType::StreamEnd => {}
+                    FrameType::End => {
+                        if accumulated != nonce {
+                            return Err(format!(
+                                "identity probe payload mismatch (expected {} bytes, got {})",
+                                nonce.len(),
+                                accumulated.len()
+                            ));
+                        }
+                        return Ok(());
+                    }
+                    FrameType::Err => {
+                        let code = frame.error_code().unwrap_or("UNKNOWN");
+                        let msg = frame.error_message().unwrap_or("no message");
+                        return Err(format!("identity probe failed: [{}] {}", code, msg));
+                    }
+                    other => {
+                        return Err(format!(
+                            "identity probe: unexpected frame type {:?}",
+                            other
+                        ));
+                    }
+                }
+            }
+        }
+        .await;
+
+        // Always purge the routing entries — whether the probe
+        // succeeded, failed, or timed out. Leaking these would waste
+        // memory and confuse introspection over time.
+        self.external_response_channels
+            .write()
+            .await
+            .remove(&key);
+        self.origin_map.write().await.remove(&key);
+        self.request_routing.write().await.remove(&key);
+        self.rid_to_xid.write().await.remove(&rid);
+
+        probe_outcome
+    }
+
     /// Cancel a specific in-flight request by RID.
     ///
     /// 1. Looks up RID → XID → routing destination
@@ -1287,7 +1656,7 @@ impl RelaySwitch {
         // master sent zero, or because we lost the data later.
         let mut caps_payload = caps_payload;
         let mut payload = parse_relay_notify_payload(&caps_payload)?;
-        let mut caps = payload.caps.clone();
+        let mut caps = payload.cap_urns();
         let mut limits = notify_frame.relay_notify_limits().unwrap_or_default();
 
         let mut seq_assigner = SeqAssigner::new();
@@ -1317,7 +1686,7 @@ impl RelaySwitch {
         // not hidden.
         const IDENTITY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
         let mut identity_failure: Option<String> = None;
-        if !payload.caps.is_empty() {
+        if !caps.is_empty() {
             let probe_started_at = std::time::Instant::now();
             let xid = MessageId::Uint(self.xid_counter.fetch_add(1, Ordering::SeqCst) + 1);
 
@@ -1427,7 +1796,7 @@ impl RelaySwitch {
                                 caps_payload = manifest.to_vec();
                                 payload = parse_relay_notify_payload(&caps_payload)
                                     .map_err(|e| format!("RelayNotify reparse failed: {}", e))?;
-                                caps = payload.caps.clone();
+                                caps = payload.cap_urns();
                             }
                             if let Some(l) = frame.relay_notify_limits() {
                                 limits = l;
@@ -2285,31 +2654,76 @@ impl RelaySwitch {
             }
 
             FrameType::RelayNotify => {
-                // Capability update from host — update our cap table
+                // Capability update from host — update our cap table.
                 let caps_payload = frame.relay_notify_manifest().ok_or_else(|| {
                     RelaySwitchError::Protocol("RelayNotify has no payload".to_string())
                 })?;
 
                 let payload = parse_relay_notify_payload(caps_payload)?;
-                let new_caps = payload.caps;
+                let new_caps = payload.cap_urns();
 
-                // Update master's caps and limits
+                // Detect transition from empty → non-empty caps. The
+                // initial RelayNotify (during `add_master`) skipped
+                // the identity probe when caps were empty; if the
+                // host now advertises a real handler chain we must
+                // probe it end-to-end before letting the new caps
+                // become routable. The master is held unhealthy
+                // until the probe driver task confirms identity.
+                let probe_required = {
+                    let masters = self.masters.read().await;
+                    let prior_caps_empty = if let Some(master) = masters.get(source_idx) {
+                        master.caps.read().await.is_empty()
+                    } else {
+                        // No master at this index — drop the update
+                        // silently, the master's reader will exit on
+                        // its own.
+                        return Ok(Some(frame));
+                    };
+                    prior_caps_empty && !new_caps.is_empty()
+                };
+
+                // Apply the update. We always write the new
+                // installed_cartridges and limits (those are
+                // observation-only inventory data the engine wants
+                // to surface immediately). Caps are also written so
+                // RelayNotify-update lookups stay consistent — but
+                // when probe_required is true we mark the master
+                // unhealthy below so cap_table rebuild excludes it.
                 {
                     let masters = self.masters.read().await;
                     if let Some(master) = masters.get(source_idx) {
                         *master.caps.write().await = new_caps;
                         *master.installed_cartridges.write().await = payload.installed_cartridges;
                         *master.manifest.write().await = caps_payload.to_vec();
-                        // Extract and update limits from RelayNotify
                         if let Some(new_limits) = frame.relay_notify_limits() {
                             *master.limits.write().await = new_limits;
                         }
+                        if probe_required {
+                            master.healthy.store(false, Ordering::SeqCst);
+                            *master.last_error.write().await = Some(
+                                "runtime identity probe pending — caps held back from routing"
+                                    .to_string(),
+                            );
+                        }
                     }
                 }
-                // Rebuild cap_table, aggregate capabilities, and limits from all masters
+
+                // Rebuild cap_table / aggregate / limits from all
+                // masters. cap_table only includes healthy masters,
+                // so an unhealthy master's caps don't surface as
+                // dispatch targets until the probe driver flips it
+                // back to healthy.
                 self.rebuild_cap_table().await;
                 self.rebuild_capabilities().await;
                 self.rebuild_limits().await;
+
+                if probe_required {
+                    // Hand off to the probe driver task. Sending on
+                    // an unbounded channel cannot block; if the
+                    // receiver has been dropped the relay is being
+                    // torn down and we silently skip.
+                    let _ = self.pending_identity_probes_tx.send(source_idx);
+                }
 
                 // Pass through to engine (for visibility)
                 Ok(Some(frame))
@@ -2536,7 +2950,11 @@ impl RelaySwitch {
         for (_healthy, installed_cartridges) in installed_cartridges_by_master {
             all_installed_cartridges.extend(installed_cartridges);
         }
-        all_installed_cartridges.sort();
+        // Sort by the install's identity tuple — see
+        // `InstalledCartridgeIdentity::identity_cmp` for the
+        // rationale (cap URNs aren't totally ordered, so the
+        // manifest/runtime-stats fields are excluded from the key).
+        all_installed_cartridges.sort_by(InstalledCartridgeIdentity::identity_cmp);
         // Identity tuple is `(registry_url, channel, id, version, sha256)`.
         // Two installs of the same id+version from different registries
         // (or different channels) are distinct cartridges with their own
@@ -2642,13 +3060,14 @@ impl RelaySwitch {
 
 impl Drop for RelaySwitch {
     fn drop(&mut self) {
-        // Signal the background pump to exit on its next iteration. The
-        // task holds a Weak<Self> so it also drops out when the last Arc
-        // goes away, but setting the flag lets it exit before the next
-        // 200ms tick.
+        // Signal both background tasks (frame pump + identity probe
+        // driver) to exit on their next iteration. The tasks hold
+        // `Weak<Self>` so they also drop out when the last Arc goes
+        // away, but setting the flag lets them exit before their
+        // next blocking call returns.
         self.background_pump_stop.store(true, Ordering::Relaxed);
         if let Ok(mut guard) = self.background_pump_handle.lock() {
-            if let Some(handle) = guard.take() {
+            for handle in guard.drain(..) {
                 handle.abort();
             }
         }
@@ -2677,12 +3096,14 @@ fn parse_relay_notify_payload(
     let payload: RelayNotifyCapabilitiesPayload = serde_json::from_slice(notify_payload)
         .map_err(|e| RelaySwitchError::Protocol(format!("Invalid RelayNotify payload: {}", e)))?;
 
-    if !payload.caps.is_empty() {
+    let cap_urns = payload.cap_urns();
+    if !cap_urns.is_empty() {
         // A non-empty cap set must include CAP_IDENTITY — advertising any cap
-        // without the structural identity cap is a broken host.
+        // without the structural identity cap is a broken host. The check
+        // walks every cap URN declared across the payload's cap_groups.
         let identity_urn =
             CapUrn::from_string(CAP_IDENTITY).expect("BUG: CAP_IDENTITY constant is invalid");
-        let has_identity = payload.caps.iter().any(|cap_str| {
+        let has_identity = cap_urns.iter().any(|cap_str| {
             CapUrn::from_string(cap_str)
                 .map(|cap_urn| identity_urn.conforms_to(&cap_urn))
                 .unwrap_or(false)
@@ -2716,6 +3137,11 @@ mod tests {
 
     /// Helper: send RelayNotify with given caps/limits, then handle identity verification.
     /// Returns (FrameReader, FrameWriter) ready for further communication.
+    ///
+    /// `caps_json` is a JSON array of cap-URN strings. The helper wraps
+    /// them in a single synthetic installed-cartridge entry so the new
+    /// payload schema (cap_groups inside installed_cartridges) is
+    /// satisfied without each test having to spell out the wrapping.
     async fn slave_notify_with_identity(
         socket: UnixStream,
         caps_json: &serde_json::Value,
@@ -2728,10 +3154,43 @@ mod tests {
         let mut reader = FrameReader::new(BufReader::new(read_half));
         let mut writer = FrameWriter::new(BufWriter::new(write_half));
 
-        // Send RelayNotify
+        // Build a single synthetic installed-cartridge whose lone
+        // cap_group carries the test's caps. Each cap is rendered with
+        // the minimal Cap schema (urn/title/command/args=[]) so the
+        // payload deserializes cleanly under the production parser.
+        let cap_urns_array = caps_json
+            .as_array()
+            .expect("caps_json must be a JSON array of cap URN strings");
+        let group_caps: Vec<serde_json::Value> = cap_urns_array
+            .iter()
+            .map(|v| {
+                let urn = v.as_str().expect("cap URN must be a string").to_string();
+                serde_json::json!({
+                    "urn": urn,
+                    "title": "test",
+                    "command": "test",
+                    "args": [],
+                })
+            })
+            .collect();
+
         let notify_payload = serde_json::json!({
-            "caps": caps_json,
-            "installed_cartridges": [],
+            "installed_cartridges": [
+                {
+                    "registry_url": null,
+                    "channel": "release",
+                    "id": "test-cartridge",
+                    "version": "0.0.0",
+                    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "cap_groups": [
+                        {
+                            "name": "test",
+                            "caps": group_caps,
+                            "adapter_urns": [],
+                        }
+                    ],
+                }
+            ],
         });
         let notify = Frame::relay_notify(&serde_json::to_vec(&notify_payload).unwrap(), limits);
         writer.write(&notify).await.unwrap();
@@ -3632,10 +4091,33 @@ mod tests {
             let mut reader = FrameReader::new(BufReader::new(read_half));
             let mut writer = FrameWriter::new(BufWriter::new(write_half));
 
-            // Send RelayNotify
+            // Send RelayNotify — an installed cartridge whose single
+            // cap-group declares CAP_IDENTITY so the host clears the
+            // payload-level identity check before the engine probes.
             let caps = serde_json::json!({
-                "caps": ["cap:in=media:;out=media:"],
-                "installed_cartridges": [],
+                "installed_cartridges": [
+                    {
+                        "registry_url": null,
+                        "channel": "release",
+                        "id": "broken-cartridge",
+                        "version": "0.0.0",
+                        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                        "cap_groups": [
+                            {
+                                "name": "test",
+                                "caps": [
+                                    {
+                                        "urn": "cap:in=media:;out=media:",
+                                        "title": "Identity",
+                                        "command": "identity",
+                                        "args": [],
+                                    }
+                                ],
+                                "adapter_urns": [],
+                            }
+                        ],
+                    }
+                ],
             });
             let notify =
                 Frame::relay_notify(&serde_json::to_vec(&caps).unwrap(), &Limits::default());
@@ -3658,6 +4140,140 @@ mod tests {
             err.to_string().contains("identity verification failed"),
             "error must mention identity verification: {}",
             err
+        );
+    }
+
+    // TEST489: When a master initially advertises empty caps (so
+    // `add_master` skips the identity probe) and later sends a
+    // RelayNotify update with non-empty caps, the relay must run an
+    // end-to-end identity probe before the new caps become routable.
+    // A master that fails to answer the runtime probe with the
+    // expected nonce echo must end up unhealthy with `last_error`
+    // populated, and its caps must NOT appear in the cap_table.
+    //
+    // This test guards the wire-protocol regression where the
+    // RelayNotify-update path published caps without re-verifying
+    // identity end-to-end. Removing the runtime probe re-introduces
+    // the hole; this test fails loudly when that happens.
+    #[tokio::test]
+    async fn test489_runtime_identity_probe_required_on_empty_to_nonempty_transition() {
+        let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
+
+        tokio::spawn(async move {
+            let (read_half, write_half) = slave_sock.into_split();
+            let mut reader = FrameReader::new(BufReader::new(read_half));
+            let mut writer = FrameWriter::new(BufWriter::new(write_half));
+
+            // Initial RelayNotify — empty installed_cartridges so
+            // `add_master` skips the synchronous identity probe.
+            let initial = serde_json::json!({ "installed_cartridges": [] });
+            writer
+                .write(&Frame::relay_notify(
+                    &serde_json::to_vec(&initial).unwrap(),
+                    &Limits::default(),
+                ))
+                .await
+                .unwrap();
+
+            // Send a runtime RelayNotify update with a real cartridge
+            // declaring CAP_IDENTITY plus another cap. The relay's
+            // RelayNotify-update branch should detect the empty →
+            // non-empty transition and queue a runtime identity probe.
+            let updated = serde_json::json!({
+                "installed_cartridges": [
+                    {
+                        "registry_url": null,
+                        "channel": "release",
+                        "id": "test-cartridge",
+                        "version": "0.0.0",
+                        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                        "cap_groups": [
+                            {
+                                "name": "test",
+                                "caps": [
+                                    {
+                                        "urn": "cap:in=media:;out=media:",
+                                        "title": "Identity",
+                                        "command": "identity",
+                                        "args": [],
+                                    },
+                                    {
+                                        "urn": "cap:in=\"media:void\";op=test;out=\"media:void\"",
+                                        "title": "Test",
+                                        "command": "test",
+                                        "args": [],
+                                    }
+                                ],
+                                "adapter_urns": [],
+                            }
+                        ],
+                    }
+                ],
+            });
+            writer
+                .write(&Frame::relay_notify(
+                    &serde_json::to_vec(&updated).unwrap(),
+                    &Limits::default(),
+                ))
+                .await
+                .unwrap();
+
+            // Read the identity REQ from the relay and respond with
+            // an ERR — this models a cartridge whose identity
+            // handler is broken. The runtime probe driver must
+            // observe the ERR and mark the master unhealthy.
+            loop {
+                let frame = match reader.read().await {
+                    Ok(Some(f)) => f,
+                    Ok(None) => return,
+                    Err(_) => return,
+                };
+                if frame.frame_type == FrameType::Req {
+                    let mut err = Frame::err(frame.id.clone(), "BROKEN", "test cartridge");
+                    err.routing_id = frame.routing_id.clone();
+                    let _ = writer.write(&err).await;
+                    return;
+                }
+            }
+        });
+
+        let switch = Arc::new(
+            RelaySwitch::new(vec![engine_sock], test_cap_registry())
+                .await
+                .expect("RelaySwitch construction must succeed for empty-cap initial notify"),
+        );
+        switch.start_background_pump();
+
+        // Wait for the runtime probe driver to process the failure.
+        // The probe times out at 10s; we poll with a generous bound.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let mut master_unhealthy = false;
+        while std::time::Instant::now() < deadline {
+            let masters = switch.masters.read().await;
+            if let Some(master) = masters.first() {
+                if !master.healthy.load(Ordering::SeqCst)
+                    && master.last_error.read().await.is_some()
+                {
+                    master_unhealthy = true;
+                    break;
+                }
+            }
+            drop(masters);
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(
+            master_unhealthy,
+            "master must be marked unhealthy after the runtime identity probe fails"
+        );
+
+        // The master's caps must NOT appear in the cap_table — even
+        // though the host advertised them, the failed probe means
+        // the relay refuses to route to this master.
+        let cap_table = switch.cap_table.read().await;
+        assert!(
+            !cap_table.iter().any(|(urn, _)| urn.contains("op=test")),
+            "unverified master's caps must be excluded from cap_table, got: {:?}",
+            *cap_table
         );
     }
 
@@ -3714,11 +4330,14 @@ mod tests {
             default_model_spec: None,
         };
 
-        let host = InProcessCartridgeHost::new(vec![(
-            "echo".to_string(),
-            vec![cap],
-            std::sync::Arc::new(EchoHandler) as std::sync::Arc<dyn FrameHandler>,
-        )]);
+        let host = InProcessCartridgeHost::new(
+            crate::bifaci::in_process_host::InProcessHostIdentity::for_test("echo-host"),
+            vec![(
+                "echo".to_string(),
+                vec![cap],
+                std::sync::Arc::new(EchoHandler) as std::sync::Arc<dyn FrameHandler>,
+            )],
+        );
 
         // Create socket pairs (one for host↔slave, one for slave↔switch)
         let (host_sock, slave_local_sock) = UnixStream::pair().unwrap();
@@ -3895,25 +4514,28 @@ mod tests {
 
         // Create initial switch with handler A
         let cap_a = "cap:in=\"media:void\";op=alpha;out=\"media:void\"";
-        let host_a = InProcessCartridgeHost::new(vec![(
-            "alpha".to_string(),
-            vec![Cap {
-                urn: crate::CapUrn::from_string(cap_a).unwrap(),
-                title: "alpha".to_string(),
-                cap_description: None,
-                documentation: None,
-                metadata: std::collections::HashMap::new(),
-                command: String::new(),
-                args: Vec::new(),
-                output: None,
-                media_specs: Vec::new(),
-                metadata_json: None,
-                registered_by: None,
-                supported_model_types: Vec::new(),
-                default_model_spec: None,
-            }],
-            std::sync::Arc::new(ConstHandler("alpha")) as std::sync::Arc<dyn FrameHandler>,
-        )]);
+        let host_a = InProcessCartridgeHost::new(
+            crate::bifaci::in_process_host::InProcessHostIdentity::for_test("alpha-host"),
+            vec![(
+                "alpha".to_string(),
+                vec![Cap {
+                    urn: crate::CapUrn::from_string(cap_a).unwrap(),
+                    title: "alpha".to_string(),
+                    cap_description: None,
+                    documentation: None,
+                    metadata: std::collections::HashMap::new(),
+                    command: String::new(),
+                    args: Vec::new(),
+                    output: None,
+                    media_specs: Vec::new(),
+                    metadata_json: None,
+                    registered_by: None,
+                    supported_model_types: Vec::new(),
+                    default_model_spec: None,
+                }],
+                std::sync::Arc::new(ConstHandler("alpha")) as std::sync::Arc<dyn FrameHandler>,
+            )],
+        );
 
         let (switch_sock_a, ht_a, st_a) = wire_host(host_a).await;
         let switch = RelaySwitch::new(vec![switch_sock_a], test_cap_registry())
@@ -3923,25 +4545,28 @@ mod tests {
 
         // Add handler B dynamically
         let cap_b = "cap:in=\"media:void\";op=beta;out=\"media:void\"";
-        let host_b = InProcessCartridgeHost::new(vec![(
-            "beta".to_string(),
-            vec![Cap {
-                urn: crate::CapUrn::from_string(cap_b).unwrap(),
-                title: "beta".to_string(),
-                cap_description: None,
-                documentation: None,
-                metadata: std::collections::HashMap::new(),
-                command: String::new(),
-                args: Vec::new(),
-                output: None,
-                media_specs: Vec::new(),
-                metadata_json: None,
-                registered_by: None,
-                supported_model_types: Vec::new(),
-                default_model_spec: None,
-            }],
-            std::sync::Arc::new(ConstHandler("beta")) as std::sync::Arc<dyn FrameHandler>,
-        )]);
+        let host_b = InProcessCartridgeHost::new(
+            crate::bifaci::in_process_host::InProcessHostIdentity::for_test("beta-host"),
+            vec![(
+                "beta".to_string(),
+                vec![Cap {
+                    urn: crate::CapUrn::from_string(cap_b).unwrap(),
+                    title: "beta".to_string(),
+                    cap_description: None,
+                    documentation: None,
+                    metadata: std::collections::HashMap::new(),
+                    command: String::new(),
+                    args: Vec::new(),
+                    output: None,
+                    media_specs: Vec::new(),
+                    metadata_json: None,
+                    registered_by: None,
+                    supported_model_types: Vec::new(),
+                    default_model_spec: None,
+                }],
+                std::sync::Arc::new(ConstHandler("beta")) as std::sync::Arc<dyn FrameHandler>,
+            )],
+        );
 
         let (switch_sock_b, ht_b, st_b) = wire_host(host_b).await;
         let idx = switch.add_master(switch_sock_b).await.unwrap();
@@ -4064,47 +4689,53 @@ mod tests {
 
         // Master 1: Exact-match handler (matches request exactly — closest specificity)
         let cap_exact = "cap:in=\"media:void\";op=test;out=\"media:void\"";
-        let host_exact = InProcessCartridgeHost::new(vec![(
-            "exact".to_string(),
-            vec![Cap {
-                urn: crate::CapUrn::from_string(cap_exact).unwrap(),
-                title: "exact".to_string(),
-                cap_description: None,
-                documentation: None,
-                metadata: std::collections::HashMap::new(),
-                command: String::new(),
-                args: Vec::new(),
-                output: None,
-                media_specs: Vec::new(),
-                metadata_json: None,
-                registered_by: None,
-                supported_model_types: Vec::new(),
-                default_model_spec: None,
-            }],
-            std::sync::Arc::new(MarkerHandler("EXACT")) as std::sync::Arc<dyn FrameHandler>,
-        )]);
+        let host_exact = InProcessCartridgeHost::new(
+            crate::bifaci::in_process_host::InProcessHostIdentity::for_test("exact-host"),
+            vec![(
+                "exact".to_string(),
+                vec![Cap {
+                    urn: crate::CapUrn::from_string(cap_exact).unwrap(),
+                    title: "exact".to_string(),
+                    cap_description: None,
+                    documentation: None,
+                    metadata: std::collections::HashMap::new(),
+                    command: String::new(),
+                    args: Vec::new(),
+                    output: None,
+                    media_specs: Vec::new(),
+                    metadata_json: None,
+                    registered_by: None,
+                    supported_model_types: Vec::new(),
+                    default_model_spec: None,
+                }],
+                std::sync::Arc::new(MarkerHandler("EXACT")) as std::sync::Arc<dyn FrameHandler>,
+            )],
+        );
 
         // Master 2: More-specific handler (has extra tag — also matches, but further from request)
         let cap_extra = "cap:in=\"media:void\";op=test;ext=pdf;out=\"media:void\"";
-        let host_extra = InProcessCartridgeHost::new(vec![(
-            "extra".to_string(),
-            vec![Cap {
-                urn: crate::CapUrn::from_string(cap_extra).unwrap(),
-                title: "extra".to_string(),
-                cap_description: None,
-                documentation: None,
-                metadata: std::collections::HashMap::new(),
-                command: String::new(),
-                args: Vec::new(),
-                output: None,
-                media_specs: Vec::new(),
-                metadata_json: None,
-                registered_by: None,
-                supported_model_types: Vec::new(),
-                default_model_spec: None,
-            }],
-            std::sync::Arc::new(MarkerHandler("EXTRA")) as std::sync::Arc<dyn FrameHandler>,
-        )]);
+        let host_extra = InProcessCartridgeHost::new(
+            crate::bifaci::in_process_host::InProcessHostIdentity::for_test("extra-host"),
+            vec![(
+                "extra".to_string(),
+                vec![Cap {
+                    urn: crate::CapUrn::from_string(cap_extra).unwrap(),
+                    title: "extra".to_string(),
+                    cap_description: None,
+                    documentation: None,
+                    metadata: std::collections::HashMap::new(),
+                    command: String::new(),
+                    args: Vec::new(),
+                    output: None,
+                    media_specs: Vec::new(),
+                    metadata_json: None,
+                    registered_by: None,
+                    supported_model_types: Vec::new(),
+                    default_model_spec: None,
+                }],
+                std::sync::Arc::new(MarkerHandler("EXTRA")) as std::sync::Arc<dyn FrameHandler>,
+            )],
+        );
 
         let (switch_sock_exact, ht_exact, st_exact) = wire_host(host_exact).await;
         let (switch_sock_extra, ht_extra, st_extra) = wire_host(host_extra).await;

@@ -476,18 +476,75 @@ struct HandlerEntry {
 /// Cap table entry: (cap_urn_string, handler_index).
 type CapTable = Vec<(String, usize)>;
 
+/// Identity values an `InProcessCartridgeHost` advertises in its
+/// RelayNotify payload. The host has no on-disk cartridge directory,
+/// so the embedding application must supply the same four-tuple identity
+/// (`registry_url`, `channel`, `id`, `version`) it would have read
+/// from a cartridge.json — plus a content-derived `sha256` so the
+/// engine treats the in-process provider indistinguishably from any
+/// other installed cartridge.
+///
+/// The fields propagate verbatim into the RelayNotify
+/// `installed_cartridges[*]` entry. Engine-side consumers (e.g.
+/// `CapService::get_installed_cartridges`) that key by id-version and
+/// require a non-empty sha256 will then accept the in-process entry
+/// without special cases.
+#[derive(Debug, Clone)]
+pub struct InProcessHostIdentity {
+    /// Registry URL the embedding binary was built for. `None` ⇔ dev
+    /// build. Pass through verbatim from the binary's compile-time
+    /// `option_env!("MFR_REGISTRY_URL")` (or equivalent).
+    pub registry_url: Option<String>,
+    /// Channel the embedding binary was built for. Comes from the
+    /// same compile-time constant the embedding binary uses to
+    /// validate sibling-cartridge channels.
+    pub channel: crate::bifaci::cartridge_repo::CartridgeChannel,
+    /// Stable id for this host. Should match `CARGO_PKG_NAME`-style
+    /// canonical lowercase identity that is unique per binary.
+    pub id: String,
+    /// Version of the embedding binary. Pass through verbatim from
+    /// `env!("CARGO_PKG_VERSION")` or equivalent.
+    pub version: String,
+    /// Content-derived hash of the host. The engine asserts this is
+    /// non-empty; supply the binary's content sha256 (or any
+    /// stable-per-build digest) so the in-process entry has a real
+    /// identity hash like an on-disk cartridge.
+    pub sha256: String,
+}
+
+impl InProcessHostIdentity {
+    /// Identity values for unit/integration tests. Carries a
+    /// fixed-bytes sha256 so the engine's non-empty-hash assertion
+    /// passes; channel and version are stable test defaults. Tests
+    /// that need to distinguish multiple in-process hosts pass
+    /// distinct ids via this builder.
+    pub fn for_test(id: impl Into<String>) -> Self {
+        Self {
+            registry_url: None,
+            channel: crate::bifaci::cartridge_repo::CartridgeChannel::Release,
+            id: id.into(),
+            version: "0.0.0-test".to_string(),
+            sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+                .to_string(),
+        }
+    }
+}
+
 /// A cartridge host that dispatches to in-process FrameHandler implementations.
 ///
 /// Speaks the Frame protocol to a RelaySlave, but routes requests to
 /// `Arc<dyn FrameHandler>` trait objects via frame channels — no accumulation
 /// at the host level, handlers own the streaming.
 pub struct InProcessCartridgeHost {
+    identity: InProcessHostIdentity,
     handlers: Vec<HandlerEntry>,
 }
 
 impl std::fmt::Debug for InProcessCartridgeHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InProcessCartridgeHost")
+            .field("identity_id", &self.identity.id)
+            .field("identity_version", &self.identity.version)
             .field("handler_count", &self.handlers.len())
             .finish()
     }
@@ -496,8 +553,13 @@ impl std::fmt::Debug for InProcessCartridgeHost {
 impl InProcessCartridgeHost {
     /// Create a new in-process cartridge host with the given handlers.
     ///
+    /// `identity` declares the host's on-the-wire identity (the
+    /// embedding binary supplies it; see `InProcessHostIdentity`).
     /// Each handler is a tuple of (name, caps, handler).
-    pub fn new(handlers: Vec<(String, Vec<Cap>, Arc<dyn FrameHandler>)>) -> Self {
+    pub fn new(
+        identity: InProcessHostIdentity,
+        handlers: Vec<(String, Vec<Cap>, Arc<dyn FrameHandler>)>,
+    ) -> Self {
         let handlers = handlers
             .into_iter()
             .map(|(name, caps, handler)| HandlerEntry {
@@ -506,25 +568,49 @@ impl InProcessCartridgeHost {
                 handler,
             })
             .collect();
-        Self { handlers }
+        Self { identity, handlers }
     }
 
     /// Build the aggregate RelayNotify manifest payload.
-    /// Always includes CAP_IDENTITY as the first cap entry.
+    ///
+    /// The host has no on-disk cartridge directory, but the embedder
+    /// supplies an `InProcessHostIdentity` that mirrors a real
+    /// cartridge install's identity tuple. We assemble one
+    /// `InstalledCartridgeIdentity` from that and put every
+    /// handler-contributed cap into its lone cap group. The wire
+    /// format is symmetric with out-of-process hosts: the engine
+    /// reads `cap_groups` from `installed_cartridges` and derives the
+    /// flat cap list itself.
     fn build_manifest(&self) -> Vec<u8> {
-        let mut cap_urns: Vec<String> = vec![CAP_IDENTITY.to_string()];
+        use crate::bifaci::manifest::CapGroup as ManifestCapGroup;
+        use crate::bifaci::relay_switch::InstalledCartridgeIdentity;
+
+        // Collect all handler caps; prepend CAP_IDENTITY exactly once.
+        let mut caps: Vec<Cap> = vec![crate::standard::caps::identity_cap()];
         for entry in &self.handlers {
             for cap in &entry.caps {
-                let urn = cap.urn.to_string();
-                if urn != CAP_IDENTITY {
-                    cap_urns.push(urn);
+                if cap.urn.to_string() != CAP_IDENTITY {
+                    caps.push(cap.clone());
                 }
             }
         }
-        let payload = RelayNotifyCapabilitiesPayload {
-            caps: cap_urns,
-            installed_cartridges: Vec::new(),
+
+        let cartridge = InstalledCartridgeIdentity {
+            registry_url: self.identity.registry_url.clone(),
+            channel: self.identity.channel,
+            id: self.identity.id.clone(),
+            version: self.identity.version.clone(),
+            sha256: self.identity.sha256.clone(),
+            cap_groups: vec![ManifestCapGroup {
+                name: self.identity.id.clone(),
+                caps,
+                adapter_urns: Vec::new(),
+            }],
+            attachment_error: None,
+            runtime_stats: None,
         };
+
+        let payload = RelayNotifyCapabilitiesPayload::new(vec![cartridge]);
         serde_json::to_vec(&payload)
             .expect("BUG: InProcessCartridgeHost RelayNotify payload must serialize")
     }
@@ -916,7 +1002,10 @@ mod tests {
             Arc::new(EchoHandler) as Arc<dyn FrameHandler>,
         )];
 
-        let host = InProcessCartridgeHost::new(handlers);
+        let host = InProcessCartridgeHost::new(
+            InProcessHostIdentity::for_test("in-process-test"),
+            handlers,
+        );
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
         let (host_read, host_write) = host_sock.into_split();
@@ -932,9 +1021,18 @@ mod tests {
         assert_eq!(notify.frame_type, FrameType::RelayNotify);
         let manifest = notify.relay_notify_manifest().unwrap();
         let payload: RelayNotifyCapabilitiesPayload = serde_json::from_slice(manifest).unwrap();
-        assert!(payload.caps.len() >= 2); // identity + echo cap
-        assert_eq!(payload.caps[0], CAP_IDENTITY);
-        assert!(payload.installed_cartridges.is_empty());
+        let caps = payload.cap_urns();
+        assert!(caps.len() >= 2); // identity + echo cap
+        assert_eq!(caps[0], CAP_IDENTITY);
+        // The InProcessCartridgeHost wraps its handlers in one synthetic
+        // installed-cartridge entry so the wire schema (cap_groups inside
+        // installed_cartridges) is satisfied.
+        assert_eq!(payload.installed_cartridges.len(), 1);
+        // The in-process host now declares whatever identity its
+        // embedder supplied (we use `for_test("in-process-test")`
+        // / `for_test("thumb-host")` etc above) — the manifest
+        // round-trips that id verbatim, no synthetic placeholder.
+        assert_eq!(payload.installed_cartridges[0].id, "in-process-test");
 
         // Send a REQ + STREAM_START + CHUNK (CBOR-encoded) + STREAM_END + END
         let rid = MessageId::new_uuid();
@@ -986,7 +1084,10 @@ mod tests {
     // TEST655: InProcessCartridgeHost handles identity verification (echo nonce)
     #[tokio::test]
     async fn test655_identity_verification() {
-        let host = InProcessCartridgeHost::new(vec![]);
+        let host = InProcessCartridgeHost::new(
+            InProcessHostIdentity::for_test("in-process-test"),
+            vec![],
+        );
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
         let (host_read, host_write) = host_sock.into_split();
@@ -1055,7 +1156,10 @@ mod tests {
     // TEST656: InProcessCartridgeHost returns NO_HANDLER for unregistered cap
     #[tokio::test]
     async fn test656_no_handler_returns_err() {
-        let host = InProcessCartridgeHost::new(vec![]);
+        let host = InProcessCartridgeHost::new(
+            InProcessHostIdentity::for_test("in-process-test"),
+            vec![],
+        );
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
         let (host_read, host_write) = host_sock.into_split();
@@ -1095,23 +1199,36 @@ mod tests {
     fn test657_manifest_includes_all_caps() {
         let cap_urn = "cap:in=\"media:pdf\";op=thumbnail;out=\"media:image;png\"";
         let cap = make_test_cap(cap_urn);
-        let host = InProcessCartridgeHost::new(vec![(
-            "thumb".to_string(),
-            vec![cap],
-            Arc::new(EchoHandler) as Arc<dyn FrameHandler>,
-        )]);
+        let host = InProcessCartridgeHost::new(
+            InProcessHostIdentity::for_test("thumb-host"),
+            vec![(
+                "thumb".to_string(),
+                vec![cap],
+                Arc::new(EchoHandler) as Arc<dyn FrameHandler>,
+            )],
+        );
 
         let manifest = host.build_manifest();
         let payload: RelayNotifyCapabilitiesPayload = serde_json::from_slice(&manifest).unwrap();
-        assert_eq!(payload.caps[0], CAP_IDENTITY);
-        assert!(payload.caps.iter().any(|u| u.contains("thumbnail")));
-        assert!(payload.installed_cartridges.is_empty());
+        let caps = payload.cap_urns();
+        assert_eq!(caps[0], CAP_IDENTITY);
+        assert!(caps.iter().any(|u| u.contains("thumbnail")));
+        // The InProcessCartridgeHost wraps the handlers in a single
+        // installed-cartridge entry whose identity comes from the
+        // `InProcessHostIdentity` the test passed at construction
+        // (here, `for_test("thumb-host")`).
+        assert_eq!(payload.installed_cartridges.len(), 1);
+        assert_eq!(payload.installed_cartridges[0].id, "thumb-host");
+        assert_eq!(payload.installed_cartridges[0].cap_groups.len(), 1);
     }
 
     // TEST658: InProcessCartridgeHost handles heartbeat by echoing same ID
     #[tokio::test]
     async fn test658_heartbeat_response() {
-        let host = InProcessCartridgeHost::new(vec![]);
+        let host = InProcessCartridgeHost::new(
+            InProcessHostIdentity::for_test("in-process-test"),
+            vec![],
+        );
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
         let (host_read, host_write) = host_sock.into_split();
@@ -1166,11 +1283,14 @@ mod tests {
 
         let cap_urn = "cap:in=\"media:void\";op=fail;out=\"media:void\"";
         let cap = make_test_cap(cap_urn);
-        let host = InProcessCartridgeHost::new(vec![(
-            "fail".to_string(),
-            vec![cap],
-            Arc::new(FailHandler) as Arc<dyn FrameHandler>,
-        )]);
+        let host = InProcessCartridgeHost::new(
+            InProcessHostIdentity::for_test("fail-host"),
+            vec![(
+                "fail".to_string(),
+                vec![cap],
+                Arc::new(FailHandler) as Arc<dyn FrameHandler>,
+            )],
+        );
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
         let (host_read, host_write) = host_sock.into_split();
@@ -1253,7 +1373,10 @@ mod tests {
             ),
         ];
 
-        let host = InProcessCartridgeHost::new(handlers);
+        let host = InProcessCartridgeHost::new(
+            InProcessHostIdentity::for_test("in-process-test"),
+            handlers,
+        );
         let cap_table = InProcessCartridgeHost::build_cap_table(&host.handlers);
 
         // Request for pdf thumbnail should match specific (pdf, specificity 3) over generic (image, specificity 2)

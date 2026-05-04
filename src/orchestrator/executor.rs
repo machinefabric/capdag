@@ -21,8 +21,8 @@
 use super::types::{ResolvedEdge, ResolvedGraph};
 use crate::{
     handshake, CapManifest, CapRegistry, CapUrn, CartridgeHostRuntime, CartridgeRepo, Frame,
-    FrameReader, FrameWriter, Limits, RelayNotifyCapabilitiesPayload, RelaySlave, RelaySwitch,
-    DEFAULT_MAX_CHUNK,
+    FrameReader, FrameWriter, Limits, RelayNotifyCapabilitiesPayload,
+    RelaySlave, RelaySwitch, DEFAULT_MAX_CHUNK,
 };
 use super::stream_io::StreamIoError;
 use std::collections::{HashMap, HashSet};
@@ -458,17 +458,25 @@ impl CartridgeManager {
         Ok(manifest)
     }
 
-    /// Resolve all cap URNs from the graph to unique (binary_path, known_caps) pairs.
+    /// Resolve all cap URNs from the graph to unique (binary_path, cap_groups) pairs.
     ///
-    /// For dev cartridges (with discovered manifests), registers ALL manifest caps —
-    /// not just the DAG edge caps. This is critical because cartridges send peer requests
-    /// for caps that aren't in the DAG (e.g., candlecartridge peer-invokes modelcartridge's
-    /// download-model cap during ML inference). Without full cap registration, the
-    /// CartridgeHostRuntime can't route these peer requests.
+    /// For dev cartridges (with discovered manifests), forwards the
+    /// cartridge's full `cap_groups` to the host so every cap declared
+    /// in the manifest is registered — not just the DAG-edge caps.
+    /// This is critical because cartridges send peer requests for caps
+    /// that aren't in the DAG (e.g. candlecartridge peer-invokes
+    /// modelcartridge's `download-model` cap during ML inference).
+    /// Without full cap registration, the `CartridgeHostRuntime` can't
+    /// route these peer requests.
+    ///
+    /// `adapter_urns` declared by the cartridge propagate verbatim
+    /// inside the cap groups so the engine can register
+    /// content-inspection adapters per cartridge once the host's
+    /// RelayNotify reaches the relay.
     pub async fn resolve_cartridges(
         &self,
         cap_urns: &[&str],
-    ) -> Result<Vec<(PathBuf, Vec<String>)>, ExecutionError> {
+    ) -> Result<Vec<(PathBuf, Vec<crate::bifaci::manifest::CapGroup>)>, ExecutionError> {
         // Collect unique cartridge binaries needed for the DAG
         let mut cartridge_paths: HashSet<PathBuf> = HashSet::new();
 
@@ -478,29 +486,30 @@ impl CartridgeManager {
         }
 
         // Also include ALL dev cartridge binaries — they may be needed for peer request
-        // routing even if they don't directly appear in the DAG. For example, ML
-        // cartridges send peer requests to modelcartridge for model downloading.
+        // routing even if they don't directly appear in the DAG.
         for dev_path in self.dev_cartridges.keys() {
             cartridge_paths.insert(dev_path.clone());
         }
 
-        // For each cartridge, register ALL manifest caps (not just DAG caps)
-        let result: Vec<(PathBuf, Vec<String>)> = cartridge_paths
+        // For each cartridge, forward the full manifest cap_groups —
+        // adapter_urns and all. Non-dev cartridges (registry installs)
+        // get a synthetic identity-only group so on-demand spawn can
+        // route the identity probe; their real cap_groups arrive via
+        // the post-spawn HELLO and overwrite this fallback.
+        let result: Vec<(PathBuf, Vec<crate::bifaci::manifest::CapGroup>)> = cartridge_paths
             .into_iter()
             .map(|path| {
-                let mut caps: HashSet<String> = HashSet::new();
-
-                // Use full manifest caps for dev cartridges (including cap groups)
-                if let Some(manifest) = self.dev_cartridges.get(&path) {
-                    for cap in manifest.all_caps() {
-                        caps.insert(cap.urn.to_string());
-                    }
-                }
-
-                // Always include identity
-                caps.insert(CAP_IDENTITY.to_string());
-
-                (path, caps.into_iter().collect())
+                let groups: Vec<crate::bifaci::manifest::CapGroup> =
+                    if let Some(manifest) = self.dev_cartridges.get(&path) {
+                        manifest.cap_groups.clone()
+                    } else {
+                        vec![crate::bifaci::manifest::CapGroup {
+                            name: "identity".to_string(),
+                            caps: vec![crate::standard::caps::identity_cap()],
+                            adapter_urns: Vec::new(),
+                        }]
+                    };
+                (path, groups)
             })
             .collect();
 
@@ -944,7 +953,7 @@ impl ExecutionContext {
     ///   inherit the right namespace.
     pub async fn add_cartridge_host(
         &mut self,
-        cartridges: Vec<(PathBuf, Vec<String>)>,
+        cartridges: Vec<(PathBuf, Vec<crate::bifaci::manifest::CapGroup>)>,
         dev_fallback_channel: crate::bifaci::cartridge_repo::CartridgeChannel,
     ) -> Result<usize, ExecutionError> {
         // Create socket pairs:
@@ -974,7 +983,7 @@ impl ExecutionContext {
         // binaries (no installer wrote it) and present for installed
         // ones. Anywhere else fails hard — we never silently guess.
         let mut host = CartridgeHostRuntime::new();
-        for (path, caps) in &cartridges {
+        for (path, cap_groups) in &cartridges {
             let version_dir = path.parent().ok_or_else(|| {
                 ExecutionError::HostError(format!(
                     "cartridge binary {} has no parent directory",
@@ -1015,7 +1024,7 @@ impl ExecutionContext {
                     path,
                     provenance.channel,
                     provenance.registry_url.as_deref(),
-                    caps,
+                    cap_groups,
                 );
             } else {
                 // Dev binary: no provenance on disk. The HELLO probe
@@ -1024,7 +1033,7 @@ impl ExecutionContext {
                 // dev-fallback channel and a null registry_url
                 // (matching the cartridge's own HELLO, which emits
                 // `registry_url: null` for dev builds).
-                host.register_cartridge(path, dev_fallback_channel, None, caps);
+                host.register_cartridge(path, dev_fallback_channel, None, cap_groups);
             }
         }
 
@@ -1043,13 +1052,19 @@ impl ExecutionContext {
             BufWriter::new(slave_int_write),
         );
 
-        // Initial caps: just CAP_IDENTITY for handshake verification.
-        // CartridgeHostRuntime sends full caps via RelayNotify.
-        let initial_caps_json = serde_json::to_vec(&RelayNotifyCapabilitiesPayload {
-            caps: vec![CAP_IDENTITY.to_string()],
-            installed_cartridges: vec![],
-        })
-        .map_err(|e| ExecutionError::HostError(format!("serialize caps: {}", e)))?;
+        // Initial RelayNotify advertises an empty `installed_cartridges`
+        // list — the orchestrator hasn't attached any cartridges to
+        // the host yet, so there is nothing real to declare. The
+        // relay's `add_master` path treats an empty cap set as
+        // "host present, no handler chain to probe yet" and skips
+        // identity verification at this point. The RelayNotify the
+        // CartridgeHostRuntime sends after spawning each cartridge
+        // (with that cartridge's real cap_groups) is what triggers
+        // the engine's identity probe, end-to-end through the
+        // cartridge process.
+        let initial_caps_json =
+            serde_json::to_vec(&RelayNotifyCapabilitiesPayload::new(Vec::new()))
+                .map_err(|e| ExecutionError::HostError(format!("serialize caps: {}", e)))?;
 
         let (slave_ext_read, slave_ext_write) = slave_ext_sock.into_split();
 

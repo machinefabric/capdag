@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// If any adapter in the group creates ambiguity with an already-registered adapter,
 /// the entire group is rejected — none of its caps or adapters get registered.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CapGroup {
     /// Group name (for diagnostics and error messages)
     pub name: String,
