@@ -39,11 +39,11 @@ cap:in="<media-urn>";out="<media-urn>";<other-tags>
 **Examples**:
 ```
 # Surface syntax → Canonical form
-cap:op=transform  →  cap:in=media:;op=transform;out=media:   ✓ (normalized)
+cap:op=transform  →  cap:in=media:;transform;out=media:   ✓ (normalized)
 
 # Already canonical
-cap:in="media:pdf";op=extract;out="media:object"             ✓
-cap:in=media:;op=generate;out="media:text"                   ✓
+cap:in="media:pdf";extract;out="media:object"             ✓
+cap:in=media:;generate;out="media:text"                   ✓
 ```
 
 **Error**: `Cap URN requires 'in' tag` / `Cap URN requires 'out' tag`
@@ -58,9 +58,9 @@ This error occurs only for malformed inputs that bypass normalization (e.g., pro
 
 **Examples**:
 ```
-cap:in="media:pdf;bytes";op=extract;out="media:object"   ✓
-cap:in=*;op=convert;out=*                                ✓ (normalizes to media:)
-cap:in="invalid";op=test;out="media:text"                ✗
+cap:in="media:pdf;bytes";extract;out="media:object"   ✓
+cap:in=*;convert;out=*                                ✓ (normalizes to media:)
+cap:in="invalid";test;out="media:text"                ✗
 ```
 
 **Error**: `Invalid 'in' media URN: <value>. Must start with 'media:' or be '*'`

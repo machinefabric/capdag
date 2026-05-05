@@ -26,7 +26,7 @@
 //!     let manifest = build_manifest(); // Your manifest with caps
 //!     let mut runtime = CartridgeRuntime::new(manifest);
 //!
-//!     runtime.register::<MyRequest, _>("cap:op=my_op;...", |request, output, peer| {
+//!     runtime.register::<MyRequest, _>("cap:my-op;...", |request, output, peer| {
 //!         output.log("info", "Starting work...");
 //!         output.emit_cbor(&ciborium::Value::Bytes(b"result".to_vec()))?;
 //!         Ok(())
@@ -4475,42 +4475,42 @@ mod tests {
 
             // Add common test caps used across tests
             registry.add_cap(create_test_cap(
-                r#"cap:in="media:void";op=test;out="media:void""#,
+                r#"cap:in="media:void";test;out="media:void""#,
                 "Test",
                 "test",
                 vec![],
             ));
 
             registry.add_cap(create_test_cap(
-                r#"cap:in="media:";op=process;out="media:void""#,
+                r#"cap:in="media:";process;out="media:void""#,
                 "Process",
                 "process",
                 vec![],
             ));
 
             registry.add_cap(create_test_cap(
-                r#"cap:in="media:string;textable";op=test;out="*""#,
+                r#"cap:in="media:string;textable";test;out="*""#,
                 "Test String",
                 "test",
                 vec![],
             ));
 
             registry.add_cap(create_test_cap(
-                r#"cap:in="*";op=test;out="*""#,
+                r#"cap:in="*";test;out="*""#,
                 "Test Wildcard",
                 "test",
                 vec![],
             ));
 
             registry.add_cap(create_test_cap(
-                r#"cap:in="media:model-spec;textable";op=infer;out="*""#,
+                r#"cap:in="media:model-spec;textable";infer;out="*""#,
                 "Infer",
                 "infer",
                 vec![],
             ));
 
             registry.add_cap(create_test_cap(
-                r#"cap:in="media:pdf";op=process;out="*""#,
+                r#"cap:in="media:pdf";process;out="*""#,
                 "Process PDF",
                 "process",
                 vec![],
@@ -4657,23 +4657,23 @@ mod tests {
     }
 
     /// Test manifest JSON with identity and a test cap.
-    /// Uses cap_groups format. The test cap URN "cap:op=test" has no in/out tags;
+    /// Uses cap_groups format. The test cap URN "cap:test" has no in/out tags;
     /// CapUrn defaults both to media: (wildcard), which is valid.
-    const TEST_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:","title":"Identity","command":"identity"},{"urn":"cap:op=test","title":"Test","command":"test"}]}]}"#;
+    const TEST_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:","title":"Identity","command":"identity"},{"urn":"cap:test","title":"Test","command":"test"}]}]}"#;
 
     /// Valid manifest with proper in/out specs for tests that need parsed CapManifest
-    const VALID_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:","title":"Identity","command":"identity"},{"urn":"cap:in=\"media:void\";op=test;out=\"media:void\"","title":"Test","command":"test"}],"adapter_urns":[]}]}"#;
+    const VALID_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:","title":"Identity","command":"identity"},{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","command":"test"}],"adapter_urns":[]}]}"#;
 
     // TEST248: Test register_op and find_handler by exact cap URN
     #[test]
     fn test248_register_and_find_handler() {
         let mut runtime = CartridgeRuntime::new(TEST_MANIFEST.as_bytes());
-        runtime.register_op("cap:in=*;op=test;out=*", || {
+        runtime.register_op("cap:in=*;test;out=*", || {
             Box::new(EmitBytesOp {
                 data: b"result".to_vec(),
             })
         });
-        assert!(runtime.find_handler("cap:in=*;op=test;out=*").is_some());
+        assert!(runtime.find_handler("cap:in=*;test;out=*").is_some());
     }
 
     // TEST249: Test register_op handler echoes bytes directly
@@ -4683,13 +4683,13 @@ mod tests {
         let received: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let received_clone = Arc::clone(&received);
 
-        runtime.register_op("cap:op=raw", move || {
+        runtime.register_op("cap:raw", move || {
             Box::new(EchoOp {
                 received: Some(Arc::clone(&received_clone)),
             }) as Box<dyn Op<()>>
         });
 
-        let factory = runtime.find_handler("cap:op=raw").unwrap();
+        let factory = runtime.find_handler("cap:raw").unwrap();
         let input = test_input_package(&[("media:", b"echo this")]);
         let (output, _out_rx) = test_output_stream();
         invoke_op(&factory, input, output).await.unwrap();
@@ -4745,13 +4745,13 @@ mod tests {
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_clone = Arc::clone(&received);
 
-        runtime.register_op("cap:op=test", move || {
+        runtime.register_op("cap:test", move || {
             Box::new(JsonKeyOp {
                 received: Arc::clone(&received_clone),
             }) as Box<dyn Op<()>>
         });
 
-        let factory = runtime.find_handler("cap:op=test").unwrap();
+        let factory = runtime.find_handler("cap:test").unwrap();
         let input = test_input_package(&[("media:", b"{\"key\":\"hello\"}")]);
         let (output, _out_rx) = test_output_stream();
         invoke_op(&factory, input, output).await.unwrap();
@@ -4786,9 +4786,9 @@ mod tests {
         }
 
         let mut runtime = CartridgeRuntime::new(TEST_MANIFEST.as_bytes());
-        runtime.register_op("cap:op=test", || Box::new(JsonParseOp));
+        runtime.register_op("cap:test", || Box::new(JsonParseOp));
 
-        let factory = runtime.find_handler("cap:op=test").unwrap();
+        let factory = runtime.find_handler("cap:test").unwrap();
         let input = test_input_package(&[("media:", b"not json {{{{")]);
         let (output, _out_rx) = test_output_stream();
         let result = invoke_op(&factory, input, output).await;
@@ -4805,7 +4805,7 @@ mod tests {
     #[test]
     fn test252_find_handler_unknown_cap() {
         let runtime = CartridgeRuntime::new(TEST_MANIFEST.as_bytes());
-        assert!(runtime.find_handler("cap:op=nonexistent").is_none());
+        assert!(runtime.find_handler("cap:nonexistent").is_none());
     }
 
     // TEST253: Test OpFactory can be cloned via Arc and sent across tasks (Send + Sync)
@@ -4815,7 +4815,7 @@ mod tests {
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_clone = Arc::clone(&received);
 
-        runtime.register_op("cap:op=threaded", move || {
+        runtime.register_op("cap:threaded", move || {
             let r = Arc::clone(&received_clone);
             Box::new(EmitAndRecordOp {
                 data: b"done".to_vec(),
@@ -4851,7 +4851,7 @@ mod tests {
             }
         }
 
-        let factory = runtime.find_handler("cap:op=threaded").unwrap();
+        let factory = runtime.find_handler("cap:threaded").unwrap();
         let factory_clone = Arc::clone(&factory);
 
         let handle = tokio::spawn(async move {
@@ -4868,7 +4868,7 @@ mod tests {
     #[test]
     fn test254_no_peer_invoker() {
         let no_peer = NoPeerInvoker;
-        let result = no_peer.call("cap:op=test");
+        let result = no_peer.call("cap:test");
         assert!(result.is_err());
         match result {
             Err(RuntimeError::PeerRequest(msg)) => {
@@ -4886,7 +4886,7 @@ mod tests {
     async fn test255_no_peer_invoker_with_arguments() {
         let no_peer = NoPeerInvoker;
         let result = no_peer
-            .call_with_bytes("cap:op=test", &[("media:test", b"value".as_slice())])
+            .call_with_bytes("cap:test", &[("media:test", b"value".as_slice())])
             .await;
         assert!(result.is_err());
     }
@@ -4895,7 +4895,7 @@ mod tests {
     #[test]
     fn test256_with_manifest_json() {
         // TEST_MANIFEST uses cap_groups format with identity + test cap.
-        // "cap:op=test" has no in/out tags; CapUrn defaults both to media: (wildcard).
+        // "cap:test" has no in/out tags; CapUrn defaults both to media: (wildcard).
         let runtime_basic = CartridgeRuntime::with_manifest_json(TEST_MANIFEST);
         assert!(!runtime_basic.manifest_data.is_empty());
         assert!(
@@ -4940,7 +4940,7 @@ mod tests {
     fn test259_extract_effective_payload_non_cbor() {
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:void";op=test;out="media:void""#)
+            .get(r#"cap:in="media:void";test;out="media:void""#)
             .unwrap();
         let payload = b"raw data";
         let result =
@@ -4953,7 +4953,7 @@ mod tests {
     fn test260_extract_effective_payload_no_content_type() {
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:void";op=test;out="media:void""#)
+            .get(r#"cap:in="media:void";test;out="media:void""#)
             .unwrap();
         let payload = b"raw data";
         let result = extract_effective_payload(payload, None, cap, true).unwrap();
@@ -4980,7 +4980,7 @@ mod tests {
         // The cap URN has in=media:string;textable
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:string;textable";op=test;out="*""#)
+            .get(r#"cap:in="media:string;textable";test;out="*""#)
             .unwrap();
         let result = extract_effective_payload(
             &payload,
@@ -5037,7 +5037,7 @@ mod tests {
 
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:string;textable";op=test;out="*""#)
+            .get(r#"cap:in="media:string;textable";test;out="*""#)
             .unwrap();
         let result = extract_effective_payload(
             &payload,
@@ -5058,7 +5058,7 @@ mod tests {
     #[test]
     fn test263_extract_effective_payload_invalid_cbor() {
         let registry = MockRegistry::with_test_caps();
-        let cap = registry.get(r#"cap:in="*";op=test;out="*""#).unwrap();
+        let cap = registry.get(r#"cap:in="*";test;out="*""#).unwrap();
         let result = extract_effective_payload(
             b"not cbor",
             Some("application/cbor"),
@@ -5076,7 +5076,7 @@ mod tests {
         ciborium::into_writer(&value, &mut payload).unwrap();
 
         let registry = MockRegistry::with_test_caps();
-        let cap = registry.get(r#"cap:in="*";op=test;out="*""#).unwrap();
+        let cap = registry.get(r#"cap:in="*";test;out="*""#).unwrap();
         let result = extract_effective_payload(
             &payload,
             Some("application/cbor"),
@@ -5106,8 +5106,8 @@ mod tests {
     // TEST268: Test RuntimeError variants display correct messages
     #[test]
     fn test268_runtime_error_display() {
-        let err = RuntimeError::NoHandler("cap:op=missing".to_string());
-        assert!(format!("{}", err).contains("cap:op=missing"));
+        let err = RuntimeError::NoHandler("cap:missing".to_string());
+        assert!(format!("{}", err).contains("cap:missing"));
 
         let err2 = RuntimeError::MissingArgument("model".to_string());
         assert!(format!("{}", err2).contains("model"));
@@ -5130,25 +5130,25 @@ mod tests {
     async fn test270_multiple_handlers() {
         let mut runtime = CartridgeRuntime::new(TEST_MANIFEST.as_bytes());
 
-        runtime.register_op("cap:op=alpha", || {
+        runtime.register_op("cap:alpha", || {
             Box::new(EchoTagOp { tag: b"a".to_vec() })
         });
-        runtime.register_op("cap:op=beta", || Box::new(EchoTagOp { tag: b"b".to_vec() }));
-        runtime.register_op("cap:op=gamma", || {
+        runtime.register_op("cap:beta", || Box::new(EchoTagOp { tag: b"b".to_vec() }));
+        runtime.register_op("cap:gamma", || {
             Box::new(EchoTagOp { tag: b"g".to_vec() })
         });
 
-        let f_alpha = runtime.find_handler("cap:op=alpha").unwrap();
+        let f_alpha = runtime.find_handler("cap:alpha").unwrap();
         let input = test_input_package(&[("media:", b"")]);
         let (output, _out_rx) = test_output_stream();
         invoke_op(&f_alpha, input, output).await.unwrap();
 
-        let f_beta = runtime.find_handler("cap:op=beta").unwrap();
+        let f_beta = runtime.find_handler("cap:beta").unwrap();
         let input = test_input_package(&[("media:", b"")]);
         let (output, _out_rx) = test_output_stream();
         invoke_op(&f_beta, input, output).await.unwrap();
 
-        let f_gamma = runtime.find_handler("cap:op=gamma").unwrap();
+        let f_gamma = runtime.find_handler("cap:gamma").unwrap();
         let input = test_input_package(&[("media:", b"")]);
         let (output, _out_rx) = test_output_stream();
         invoke_op(&f_gamma, input, output).await.unwrap();
@@ -5163,12 +5163,12 @@ mod tests {
         let result2: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let result2_clone = Arc::clone(&result2);
 
-        runtime.register_op("cap:op=test", move || {
+        runtime.register_op("cap:test", move || {
             Box::new(EchoTagOp {
                 tag: b"first".to_vec(),
             }) as Box<dyn Op<()>>
         });
-        runtime.register_op("cap:op=test", move || {
+        runtime.register_op("cap:test", move || {
             let r = Arc::clone(&result2_clone);
             Box::new(EmitAndRecordOp2 {
                 data: b"second".to_vec(),
@@ -5211,7 +5211,7 @@ mod tests {
             }
         }
 
-        let factory = runtime.find_handler("cap:op=test").unwrap();
+        let factory = runtime.find_handler("cap:test").unwrap();
         let input = test_input_package(&[("media:", b"")]);
         let (output, _out_rx) = test_output_stream();
         invoke_op(&factory, input, output).await.unwrap();
@@ -5257,7 +5257,7 @@ mod tests {
 
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:model-spec;textable";op=infer;out="*""#)
+            .get(r#"cap:in="media:model-spec;textable";infer;out="*""#)
             .unwrap();
         let result = extract_effective_payload(
             &payload,
@@ -5340,7 +5340,7 @@ mod tests {
 
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:pdf";op=process;out="*""#)
+            .get(r#"cap:in="media:pdf";process;out="*""#)
             .unwrap();
         let result = extract_effective_payload(
             &payload,
@@ -5388,7 +5388,7 @@ mod tests {
         std::fs::write(&test_file, b"PDF binary content 336").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";op=process;out=\"media:void\"",
+            "cap:in=\"media:pdf\";process;out=\"media:void\"",
             "Process PDF",
             "process",
             vec![CapArg::new(
@@ -5411,7 +5411,7 @@ mod tests {
         let received_clone = Arc::clone(&received_payload);
 
         runtime.register_op(
-            "cap:in=\"media:pdf\";op=process;out=\"media:void\"",
+            "cap:in=\"media:pdf\";process;out=\"media:void\"",
             move || {
                 Box::new(ExtractValueOp {
                     received: Arc::clone(&received_clone),
@@ -5459,7 +5459,7 @@ mod tests {
         std::fs::write(&test_file, b"content").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:void\";op=test;out=\"media:void\"",
+            "cap:in=\"media:void\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -5496,7 +5496,7 @@ mod tests {
         std::fs::write(&test_file, b"PDF via flag 338").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";op=process;out=\"media:void\"",
+            "cap:in=\"media:pdf\";process;out=\"media:void\"",
             "Process",
             "process",
             vec![CapArg::new(
@@ -5558,7 +5558,7 @@ mod tests {
         batch_arg.is_sequence = true;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=batch;out=\"media:void\"",
+            "cap:in=\"media:\";batch;out=\"media:void\"",
             "Batch",
             "batch",
             vec![batch_arg],
@@ -5584,7 +5584,7 @@ mod tests {
     #[test]
     fn test340_file_not_found_clear_error() {
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";op=test;out=\"media:void\"",
+            "cap:in=\"media:pdf\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -5648,7 +5648,7 @@ mod tests {
 
         // Stdin source comes BEFORE position source
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=test;out=\"media:void\"",
+            "cap:in=\"media:\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -5692,7 +5692,7 @@ mod tests {
         std::fs::write(&test_file, b"binary data 342").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=test;out=\"media:void\"",
+            "cap:in=\"media:\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -5724,7 +5724,7 @@ mod tests {
     fn test343_non_file_path_args_unaffected() {
         // Arg with different media type should NOT trigger file reading
         let cap = create_test_cap(
-            "cap:in=\"media:void\";op=test;out=\"media:void\"",
+            "cap:in=\"media:void\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -5758,7 +5758,7 @@ mod tests {
     #[test]
     fn test344_file_path_array_invalid_json_fails() {
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=batch;out=\"media:void\"",
+            "cap:in=\"media:\";batch;out=\"media:void\"",
             "Test",
             "batch",
             vec![CapArg::new(
@@ -5818,7 +5818,7 @@ mod tests {
         let missing_path = temp_dir.join("test345_missing.txt");
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=batch;out=\"media:void\"",
+            "cap:in=\"media:\";batch;out=\"media:void\"",
             "Test",
             "batch",
             vec![CapArg::new(
@@ -5885,7 +5885,7 @@ mod tests {
         std::fs::write(&test_file, &large_data).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=test;out=\"media:void\"",
+            "cap:in=\"media:\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -5920,7 +5920,7 @@ mod tests {
         std::fs::write(&test_file, b"").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=test;out=\"media:void\"",
+            "cap:in=\"media:\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -5955,7 +5955,7 @@ mod tests {
 
         // Position source BEFORE stdin source
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=test;out=\"media:void\"",
+            "cap:in=\"media:\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -5996,7 +5996,7 @@ mod tests {
         std::fs::write(&test_file, b"content 349").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=test;out=\"media:void\"",
+            "cap:in=\"media:\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -6043,7 +6043,7 @@ mod tests {
         std::fs::write(&test_file, test_content).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";op=process;out=\"media:result;textable\"",
+            "cap:in=\"media:pdf\";process;out=\"media:result;textable\"",
             "Process PDF",
             "process",
             vec![CapArg::new(
@@ -6066,7 +6066,7 @@ mod tests {
         let received_clone = Arc::clone(&received_payload);
 
         runtime.register_op(
-            "cap:in=\"media:pdf\";op=process;out=\"media:result;textable\"",
+            "cap:in=\"media:pdf\";process;out=\"media:result;textable\"",
             move || {
                 Box::new(ExtractValueOp {
                     received: Arc::clone(&received_clone),
@@ -6120,7 +6120,7 @@ mod tests {
         batch_arg.is_sequence = true;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=batch;out=\"media:void\"",
+            "cap:in=\"media:\";batch;out=\"media:void\"",
             "Test",
             "batch",
             vec![batch_arg],
@@ -6195,7 +6195,7 @@ mod tests {
         std::fs::set_permissions(&test_file, perms).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=test;out=\"media:void\"",
+            "cap:in=\"media:\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -6254,7 +6254,7 @@ mod tests {
     #[test]
     fn test353_cbor_payload_format_consistency() {
         let cap = create_test_cap(
-            "cap:in=\"media:text;textable\";op=test;out=\"media:void\"",
+            "cap:in=\"media:text;textable\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -6324,7 +6324,7 @@ mod tests {
         let temp_dir = std::env::temp_dir();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=batch;out=\"media:void\"",
+            "cap:in=\"media:\";batch;out=\"media:void\"",
             "Test",
             "batch",
             vec![CapArg::new(
@@ -6402,7 +6402,7 @@ mod tests {
         batch_arg.is_sequence = true;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=batch;out=\"media:void\"",
+            "cap:in=\"media:\";batch;out=\"media:void\"",
             "Test",
             "batch",
             vec![batch_arg],
@@ -6454,7 +6454,7 @@ mod tests {
         batch_arg.is_sequence = true;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=batch;out=\"media:void\"",
+            "cap:in=\"media:\";batch;out=\"media:void\"",
             "Test",
             "batch",
             vec![batch_arg],
@@ -6547,7 +6547,7 @@ mod tests {
         unix_fs::symlink(&real_file, &link_file).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=test;out=\"media:void\"",
+            "cap:in=\"media:\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -6590,7 +6590,7 @@ mod tests {
         std::fs::write(&test_file, &binary_data).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=test;out=\"media:void\"",
+            "cap:in=\"media:\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -6620,7 +6620,7 @@ mod tests {
     #[test]
     fn test359_invalid_glob_pattern_fails() {
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=batch;out=\"media:void\"",
+            "cap:in=\"media:\";batch;out=\"media:void\"",
             "Test",
             "batch",
             vec![CapArg::new(
@@ -6678,7 +6678,7 @@ mod tests {
         std::fs::write(&test_file, pdf_content).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";op=process;out=\"media:void\"",
+            "cap:in=\"media:pdf\";process;out=\"media:void\"",
             "Process",
             "process",
             vec![CapArg::new(
@@ -6771,7 +6771,7 @@ mod tests {
         std::fs::write(&test_file, pdf_content).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";op=process;out=\"media:void\"",
+            "cap:in=\"media:pdf\";process;out=\"media:void\"",
             "Process",
             "process",
             vec![CapArg::new(
@@ -6823,7 +6823,7 @@ mod tests {
 
         // Create cap that accepts stdin
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";op=process;out=\"media:void\"",
+            "cap:in=\"media:pdf\";process;out=\"media:void\"",
             "Process",
             "process",
             vec![CapArg::new(
@@ -6898,7 +6898,7 @@ mod tests {
         let received_clone = Arc::clone(&received);
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";op=process;out=\"media:void\"",
+            "cap:in=\"media:pdf\";process;out=\"media:void\"",
             "Process",
             "process",
             vec![CapArg::new(
@@ -6955,7 +6955,7 @@ mod tests {
         std::fs::write(&test_file, pdf_content).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";op=process;out=\"media:void\"",
+            "cap:in=\"media:pdf\";process;out=\"media:void\"",
             "Process",
             "process",
             vec![CapArg::new(
@@ -7062,7 +7062,7 @@ mod tests {
         batch_arg.is_sequence = true;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=batch;out=\"media:void\"",
+            "cap:in=\"media:\";batch;out=\"media:void\"",
             "Test",
             "batch",
             vec![batch_arg],
@@ -7158,7 +7158,7 @@ mod tests {
         use std::io::Cursor;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=process;out=\"media:void\"",
+            "cap:in=\"media:\";process;out=\"media:void\"",
             "Process",
             "process",
             vec![],
@@ -7204,7 +7204,7 @@ mod tests {
         use std::io::Cursor;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=process;out=\"media:void\"",
+            "cap:in=\"media:\";process;out=\"media:void\"",
             "Process",
             "process",
             vec![],
@@ -7248,7 +7248,7 @@ mod tests {
         use std::io::Cursor;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=process;out=\"media:void\"",
+            "cap:in=\"media:\";process;out=\"media:void\"",
             "Process",
             "process",
             vec![],
@@ -7297,7 +7297,7 @@ mod tests {
         }
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";op=process;out=\"media:void\"",
+            "cap:in=\"media:\";process;out=\"media:void\"",
             "Process",
             "process",
             vec![],
@@ -7341,7 +7341,7 @@ mod tests {
         // (request is pattern, registered cap is instance — broad caps don't satisfy specific patterns)
         assert!(
             runtime
-                .find_handler("cap:in=\"media:void\";op=nonexistent;out=\"media:void\"")
+                .find_handler("cap:in=\"media:void\";nonexistent;out=\"media:void\"")
                 .is_none(),
             "Standard handlers must not catch arbitrary specific requests"
         );

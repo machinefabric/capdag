@@ -14,7 +14,7 @@
 //!
 //! ```json
 //! {
-//!   "urn": "cap:in=\"media:string\";op=conversation;out=\"media:my-output;json;record\"",
+//!   "urn": "cap:in=\"media:string\";conversation;out=\"media:my-output;json;record\"",
 //!   "media_specs": [
 //!     {
 //!       "urn": "media:my-output;json;record",
@@ -982,14 +982,14 @@ mod tests {
     #[test]
     fn test108_cap_creation() {
         let urn =
-            CapUrn::from_string(&test_urn("op=transform;format=json;data_processing")).unwrap();
+            CapUrn::from_string(&test_urn("transform;format=json;data_processing")).unwrap();
         let cap = Cap::new(
             urn,
             "Transform JSON Data".to_string(),
             "test-command".to_string(),
         );
 
-        assert!(cap.urn_string().contains("op=transform"));
+        assert!(cap.urn_string().contains("transform"));
         // Check that in/out specs are present (format may vary due to canonicalization)
         assert!(cap.urn_string().contains("in="));
         assert!(cap.urn_string().contains("media:void"));
@@ -1002,7 +1002,7 @@ mod tests {
     // TEST109: Test creating cap with metadata initializes and retrieves metadata correctly
     #[test]
     fn test109_cap_with_metadata() {
-        let urn = CapUrn::from_string(&test_urn("op=arithmetic;compute;subtype=math")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("arithmetic;compute;subtype=math")).unwrap();
         let mut metadata = HashMap::new();
         metadata.insert("precision".to_string(), "double".to_string());
         metadata.insert(
@@ -1031,7 +1031,7 @@ mod tests {
     #[test]
     fn test110_cap_matching() {
         // Use type=data_processing key-value instead of flag for proper matching
-        let urn = CapUrn::from_string(&test_urn("op=transform;format=json;type=data_processing"))
+        let urn = CapUrn::from_string(&test_urn("transform;format=json;type=data_processing"))
             .unwrap();
         let cap = Cap::new(
             urn,
@@ -1039,8 +1039,8 @@ mod tests {
             "test-command".to_string(),
         );
 
-        assert!(cap.accepts_request(&test_urn("op=transform;format=json;type=data_processing")));
-        assert!(cap.accepts_request(&test_urn("op=transform;format=*;type=data_processing")));
+        assert!(cap.accepts_request(&test_urn("transform;format=json;type=data_processing")));
+        assert!(cap.accepts_request(&test_urn("transform;format=*;type=data_processing")));
         assert!(cap.accepts_request(&test_urn("type=data_processing")));
         assert!(!cap.accepts_request(&test_urn("type=compute")));
     }
@@ -1048,7 +1048,7 @@ mod tests {
     // TEST111: Test getting and setting cap title updates correctly
     #[test]
     fn test111_cap_title() {
-        let urn = CapUrn::from_string(&test_urn("op=extract;target=metadata")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
         let mut cap = Cap::new(
             urn,
             "Extract Document Metadata".to_string(),
@@ -1066,8 +1066,8 @@ mod tests {
     // TEST112: Test cap equality based on URN and title matching
     #[test]
     fn test112_cap_definition_equality() {
-        let urn1 = CapUrn::from_string(&test_urn("op=transform;format=json")).unwrap();
-        let urn2 = CapUrn::from_string(&test_urn("op=transform;format=json")).unwrap();
+        let urn1 = CapUrn::from_string(&test_urn("transform;format=json")).unwrap();
+        let urn2 = CapUrn::from_string(&test_urn("transform;format=json")).unwrap();
 
         let cap1 = Cap::new(
             urn1,
@@ -1093,7 +1093,7 @@ mod tests {
     // TEST113: Test cap stdin support via args with stdin source and serialization roundtrip
     #[test]
     fn test113_cap_stdin() {
-        let urn = CapUrn::from_string(&test_urn("op=generate;target=embeddings")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("generate;target=embeddings")).unwrap();
         let mut cap = Cap::new(
             urn,
             "Generate Embeddings".to_string(),
@@ -1219,34 +1219,34 @@ mod tests {
     #[test]
     fn test591_is_more_specific_than() {
         let general = Cap::new(
-            CapUrn::from_string(&test_urn("op=transform")).unwrap(),
+            CapUrn::from_string(&test_urn("transform")).unwrap(),
             "General".to_string(),
             "cmd".to_string(),
         );
         let specific = Cap::new(
-            CapUrn::from_string(&test_urn("op=transform;format=json")).unwrap(),
+            CapUrn::from_string(&test_urn("transform;format=json")).unwrap(),
             "Specific".to_string(),
             "cmd".to_string(),
         );
         let unrelated = Cap::new(
-            CapUrn::from_string(&test_urn("op=convert")).unwrap(),
+            CapUrn::from_string(&test_urn("convert")).unwrap(),
             "Unrelated".to_string(),
             "cmd".to_string(),
         );
 
         // Specific is more specific than general for the general request
         assert!(
-            specific.is_more_specific_than(&general, &test_urn("op=transform")),
+            specific.is_more_specific_than(&general, &test_urn("transform")),
             "specific cap must be more specific than general"
         );
         assert!(
-            !general.is_more_specific_than(&specific, &test_urn("op=transform")),
+            !general.is_more_specific_than(&specific, &test_urn("transform")),
             "general cap must not be more specific than specific"
         );
 
         // If either doesn't accept the request, returns false
         assert!(
-            !general.is_more_specific_than(&unrelated, &test_urn("op=transform")),
+            !general.is_more_specific_than(&unrelated, &test_urn("transform")),
             "unrelated cap doesn't accept request, so no comparison possible"
         );
     }
@@ -1254,7 +1254,7 @@ mod tests {
     // TEST592: remove_metadata adds then removes metadata correctly
     #[test]
     fn test592_remove_metadata() {
-        let urn = CapUrn::from_string(&test_urn("op=test")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("test")).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
 
         cap.set_metadata("key1".to_string(), "val1".to_string());
@@ -1274,7 +1274,7 @@ mod tests {
     // TEST593: registered_by lifecycle — set, get, clear
     #[test]
     fn test593_registered_by_lifecycle() {
-        let urn = CapUrn::from_string(&test_urn("op=test")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("test")).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
 
         // Initially None
@@ -1295,7 +1295,7 @@ mod tests {
     // TEST594: metadata_json lifecycle — set, get, clear
     #[test]
     fn test594_metadata_json_lifecycle() {
-        let urn = CapUrn::from_string(&test_urn("op=test")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("test")).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
 
         // Initially None
@@ -1314,7 +1314,7 @@ mod tests {
     // TEST595: with_args constructor stores args correctly
     #[test]
     fn test595_with_args_constructor() {
-        let urn = CapUrn::from_string(&test_urn("op=test")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("test")).unwrap();
         let args = vec![
             CapArg::new(
                 "media:string",
@@ -1341,7 +1341,7 @@ mod tests {
     // TEST596: with_full_definition constructor stores all fields
     #[test]
     fn test596_with_full_definition_constructor() {
-        let urn = CapUrn::from_string(&test_urn("op=test")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("test")).unwrap();
         let mut metadata = HashMap::new();
         metadata.insert("env".to_string(), "prod".to_string());
         let args = vec![CapArg::new("media:string", true, vec![])];
@@ -1407,7 +1407,7 @@ mod tests {
     // TEST598: CapOutput lifecycle — set_output, set/clear metadata
     #[test]
     fn test598_cap_output_lifecycle() {
-        let urn = CapUrn::from_string(&test_urn("op=test")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("test")).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
 
         // Initially no output
@@ -1450,7 +1450,7 @@ mod tests {
     // escaping; this test fails hard if they don't.
     #[test]
     fn test1127_cap_documentation_round_trip_with_markdown_body() {
-        let urn = CapUrn::from_string(&test_urn("op=documented")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("documented")).unwrap();
         let mut cap = Cap::new(urn, "Documented Cap".to_string(), "documented".to_string());
 
         // A non-trivial markdown body — multi-line, headings, code blocks,
@@ -1490,7 +1490,7 @@ mod tests {
     // between absent and explicit null.
     #[test]
     fn test1128_cap_documentation_omitted_when_none() {
-        let urn = CapUrn::from_string(&test_urn("op=undocumented")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("undocumented")).unwrap();
         let cap = Cap::new(
             urn,
             "Undocumented Cap".to_string(),
@@ -1521,7 +1521,7 @@ mod tests {
         // string escaping rules — the URN value contains both backslashes
         // and embedded double quotes.
         let json = serde_json::json!({
-            "urn": "cap:in=\"media:textable\";op=docparse;out=\"media:textable\"",
+            "urn": "cap:in=\"media:textable\";docparse;out=\"media:textable\"",
             "title": "Doc Parse",
             "command": "docparse",
             "cap_description": "short",
@@ -1540,7 +1540,7 @@ mod tests {
     // cap_description.
     #[test]
     fn test1130_cap_documentation_set_and_clear_lifecycle() {
-        let urn = CapUrn::from_string(&test_urn("op=lifecycle")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("lifecycle")).unwrap();
         let mut cap = Cap::with_description(
             urn,
             "Lifecycle".to_string(),

@@ -108,7 +108,7 @@ y_r ⪯ y_p
 **Example**:
 ```
 Request:  op=extract                   (requires extract operation)
-Provider: op=extract;target=metadata   (provides extract with refinement)
+Provider: extract;target=metadata   (provides extract with refinement)
 
 y_r = {op: "extract"}
 y_p = {op: "extract", target: "metadata"}
@@ -206,7 +206,7 @@ For dispatch validity with wildcards:
 
 ```
 Request:  cap:op=download-model
-Provider: cap:in="media:model-spec";op=download-model;out="media:download-result"
+Provider: cap:in="media:model-spec";download-model;out="media:download-result"
 
 Input:  i_r=media: (⊤), i_p=media:model-spec
         Request unconstrained → PASS ✓
@@ -223,8 +223,8 @@ Result: DISPATCHABLE ✓
 ### 6.2 Specific Request, Generic Provider (Fallback)
 
 ```
-Request:  cap:in="media:pdf";op=extract;out="media:object"
-Provider: cap:in="media:bytes";op=extract;out="media:"
+Request:  cap:in="media:pdf";extract;out="media:object"
+Provider: cap:in="media:bytes";extract;out="media:"
 
 Input:  i_r=media:pdf, i_p=media:bytes
         pdf ⪯ bytes? Yes → PASS ✓
@@ -239,8 +239,8 @@ Result: NOT DISPATCHABLE
 ### 6.3 Incompatible Types
 
 ```
-Request:  cap:in="media:pdf";op=convert;out="media:html"
-Provider: cap:in="media:image";op=convert;out="media:text"
+Request:  cap:in="media:pdf";convert;out="media:html"
+Provider: cap:in="media:image";convert;out="media:text"
 
 Input:  i_r=media:pdf, i_p=media:image
         pdf ⪯ image? No, different families → FAIL ✗

@@ -11,7 +11,7 @@
 //! use capdag::CapRegistry;
 //!
 //! let route = r#"
-//!     [extract cap:in="media:pdf;bytes";op=extract;out="media:txt;textable"]
+//!     [extract cap:in="media:pdf;bytes";extract;out="media:txt;textable"]
 //!     [A -> extract -> B]
 //! "#;
 //!

@@ -260,35 +260,35 @@ fn create_test_cap_registry() -> Arc<CapRegistry> {
     let registry = CapRegistry::new_for_test();
     let caps = vec![
         build_testcartridge_cap(
-            r#"cap:in="media:node1;textable";op=test_edge1;out="media:node2;textable""#,
+            r#"cap:in="media:node1;textable";test-edge1;out="media:node2;textable""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node2;textable";op=test_edge2;out="media:node3;textable""#,
+            r#"cap:in="media:node2;textable";test-edge2;out="media:node3;textable""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node3;textable";op=test_edge3;out="media:node4;list;textable""#,
+            r#"cap:in="media:node3;textable";test-edge3;out="media:node4;list;textable""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node4;list;textable";op=test_edge4;out="media:node5;textable""#,
+            r#"cap:in="media:node4;list;textable";test-edge4;out="media:node5;textable""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node3;textable";op=test_edge7;out="media:node6;textable""#,
+            r#"cap:in="media:node3;textable";test-edge7;out="media:node6;textable""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node6;textable";op=test_edge8;out="media:node7;textable""#,
+            r#"cap:in="media:node6;textable";test-edge8;out="media:node7;textable""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node7;textable";op=test_edge9;out="media:node8;textable""#,
+            r#"cap:in="media:node7;textable";test-edge9;out="media:node8;textable""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node8;textable";op=test_edge10;out="media:node1;textable""#,
+            r#"cap:in="media:node8;textable";test-edge10;out="media:node1;textable""#,
         ),
-        build_testcartridge_cap(r#"cap:in="media:void";op=test_large;out="media:""#),
+        build_testcartridge_cap(r#"cap:in="media:void";test-large;out="media:""#),
         build_testcartridge_cap(
-            r#"cap:in="media:node1;textable";op=test_peer;out="media:node3;textable""#,
+            r#"cap:in="media:node1;textable";test-peer;out="media:node3;textable""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node1;textable";op=identity;out="media:node1;textable""#,
+            r#"cap:in="media:node1;textable";identity;out="media:node1;textable""#,
         ),
     ];
     registry.add_caps_to_cache(caps);
@@ -305,7 +305,7 @@ async fn test919_parse_simple_testcartridge_graph() {
     let registry = create_test_cap_registry();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";op=test_edge1;out="media:node2;textable"]
+[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
 [A -> test_edge1 -> B]
 "#;
 
@@ -330,7 +330,7 @@ async fn test889_execute_single_edge_dag() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";op=test_edge1;out="media:node2;textable"]
+[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
 [input -> test_edge1 -> output]
 "#;
 
@@ -380,8 +380,8 @@ async fn test888_execute_edge1_to_edge2_chain() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";op=test_edge1;out="media:node2;textable"]
-[test_edge2 cap:in="media:node2;textable";op=test_edge2;out="media:node3;textable"]
+[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
+[test_edge2 cap:in="media:node2;textable";test-edge2;out="media:node3;textable"]
 [A -> test_edge1 -> B]
 [B -> test_edge2 -> C]
 "#;
@@ -429,7 +429,7 @@ async fn test887_execute_with_file_input() {
     let (temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";op=test_edge1;out="media:node2;textable"]
+[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
 [input -> test_edge1 -> output]
 "#;
 
@@ -478,7 +478,7 @@ async fn test952_execute_large_payload() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_large cap:in="media:void";op=test_large;out="media:"]
+[test_large cap:in="media:void";test-large;out="media:"]
 [input -> test_large -> output]
 "#;
 
@@ -529,8 +529,8 @@ async fn test951_fan_in_pattern() {
 
     // Two parallel paths that merge
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";op=test_edge1;out="media:node2;textable"]
-[test_edge2 cap:in="media:node2;textable";op=test_edge2;out="media:node3;textable"]
+[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
+[test_edge2 cap:in="media:node2;textable";test-edge2;out="media:node3;textable"]
 [A -> test_edge1 -> B]
 [C -> test_edge1 -> D]
 [B -> test_edge2 -> E]
@@ -582,7 +582,7 @@ async fn test950_reject_cycles() {
 
     // Create a self-loop using identity cap
     let route = r#"
-[identity cap:in="media:node1;textable";op=identity;out="media:node1;textable"]
+[identity cap:in="media:node1;textable";identity;out="media:node1;textable"]
 [A -> identity -> A]
 "#;
 
@@ -607,7 +607,7 @@ async fn test943_same_media_different_names_is_not_a_cycle() {
     let registry = create_test_cap_registry();
 
     let route = r#"
-[identity cap:in="media:node1;textable";op=identity;out="media:node1;textable"]
+[identity cap:in="media:node1;textable";identity;out="media:node1;textable"]
 [A -> identity -> B]
 "#;
 
@@ -653,7 +653,7 @@ async fn test947_cap_not_found() {
     let registry = create_test_cap_registry();
 
     let route = r#"
-[nonexistent cap:in="media:unknown";op=nonexistent;out="media:unknown"]
+[nonexistent cap:in="media:unknown";nonexistent;out="media:unknown"]
 [A -> nonexistent -> B]
 "#;
 
@@ -681,10 +681,10 @@ async fn test946_four_machine() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";op=test_edge1;out="media:node2;textable"]
-[test_edge2 cap:in="media:node2;textable";op=test_edge2;out="media:node3;textable"]
-[test_edge7 cap:in="media:node3;textable";op=test_edge7;out="media:node6;textable"]
-[test_edge8 cap:in="media:node6;textable";op=test_edge8;out="media:node7;textable"]
+[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
+[test_edge2 cap:in="media:node2;textable";test-edge2;out="media:node3;textable"]
+[test_edge7 cap:in="media:node3;textable";test-edge7;out="media:node6;textable"]
+[test_edge8 cap:in="media:node6;textable";test-edge8;out="media:node7;textable"]
 [A -> test_edge1 -> B]
 [B -> test_edge2 -> C]
 [C -> test_edge7 -> D]
@@ -738,11 +738,11 @@ async fn test945_five_machine() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";op=test_edge1;out="media:node2;textable"]
-[test_edge2 cap:in="media:node2;textable";op=test_edge2;out="media:node3;textable"]
-[test_edge7 cap:in="media:node3;textable";op=test_edge7;out="media:node6;textable"]
-[test_edge8 cap:in="media:node6;textable";op=test_edge8;out="media:node7;textable"]
-[test_edge9 cap:in="media:node7;textable";op=test_edge9;out="media:node8;textable"]
+[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
+[test_edge2 cap:in="media:node2;textable";test-edge2;out="media:node3;textable"]
+[test_edge7 cap:in="media:node3;textable";test-edge7;out="media:node6;textable"]
+[test_edge8 cap:in="media:node6;textable";test-edge8;out="media:node7;textable"]
+[test_edge9 cap:in="media:node7;textable";test-edge9;out="media:node8;textable"]
 [A -> test_edge1 -> B]
 [B -> test_edge2 -> C]
 [C -> test_edge7 -> D]
@@ -795,12 +795,12 @@ async fn test944_six_machine() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";op=test_edge1;out="media:node2;textable"]
-[test_edge2 cap:in="media:node2;textable";op=test_edge2;out="media:node3;textable"]
-[test_edge7 cap:in="media:node3;textable";op=test_edge7;out="media:node6;textable"]
-[test_edge8 cap:in="media:node6;textable";op=test_edge8;out="media:node7;textable"]
-[test_edge9 cap:in="media:node7;textable";op=test_edge9;out="media:node8;textable"]
-[test_edge10 cap:in="media:node8;textable";op=test_edge10;out="media:node1;textable"]
+[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
+[test_edge2 cap:in="media:node2;textable";test-edge2;out="media:node3;textable"]
+[test_edge7 cap:in="media:node3;textable";test-edge7;out="media:node6;textable"]
+[test_edge8 cap:in="media:node6;textable";test-edge8;out="media:node7;textable"]
+[test_edge9 cap:in="media:node7;textable";test-edge9;out="media:node8;textable"]
+[test_edge10 cap:in="media:node8;textable";test-edge10;out="media:node1;textable"]
 [A -> test_edge1 -> B]
 [B -> test_edge2 -> C]
 [C -> test_edge7 -> D]
@@ -940,7 +940,7 @@ async fn test394_peer_invoke_roundtrip() {
     }
 
     // Now call test-peer, which will peer invoke test-edge1 and test-edge2
-    let test_peer_urn = r#"cap:in="media:node1;textable";op=test_peer;out="media:node5;textable""#;
+    let test_peer_urn = r#"cap:in="media:node1;textable";test-peer;out="media:node5;textable""#;
     let input_data = b"CHAIN".to_vec();
     let arguments = vec![CapArgumentValue::new("media:node1;textable", input_data)];
 

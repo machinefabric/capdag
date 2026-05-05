@@ -6,7 +6,7 @@ use serde_json;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Debug registry response parsing...");
 
-    let cap_urn = "cap:op=bitlogic;language=en;constrained";
+    let cap_urn = "cap:bitlogic;language=en;constrained";
     let url = format!("https://capdag.com/{}", cap_urn);
 
     println!("Fetching from: {}", url);

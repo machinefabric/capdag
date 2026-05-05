@@ -203,6 +203,7 @@ pub use input_resolver::{
     detect_file, detect_file_confirmed, detect_file_with_media_registry,
     discriminate_candidates_by_validation, resolve_input, resolve_inputs,
     resolve_inputs_confirmed, resolve_paths, AdapterResult, CartridgeAdapterInvoker,
-    ContentStructure, InputItem, InputResolverError, MediaAdapterRegistry, ResolvedFile,
-    ResolvedInputSet, ValueAdapter, ValueAdapterRegistry, ValueAdapterResult,
+    ContentStructure, InputItem, InputResolverError, MediaAdapterRegistry,
+    MAX_CONTENT_INSPECTION_BYTES, ResolvedFile, ResolvedInputSet, ValueAdapter,
+    ValueAdapterRegistry, ValueAdapterResult,
 };

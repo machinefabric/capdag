@@ -610,7 +610,7 @@ mod tests {
     // Verifies Single input and Single output result in OneToOne pattern
     #[test]
     fn test697_cap_shape_info_one_to_one() {
-        let info = CapShapeInfo::from_cap_specs("cap:test", "media:pdf", "media:png");
+        let info = CapShapeInfo::from_cap_specs("cap:test", "media:pdf", "media:image;png");
         assert_eq!(info.input.cardinality, InputCardinality::Single);
         assert_eq!(info.output.cardinality, InputCardinality::Single);
         assert_eq!(info.cardinality_pattern(), CardinalityPattern::OneToOne);
@@ -682,8 +682,8 @@ mod tests {
     #[test]
     fn test711_strand_shape_analysis_simple_linear() {
         let infos = vec![
-            CapShapeInfo::from_cap_specs("cap:pdf-to-png", "media:pdf", "media:png"),
-            CapShapeInfo::from_cap_specs("cap:resize", "media:png", "media:png"),
+            CapShapeInfo::from_cap_specs("cap:pdf-to-png", "media:pdf", "media:image;png"),
+            CapShapeInfo::from_cap_specs("cap:resize", "media:image;png", "media:image;png"),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
         assert!(analysis.is_valid);
@@ -699,11 +699,11 @@ mod tests {
             CapShapeInfo::from_cap_specs_with_sequence(
                 "cap:pdf-to-pages",
                 "media:pdf",
-                "media:png",
+                "media:image;png",
                 false,
                 true,
             ),
-            CapShapeInfo::from_cap_specs("cap:thumbnail", "media:png", "media:png"),
+            CapShapeInfo::from_cap_specs("cap:thumbnail", "media:image;png", "media:image;png"),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
         assert!(analysis.is_valid);
@@ -975,8 +975,8 @@ mod tests {
     #[test]
     fn test750_strand_shape_valid() {
         let infos = vec![
-            CapShapeInfo::from_cap_specs("cap:resize", "media:png", "media:png"),
-            CapShapeInfo::from_cap_specs("cap:compress", "media:png", "media:png"),
+            CapShapeInfo::from_cap_specs("cap:resize", "media:image;png", "media:image;png"),
+            CapShapeInfo::from_cap_specs("cap:compress", "media:image;png", "media:image;png"),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
         assert!(analysis.is_valid);

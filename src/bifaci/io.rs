@@ -944,7 +944,7 @@ mod tests {
         let id = MessageId::new_uuid();
         let original = Frame::req(
             id.clone(),
-            r#"cap:in="media:void";op=test;out="media:void""#,
+            r#"cap:in="media:void";test;out="media:void""#,
             b"payload".to_vec(),
             "application/json",
         );
@@ -1178,7 +1178,7 @@ mod tests {
         let id = MessageId::new_uuid();
         let original = Frame::req(
             id,
-            r#"cap:in="media:void";op=test;out="media:void""#,
+            r#"cap:in="media:void";test;out="media:void""#,
             b"payload".to_vec(),
             "application/json",
         );
@@ -1212,7 +1212,7 @@ mod tests {
 
         let f1 = Frame::req(
             id1.clone(),
-            r#"cap:in="media:void";op=first;out="media:void""#,
+            r#"cap:in="media:void";first;out="media:void""#,
             b"one".to_vec(),
             "text/plain",
         );
@@ -1264,7 +1264,7 @@ mod tests {
         let large_payload = vec![0u8; 200];
         let frame = Frame::req(
             id,
-            r#"cap:in="media:void";op=test;out="media:void""#,
+            r#"cap:in="media:void";test;out="media:void""#,
             large_payload,
             "application/octet-stream",
         );
@@ -1292,7 +1292,7 @@ mod tests {
         let id = MessageId::new_uuid();
         let frame = Frame::req(
             id,
-            r#"cap:in="media:void";op=test;out="media:void""#,
+            r#"cap:in="media:void";test;out="media:void""#,
             vec![0u8; 200],
             "text/plain",
         );
@@ -1661,7 +1661,7 @@ mod tests {
             // Send a REQ instead of HELLO
             let bad_frame = Frame::req(
                 MessageId::Uint(1),
-                r#"cap:in="media:void";op=bad;out="media:void""#,
+                r#"cap:in="media:void";bad;out="media:void""#,
                 vec![],
                 "text/plain",
             );
@@ -1722,7 +1722,7 @@ mod tests {
         let id = MessageId::new_uuid();
         let frame = Frame::req(
             id.clone(),
-            r#"cap:in="media:void";op=binary;out="media:void""#,
+            r#"cap:in="media:void";binary;out="media:void""#,
             data.clone(),
             "application/octet-stream",
         );
@@ -1744,7 +1744,7 @@ mod tests {
     // TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits
     #[test]
     fn test848_relay_notify_roundtrip() {
-        let manifest = br#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\"media:void\";op=test;out=\"media:void\"","title":"Test","command":"test"},{"urn":"cap:in=\"media:void\";op=convert;out=\"media:void\"","title":"Convert","command":"convert"}]}]}"#;
+        let manifest = br#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","command":"test"},{"urn":"cap:in=\"media:void\";convert;out=\"media:void\"","title":"Convert","command":"convert"}]}]}"#;
         let limits = crate::bifaci::frame::Limits {
             max_frame: 2_000_000,
             max_chunk: 128_000,

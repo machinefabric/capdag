@@ -118,12 +118,12 @@ Design caps to avoid ties by ensuring distinct specificities:
 ### 6.1 Exact Match Preferred
 
 ```
-Request: cap:in=media:pdf;op=extract;out=media:object
+Request: cap:in=media:pdf;extract;out=media:object
          spec = 3
 
 Valid providers:
-  A: cap:in=media:pdf;op=extract;out=media:object     spec=3, dist=0
-  B: cap:in=media:pdf;op=extract;out=media:object;v=2 spec=4, dist=+1
+  A: cap:in=media:pdf;extract;out=media:object     spec=3, dist=0
+  B: cap:in=media:pdf;extract;out=media:object;v=2 spec=4, dist=+1
   C: cap:op=extract                                    spec=1, dist=-2
 
 Ranking: A (dist=0) ≺ B (dist=+1) ≺ C (dist=-2)
@@ -137,8 +137,8 @@ Request: cap:op=convert
          spec = 1
 
 Valid providers:
-  A: cap:in=media:pdf;op=convert;out=media:html   spec=3, dist=+2
-  B: cap:in=media:image;op=convert;out=media:png  spec=3, dist=+2
+  A: cap:in=media:pdf;convert;out=media:html   spec=3, dist=+2
+  B: cap:in=media:image;convert;out=media:png  spec=3, dist=+2
   C: cap:op=convert                                spec=1, dist=0
 
 Ranking: C (dist=0) ≺ {A, B} (dist=+2, tie)
@@ -152,11 +152,11 @@ Selected: First registered of A or B
 ### 6.3 Fallback Only
 
 ```
-Request: cap:in=media:pdf;v=2.0;op=extract;out=media:object;format=json
+Request: cap:in=media:pdf;v=2.0;extract;out=media:object;format=json
          spec = 5
 
 Valid providers:
-  A: cap:in=media:pdf;op=extract;out=media:object  spec=3, dist=-2
+  A: cap:in=media:pdf;extract;out=media:object  spec=3, dist=-2
   B: cap:op=extract                                 spec=1, dist=-4
 
 Ranking: A (dist=-2) ≺ B (dist=-4)

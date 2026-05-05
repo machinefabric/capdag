@@ -96,7 +96,7 @@ mod tests {
         let router = NoPeerRouter;
         let req_id = [0u8; 16];
         let result =
-            router.begin_request("cap:in=\"media:void\";op=test;out=\"media:void\"", &req_id);
+            router.begin_request("cap:in=\"media:void\";test;out=\"media:void\"", &req_id);
 
         assert!(result.is_err());
         match result {

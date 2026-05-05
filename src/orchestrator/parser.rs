@@ -58,7 +58,7 @@ fn check_structure_compatibility(
 /// Machine notation format (both forms are equally valid):
 ///
 /// ```text
-/// extract cap:in="media:pdf";op=extract;out="media:txt;textable"
+/// extract cap:in="media:pdf";extract;out="media:txt;textable"
 /// doc -> extract -> text
 /// ```
 ///
@@ -304,13 +304,13 @@ mod tests {
     #[tokio::test]
     async fn test1256_parse_simple_machine() {
         let registry = build_test_registry(&[(
-            r#"cap:in="media:pdf";op=extract;out="media:txt;textable""#,
+            r#"cap:in="media:pdf";extract;out="media:txt;textable""#,
             &["media:pdf"],
             "media:txt;textable",
         )]);
 
         let notation = concat!(
-            r#"[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]"#,
+            r#"[extract cap:in="media:pdf";extract;out="media:txt;textable"]"#,
             "[A -> extract -> B]"
         );
 
@@ -344,20 +344,20 @@ mod tests {
     async fn test1257_parse_two_step_chain() {
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:pdf";op=extract;out="media:txt;textable""#,
+                r#"cap:in="media:pdf";extract;out="media:txt;textable""#,
                 &["media:pdf"],
                 "media:txt;textable",
             ),
             (
-                r#"cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable""#,
+                r#"cap:in="media:txt;textable";embed;out="media:embedding-vector;record;textable""#,
                 &["media:txt;textable"],
                 "media:embedding-vector;record;textable",
             ),
         ]);
 
         let notation = concat!(
-            r#"[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]"#,
-            r#"[embed cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"]"#,
+            r#"[extract cap:in="media:pdf";extract;out="media:txt;textable"]"#,
+            r#"[embed cap:in="media:txt;textable";embed;out="media:embedding-vector;record;textable"]"#,
             "[A -> extract -> B]",
             "[B -> embed -> C]"
         );
@@ -388,26 +388,26 @@ mod tests {
     async fn test1258_parse_fan_out() {
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;record;textable""#,
+                r#"cap:in="media:pdf";extract-metadata;out="media:file-metadata;record;textable""#,
                 &["media:pdf"],
                 "media:file-metadata;record;textable",
             ),
             (
-                r#"cap:in="media:pdf";op=extract_outline;out="media:document-outline;record;textable""#,
+                r#"cap:in="media:pdf";extract-outline;out="media:document-outline;record;textable""#,
                 &["media:pdf"],
                 "media:document-outline;record;textable",
             ),
             (
-                r#"cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail""#,
+                r#"cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail""#,
                 &["media:pdf"],
                 "media:image;png;thumbnail",
             ),
         ]);
 
         let notation = concat!(
-            r#"[meta cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;record;textable"]"#,
-            r#"[outline cap:in="media:pdf";op=extract_outline;out="media:document-outline;record;textable"]"#,
-            r#"[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]"#,
+            r#"[meta cap:in="media:pdf";extract-metadata;out="media:file-metadata;record;textable"]"#,
+            r#"[outline cap:in="media:pdf";extract-outline;out="media:document-outline;record;textable"]"#,
+            r#"[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]"#,
             "[doc -> meta -> metadata]",
             "[doc -> outline -> outline_data]",
             "[doc -> thumb -> thumbnail]"
@@ -434,26 +434,26 @@ mod tests {
         // assigns each source URN to the right arg slot.
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail""#,
+                r#"cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail""#,
                 &["media:pdf"],
                 "media:image;png;thumbnail",
             ),
             (
-                r#"cap:in="media:model-spec;textable";op=download;out="media:model-spec;textable""#,
+                r#"cap:in="media:model-spec;textable";download;out="media:model-spec;textable""#,
                 &["media:model-spec;textable"],
                 "media:model-spec;textable",
             ),
             (
-                r#"cap:in="media:image;png";op=describe_image;out="media:image-description;textable""#,
+                r#"cap:in="media:image;png";describe-image;out="media:image-description;textable""#,
                 &["media:image;png", "media:model-spec;textable"],
                 "media:image-description;textable",
             ),
         ]);
 
         let notation = concat!(
-            r#"[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]"#,
-            r#"[model_dl cap:in="media:model-spec;textable";op=download;out="media:model-spec;textable"]"#,
-            r#"[describe cap:in="media:image;png";op=describe_image;out="media:image-description;textable"]"#,
+            r#"[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]"#,
+            r#"[model_dl cap:in="media:model-spec;textable";download;out="media:model-spec;textable"]"#,
+            r#"[describe cap:in="media:image;png";describe-image;out="media:image-description;textable"]"#,
             "[doc -> thumb -> thumbnail]",
             "[spec_input -> model_dl -> model_spec]",
             "[(thumbnail, model_spec) -> describe -> description]"
@@ -476,13 +476,13 @@ mod tests {
     #[tokio::test]
     async fn test1260_parse_loop_wiring() {
         let registry = build_test_registry(&[(
-            r#"cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable""#,
+            r#"cap:in="media:disbound-page;textable";page-to-text;out="media:txt;textable""#,
             &["media:disbound-page;textable"],
             "media:txt;textable",
         )]);
 
         let notation = concat!(
-            r#"[p2t cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable"]"#,
+            r#"[p2t cap:in="media:disbound-page;textable";page-to-text;out="media:txt;textable"]"#,
             "[pages -> LOOP p2t -> texts]"
         );
 
@@ -503,7 +503,7 @@ mod tests {
     async fn test1261_cap_not_found_in_registry() {
         let registry = build_test_registry(&[]);
         let notation = concat!(
-            r#"[ex cap:in="media:unknown";op=test;out="media:unknown"]"#,
+            r#"[ex cap:in="media:unknown";test;out="media:unknown"]"#,
             "[A -> ex -> B]"
         );
 
@@ -542,7 +542,7 @@ mod tests {
     #[tokio::test]
     async fn test1263_cycle_detection() {
         let registry = build_test_registry(&[(
-            r#"cap:in="media:txt;textable";op=process;out="media:txt;textable""#,
+            r#"cap:in="media:txt;textable";process;out="media:txt;textable""#,
             &["media:txt;textable"],
             "media:txt;textable",
         )]);
@@ -551,7 +551,7 @@ mod tests {
         // sharing nodes form one connected component → one
         // strand → resolver detects the cycle).
         let notation = concat!(
-            r#"[proc cap:in="media:txt;textable";op=process;out="media:txt;textable"]"#,
+            r#"[proc cap:in="media:txt;textable";process;out="media:txt;textable"]"#,
             "[A -> proc -> B]",
             "[B -> proc -> C]",
             "[C -> proc -> A]"
@@ -578,20 +578,20 @@ mod tests {
         // catches it via `is_comparable`.
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:void";op=produce_pdf;out="media:pdf""#,
+                r#"cap:in="media:void";produce-pdf;out="media:pdf""#,
                 &["media:void"],
                 "media:pdf",
             ),
             (
-                r#"cap:in="media:audio;wav";op=transcribe;out="media:txt;textable""#,
+                r#"cap:in="media:audio;wav";transcribe;out="media:txt;textable""#,
                 &["media:audio;wav"],
                 "media:txt;textable",
             ),
         ]);
 
         let notation = concat!(
-            r#"[produce cap:in="media:void";op=produce_pdf;out="media:pdf"]"#,
-            r#"[transcribe cap:in="media:audio;wav";op=transcribe;out="media:txt;textable"]"#,
+            r#"[produce cap:in="media:void";produce-pdf;out="media:pdf"]"#,
+            r#"[transcribe cap:in="media:audio;wav";transcribe;out="media:txt;textable"]"#,
             "[A -> produce -> B]",
             "[B -> transcribe -> C]"
         );
@@ -622,20 +622,20 @@ mod tests {
         // to cap B's image;png;bytes arg slot.
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:pdf";op=thumbnail;out="media:image;png""#,
+                r#"cap:in="media:pdf";thumbnail;out="media:image;png""#,
                 &["media:pdf"],
                 "media:image;png",
             ),
             (
-                r#"cap:in="media:image;png;bytes";op=embed_image;out="media:embedding-vector;record;textable""#,
+                r#"cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;record;textable""#,
                 &["media:image;png;bytes"],
                 "media:embedding-vector;record;textable",
             ),
         ]);
 
         let notation = concat!(
-            r#"[thumb cap:in="media:pdf";op=thumbnail;out="media:image;png"]"#,
-            r#"[embed_image cap:in="media:image;png;bytes";op=embed_image;out="media:embedding-vector;record;textable"]"#,
+            r#"[thumb cap:in="media:pdf";thumbnail;out="media:image;png"]"#,
+            r#"[embed_image cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;record;textable"]"#,
             "[A -> thumb -> B]",
             "[B -> embed_image -> C]"
         );
@@ -666,20 +666,20 @@ mod tests {
         // mismatch.
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:void";op=produce;out="media:json;record;textable""#,
+                r#"cap:in="media:void";produce;out="media:json;record;textable""#,
                 &["media:void"],
                 "media:json;record;textable",
             ),
             (
-                r#"cap:in="media:json;textable";op=process;out="media:txt;textable""#,
+                r#"cap:in="media:json;textable";process;out="media:txt;textable""#,
                 &["media:json;textable"],
                 "media:txt;textable",
             ),
         ]);
 
         let notation = concat!(
-            r#"[produce cap:in="media:void";op=produce;out="media:json;record;textable"]"#,
-            r#"[process cap:in="media:json;textable";op=process;out="media:txt;textable"]"#,
+            r#"[produce cap:in="media:void";produce;out="media:json;record;textable"]"#,
+            r#"[process cap:in="media:json;textable";process;out="media:txt;textable"]"#,
             "[A -> produce -> B]",
             "[B -> process -> C]"
         );
@@ -704,20 +704,20 @@ mod tests {
     async fn test1267_structure_match_both_record() {
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:void";op=produce;out="media:json;record;textable""#,
+                r#"cap:in="media:void";produce;out="media:json;record;textable""#,
                 &["media:void"],
                 "media:json;record;textable",
             ),
             (
-                r#"cap:in="media:json;record;textable";op=transform;out="media:result;record;textable""#,
+                r#"cap:in="media:json;record;textable";transform;out="media:result;record;textable""#,
                 &["media:json;record;textable"],
                 "media:result;record;textable",
             ),
         ]);
 
         let notation = concat!(
-            r#"[produce cap:in="media:void";op=produce;out="media:json;record;textable"]"#,
-            r#"[transform cap:in="media:json;record;textable";op=transform;out="media:result;record;textable"]"#,
+            r#"[produce cap:in="media:void";produce;out="media:json;record;textable"]"#,
+            r#"[transform cap:in="media:json;record;textable";transform;out="media:result;record;textable"]"#,
             "[A -> produce -> B]",
             "[B -> transform -> C]"
         );
@@ -739,20 +739,20 @@ mod tests {
     async fn test1268_structure_match_both_opaque() {
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:void";op=produce;out="media:json;textable""#,
+                r#"cap:in="media:void";produce;out="media:json;textable""#,
                 &["media:void"],
                 "media:json;textable",
             ),
             (
-                r#"cap:in="media:json;textable";op=format;out="media:txt;textable""#,
+                r#"cap:in="media:json;textable";format;out="media:txt;textable""#,
                 &["media:json;textable"],
                 "media:txt;textable",
             ),
         ]);
 
         let notation = concat!(
-            r#"[produce cap:in="media:void";op=produce;out="media:json;textable"]"#,
-            r#"[format cap:in="media:json;textable";op=format;out="media:txt;textable"]"#,
+            r#"[produce cap:in="media:void";produce;out="media:json;textable"]"#,
+            r#"[format cap:in="media:json;textable";format;out="media:txt;textable"]"#,
             "[A -> produce -> B]",
             "[B -> format -> C]"
         );
@@ -773,13 +773,13 @@ mod tests {
     #[tokio::test]
     async fn test1269_parse_multiline_machine() {
         let registry = build_test_registry(&[(
-            r#"cap:in="media:pdf";op=extract;out="media:txt;textable""#,
+            r#"cap:in="media:pdf";extract;out="media:txt;textable""#,
             &["media:pdf"],
             "media:txt;textable",
         )]);
 
         let notation = r#"
-[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]
+[extract cap:in="media:pdf";extract;out="media:txt;textable"]
 [doc -> extract -> text]
 "#;
 

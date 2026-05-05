@@ -463,6 +463,43 @@ impl MediaUrnRegistry {
         cached_specs.get(&normalized_urn).cloned()
     }
 
+    /// Returns `true` if the URN is a bookend-eligible file format — its
+    /// stored spec has at least one registered file extension. A bookend
+    /// URN can serve as a strand source or target because real file
+    /// content can sit on disk under that URN's identity.
+    ///
+    /// Non-bookend URNs (no extensions) describe value types or cap-arg
+    /// shapes, not file formats. They flow through caps but never name a
+    /// file. Strand source/target enumeration must filter on this
+    /// predicate; the planner builds its bookend snapshot from it.
+    ///
+    /// Synchronous, no network — reads only the in-memory cache.
+    pub fn is_bookend(&self, urn: &str) -> bool {
+        match self.get_cached_spec(urn) {
+            Some(spec) => !spec.extensions.is_empty(),
+            None => false,
+        }
+    }
+
+    /// Snapshot of every bookend-eligible URN currently in the cache,
+    /// returned as a `HashSet<MediaUrn>` for O(1) `contains` lookups.
+    ///
+    /// Used by the planner at sync time: the snapshot is intersected
+    /// with the planner's graph nodes to mark which can serve as
+    /// strand bookends. Computed once per cap-set sync; no further
+    /// registry calls during traversal.
+    pub fn bookend_urns(&self) -> std::collections::HashSet<crate::MediaUrn> {
+        let cached = match self.cached_specs.lock() {
+            Ok(g) => g,
+            Err(_) => return std::collections::HashSet::new(),
+        };
+        cached
+            .values()
+            .filter(|spec| !spec.extensions.is_empty())
+            .filter_map(|spec| crate::MediaUrn::from_string(&spec.urn).ok())
+            .collect()
+    }
+
     /// Insert a spec directly into the in-memory cache, keyed by its
     /// normalized URN. Exposed for tests that build a registry
     /// populated with fixture specs without touching the filesystem

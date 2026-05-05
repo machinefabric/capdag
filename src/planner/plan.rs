@@ -1036,7 +1036,7 @@ mod tests {
         let plan = MachinePlan::single_cap(
             "cap:test",
             "media:pdf",
-            "media:png",
+            "media:image;png",
             "input_file", // file-path argument name for this cap
         );
         assert_eq!(plan.nodes.len(), 3); // input_slot, cap, output
@@ -1052,7 +1052,7 @@ mod tests {
         let plan = MachinePlan::linear_chain(
             &["cap:a", "cap:b", "cap:c"],
             "media:pdf",
-            "media:png",
+            "media:image;png",
             &["input_a", "input_b", "input_c"], // file-path argument names for each cap
         );
         assert_eq!(plan.nodes.len(), 5); // input_slot, 3 caps, output
@@ -1370,7 +1370,7 @@ mod tests {
         let plan = MachinePlan::linear_chain(
             &["cap:only"],
             "media:pdf",
-            "media:png",
+            "media:image;png",
             &["source_file"], // file-path argument name
         );
         assert_eq!(plan.nodes.len(), 3); // input_slot, 1 cap, output
@@ -1385,7 +1385,7 @@ mod tests {
         let plan = MachinePlan::linear_chain(
             &[],
             "media:pdf",
-            "media:png",
+            "media:image;png",
             &[], // no caps, no arg names
         );
         assert_eq!(plan.nodes.len(), 0);
@@ -1502,7 +1502,7 @@ mod tests {
         let plan = MachinePlan::single_cap(
             "cap:test",
             "media:pdf",
-            "media:png",
+            "media:image;png",
             "input_file", // file-path argument name
         );
 
@@ -1605,7 +1605,7 @@ mod tests {
         let plan = MachinePlan::single_cap(
             "cap:test",
             "media:pdf",
-            "media:png",
+            "media:image;png",
             "doc_path", // file-path argument name
         );
 
@@ -1715,7 +1715,7 @@ mod tests {
         let plan = MachinePlan::linear_chain(
             &["cap:a", "cap:b"],
             "media:pdf",
-            "media:png",
+            "media:image;png",
             &["input_a", "input_b"],
         );
         assert_eq!(plan.find_first_foreach(), None);
@@ -1731,7 +1731,7 @@ mod tests {
         );
 
         let linear_plan =
-            MachinePlan::linear_chain(&["cap:a"], "media:pdf", "media:png", &["input_a"]);
+            MachinePlan::linear_chain(&["cap:a"], "media:pdf", "media:image;png", &["input_a"]);
         assert!(
             !linear_plan.has_foreach(),
             "Linear plan should not detect ForEach"
@@ -1747,7 +1747,7 @@ mod tests {
         ));
         standalone_collect_plan.add_node(MachineNode::cap(
             "cap_0",
-            "cap:in=media:textable;op=summarize;out=media:summary",
+            "cap:in=media:textable;summarize;out=media:summary",
         ));
         let mut collect_node = MachineNode::collect("collect_0", vec!["cap_0".to_string()]);
         collect_node.node_type = ExecutionNodeType::Collect {

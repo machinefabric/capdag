@@ -1196,7 +1196,7 @@ mod tests {
         let id = MessageId::new_uuid();
         let frame = Frame::req(
             id.clone(),
-            r#"cap:in="media:void";op=test;out="media:void""#,
+            r#"cap:in="media:void";test;out="media:void""#,
             b"payload".to_vec(),
             "application/json",
         );
@@ -1204,7 +1204,7 @@ mod tests {
         assert_eq!(frame.id, id);
         assert_eq!(
             frame.cap,
-            Some(r#"cap:in="media:void";op=test;out="media:void""#.to_string())
+            Some(r#"cap:in="media:void";test;out="media:void""#.to_string())
         );
         assert_eq!(frame.payload, Some(b"payload".to_vec()));
         assert_eq!(frame.content_type, Some("application/json".to_string()));
@@ -1377,7 +1377,7 @@ mod tests {
     fn test191_error_accessors_on_non_err_frame() {
         let req = Frame::req(
             MessageId::new_uuid(),
-            r#"cap:in="media:void";op=test;out="media:void""#,
+            r#"cap:in="media:void";test;out="media:void""#,
             vec![],
             "text/plain",
         );
@@ -1400,7 +1400,7 @@ mod tests {
     fn test192_log_accessors_on_non_log_frame() {
         let req = Frame::req(
             MessageId::new_uuid(),
-            r#"cap:in="media:void";op=test;out="media:void""#,
+            r#"cap:in="media:void";test;out="media:void""#,
             vec![],
             "text/plain",
         );
@@ -1541,7 +1541,7 @@ mod tests {
     fn test204_req_frame_empty_payload() {
         let frame = Frame::req(
             MessageId::new_uuid(),
-            r#"cap:in="media:void";op=test;out="media:void""#,
+            r#"cap:in="media:void";test;out="media:void""#,
             vec![],
             "text/plain",
         );
@@ -1632,7 +1632,7 @@ mod tests {
     // TEST401: Verify relay_notify factory stores manifest and limits, and accessors extract them
     #[test]
     fn test401_relay_notify_frame() {
-        let manifest = br#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\"media:void\";op=test;out=\"media:void\"","title":"Test","command":"test"}]}]}"#;
+        let manifest = br#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","command":"test"}]}]}"#;
         let limits = Limits {
             max_frame: 2_000_000,
             max_chunk: 128_000,
@@ -2402,7 +2402,7 @@ mod tests {
 
         let mut frame = Frame::req(
             req_id.clone(),
-            r#"cap:in="media:void";op=test;out="media:void""#,
+            r#"cap:in="media:void";test;out="media:void""#,
             vec![],
             "text/plain",
         );
@@ -2900,7 +2900,7 @@ mod tests {
     fn test521_relay_notify_cbor_roundtrip() {
         use crate::bifaci::io::{decode_frame, encode_frame};
 
-        let manifest = br#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\"media:void\";op=convert;out=\"media:image\"","title":"Convert","command":"convert"}]}]}"#;
+        let manifest = br#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\"media:void\";convert;out=\"media:image\"","title":"Convert","command":"convert"}]}]}"#;
         let limits = Limits {
             max_frame: 3_000_000,
             max_chunk: 256_000,

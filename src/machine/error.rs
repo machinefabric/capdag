@@ -156,15 +156,15 @@ mod tests {
     fn test1134_all_abstraction_error_variants_are_machine_abstraction_error() {
         let variants: Vec<MachineAbstractionError> = vec![
             MachineAbstractionError::NoCapabilitySteps,
-            MachineAbstractionError::UnknownCap { cap_urn: "cap:op=x".to_string() },
+            MachineAbstractionError::UnknownCap { cap_urn: "cap:x".to_string() },
             MachineAbstractionError::UnmatchedSourceInCapArgs {
                 strand_index: 0,
-                cap_urn: "cap:op=x".to_string(),
+                cap_urn: "cap:x".to_string(),
                 source_urn: "media:pdf".to_string(),
             },
             MachineAbstractionError::AmbiguousMachineNotation {
                 strand_index: 1,
-                cap_urn: "cap:op=y".to_string(),
+                cap_urn: "cap:y".to_string(),
             },
             MachineAbstractionError::CyclicMachineStrand { strand_index: 2 },
         ];

@@ -37,7 +37,7 @@ Two equally valid statement forms exist. Both can be freely mixed in the same pr
 Each statement is wrapped in `[...]`. Inside a bracketed statement the cap URN reads until the closing `]`, so line breaks between statements are insignificant — multiple statements may share a line:
 
 ```
-[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]
+[extract cap:in="media:pdf";extract;out="media:txt;textable"]
 [doc -> extract -> text]
 ```
 
@@ -46,7 +46,7 @@ Each statement is wrapped in `[...]`. Inside a bracketed statement the cap URN r
 One statement per line, no brackets. In this form a cap URN reads until the newline, so line breaks **terminate** statements:
 
 ```
-extract cap:in="media:pdf";op=extract;out="media:txt;textable"
+extract cap:in="media:pdf";extract;out="media:txt;textable"
 doc -> extract -> text
 ```
 
@@ -69,8 +69,8 @@ A header binds an alias to a `CapUrn`:
 Examples:
 
 ```
-extract cap:in="media:pdf";op=extract;out="media:txt;textable"
-embed cap:in="media:textable";op=embed;out="media:embedding-vector;record;textable"
+extract cap:in="media:pdf";extract;out="media:txt;textable"
+embed cap:in="media:textable";embed;out="media:embedding-vector;record;textable"
 ```
 
 The cap URN is parsed by `CapUrn::from_string` (see [04-CAP-URN-STRUCTURE](./06-CAP-URN-STRUCTURE.md)). The header is consumed in exactly one place: each matching wiring references it by alias.
@@ -253,8 +253,8 @@ Building a `Machine` from notation can fail in several distinct ways:
 ### 13.1 Linear chain
 
 ```
-[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]
-[embed cap:in="media:textable";op=embed;out="media:embedding-vector;record;textable"]
+[extract cap:in="media:pdf";extract;out="media:txt;textable"]
+[embed cap:in="media:textable";embed;out="media:embedding-vector;record;textable"]
 [doc -> extract -> text]
 [text -> embed -> vectors]
 ```
@@ -264,14 +264,14 @@ One strand. Three nodes (`doc`, `text`, `vectors`). Two edges. Input anchor: the
 Canonical re-serialization:
 
 ```
-[edge_0 cap:in="media:pdf";op=extract;out="media:txt;textable"][edge_1 cap:in="media:textable";op=embed;out="media:embedding-vector;record;textable"][n0 -> edge_0 -> n1][n1 -> edge_1 -> n2]
+[edge_0 cap:in="media:pdf";extract;out="media:txt;textable"][edge_1 cap:in="media:textable";embed;out="media:embedding-vector;record;textable"][n0 -> edge_0 -> n1][n1 -> edge_1 -> n2]
 ```
 
 ### 13.2 Strand with iteration
 
 ```
-[disbind cap:in="media:pdf";op=disbind;out="media:page;textable"]
-[make_decision cap:in="media:textable";op=make_decision;out="media:decision;json;record;textable"]
+[disbind cap:in="media:pdf";disbind;out="media:page;textable"]
+[make_decision cap:in="media:textable";make-decision;out="media:decision;json;record;textable"]
 [doc -> disbind -> pages]
 [pages -> LOOP make_decision -> decisions]
 ```
@@ -281,9 +281,9 @@ One strand. The `LOOP` marker on the second wiring sets `is_loop = true` on the 
 ### 13.3 Fan-out
 
 ```
-[meta cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;record;textable"]
-[outline cap:in="media:pdf";op=extract_outline;out="media:document-outline;record;textable"]
-[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]
+[meta cap:in="media:pdf";extract-metadata;out="media:file-metadata;record;textable"]
+[outline cap:in="media:pdf";extract-outline;out="media:document-outline;record;textable"]
+[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]
 [doc -> meta -> metadata]
 [doc -> outline -> outline_data]
 [doc -> thumb -> thumbnail]
@@ -294,9 +294,9 @@ One strand. All three wirings share the source `doc`, so they are connected (one
 ### 13.4 Fan-in
 
 ```
-[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]
-[model_dl cap:in="media:model-spec;textable";op=download;out="media:model-spec;textable"]
-[describe cap:in="media:image;png";op=describe_image;out="media:image-description;textable"]
+[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]
+[model_dl cap:in="media:model-spec;textable";download;out="media:model-spec;textable"]
+[describe cap:in="media:image;png";describe-image;out="media:image-description;textable"]
 [doc -> thumb -> thumbnail]
 [spec_input -> model_dl -> model_spec]
 [(thumbnail, model_spec) -> describe -> description]

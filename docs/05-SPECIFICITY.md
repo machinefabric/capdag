@@ -98,14 +98,14 @@ cap:                                         → 0 + 0 + 0 = 0
 cap:op=extract                               → 0 + 0 + 1 = 1
 # in=media: (0), out=media: (0), op=extract (1)
 
-cap:in=media:pdf;op=extract;out=media:object → 1 + 1 + 1 = 3
+cap:in=media:pdf;extract;out=media:object → 1 + 1 + 1 = 3
 # in has 1 tag (pdf), out has 1 tag (object), op (1)
 
-cap:in="media:pdf;bytes";op=extract;out="media:textable;form=map"
+cap:in="media:pdf;bytes";extract;out="media:textable;form=map"
 → 2 + 2 + 1 = 5
 # in has 2 tags (pdf, bytes), out has 2 tags (textable, form), op (1)
 
-cap:in=*;op=extract;out=*                    → 0 + 0 + 1 = 1
+cap:in=*;extract;out=*                    → 0 + 0 + 1 = 1
 # in=* normalizes to media: (0), out=* normalizes to media: (0), op (1)
 ```
 

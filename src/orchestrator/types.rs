@@ -189,11 +189,11 @@ mod tests {
     #[test]
     fn test1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes() {
         let cap = make_test_cap(
-            r#"cap:in="media:pdf";op=extract;out="media:txt;textable""#,
+            r#"cap:in="media:pdf";extract;out="media:txt;textable""#,
             r#"Extract "Title" <One>\path"#,
         );
         let second_cap = make_test_cap(
-            r#"cap:in="media:txt;textable";op=embed;out="media:embedding;record""#,
+            r#"cap:in="media:txt;textable";embed;out="media:embedding;record""#,
             "Embed",
         );
 

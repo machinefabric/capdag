@@ -670,10 +670,10 @@ mod tests {
         let (registry, _temp_dir) = registry_with_temp_cache().await;
         // Use URNs with required in/out (new media URN format)
         let key1 =
-            registry.cache_key("cap:in=media:void;op=extract;out=media:record;target=metadata");
+            registry.cache_key("cap:in=media:void;extract;out=media:record;target=metadata");
         let key2 =
-            registry.cache_key("cap:in=media:void;op=extract;out=media:record;target=metadata");
-        let key3 = registry.cache_key("cap:in=media:void;op=different;out=media:object");
+            registry.cache_key("cap:in=media:void;extract;out=media:record;target=metadata");
+        let key3 = registry.cache_key("cap:in=media:void;different;out=media:object");
 
         assert_eq!(key1, key2);
         assert_ne!(key1, key3);
@@ -689,7 +689,7 @@ mod tests {
 
         // Try to fetch a non-cached cap — should fail with NetworkBlocked, not an HTTP error
         let result = registry
-            .get_cap("cap:in=media:void;op=nonexistent;out=media:void")
+            .get_cap("cap:in=media:void;nonexistent;out=media:void")
             .await;
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -710,7 +710,7 @@ mod tests {
         let (registry, _temp_dir) = registry_with_temp_cache().await;
 
         // Add a cap to the cache directly
-        let cap_json = r#"{"urn":"cap:in=media:void;op=test_offline;out=media:void","command":"test","title":"Test Cap","args":[]}"#;
+        let cap_json = r#"{"urn":"cap:in=media:void;test-offline;out=media:void","command":"test","title":"Test Cap","args":[]}"#;
         let cap: Cap = serde_json::from_str(cap_json).unwrap();
         registry.add_caps_to_cache(vec![cap.clone()]);
 
@@ -719,7 +719,7 @@ mod tests {
 
         // Should still be able to get the cached cap
         let result = registry
-            .get_cap("cap:in=media:void;op=test_offline;out=media:void")
+            .get_cap("cap:in=media:void;test-offline;out=media:void")
             .await;
         assert!(
             result.is_ok(),
@@ -737,7 +737,7 @@ mod tests {
 
         // Verify blocked
         let result = registry
-            .get_cap("cap:in=media:void;op=nonexistent;out=media:void")
+            .get_cap("cap:in=media:void;nonexistent;out=media:void")
             .await;
         assert!(matches!(result, Err(RegistryError::NetworkBlocked(_))));
 
@@ -746,7 +746,7 @@ mod tests {
 
         // Now should attempt HTTP (which will fail with HttpError or NotFound, not NetworkBlocked)
         let result = registry
-            .get_cap("cap:in=media:void;op=nonexistent;out=media:void")
+            .get_cap("cap:in=media:void;nonexistent;out=media:void")
             .await;
         assert!(result.is_err());
         assert!(
@@ -765,7 +765,7 @@ mod json_parse_tests {
     fn test137_parse_registry_json() {
         // JSON without stdin args - means cap doesn't accept stdin
         // media_specs is now an array of media spec objects with urn field
-        let json = r#"{"urn":"cap:in=\"media:listing-id\";op=use_grinder;out=\"media:task;id\"","command":"grinder_task","title":"Create Grinder Tool Task","cap_description":"Create a task for initial document analysis - first glance phase","metadata":{},"media_specs":[{"urn":"media:listing-id","media_type":"text/plain","title":"Listing ID","profile_uri":"https://machinefabric.com/schema/listing-id","schema":{"type":"string","pattern":"[0-9a-f-]{36}","description":"MachineFabric listing UUID"}},{"urn":"media:task;id","media_type":"application/json","title":"Task ID","profile_uri":"https://capdag.com/schema/grinder_task-output","schema":{"type":"object","additionalProperties":false,"properties":{"task_id":{"type":"string","description":"ID of the created task"},"task_type":{"type":"string","description":"Type of task created"}},"required":["task_id","task_type"]}}],"args":[{"media_urn":"media:listing-id","required":true,"sources":[{"cli_flag":"--listing-id"}],"arg_description":"ID of the listing to analyze"}],"output":{"media_urn":"media:task;id","output_description":"Created task information"},"registered_by":{"username":"joeharshamshiri","registered_at":"2026-01-15T00:44:29.851Z"}}"#;
+        let json = r#"{"urn":"cap:in=\"media:listing-id\";use-grinder;out=\"media:task;id\"","command":"grinder_task","title":"Create Grinder Tool Task","cap_description":"Create a task for initial document analysis - first glance phase","metadata":{},"media_specs":[{"urn":"media:listing-id","media_type":"text/plain","title":"Listing ID","profile_uri":"https://machinefabric.com/schema/listing-id","schema":{"type":"string","pattern":"[0-9a-f-]{36}","description":"MachineFabric listing UUID"}},{"urn":"media:task;id","media_type":"application/json","title":"Task ID","profile_uri":"https://capdag.com/schema/grinder_task-output","schema":{"type":"object","additionalProperties":false,"properties":{"task_id":{"type":"string","description":"ID of the created task"},"task_type":{"type":"string","description":"Type of task created"}},"required":["task_id","task_type"]}}],"args":[{"media_urn":"media:listing-id","required":true,"sources":[{"cli_flag":"--listing-id"}],"arg_description":"ID of the listing to analyze"}],"output":{"media_urn":"media:task;id","output_description":"Created task information"},"registered_by":{"username":"joeharshamshiri","registered_at":"2026-01-15T00:44:29.851Z"}}"#;
 
         let cap: Cap = serde_json::from_str(json).expect("Failed to parse JSON");
         assert_eq!(cap.title, "Create Grinder Tool Task");
@@ -777,7 +777,7 @@ mod json_parse_tests {
     #[test]
     fn test138_parse_registry_json_with_stdin() {
         // JSON with stdin args - means cap accepts stdin of specified media type
-        let json = r#"{"urn":"cap:in=\"media:pdf\";op=extract_metadata;out=\"media:file-metadata;textable;record\"","command":"extract-metadata","title":"Extract Metadata","args":[{"media_urn":"media:pdf","required":true,"sources":[{"stdin":"media:pdf"}]}]}"#;
+        let json = r#"{"urn":"cap:in=\"media:pdf\";extract-metadata;out=\"media:file-metadata;textable;record\"","command":"extract-metadata","title":"Extract Metadata","args":[{"media_urn":"media:pdf","required":true,"sources":[{"stdin":"media:pdf"}]}]}"#;
 
         let cap: Cap = serde_json::from_str(json).expect("Failed to parse JSON");
         assert_eq!(cap.title, "Extract Metadata");
@@ -796,7 +796,7 @@ mod url_encoding_tests {
     #[test]
     fn test139_url_keeps_cap_prefix_literal() {
         let config = RegistryConfig::default();
-        let urn = r#"cap:in="media:string";op=test;out="media:object""#;
+        let urn = r#"cap:in="media:string";test;out="media:object""#;
         let normalized = normalize_cap_urn(urn);
         let tags_part = normalized.strip_prefix("cap:").unwrap_or(&normalized);
         let encoded_tags = urlencoding::encode(tags_part);
@@ -819,7 +819,7 @@ mod url_encoding_tests {
     fn test140_url_encodes_quoted_media_urns() {
         let config = RegistryConfig::default();
         // Simple media URNs without semicolons don't need quotes (colons don't need quoting)
-        let urn = r#"cap:in=media:listing-id;op=use_grinder;out=media:task;id"#;
+        let urn = r#"cap:in=media:listing-id;use-grinder;out=media:task;id"#;
         let normalized = normalize_cap_urn(urn);
         let tags_part = normalized.strip_prefix("cap:").unwrap_or(&normalized);
         let encoded_tags = urlencoding::encode(tags_part);
@@ -842,7 +842,7 @@ mod url_encoding_tests {
     fn test141_exact_url_format() {
         let config = RegistryConfig::default();
         // media URNs with semicolons in in/out must be quoted; single-tag ones are fine unquoted
-        let urn = r#"cap:in=media:listing-id;op=use_grinder;out=media:task"#;
+        let urn = r#"cap:in=media:listing-id;use-grinder;out=media:task"#;
         let normalized = normalize_cap_urn(urn);
         let tags_part = normalized.strip_prefix("cap:").unwrap_or(&normalized);
         let encoded_tags = urlencoding::encode(tags_part);
@@ -864,8 +864,8 @@ mod url_encoding_tests {
     #[test]
     fn test142_normalize_handles_different_tag_orders() {
         // Different tag orders should normalize to the same canonical form
-        let urn1 = r#"cap:op=test;in="media:string";out="media:object""#;
-        let urn2 = r#"cap:in="media:string";out="media:object";op=test"#;
+        let urn1 = r#"cap:test;in="media:string";out="media:object""#;
+        let urn2 = r#"cap:in="media:string";out="media:object";test"#;
 
         let normalized1 = normalize_cap_urn(urn1);
         let normalized2 = normalize_cap_urn(urn2);

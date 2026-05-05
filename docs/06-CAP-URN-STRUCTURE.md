@@ -33,8 +33,8 @@ cap:in="<media-urn>";out="<media-urn>";<cap-tags>
 Examples:
 ```
 cap:in=media:;out=media:
-cap:in="media:pdf";op=extract;out="media:object"
-cap:in="media:textable;form=scalar";op=prompt;out="media:textable;form=map"
+cap:in="media:pdf";extract;out="media:object"
+cap:in="media:textable;form=scalar";prompt;out="media:textable;form=map"
 ```
 
 ### 2.2 Direction Tags
@@ -76,7 +76,7 @@ Users may omit direction tags. These are all valid surface syntax:
 ```
 cap:op=test
 cap:in;op=test
-cap:in=*;op=test;out=*
+cap:in=*;test;out=*
 ```
 
 ### 3.2 Normalization to Canonical Form
@@ -85,9 +85,9 @@ During parsing, missing or wildcard direction tags are filled with `media:`:
 
 | Surface Syntax | Canonical Form |
 |----------------|----------------|
-| `cap:op=test` | `cap:in=media:;op=test;out=media:` |
-| `cap:in;op=test` | `cap:in=media:;op=test;out=media:` |
-| `cap:in=*;op=test;out=*` | `cap:in=media:;op=test;out=media:` |
+| `cap:op=test` | `cap:in=media:;test;out=media:` |
+| `cap:in;op=test` | `cap:in=media:;test;out=media:` |
+| `cap:in=*;test;out=*` | `cap:in=media:;test;out=media:` |
 
 The value `*` in direction tags expands to `media:`:
 ```
@@ -107,7 +107,7 @@ Validation rules (CU1, CU2 in [10-VALIDATION-RULES](./10-VALIDATION-RULES.md)) a
 
 Direction spec values containing `;` must be quoted:
 ```
-cap:in="media:pdf;bytes";op=extract;out="media:object"
+cap:in="media:pdf;bytes";extract;out="media:object"
 ```
 
 Without quotes, `media:pdf;bytes` would parse incorrectly.
@@ -190,7 +190,7 @@ Meaning: "This capability may produce any output."
 Non-direction tags specify operation identity and constraints:
 
 ```
-cap:...;op=extract;target=metadata
+cap:...;extract;target=metadata
 ```
 
 The `y` dimension is itself a Tagged URN (without prefix), using the same matching semantics.
@@ -204,7 +204,7 @@ The `y` dimension is itself a Tagged URN (without prefix), using the same matchi
 Given a Cap URN string, extract:
 
 ```rust
-let cap = CapUrn::from_string("cap:in=media:pdf;op=extract;out=media:object")?;
+let cap = CapUrn::from_string("cap:in=media:pdf;extract;out=media:object")?;
 
 let input: &str = cap.in_spec();    // "media:pdf"
 let output: &str = cap.out_spec();  // "media:object"
@@ -233,7 +233,7 @@ Examples:
 ```
 cap:                                    → 0
 cap:op=extract                          → 1
-cap:in=media:pdf;op=extract;out=media:object → 3
+cap:in=media:pdf;extract;out=media:object → 3
 ```
 
 ---
@@ -247,11 +247,11 @@ Cap URNs form a partial order (specialization order) in the product space:
                          |
               cap:op=extract
                 /              \
-cap:in=media:pdf;op=extract    cap:op=extract;out=media:object
+cap:in=media:pdf;op=extract    cap:extract;out=media:object
                 \              /
-        cap:in=media:pdf;op=extract;out=media:object
+        cap:in=media:pdf;extract;out=media:object
                          |
-cap:in=media:pdf;v=2.0;op=extract;out=media:object;target=metadata  (more specific)
+cap:in=media:pdf;v=2.0;extract;out=media:object;target=metadata  (more specific)
 ```
 
 The ordering follows from the dispatch relation (see [05-DISPATCH](./07-DISPATCH.md)).
@@ -306,7 +306,7 @@ Accepts any input, produces any output, performs "transform".
 ### 11.2 Typed Transformer
 
 ```
-cap:in="media:pdf";op=extract;out="media:object"
+cap:in="media:pdf";extract;out="media:object"
 ```
 
 Takes PDF, produces object.
@@ -314,7 +314,7 @@ Takes PDF, produces object.
 ### 11.3 Constrained Generation
 
 ```
-cap:in="media:textable;form=scalar";op=generate;out="media:textable;form=map";constrained
+cap:in="media:textable;form=scalar";generate;out="media:textable;form=map";constrained
 ```
 
 Takes text prompt, produces structured output with constraints.

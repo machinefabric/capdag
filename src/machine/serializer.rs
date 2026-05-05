@@ -478,7 +478,7 @@ mod tests {
 
     fn extract_cap_def() -> crate::cap::definition::Cap {
         build_cap(
-            "cap:in=media:pdf;op=extract;out=\"media:txt;textable\"",
+            "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
             "extract",
             &["media:pdf"],
             "media:txt;textable",
@@ -487,7 +487,7 @@ mod tests {
 
     fn embed_cap_def() -> crate::cap::definition::Cap {
         build_cap(
-            "cap:in=media:textable;op=embed;out=\"media:vec;record\"",
+            "cap:in=media:textable;embed;out=\"media:vec;record\"",
             "embed",
             &["media:textable"],
             "media:vec;record",
@@ -498,13 +498,13 @@ mod tests {
         strand_from_steps(
             vec![
                 cap_step(
-                    "cap:in=media:pdf;op=extract;out=\"media:txt;textable\"",
+                    "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
                     "extract",
                     "media:pdf",
                     "media:txt;textable",
                 ),
                 cap_step(
-                    "cap:in=media:textable;op=embed;out=\"media:vec;record\"",
+                    "cap:in=media:textable;embed;out=\"media:vec;record\"",
                     "embed",
                     "media:txt;textable",
                     "media:vec;record",
@@ -607,8 +607,8 @@ mod tests {
         assert!(payload.contains("\"output_anchor_nodes\":["));
         // The two cap URNs should appear in the payload as
         // edge.cap_urn entries.
-        assert!(payload.contains("op=extract"));
-        assert!(payload.contains("op=embed"));
+        assert!(payload.contains("extract"));
+        assert!(payload.contains("embed"));
         // Titles should appear on nodes and edges.
         assert!(payload.contains("\"title\":\"Title for media:pdf\""));
         assert!(payload.contains("\"title\":\"extract\""));
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn test1137_two_strand_machine_serializes_to_notation_containing_both_ops() {
         let caption_cap = build_cap(
-            "cap:in=media:image;op=caption;out=\"media:txt;textable\"",
+            "cap:in=media:image;caption;out=\"media:txt;textable\"",
             "caption",
             &["media:image"],
             "media:txt;textable",
@@ -643,7 +643,7 @@ mod tests {
 
         let extract_strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;op=extract;out=\"media:txt;textable\"",
+                "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
                 "extract",
                 "media:pdf",
                 "media:txt;textable",
@@ -652,7 +652,7 @@ mod tests {
         );
         let caption_strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:image;op=caption;out=\"media:txt;textable\"",
+                "cap:in=media:image;caption;out=\"media:txt;textable\"",
                 "caption",
                 "media:image",
                 "media:txt;textable",

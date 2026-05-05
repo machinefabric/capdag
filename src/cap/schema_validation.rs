@@ -252,7 +252,7 @@ mod tests {
         });
 
         // Create cap with media_specs containing the schema
-        let urn = CapUrn::from_string(&test_urn("type=test;op=validate")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;validate")).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "test".to_string());
         cap.add_media_spec(MediaSpecDef {
             urn: "my:user-data.v1".to_string(),
@@ -295,7 +295,7 @@ mod tests {
         });
 
         // Create cap with media_specs containing the schema
-        let urn = CapUrn::from_string(&test_urn("type=test;op=validate")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;validate")).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "test".to_string());
         cap.add_media_spec(MediaSpecDef {
             urn: "my:user-data.v1".to_string(),
@@ -339,7 +339,7 @@ mod tests {
         });
 
         // Create cap with media_specs containing the schema
-        let urn = CapUrn::from_string(&test_urn("type=test;op=validate")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;validate")).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "test".to_string());
         cap.add_media_spec(MediaSpecDef {
             urn: "my:query-result.v1".to_string(),
@@ -370,7 +370,7 @@ mod tests {
         let mut validator = SchemaValidator::new();
 
         // Create cap - using built-in spec ID which has no local schema
-        let urn = CapUrn::from_string(&test_urn("type=test;op=validate")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;validate")).unwrap();
         let cap = Cap::new(urn, "Test".to_string(), "test".to_string());
 
         // Argument using built-in spec ID (should resolve from registry, no schema)
@@ -394,7 +394,7 @@ mod tests {
         let registry = test_registry().await;
         let mut validator = SchemaValidator::new();
 
-        let urn = CapUrn::from_string(&test_urn("type=test;op=validate")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;validate")).unwrap();
         let cap = Cap::new(urn, "Test".to_string(), "test".to_string());
 
         // Argument with unknown media URN - not in media_specs and not in registry

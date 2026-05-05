@@ -603,7 +603,7 @@ mod tests {
 
     fn extract_cap_def() -> crate::cap::definition::Cap {
         build_cap(
-            "cap:in=media:pdf;op=extract;out=\"media:txt;textable\"",
+            "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
             "extract",
             &["media:pdf"],
             "media:txt;textable",
@@ -612,7 +612,7 @@ mod tests {
 
     fn embed_cap_def() -> crate::cap::definition::Cap {
         build_cap(
-            "cap:in=media:textable;op=embed;out=\"media:vec;record\"",
+            "cap:in=media:textable;embed;out=\"media:vec;record\"",
             "embed",
             &["media:textable"],
             "media:vec;record",
@@ -622,7 +622,7 @@ mod tests {
     fn pdf_to_txt_strand() -> crate::planner::Strand {
         strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;op=extract;out=\"media:txt;textable\"",
+                "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
                 "extract",
                 "media:pdf",
                 "media:txt;textable",
@@ -634,7 +634,7 @@ mod tests {
     fn txt_to_vec_strand() -> crate::planner::Strand {
         strand_from_steps(
             vec![cap_step(
-                "cap:in=media:textable;op=embed;out=\"media:vec;record\"",
+                "cap:in=media:textable;embed;out=\"media:vec;record\"",
                 "embed",
                 "media:txt;textable",
                 "media:vec;record",
@@ -692,11 +692,11 @@ mod tests {
         assert!(m.strands()[0].edges()[0]
             .cap_urn
             .to_string()
-            .contains("op=extract"));
+            .contains("extract"));
         assert!(m.strands()[1].edges()[0]
             .cap_urn
             .to_string()
-            .contains("op=embed"));
+            .contains("embed"));
     }
 
     // TEST1157: Building from zero strands fails with NoCapabilitySteps.

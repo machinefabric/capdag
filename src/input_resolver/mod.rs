@@ -30,7 +30,7 @@ pub mod value_adapter_registry;
 
 pub use types::{ContentStructure, InputItem, InputResolverError, ResolvedFile, ResolvedInputSet};
 
-pub use adapter::{AdapterResult, CartridgeAdapterInvoker};
+pub use adapter::{AdapterResult, CartridgeAdapterInvoker, MAX_CONTENT_INSPECTION_BYTES};
 
 pub use resolver::{
     detect_file, detect_file_confirmed, detect_file_with_media_registry,

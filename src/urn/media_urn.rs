@@ -153,7 +153,7 @@ pub const MEDIA_YAML_LIST_RECORD: &str = "media:list;record;textable;yaml";
 /// Media URN for CSV data — by definition a list of records (header row + data rows)
 pub const MEDIA_CSV: &str = "media:csv;list;record;textable";
 /// Media URN for single-column CSV — list of values without record structure
-pub const MEDIA_CSV_LIST: &str = "media:csv;list;textable";
+pub const MEDIA_CSV_LIST: &str = "media:csv;list;record;textable";
 
 // File path type — for arguments that represent filesystem paths.
 // There is a single media URN; cardinality lives on `is_sequence`, not on
@@ -182,6 +182,17 @@ pub const MEDIA_MODEL_SPEC_GGUF_VISION: &str = "media:model-spec;gguf;textable;v
 pub const MEDIA_MODEL_SPEC_GGUF_LLM: &str = "media:model-spec;gguf;textable;llm";
 /// GGUF embeddings model spec (e.g. nomic-embed)
 pub const MEDIA_MODEL_SPEC_GGUF_EMBEDDINGS: &str = "media:model-spec;gguf;textable;embeddings";
+
+// Backend-narrowed model-spec supertypes. Each backend cartridge's
+// adapter handler returns the URN for its backend so the engine's
+// adapter-discrimination knows which backend claims the spec.
+/// Candle backend's model-spec supertype, narrower than `media:model-spec;textable`
+/// but broader than the per-task variants below.
+pub const MEDIA_MODEL_SPEC_CANDLE: &str = "media:candle;model-spec;textable";
+/// GGUF backend's model-spec supertype.
+pub const MEDIA_MODEL_SPEC_GGUF: &str = "media:gguf;model-spec;textable";
+/// MLX backend's model-spec supertype.
+pub const MEDIA_MODEL_SPEC_MLX: &str = "media:mlx;model-spec;textable";
 
 // MLX backend
 /// MLX vision model spec (e.g. Qwen3-VL)
@@ -364,7 +375,7 @@ impl MediaUrn {
     /// - Empty input → `media:` (universal type)
     /// - Single input → returned as-is
     /// - `[media:pdf, media:pdf]` → `media:pdf`
-    /// - `[media:pdf, media:png]` → `media:` (no common tags)
+    /// - `[media:pdf, media:image;png]` → `media:` (no common tags)
     /// - `[media:json;textable, media:csv;textable]` → `media:textable`
     /// - `[media:json;list;textable, media:json;textable]` → `media:json;textable`
     pub fn least_upper_bound(urns: &[MediaUrn]) -> MediaUrn {
@@ -1198,7 +1209,7 @@ mod debug_tests {
     #[test]
     fn test853_lub_no_common_tags() {
         let pdf = MediaUrn::from_string("media:pdf").unwrap();
-        let png = MediaUrn::from_string("media:png").unwrap();
+        let png = MediaUrn::from_string("media:image;png").unwrap();
         let lub = MediaUrn::least_upper_bound(&[pdf, png]);
         let universal = MediaUrn::from_string("media:").unwrap();
         assert!(

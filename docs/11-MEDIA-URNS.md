@@ -71,7 +71,7 @@ Media URNs use **coercion tags** to declare type capabilities. These enable poly
 A capability requiring `media:textable` matches ANY type with the `textable` tag:
 
 ```
-cap:in="media:textable";op=prompt;out="media:textable;form=map"
+cap:in="media:textable";prompt;out="media:textable;form=map"
 ```
 
 This matches:
@@ -192,7 +192,7 @@ When used as `in` or `out` values in Cap URNs:
 Media URNs containing `;` must be quoted:
 
 ```
-cap:in="media:pdf;bytes";op=extract;out="media:object"
+cap:in="media:pdf;bytes";extract;out="media:object"
 ```
 
 ### 7.2 Identity Expansion
@@ -200,8 +200,8 @@ cap:in="media:pdf;bytes";op=extract;out="media:object"
 `in=*` and `out=*` expand to `media:`:
 
 ```
-cap:in=*;op=convert;out=*
-→ cap:in=media:;op=convert;out=media:
+cap:in=*;convert;out=*
+→ cap:in=media:;convert;out=media:
 ```
 
 ### 7.3 Dispatch

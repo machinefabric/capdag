@@ -3,11 +3,11 @@
 // Two equally valid statement forms:
 //
 // Bracketed (one or more statements per line, any layout):
-//   [extract cap:in="media:pdf";op=extract;out="media:txt;textable"]
+//   [extract cap:in="media:pdf";extract;out="media:txt;textable"]
 //   [doc -> extract -> text]
 //
 // Line-based (one statement per line, no brackets):
-//   extract cap:in="media:pdf";op=extract;out="media:txt;textable"
+//   extract cap:in="media:pdf";extract;out="media:txt;textable"
 //   doc -> extract -> text
 //   (thumbnail, model_spec) -> describe -> description
 //   pages -> LOOP p2t -> texts

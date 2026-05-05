@@ -236,8 +236,8 @@ mod tests {
     #[tokio::test]
     async fn test1161_simple_linear_chain_conversion() {
         let registry = build_test_registry(&[
-            "cap:in=media:pdf;op=extract;out=media:text",
-            "cap:in=media:text;op=summarize;out=media:summary",
+            "cap:in=media:pdf;extract;out=media:text",
+            "cap:in=media:text;summarize;out=media:summary",
         ]);
 
         let mut plan = MachinePlan::new("test_chain");
@@ -253,11 +253,11 @@ mod tests {
         // Add two caps in sequence
         plan.add_node(MachineNode::cap(
             "cap_0",
-            "cap:in=media:pdf;op=extract;out=media:text",
+            "cap:in=media:pdf;extract;out=media:text",
         ));
         plan.add_node(MachineNode::cap(
             "cap_1",
-            "cap:in=media:text;op=summarize;out=media:summary",
+            "cap:in=media:text;summarize;out=media:summary",
         ));
 
         // Add output
@@ -286,12 +286,12 @@ mod tests {
         assert!(edge_keys.contains(&(
             "input".to_string(),
             "cap_0".to_string(),
-            "cap:in=media:pdf;op=extract;out=media:text".to_string(),
+            "cap:in=media:pdf;extract;out=media:text".to_string(),
         )));
         assert!(edge_keys.contains(&(
             "cap_0".to_string(),
             "cap_1".to_string(),
-            "cap:in=media:text;op=summarize;out=media:summary".to_string(),
+            "cap:in=media:text;summarize;out=media:summary".to_string(),
         )));
     }
 
@@ -299,8 +299,8 @@ mod tests {
     #[tokio::test]
     async fn test770_rejects_foreach() {
         let registry = build_test_registry(&[
-            "cap:in=media:pdf;op=disbind;out=media:pdf-page",
-            "cap:in=media:pdf-page;op=process;out=media:text",
+            "cap:in=media:pdf;disbind;out=media:pdf-page",
+            "cap:in=media:pdf-page;process;out=media:text",
         ]);
 
         let mut plan = MachinePlan::new("foreach_plan");
@@ -312,7 +312,7 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap(
             "cap_0",
-            "cap:in=media:pdf;op=disbind;out=media:pdf-page",
+            "cap:in=media:pdf;disbind;out=media:pdf-page",
         ));
         plan.add_node(MachineNode::for_each(
             "foreach_0",
@@ -322,7 +322,7 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap(
             "cap_1",
-            "cap:in=media:pdf-page;op=process;out=media:text",
+            "cap:in=media:pdf-page;process;out=media:text",
         ));
         plan.add_node(MachineNode::output("output", "result", "cap_1"));
 
@@ -350,8 +350,8 @@ mod tests {
     #[tokio::test]
     async fn test771_rejects_collect() {
         let registry = build_test_registry(&[
-            "cap:in=media:pdf;op=disbind;out=media:pdf-page",
-            "cap:in=media:pdf-page;op=process;out=media:text",
+            "cap:in=media:pdf;disbind;out=media:pdf-page",
+            "cap:in=media:pdf-page;process;out=media:text",
         ]);
 
         let mut plan = MachinePlan::new("collect_plan");
@@ -363,7 +363,7 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap(
             "cap_0",
-            "cap:in=media:pdf;op=disbind;out=media:pdf-page",
+            "cap:in=media:pdf;disbind;out=media:pdf-page",
         ));
         plan.add_node(MachineNode::for_each(
             "foreach_0",
@@ -373,7 +373,7 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap(
             "cap_1",
-            "cap:in=media:pdf-page;op=process;out=media:text",
+            "cap:in=media:pdf-page;process;out=media:text",
         ));
         plan.add_node(MachineNode::collect("collect_0", vec!["cap_1".to_string()]));
         plan.add_node(MachineNode::output("output", "result", "collect_0"));
@@ -398,7 +398,7 @@ mod tests {
     // TEST953: Linear plans (no ForEach/Collect) still convert successfully
     #[tokio::test]
     async fn test953_linear_plan_still_works() {
-        let registry = build_test_registry(&["cap:in=media:pdf;op=extract;out=media:text"]);
+        let registry = build_test_registry(&["cap:in=media:pdf;extract;out=media:text"]);
 
         let mut plan = MachinePlan::new("linear_plan");
         plan.add_node(MachineNode::input_slot(
@@ -409,7 +409,7 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap(
             "cap_0",
-            "cap:in=media:pdf;op=extract;out=media:text",
+            "cap:in=media:pdf;extract;out=media:text",
         ));
         plan.add_node(MachineNode::output("output", "result", "cap_0"));
 
@@ -432,8 +432,8 @@ mod tests {
     #[tokio::test]
     async fn test954_standalone_collect_passthrough() {
         let registry = build_test_registry(&[
-            r#"cap:in=media:pdf;op=extract;out="media:text;textable""#,
-            r#"cap:in="media:list;text;textable";op=embed;out="media:embedding-vector;record;textable""#,
+            r#"cap:in=media:pdf;extract;out="media:text;textable""#,
+            r#"cap:in="media:list;text;textable";embed;out="media:embedding-vector;record;textable""#,
         ]);
 
         let mut plan = MachinePlan::new("collect_plan");
@@ -445,7 +445,7 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap(
             "cap_0",
-            r#"cap:in=media:pdf;op=extract;out="media:text;textable""#,
+            r#"cap:in=media:pdf;extract;out="media:text;textable""#,
         ));
 
         // Standalone Collect: scalar→list with output_media_urn set
@@ -457,7 +457,7 @@ mod tests {
         collect_node.description = Some("Collect: scalar to list-of-one".to_string());
         plan.add_node(collect_node);
 
-        plan.add_node(MachineNode::cap("cap_1", r#"cap:in="media:list;text;textable";op=embed;out="media:embedding-vector;record;textable""#));
+        plan.add_node(MachineNode::cap("cap_1", r#"cap:in="media:list;text;textable";embed;out="media:embedding-vector;record;textable""#));
         plan.add_node(MachineNode::output("output", "result", "cap_1"));
 
         plan.add_edge(MachinePlanEdge::direct("input", "cap_0"));

@@ -458,6 +458,11 @@ pub struct RelaySwitch {
     live_cap_fab: RwLock<LiveCapFab>,
     /// Cap registry for looking up Cap definitions
     cap_registry: Arc<CapRegistry>,
+    /// Media registry — read at every LiveCapFab sync to compute the
+    /// bookend-eligible URN set (URNs whose stored spec has at least one
+    /// file extension). Never consulted during traversal/lookup; the
+    /// computed set is cached inside LiveCapFab.
+    media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
     /// Number of masters this engine intends to register at startup.
     /// `all_masters_ready` only returns true once `masters.len() >=
     /// expected_master_count` AND every connected master is ready —
@@ -524,6 +529,7 @@ impl RelaySwitch {
     pub async fn new(
         sockets: Vec<UnixStream>,
         cap_registry: Arc<CapRegistry>,
+        media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
     ) -> Result<Self, RelaySwitchError> {
         let mut masters = Vec::new();
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
@@ -798,6 +804,7 @@ impl RelaySwitch {
             rid_to_xid: RwLock::new(HashMap::new()),
             live_cap_fab: RwLock::new(LiveCapFab::new()),
             cap_registry,
+            media_registry,
             // Default 0 — readiness predicate returns false until
             // the engine calls `set_expected_master_count` after
             // it knows how many masters it intends to register.
@@ -1684,7 +1691,7 @@ impl RelaySwitch {
         // trigger a rebuild. With the timeout, identity failure / hang
         // surfaces as a hard error with a typed message — exposed,
         // not hidden.
-        const IDENTITY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+        const IDENTITY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
         let mut identity_failure: Option<String> = None;
         if !caps.is_empty() {
             let probe_started_at = std::time::Instant::now();
@@ -3020,10 +3027,20 @@ impl RelaySwitch {
                 }
             }
 
-            // Rebuild the LiveCapFab with the new set of available caps
+            // Rebuild the LiveCapFab with the new set of available caps.
+            //
+            // The bookend URN set is the registry's own predicate: every
+            // URN whose stored spec carries at least one file extension.
+            // The snapshot is taken once per sync and handed to
+            // LiveCapFab, which stores per-node bookend bits; traversals
+            // never call into the registry. New media specs registered
+            // between syncs become bookends only after the next sync —
+            // which is also when their owning caps appear in the graph.
+            let bookend_urns = self.media_registry.bookend_urns();
+
             let mut graph = self.live_cap_fab.write().await;
             graph
-                .sync_from_cap_urns(&all_caps, &self.cap_registry)
+                .sync_from_cap_urns(&all_caps, &self.cap_registry, &bookend_urns)
                 .await;
         }
     }
@@ -3133,6 +3150,19 @@ mod tests {
     /// Create a test CapRegistry for use in tests.
     fn test_cap_registry() -> Arc<CapRegistry> {
         Arc::new(CapRegistry::new_for_test())
+    }
+
+    /// Create an empty test MediaUrnRegistry for use in tests. Tests that
+    /// need bookend-eligible URNs should populate via
+    /// `insert_cached_spec_for_test` after construction.
+    fn test_media_registry() -> Arc<crate::media::registry::MediaUrnRegistry> {
+        let dir = tempfile::tempdir()
+            .expect("tempdir for test MediaUrnRegistry")
+            .into_path();
+        Arc::new(
+            crate::media::registry::MediaUrnRegistry::new_for_test(dir)
+                .expect("MediaUrnRegistry::new_for_test"),
+        )
     }
 
     /// Helper: send RelayNotify with given caps/limits, then handle identity verification.
@@ -3265,7 +3295,7 @@ mod tests {
                 slave_sock2,
                 &serde_json::json!([
                     "cap:in=media:;out=media:",
-                    "cap:in=\"media:void\";op=double;out=\"media:void\""
+                    "cap:in=\"media:void\";double;out=\"media:void\""
                 ]),
                 &Limits::default(),
             )
@@ -3273,7 +3303,7 @@ mod tests {
         });
 
         // Constructor reads RelayNotify + verifies identity for both masters
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
@@ -3286,13 +3316,13 @@ mod tests {
         );
         assert_eq!(
             switch
-                .find_master_for_cap("cap:in=\"media:void\";op=double;out=\"media:void\"", None)
+                .find_master_for_cap("cap:in=\"media:void\";double;out=\"media:void\"", None)
                 .await,
             Some(1)
         );
         assert_eq!(
             switch
-                .find_master_for_cap("cap:in=\"media:void\";op=unknown;out=\"media:void\"", None)
+                .find_master_for_cap("cap:in=\"media:void\";unknown;out=\"media:void\"", None)
                 .await,
             None
         );
@@ -3344,7 +3374,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
@@ -3407,7 +3437,7 @@ mod tests {
                 slave_sock2,
                 &serde_json::json!([
                     "cap:in=media:;out=media:",
-                    "cap:in=\"media:void\";op=double;out=\"media:void\""
+                    "cap:in=\"media:void\";double;out=\"media:void\""
                 ]),
                 &Limits::default(),
             )
@@ -3433,7 +3463,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
@@ -3463,7 +3493,7 @@ mod tests {
             .send_to_master(
                 Frame::req(
                     req2_id.clone(),
-                    "cap:in=\"media:void\";op=double;out=\"media:void\"",
+                    "cap:in=\"media:void\";double;out=\"media:void\"",
                     vec![],
                     "text/plain",
                 ),
@@ -3493,13 +3523,13 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
         let req = Frame::req(
             MessageId::Uint(1),
-            "cap:in=\"media:void\";op=unknown;out=\"media:void\"",
+            "cap:in=\"media:void\";unknown;out=\"media:void\"",
             vec![],
             "text/plain",
         );
@@ -3577,7 +3607,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
@@ -3625,7 +3655,7 @@ mod tests {
                 slave_sock,
                 &serde_json::json!([
                     "cap:in=media:;out=media:",
-                    "cap:in=\"media:void\";op=test;out=\"media:void\""
+                    "cap:in=\"media:void\";test;out=\"media:void\""
                 ]),
                 &Limits::default(),
             )
@@ -3655,7 +3685,7 @@ mod tests {
             });
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
@@ -3664,7 +3694,7 @@ mod tests {
             .send_to_master(
                 Frame::req(
                     req_id.clone(),
-                    "cap:in=\"media:void\";op=test;out=\"media:void\"",
+                    "cap:in=\"media:void\";test;out=\"media:void\"",
                     vec![],
                     "text/plain",
                 ),
@@ -3701,7 +3731,7 @@ mod tests {
     // TEST432: Empty masters list creates empty switch, add_master works
     #[tokio::test]
     async fn test432_empty_masters_allowed() {
-        let switch = RelaySwitch::new(vec![], test_cap_registry()).await.unwrap();
+        let switch = RelaySwitch::new(vec![], test_cap_registry(), test_media_registry()).await.unwrap();
 
         // Empty switch has no caps
         let caps: Vec<String> = serde_json::from_slice(&switch.capabilities().await).unwrap();
@@ -3727,7 +3757,7 @@ mod tests {
                 slave_sock1,
                 &serde_json::json!([
                     "cap:in=media:;out=media:",
-                    "cap:in=\"media:void\";op=double;out=\"media:void\""
+                    "cap:in=\"media:void\";double;out=\"media:void\""
                 ]),
                 &Limits::default(),
             )
@@ -3739,14 +3769,14 @@ mod tests {
                 slave_sock2,
                 &serde_json::json!([
                     "cap:in=media:;out=media:",
-                    "cap:in=\"media:void\";op=triple;out=\"media:void\""
+                    "cap:in=\"media:void\";triple;out=\"media:void\""
                 ]),
                 &Limits::default(),
             )
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
@@ -3757,11 +3787,11 @@ mod tests {
 
         assert_eq!(cap_list.len(), 3);
         assert!(
-            cap_list.contains(&"cap:in=\"media:void\";op=double;out=\"media:void\"".to_string())
+            cap_list.contains(&"cap:in=\"media:void\";double;out=\"media:void\"".to_string())
         );
         assert!(cap_list.contains(&"cap:in=media:;out=media:".to_string()));
         assert!(
-            cap_list.contains(&"cap:in=\"media:void\";op=triple;out=\"media:void\"".to_string())
+            cap_list.contains(&"cap:in=\"media:void\";triple;out=\"media:void\"".to_string())
         );
     }
 
@@ -3797,7 +3827,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
@@ -3809,7 +3839,7 @@ mod tests {
     // TEST435: URN matching (exact vs accepts())
     #[tokio::test]
     async fn test435_urn_matching_exact_and_accepts() {
-        let registered_cap = "cap:in=\"media:text;utf8\";op=process;out=\"media:text;utf8\"";
+        let registered_cap = "cap:in=\"media:text;utf8\";process;out=\"media:text;utf8\"";
 
         let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
 
@@ -3842,7 +3872,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
@@ -3870,7 +3900,7 @@ mod tests {
             .send_to_master(
                 Frame::req(
                     req2_id.clone(),
-                    "cap:in=\"media:text;utf8;normalized\";op=process;out=\"media:text\"",
+                    "cap:in=\"media:text;utf8;normalized\";process;out=\"media:text\"",
                     vec![],
                     "text/plain",
                 ),
@@ -3888,7 +3918,7 @@ mod tests {
         // Request with INCOMPATIBLE input should NOT match (different type family)
         let req3 = Frame::req(
             MessageId::Uint(3),
-            "cap:in=\"media:image;png\";op=process;out=\"media:text\"",
+            "cap:in=\"media:image;png\";process;out=\"media:text\"",
             vec![],
             "text/plain",
         );
@@ -3916,7 +3946,7 @@ mod tests {
         let (engine_sock1, slave_sock1) = UnixStream::pair().unwrap();
 
         // Master 0: generic thumbnail handler (like internal ThumbnailProvider)
-        let generic_cap = "cap:in=media:;op=generate_thumbnail;out=\"media:image;png;thumbnail\"";
+        let generic_cap = "cap:in=media:;generate-thumbnail;out=\"media:image;png;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock0,
@@ -3928,7 +3958,7 @@ mod tests {
 
         // Master 1: specific thumbnail handler (like pdfcartridge)
         let specific_cap =
-            "cap:in=\"media:pdf\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock1,
@@ -3938,13 +3968,13 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock0, engine_sock1], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock0, engine_sock1], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
         // Specific request for PDF thumbnail
         let request =
-            "cap:in=\"media:pdf\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
 
         // Without preference: routes to master 1 (specific, closest-specificity)
         assert_eq!(switch.find_master_for_cap(request, None).await, Some(1));
@@ -3972,7 +4002,7 @@ mod tests {
 
         // Master 0: only has a specific cap
         let registered =
-            "cap:in=\"media:pdf\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock,
@@ -3982,16 +4012,16 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
         let request =
-            "cap:in=\"media:pdf\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
 
         // Preference for an unrelated cap — no equivalent match, falls back to closest-specificity
         let unrelated =
-            "cap:in=\"media:txt;textable\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:txt;textable\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
         assert_eq!(
             switch.find_master_for_cap(request, Some(unrelated)).await,
             Some(0)
@@ -4009,7 +4039,7 @@ mod tests {
         let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
 
         // Master 0: only generic handler (in=media: wildcard)
-        let generic_cap = "cap:in=media:;op=generate_thumbnail;out=\"media:image;png;thumbnail\"";
+        let generic_cap = "cap:in=media:;generate-thumbnail;out=\"media:image;png;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock,
@@ -4019,14 +4049,14 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
         // Specific PDF request — generic handler CAN dispatch it
         // because provider's wildcard input (media:) accepts any input type
         let request =
-            "cap:in=\"media:pdf\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
         assert_eq!(
             switch.find_master_for_cap(request, None).await,
             Some(0),
@@ -4055,14 +4085,14 @@ mod tests {
                 slave_sock,
                 &serde_json::json!([
                     "cap:in=media:;out=media:",
-                    "cap:in=\"media:void\";op=test;out=\"media:void\""
+                    "cap:in=\"media:void\";test;out=\"media:void\""
                 ]),
                 &Limits::default(),
             )
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
@@ -4075,7 +4105,7 @@ mod tests {
         );
         assert_eq!(
             switch
-                .find_master_for_cap("cap:in=\"media:void\";op=test;out=\"media:void\"", None)
+                .find_master_for_cap("cap:in=\"media:void\";test;out=\"media:void\"", None)
                 .await,
             Some(0)
         );
@@ -4130,7 +4160,7 @@ mod tests {
             writer.write(&err).await.unwrap();
         });
 
-        let result = RelaySwitch::new(vec![engine_sock], test_cap_registry()).await;
+        let result = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry()).await;
         assert!(
             result.is_err(),
             "construction must fail when identity verification fails"
@@ -4198,7 +4228,7 @@ mod tests {
                                         "args": [],
                                     },
                                     {
-                                        "urn": "cap:in=\"media:void\";op=test;out=\"media:void\"",
+                                        "urn": "cap:in=\"media:void\";test;out=\"media:void\"",
                                         "title": "Test",
                                         "command": "test",
                                         "args": [],
@@ -4238,7 +4268,7 @@ mod tests {
         });
 
         let switch = Arc::new(
-            RelaySwitch::new(vec![engine_sock], test_cap_registry())
+            RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
                 .await
                 .expect("RelaySwitch construction must succeed for empty-cap initial notify"),
         );
@@ -4271,7 +4301,7 @@ mod tests {
         // the relay refuses to route to this master.
         let cap_table = switch.cap_table.read().await;
         assert!(
-            !cap_table.iter().any(|(urn, _)| urn.contains("op=test")),
+            !cap_table.iter().any(|(urn, _)| urn.contains("test")),
             "unverified master's caps must be excluded from cap_table, got: {:?}",
             *cap_table
         );
@@ -4313,7 +4343,7 @@ mod tests {
             }
         }
 
-        let cap_urn_str = "cap:in=\"media:text\";op=echo;out=\"media:text\"";
+        let cap_urn_str = "cap:in=\"media:text\";echo;out=\"media:text\"";
         let cap = Cap {
             urn: crate::CapUrn::from_string(cap_urn_str).unwrap(),
             title: "echo".to_string(),
@@ -4357,7 +4387,7 @@ mod tests {
             slave.run(socket_reader, socket_writer, None).await.unwrap();
         });
 
-        let switch = RelaySwitch::new(vec![switch_sock], test_cap_registry())
+        let switch = RelaySwitch::new(vec![switch_sock], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
 
@@ -4513,7 +4543,7 @@ mod tests {
         }
 
         // Create initial switch with handler A
-        let cap_a = "cap:in=\"media:void\";op=alpha;out=\"media:void\"";
+        let cap_a = "cap:in=\"media:void\";alpha;out=\"media:void\"";
         let host_a = InProcessCartridgeHost::new(
             crate::bifaci::in_process_host::InProcessHostIdentity::for_test("alpha-host"),
             vec![(
@@ -4538,13 +4568,13 @@ mod tests {
         );
 
         let (switch_sock_a, ht_a, st_a) = wire_host(host_a).await;
-        let switch = RelaySwitch::new(vec![switch_sock_a], test_cap_registry())
+        let switch = RelaySwitch::new(vec![switch_sock_a], test_cap_registry(), test_media_registry())
             .await
             .unwrap();
         assert_eq!(switch.masters.read().await.len(), 1);
 
         // Add handler B dynamically
-        let cap_b = "cap:in=\"media:void\";op=beta;out=\"media:void\"";
+        let cap_b = "cap:in=\"media:void\";beta;out=\"media:void\"";
         let host_b = InProcessCartridgeHost::new(
             crate::bifaci::in_process_host::InProcessHostIdentity::for_test("beta-host"),
             vec![(
@@ -4688,7 +4718,7 @@ mod tests {
         }
 
         // Master 1: Exact-match handler (matches request exactly — closest specificity)
-        let cap_exact = "cap:in=\"media:void\";op=test;out=\"media:void\"";
+        let cap_exact = "cap:in=\"media:void\";test;out=\"media:void\"";
         let host_exact = InProcessCartridgeHost::new(
             crate::bifaci::in_process_host::InProcessHostIdentity::for_test("exact-host"),
             vec![(
@@ -4713,7 +4743,7 @@ mod tests {
         );
 
         // Master 2: More-specific handler (has extra tag — also matches, but further from request)
-        let cap_extra = "cap:in=\"media:void\";op=test;ext=pdf;out=\"media:void\"";
+        let cap_extra = "cap:in=\"media:void\";test;ext=pdf;out=\"media:void\"";
         let host_extra = InProcessCartridgeHost::new(
             crate::bifaci::in_process_host::InProcessHostIdentity::for_test("extra-host"),
             vec![(
@@ -4743,13 +4773,14 @@ mod tests {
         let switch = RelaySwitch::new(
             vec![switch_sock_exact, switch_sock_extra],
             test_cap_registry(),
+            test_media_registry(),
         )
         .await
         .unwrap();
         assert_eq!(switch.masters.read().await.len(), 2);
 
         // Test 1: Without preferred_cap, routes to exact match (closest specificity)
-        let req_cap = "cap:in=\"media:void\";op=test;out=\"media:void\"";
+        let req_cap = "cap:in=\"media:void\";test;out=\"media:void\"";
         let req1 = Frame::req(
             MessageId::Uint(1),
             req_cap,
@@ -4870,7 +4901,7 @@ mod tests {
         for i in 0..n {
             let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
             engine_socks.push(engine_sock);
-            let cap = format!("cap:in=\"media:t{}\";op=noop;out=\"media:t{}\"", i, i);
+            let cap = format!("cap:in=\"media:t{}\";noop;out=\"media:t{}\"", i, i);
             tokio::spawn(async move {
                 slave_notify_with_identity(
                     slave_sock,
@@ -4881,7 +4912,7 @@ mod tests {
             });
         }
         Arc::new(
-            RelaySwitch::new(engine_socks, test_cap_registry())
+            RelaySwitch::new(engine_socks, test_cap_registry(), test_media_registry())
                 .await
                 .unwrap(),
         )

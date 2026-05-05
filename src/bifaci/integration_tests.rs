@@ -14,7 +14,7 @@ mod tests {
 
     /// Test manifest JSON - cartridges MUST include manifest in HELLO response.
     /// CAP_IDENTITY is mandatory in every manifest.
-    const TEST_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=test;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
+    const TEST_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
 
     // TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN
     #[test]
@@ -75,18 +75,18 @@ mod tests {
         let mut runtime = CartridgeRuntime::new(TEST_MANIFEST.as_bytes());
         runtime.register_op_type::<JsonEchoOp>(CAP_IDENTITY);
         runtime.register_op_type::<TransformOp>(
-            "cap:in=\"media:void\";op=transform;out=\"media:void\"",
+            "cap:in=\"media:void\";transform;out=\"media:void\"",
         );
 
         // Exact match
         assert!(runtime.find_handler(CAP_IDENTITY).is_some());
         assert!(runtime
-            .find_handler("cap:in=\"media:void\";op=transform;out=\"media:void\"")
+            .find_handler("cap:in=\"media:void\";transform;out=\"media:void\"")
             .is_some());
 
         // Non-existent
         assert!(runtime
-            .find_handler("cap:in=\"media:void\";op=unknown;out=\"media:void\"")
+            .find_handler("cap:in=\"media:void\";unknown;out=\"media:void\"")
             .is_none());
     }
 
@@ -328,7 +328,7 @@ mod tests {
     async fn test1123_cartridge_error_flows_to_engine() {
         use crate::bifaci::host_runtime::CartridgeHostRuntime;
 
-        let manifest = r#"{"name":"ErrCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Error test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=fail;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
+        let manifest = r#"{"name":"ErrCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Error test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";fail;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
 
         let (c_read, c_write, c_from_rt, c_to_rt) = create_cartridge_pair();
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
@@ -359,7 +359,7 @@ mod tests {
             let xid = MessageId::Uint(1);
             let mut req = Frame::req(
                 req_id.clone(),
-                "cap:in=\"media:void\";op=fail;out=\"media:void\"",
+                "cap:in=\"media:void\";fail;out=\"media:void\"",
                 vec![],
                 "text/plain",
             );
@@ -406,7 +406,7 @@ mod tests {
     async fn test898_binary_integrity_through_relay() {
         use crate::bifaci::host_runtime::CartridgeHostRuntime;
 
-        let manifest = r#"{"name":"BinCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Binary test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=binary;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
+        let manifest = r#"{"name":"BinCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Binary test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";binary;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
 
         let (c_read, c_write, c_from_rt, c_to_rt) = create_cartridge_pair();
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
@@ -469,7 +469,7 @@ mod tests {
             let sid = uuid::Uuid::new_v4().to_string();
             let mut req = Frame::req(
                 req_id.clone(),
-                "cap:in=\"media:void\";op=binary;out=\"media:void\"",
+                "cap:in=\"media:void\";binary;out=\"media:void\"",
                 vec![],
                 "application/octet-stream",
             );
@@ -532,7 +532,7 @@ mod tests {
     async fn test899_streaming_chunks_through_relay() {
         use crate::bifaci::host_runtime::CartridgeHostRuntime;
 
-        let manifest = r#"{"name":"StreamCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Streaming test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=stream;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
+        let manifest = r#"{"name":"StreamCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Streaming test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";stream;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
 
         let (c_read, c_write, c_from_rt, c_to_rt) = create_cartridge_pair();
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
@@ -585,7 +585,7 @@ mod tests {
             let xid = MessageId::Uint(1);
             let mut req = Frame::req(
                 req_id.clone(),
-                "cap:in=\"media:void\";op=stream;out=\"media:void\"",
+                "cap:in=\"media:void\";stream;out=\"media:void\"",
                 vec![],
                 "text/plain",
             );
@@ -647,8 +647,8 @@ mod tests {
     async fn test900_two_cartridges_routed_independently() {
         use crate::bifaci::host_runtime::CartridgeHostRuntime;
 
-        let manifest_a = r#"{"name":"CartridgeA","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge A","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=alpha;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
-        let manifest_b = r#"{"name":"CartridgeB","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge B","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=beta;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
+        let manifest_a = r#"{"name":"CartridgeA","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge A","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";alpha;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
+        let manifest_b = r#"{"name":"CartridgeB","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge B","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";beta;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
 
         let (ca_read, ca_write, ca_from_rt, ca_to_rt) = create_cartridge_pair();
         let (cb_read, cb_write, cb_from_rt, cb_to_rt) = create_cartridge_pair();
@@ -661,7 +661,7 @@ mod tests {
             let req = reader.read().await.unwrap().expect("Expected REQ");
             assert_eq!(
                 req.cap.as_deref(),
-                Some("cap:in=\"media:void\";op=alpha;out=\"media:void\""),
+                Some("cap:in=\"media:void\";alpha;out=\"media:void\""),
                 "Cartridge A must receive alpha REQ"
             );
             loop {
@@ -698,7 +698,7 @@ mod tests {
             let req = reader.read().await.unwrap().expect("Expected REQ");
             assert_eq!(
                 req.cap.as_deref(),
-                Some("cap:in=\"media:void\";op=beta;out=\"media:void\""),
+                Some("cap:in=\"media:void\";beta;out=\"media:void\""),
                 "Cartridge B must receive beta REQ"
             );
             loop {
@@ -746,7 +746,7 @@ mod tests {
             let xid_beta = MessageId::Uint(2);
             let mut req_alpha = Frame::req(
                 alpha_id_c.clone(),
-                "cap:in=\"media:void\";op=alpha;out=\"media:void\"",
+                "cap:in=\"media:void\";alpha;out=\"media:void\"",
                 vec![],
                 "text/plain",
             );
@@ -760,7 +760,7 @@ mod tests {
             seq.remove(&FlowKey::from_frame(&end_alpha));
             let mut req_beta = Frame::req(
                 beta_id_c.clone(),
-                "cap:in=\"media:void\";op=beta;out=\"media:void\"",
+                "cap:in=\"media:void\";beta;out=\"media:void\"",
                 vec![],
                 "text/plain",
             );
@@ -823,7 +823,7 @@ mod tests {
     async fn test901_req_for_unknown_cap_returns_err_frame() {
         use crate::bifaci::host_runtime::CartridgeHostRuntime;
 
-        let manifest = r#"{"name":"OneCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Known cap cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=known;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
+        let manifest = r#"{"name":"OneCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Known cap cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";known;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
 
         let (c_read, c_write, c_from_rt, c_to_rt) = create_cartridge_pair();
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
@@ -867,7 +867,7 @@ mod tests {
             let xid = MessageId::Uint(1);
             let mut req = Frame::req(
                 req_id_clone.clone(),
-                "cap:in=\"media:void\";op=unknown;out=\"media:void\"",
+                "cap:in=\"media:void\";unknown;out=\"media:void\"",
                 vec![],
                 "text/plain",
             );
@@ -1077,7 +1077,7 @@ mod tests {
         let request_id = MessageId::new_uuid();
         let mut req = Frame::req(
             request_id.clone(),
-            "cap:in=\"media:void\";op=stream;out=\"media:void\"",
+            "cap:in=\"media:void\";stream;out=\"media:void\"",
             b"go".to_vec(),
             "application/json",
         );
@@ -1214,7 +1214,7 @@ mod tests {
         let request_id = MessageId::new_uuid();
         let mut req = Frame::req(
             request_id.clone(),
-            "cap:in=\"media:void\";op=binary;out=\"media:void\"",
+            "cap:in=\"media:void\";binary;out=\"media:void\"",
             binary_clone,
             "application/octet-stream",
         );
@@ -1271,7 +1271,7 @@ mod tests {
             let request_id = MessageId::new_uuid();
             let mut req = Frame::req(
                 request_id.clone(),
-                "cap:in=\"media:void\";op=test;out=\"media:void\"",
+                "cap:in=\"media:void\";test;out=\"media:void\"",
                 vec![],
                 "application/json",
             );
@@ -1326,7 +1326,7 @@ mod tests {
         let request_id = MessageId::new_uuid();
         let mut req = Frame::req(
             request_id.clone(),
-            "cap:in=\"media:void\";op=empty;out=\"media:void\"",
+            "cap:in=\"media:void\";empty;out=\"media:void\"",
             vec![],
             "application/json",
         );
@@ -1351,7 +1351,7 @@ mod tests {
     async fn test906_full_path_identity_verification() {
         use crate::bifaci::host_runtime::CartridgeHostRuntime;
 
-        let manifest = r#"{"name":"IdentityE2E","version":"1.0","channel":"release","registry_url":null,"description":"Identity test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=test;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
+        let manifest = r#"{"name":"IdentityE2E","version":"1.0","channel":"release","registry_url":null,"description":"Identity test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
 
         let (c_read, c_write, c_from_rt, c_to_rt) = create_cartridge_pair();
         let (rt_relay_read, rt_relay_write, eng_write, eng_read) = create_relay_pair();
@@ -1426,7 +1426,7 @@ mod tests {
 
             let mut req = Frame::req(
                 req_id.clone(),
-                "cap:in=\"media:void\";op=test;out=\"media:void\"",
+                "cap:in=\"media:void\";test;out=\"media:void\"",
                 vec![],
                 "text/plain",
             );
@@ -1497,8 +1497,8 @@ mod tests {
     async fn test490_identity_verification_multiple_cartridges() {
         use crate::bifaci::host_runtime::CartridgeHostRuntime;
 
-        let manifest_a = r#"{"name":"CartridgeA","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge A","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=alpha;out=\"media:void\"","title":"Alpha","command":"alpha","args":[]}]}]}"#;
-        let manifest_b = r#"{"name":"CartridgeB","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge B","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";op=beta;out=\"media:void\"","title":"Beta","command":"beta","args":[]}]}]}"#;
+        let manifest_a = r#"{"name":"CartridgeA","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge A","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";alpha;out=\"media:void\"","title":"Alpha","command":"alpha","args":[]}]}]}"#;
+        let manifest_b = r#"{"name":"CartridgeB","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge B","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";beta;out=\"media:void\"","title":"Beta","command":"beta","args":[]}]}]}"#;
 
         let (ca_read, ca_write, ca_from_rt, ca_to_rt) = create_cartridge_pair();
         let (cb_read, cb_write, cb_from_rt, cb_to_rt) = create_cartridge_pair();
@@ -1515,7 +1515,7 @@ mod tests {
                 .expect("Expected REQ for alpha");
             assert_eq!(
                 req.cap.as_deref(),
-                Some("cap:in=\"media:void\";op=alpha;out=\"media:void\"")
+                Some("cap:in=\"media:void\";alpha;out=\"media:void\"")
             );
             loop {
                 let f = reader.read().await.unwrap().expect("f");
@@ -1549,7 +1549,7 @@ mod tests {
             let req = reader.read().await.unwrap().expect("Expected REQ for beta");
             assert_eq!(
                 req.cap.as_deref(),
-                Some("cap:in=\"media:void\";op=beta;out=\"media:void\"")
+                Some("cap:in=\"media:void\";beta;out=\"media:void\"")
             );
             loop {
                 let f = reader.read().await.unwrap().expect("f");
@@ -1607,7 +1607,7 @@ mod tests {
             let sid = uuid::Uuid::new_v4().to_string();
             let mut req = Frame::req(
                 req_id.clone(),
-                "cap:in=\"media:void\";op=alpha;out=\"media:void\"",
+                "cap:in=\"media:void\";alpha;out=\"media:void\"",
                 vec![],
                 "text/plain",
             );
@@ -1656,7 +1656,7 @@ mod tests {
             let sid2 = uuid::Uuid::new_v4().to_string();
             let mut req2 = Frame::req(
                 req_id2.clone(),
-                "cap:in=\"media:void\";op=beta;out=\"media:void\"",
+                "cap:in=\"media:void\";beta;out=\"media:void\"",
                 vec![],
                 "text/plain",
             );

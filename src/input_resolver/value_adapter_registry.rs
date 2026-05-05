@@ -30,7 +30,7 @@ use crate::input_resolver::value_adapter::{ValueAdapter, ValueAdapterResult};
 ///     "media:model-spec;textable;llm",
 ///     "hf:MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF",
 /// );
-/// // refined == "media:llm;mistral;model-spec;textable"
+/// // refined == "media:mistral;model-spec;textable"
 /// ```
 pub struct ValueAdapterRegistry {
     /// Adapters indexed by base URN prefix they handle

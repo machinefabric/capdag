@@ -390,7 +390,7 @@ mod tests {
         let full_urn = "media:llm-generation-request;json;record";
         let arg = CapArgumentValue::new(full_urn, b"{\"prompt\":\"test\"}".to_vec());
         let rid = MessageId::new_uuid();
-        let frames = CapArgumentValue::build_request_frames(&rid, "cap:op=test", &[arg], 32768);
+        let frames = CapArgumentValue::build_request_frames(&rid, "cap:test", &[arg], 32768);
 
         // Find the STREAM_START frame
         let stream_start = frames
@@ -415,7 +415,7 @@ mod tests {
         let payload = b"{\"prompt\":\"hello\",\"model_spec\":\"test\"}";
         let arg = CapArgumentValue::new(full_urn, payload.to_vec());
         let rid = MessageId::new_uuid();
-        let frames = CapArgumentValue::build_request_frames(&rid, "cap:op=test", &[arg], 32768);
+        let frames = CapArgumentValue::build_request_frames(&rid, "cap:test", &[arg], 32768);
 
         // Simulate cartridge-side: extract streams from frames (like collect_streams does)
         let mut streams: Vec<(
@@ -482,7 +482,7 @@ mod tests {
         let full_urn = "media:llm-generation-request;json;record";
         let arg = CapArgumentValue::new(base_urn, b"{}".to_vec());
         let rid = MessageId::new_uuid();
-        let frames = CapArgumentValue::build_request_frames(&rid, "cap:op=test", &[arg], 32768);
+        let frames = CapArgumentValue::build_request_frames(&rid, "cap:test", &[arg], 32768);
 
         // Extract streams (same as above)
         let mut streams: Vec<(

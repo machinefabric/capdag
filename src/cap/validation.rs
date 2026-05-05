@@ -1245,7 +1245,7 @@ mod tests {
         let (schema_registry, media_registry) = test_registries().await;
         let validator = InputValidator::new(schema_registry, media_registry);
 
-        let urn = CapUrn::from_string(&test_urn("type=test;op=cap")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
         let mut cap = Cap::new(
             urn,
             "Test Capability".to_string(),
@@ -1273,7 +1273,7 @@ mod tests {
         let (schema_registry, media_registry) = test_registries().await;
         let validator = InputValidator::new(schema_registry, media_registry);
 
-        let urn = CapUrn::from_string(&test_urn("type=test;op=cap")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
         let mut cap = Cap::new(
             urn,
             "Test Capability".to_string(),
@@ -1307,7 +1307,7 @@ mod tests {
         let (schema_registry, media_registry) = test_registries().await;
         let validator = InputValidator::new(schema_registry, media_registry);
 
-        let urn = CapUrn::from_string(&test_urn("type=test;op=cap")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
         let mut cap = Cap::new(
             urn,
             "Test Capability".to_string(),
@@ -1356,7 +1356,7 @@ mod tests {
         // Create a cap that tries to redefine a standard media spec (MEDIA_STRING)
         let (_schema_registry, media_registry) = test_registries().await;
 
-        let urn = CapUrn::from_string(&test_urn("type=test;op=cap")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
         let mut cap = Cap::new(
             urn,
             "Test Capability".to_string(),
@@ -1395,7 +1395,7 @@ mod tests {
         // Create a cap with a new media spec that doesn't exist in the registry
         let (_schema_registry, media_registry) = test_registries().await;
 
-        let urn = CapUrn::from_string(&test_urn("type=test;op=cap")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
         let mut cap = Cap::new(
             urn,
             "Test Capability".to_string(),
@@ -1430,7 +1430,7 @@ mod tests {
         // A cap without inline media_specs should pass XV5 validation
         let (_schema_registry, media_registry) = test_registries().await;
 
-        let urn = CapUrn::from_string(&test_urn("type=test;op=cap")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
         let cap = Cap::new(
             urn,
             "Test Capability".to_string(),
@@ -1447,7 +1447,7 @@ mod tests {
 
     fn make_test_cap_with_args(args: Vec<CapArg>) -> Cap {
         // Uses in=media:void — only for tests where no arg has a stdin source.
-        let urn = CapUrn::from_string(&test_urn("op=test")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("test")).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
         for arg in args {
             cap.add_arg(arg);
@@ -1457,7 +1457,7 @@ mod tests {
 
     fn make_test_cap_with_stdin_args(args: Vec<CapArg>) -> Cap {
         // Uses in=media:textable — for tests where at least one arg has a stdin source.
-        let urn = CapUrn::from_string(r#"cap:in=media:textable;op=test;out="media:record""#).unwrap();
+        let urn = CapUrn::from_string(r#"cap:in=media:textable;test;out="media:record""#).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
         for arg in args {
             cap.add_arg(arg);
@@ -1754,7 +1754,7 @@ mod tests {
     // TEST1295: RULE11 - non-void-input cap without stdin source rejected
     #[test]
     fn test1295_rule11_non_void_input_without_stdin_rejected() {
-        let urn = CapUrn::from_string(r#"cap:in=media:textable;op=test;out="media:record""#).unwrap();
+        let urn = CapUrn::from_string(r#"cap:in=media:textable;test;out="media:record""#).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
         cap.add_arg(CapArg::new(
             MEDIA_STRING,

@@ -22,8 +22,8 @@ The system is designed for scenarios where:
 Cap URNs extend Tagged URNs with required direction specifiers:
 
 ```
-cap:in="media:void";op=generate;out="media:object"
-cap:in="media:binary";op=extract;out="media:object";target=metadata
+cap:in="media:void";generate;out="media:object"
+cap:in="media:binary";extract;out="media:object";target=metadata
 ```
 
 **Direction Specifiers:**
@@ -71,7 +71,7 @@ use capdag::{CapUrn, Cap, CapUrnBuilder};
 
 // Create cap URN
 let cap = CapUrn::from_string(
-    "cap:in=\"media:binary\";op=extract;out=\"media:object\";target=metadata"
+    "cap:in=\"media:binary\";extract;out=\"media:object\";target=metadata"
 )?;
 
 // Build with builder pattern
@@ -90,7 +90,7 @@ import "github.com/machfab/capdag-go"
 
 // Create cap URN
 cap, err := capdag.NewCapUrnFromString(
-    `cap:in="media:binary";op=extract;out="media:object"`)
+    `cap:in="media:binary";extract;out="media:object"`)
 
 // Build with builder pattern
 cap, err = capdag.NewCapUrnBuilder().
@@ -108,7 +108,7 @@ cap, err = capdag.NewCapUrnBuilder().
 // Create cap URN
 NSError *error;
 CSCapUrn *cap = [CSCapUrn fromString:
-    @"cap:in=\"media:binary\";op=extract;out=\"media:object\""
+    @"cap:in=\"media:binary\";extract;out=\"media:object\""
     error:&error];
 
 // Build with builder pattern
@@ -133,9 +133,9 @@ Capabilities match requests based on per-tag value semantics:
 
 ```rust
 let provider = CapUrn::from_string(
-    "cap:in=\"media:binary\";op=extract;out=\"media:object\";ext=pdf")?;
+    "cap:in=\"media:binary\";extract;out=\"media:object\";ext=pdf")?;
 let request = CapUrn::from_string(
-    "cap:in=\"media:binary\";op=extract;out=\"media:object\"")?;
+    "cap:in=\"media:binary\";extract;out=\"media:object\"")?;
 
 // For dispatch/routing, use is_dispatchable
 if provider.is_dispatchable(&request) {
@@ -146,9 +146,9 @@ if provider.is_dispatchable(&request) {
 Specificity uses graded scoring (exact=3, must-have-any=2, must-not-have=1, unspecified=0):
 
 ```rust
-let general = CapUrn::from_string("cap:in=*;op=extract;out=*")?;        // specificity: 3+2+2 = 7
+let general = CapUrn::from_string("cap:in=*;extract;out=*")?;        // specificity: 3+2+2 = 7
 let specific = CapUrn::from_string(
-    "cap:in=\"media:binary\";op=extract;out=\"media:object\"")?;        // specificity: 3+3+3 = 9
+    "cap:in=\"media:binary\";extract;out=\"media:object\"")?;        // specificity: 3+3+3 = 9
 
 // specific.specificity() > general.specificity()
 ```
@@ -158,23 +158,23 @@ let specific = CapUrn::from_string(
 Common capability patterns:
 
 **Document Processing:**
-- `cap:in="media:binary";op=extract;out="media:object";target=metadata`
-- `cap:in="media:binary";op=generate;out="media:binary";target=thumbnail`
+- `cap:in="media:binary";extract;out="media:object";target=metadata`
+- `cap:in="media:binary";generate;out="media:binary";target=thumbnail`
 
 **AI/ML Inference:**
-- `cap:in="media:text";op=generate;out="media:object";target=embeddings`
-- `cap:in="media:object";op=conversation;out="media:object"`
+- `cap:in="media:text";generate;out="media:object";target=embeddings`
+- `cap:in="media:object";conversation;out="media:object"`
 
 ## Integration
 
 ### Provider Registration
 
 ```rust
-let cap = CapUrn::from_string("cap:in=...;op=extract;out=...;ext=pdf")?;
+let cap = CapUrn::from_string("cap:in=...;extract;out=...;ext=pdf")?;
 provider_registry.register("pdf-provider", cap);
 
 // Find best provider
-let caller = provider_registry.can("cap:in=...;op=extract;out=...")?;
+let caller = provider_registry.can("cap:in=...;extract;out=...")?;
 let result = caller.call(args).await?;
 ```
 

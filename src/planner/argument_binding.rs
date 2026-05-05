@@ -820,7 +820,7 @@ mod tests {
         let result = resolve_binding(
             &binding,
             &context,
-            "cap:in=\"media:pdf\";op=resize;out=\"media:pdf\"",
+            "cap:in=\"media:pdf\";resize;out=\"media:pdf\"",
             "step_0",
             None,
             true,
@@ -852,7 +852,7 @@ mod tests {
         let result = resolve_binding(
             &binding,
             &context,
-            "cap:op=compress",
+            "cap:compress",
             "step_0",
             Some(&default),
             false,
@@ -880,7 +880,7 @@ mod tests {
             name: "media:question;textable".to_string(),
             schema: None,
         };
-        let result = resolve_binding(&binding, &context, "cap:op=generate", "step_0", None, true);
+        let result = resolve_binding(&binding, &context, "cap:generate", "step_0", None, true);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("media:question;textable"));
@@ -904,7 +904,7 @@ mod tests {
             schema: None,
         };
         let result =
-            resolve_binding(&binding, &context, "cap:op=rename", "step_0", None, false).unwrap();
+            resolve_binding(&binding, &context, "cap:rename", "step_0", None, false).unwrap();
         assert!(result.is_none());
     }
 
@@ -928,7 +928,7 @@ mod tests {
     // This is the core disambiguation scenario that step-index keying was designed to solve.
     #[test]
     fn test1105_two_steps_same_cap_urn_different_slot_values() {
-        let cap_urn = "cap:in=\"media:pdf\";op=make_decision;out=\"media:bool;textable\"";
+        let cap_urn = "cap:in=\"media:pdf\";make-decision;out=\"media:bool;textable\"";
         let slot_name = "media:list;question;textable";
         let files = vec![];
         let prev_outputs = HashMap::new();
@@ -977,7 +977,7 @@ mod tests {
     // cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
     #[test]
     fn test1106_slot_falls_through_to_cap_settings_shared() {
-        let cap_urn = "cap:in=\"media:pdf\";op=make_decision;out=\"media:bool;textable\"";
+        let cap_urn = "cap:in=\"media:pdf\";make-decision;out=\"media:bool;textable\"";
         let slot_name = "media:language;textable";
         let files = vec![];
         let prev_outputs = HashMap::new();
@@ -1016,7 +1016,7 @@ mod tests {
     // Proves per-step override works while shared settings remain as fallback.
     #[test]
     fn test1107_slot_value_overrides_cap_settings_per_step() {
-        let cap_urn = "cap:in=\"media:pdf\";op=make_decision;out=\"media:bool;textable\"";
+        let cap_urn = "cap:in=\"media:pdf\";make-decision;out=\"media:bool;textable\"";
         let slot_name = "media:language;textable";
         let files = vec![];
         let prev_outputs = HashMap::new();
@@ -1099,7 +1099,7 @@ mod tests {
         );
 
         let results = bindings
-            .resolve_all(&context, "cap:op=resize", "step_3", None, None)
+            .resolve_all(&context, "cap:resize", "step_3", None, None)
             .unwrap();
         assert_eq!(results.len(), 2);
 
@@ -1121,7 +1121,7 @@ mod tests {
     // TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match.
     #[test]
     fn test1109_slot_key_uses_node_id_not_cap_urn() {
-        let cap_urn = "cap:in=\"media:pdf\";op=resize;out=\"media:pdf\"";
+        let cap_urn = "cap:in=\"media:pdf\";resize;out=\"media:pdf\"";
         let slot_name = "media:width;textable;numeric";
         let files = vec![];
         let prev_outputs = HashMap::new();

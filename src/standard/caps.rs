@@ -240,7 +240,7 @@ pub fn adapter_selection_cap() -> Cap {
 /// Build URN for generic text-generation capability.
 pub fn llm_generate_text_urn() -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "generate_text")
+        .solo_tag("generate-text")
         .solo_tag("llm")
         .solo_tag("ml-model")
         .in_spec(MEDIA_STRING)
@@ -252,7 +252,7 @@ pub fn llm_generate_text_urn() -> CapUrn {
 /// Build URN for multiplechoice capability
 pub fn llm_multiplechoice_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "multiplechoice")
+        .solo_tag("multiplechoice")
         .solo_tag("constrained")
         .tag("language", lang_code)
         .in_spec(MEDIA_STRING)
@@ -264,7 +264,7 @@ pub fn llm_multiplechoice_urn(lang_code: &str) -> CapUrn {
 /// Build URN for codegeneration capability
 pub fn llm_codegeneration_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "codegeneration")
+        .solo_tag("codegeneration")
         .solo_tag("constrained")
         .tag("language", lang_code)
         .in_spec(MEDIA_STRING)
@@ -276,7 +276,7 @@ pub fn llm_codegeneration_urn(lang_code: &str) -> CapUrn {
 /// Build URN for creative capability
 pub fn llm_creative_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "creative")
+        .solo_tag("creative")
         .solo_tag("constrained")
         .tag("language", lang_code)
         .in_spec(MEDIA_STRING)
@@ -288,7 +288,7 @@ pub fn llm_creative_urn(lang_code: &str) -> CapUrn {
 /// Build URN for summarization capability
 pub fn llm_summarization_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "summarization")
+        .solo_tag("summarization")
         .solo_tag("constrained")
         .tag("language", lang_code)
         .in_spec(MEDIA_STRING)
@@ -305,7 +305,7 @@ pub fn llm_summarization_urn(lang_code: &str) -> CapUrn {
 /// Output uses MEDIA_MODEL_DIM per CATALOG: media:model-dim;integer;textable;numeric
 pub fn embeddings_dimensions_urn() -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "embeddings_dimensions")
+        .solo_tag("embeddings-dimensions")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_MODEL_DIM)
         .build()
@@ -317,7 +317,7 @@ pub fn embeddings_dimensions_urn() -> CapUrn {
 /// Output: media:embedding-vector;textable;record
 pub fn embeddings_generation_urn() -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "generate_embeddings")
+        .solo_tag("generate-embeddings")
         .in_spec(MEDIA_STRING)
         .out_spec(MEDIA_EMBEDDING_VECTOR)
         .build()
@@ -329,7 +329,7 @@ pub fn embeddings_generation_urn() -> CapUrn {
 /// Output: media:embedding-vector;textable;record
 pub fn image_embeddings_generation_urn() -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "generate_image_embeddings")
+        .solo_tag("generate-image-embeddings")
         .solo_tag("ml-model")
         .solo_tag("candle")
         .in_spec(MEDIA_PNG)
@@ -345,7 +345,7 @@ pub fn image_embeddings_generation_urn() -> CapUrn {
 /// Build URN for model-download capability
 pub fn model_download_urn() -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "download-model")
+        .solo_tag("download-model")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_DOWNLOAD_OUTPUT)
         .build()
@@ -356,7 +356,7 @@ pub fn model_download_urn() -> CapUrn {
 /// Input uses MEDIA_MODEL_REPO per CATALOG: media:model-repo;textable;record
 pub fn model_list_urn() -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "list-models")
+        .solo_tag("list-models")
         .in_spec(MEDIA_MODEL_REPO)
         .out_spec(MEDIA_LIST_OUTPUT)
         .build()
@@ -366,7 +366,7 @@ pub fn model_list_urn() -> CapUrn {
 /// Build URN for model-status capability
 pub fn model_status_urn() -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "model-status")
+        .solo_tag("model-status")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_STATUS_OUTPUT)
         .build()
@@ -376,7 +376,7 @@ pub fn model_status_urn() -> CapUrn {
 /// Build URN for model-contents capability
 pub fn model_contents_urn() -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "model-contents")
+        .solo_tag("model-contents")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_CONTENTS_OUTPUT)
         .build()
@@ -386,7 +386,7 @@ pub fn model_contents_urn() -> CapUrn {
 /// Build URN for model-availability capability
 pub fn model_availability_urn() -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "model-availability")
+        .solo_tag("model-availability")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_AVAILABILITY_OUTPUT)
         .build()
@@ -396,7 +396,7 @@ pub fn model_availability_urn() -> CapUrn {
 /// Build URN for model-path capability
 pub fn model_path_urn() -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "model-path")
+        .solo_tag("model-path")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_PATH_OUTPUT)
         .build()
@@ -413,7 +413,7 @@ pub fn model_path_urn() -> CapUrn {
 /// Output is always a PNG page image.
 pub fn render_page_image_urn(input_media: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "render_page_image")
+        .solo_tag("render-page-image")
         .in_spec(input_media)
         .out_spec(MEDIA_PNG)
         .build()
@@ -425,7 +425,7 @@ pub fn render_page_image_urn(input_media: &str) -> CapUrn {
 /// `input_media` is the media URN for the input type (e.g., MEDIA_PDF, MEDIA_TXT).
 pub fn disbind_urn(input_media: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "disbind")
+        .solo_tag("disbind")
         .in_spec(input_media)
         .out_spec(MEDIA_TEXTABLE_PAGE)
         .build()
@@ -444,7 +444,7 @@ pub fn disbind_urn(input_media: &str) -> CapUrn {
 /// `capfab/src/caps/generate-json-en.toml` for the full contract.
 pub fn generate_json_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "generate_json")
+        .solo_tag("generate-json")
         .tag("language", lang_code)
         .solo_tag("constrained")
         .in_spec(MEDIA_STRING)
@@ -457,7 +457,7 @@ pub fn generate_json_urn(lang_code: &str) -> CapUrn {
 /// Output is MEDIA_DECISION: media:decision;json;record;textable
 pub fn make_decision_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "make_decision")
+        .solo_tag("make-decision")
         .tag("language", lang_code)
         .solo_tag("constrained")
         .in_spec(MEDIA_STRING)
@@ -470,7 +470,7 @@ pub fn make_decision_urn(lang_code: &str) -> CapUrn {
 /// Output is MEDIA_DECISION with is_sequence=true (one decision per question).
 pub fn make_multiple_decisions_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "make_multiple_decisions")
+        .solo_tag("make-multiple-decisions")
         .tag("language", lang_code)
         .solo_tag("constrained")
         .in_spec(MEDIA_STRING)
@@ -490,7 +490,7 @@ pub fn make_multiple_decisions_urn(lang_code: &str) -> CapUrn {
 /// Output: categorization result object
 pub fn recategorization_task_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "recategorize_listing")
+        .solo_tag("recategorize-listing")
         .tag("language", lang_code)
         .in_spec(MEDIA_IDENTITY) // Binary document
         .out_spec(MEDIA_OBJECT) // Categorization results
@@ -503,7 +503,7 @@ pub fn recategorization_task_urn(lang_code: &str) -> CapUrn {
 /// Output: analysis result object
 pub fn listing_analysis_task_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "request_listing_analysis")
+        .solo_tag("request-listing-analysis")
         .tag("language", lang_code)
         .in_spec(MEDIA_IDENTITY) // Binary document
         .out_spec(MEDIA_OBJECT) // Analysis results
@@ -568,7 +568,7 @@ pub fn coercion_urn(source_type: &str, target_type: &str) -> CapUrn {
     let in_spec = media_urn_for_type(source_type);
     let out_spec = media_urn_for_type(target_type);
     CapUrnBuilder::new()
-        .tag("op", "coerce")
+        .solo_tag("coerce")
         .in_spec(in_spec)
         .out_spec(out_spec)
         .build()
@@ -615,7 +615,7 @@ pub fn all_coercion_paths() -> Vec<(&'static str, &'static str)> {
 /// All format conversions use op="convert_format".
 pub fn format_conversion_urn(in_media: &str, out_media: &str) -> CapUrn {
     CapUrnBuilder::new()
-        .tag("op", "convert_format")
+        .solo_tag("convert-format")
         .in_spec(in_media)
         .out_spec(out_media)
         .build()
@@ -992,7 +992,7 @@ mod tests {
         let urn = model_availability_urn();
         assert!(
             urn.has_tag("op", "model-availability"),
-            "URN must have op=model-availability"
+            "URN must have model-availability"
         );
         assert_eq!(urn.in_spec(), MEDIA_MODEL_SPEC, "input must be model-spec");
         assert_eq!(
@@ -1008,7 +1008,7 @@ mod tests {
         let urn = model_path_urn();
         assert!(
             urn.has_tag("op", "model-path"),
-            "URN must have op=model-path"
+            "URN must have model-path"
         );
         assert_eq!(urn.in_spec(), MEDIA_MODEL_SPEC, "input must be model-spec");
         assert_eq!(
@@ -1042,7 +1042,7 @@ mod tests {
 
         assert!(
             urn.has_tag("op", "generate_text"),
-            "must have op=generate_text"
+            "must have generate-text"
         );
         assert!(urn.has_marker_tag("llm"), "must have llm tag");
         assert!(urn.has_marker_tag("ml-model"), "must have ml-model tag");
@@ -1111,7 +1111,7 @@ mod tests {
         use crate::urn::cap_urn::CapUrn;
 
         let discard = CapUrn::from_string(CAP_DISCARD).expect("CAP_DISCARD must parse");
-        let specific = CapUrn::from_string("cap:in=\"media:pdf\";op=shred;out=\"media:void\"")
+        let specific = CapUrn::from_string("cap:in=\"media:pdf\";shred;out=\"media:void\"")
             .expect("specific cap must parse");
 
         // discard (pattern) accepts specific (instance)? No — discard has no op tag,
@@ -1125,7 +1125,7 @@ mod tests {
         );
 
         // But a cap with non-void output must NOT conform to discard
-        let non_void = CapUrn::from_string("cap:in=\"media:pdf\";op=convert;out=\"media:string\"")
+        let non_void = CapUrn::from_string("cap:in=\"media:pdf\";convert;out=\"media:string\"")
             .expect("non-void cap must parse");
         assert!(
             !discard.accepts(&non_void),
@@ -1143,7 +1143,7 @@ mod tests {
             let urn = coercion_urn(source, target);
             assert!(
                 urn.has_tag("op", "coerce"),
-                "Coercion URN for {}→{} must have op=coerce",
+                "Coercion URN for {}→{} must have coerce",
                 source,
                 target
             );
@@ -1199,7 +1199,7 @@ mod tests {
             let urn = format_conversion_urn(path.in_media, path.out_media);
             assert!(
                 urn.has_tag("op", "convert_format"),
-                "Format conversion URN for {}→{} must have op=convert_format",
+                "Format conversion URN for {}→{} must have convert-format",
                 path.in_media,
                 path.out_media
             );

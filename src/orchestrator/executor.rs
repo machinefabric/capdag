@@ -866,10 +866,15 @@ impl ExecutionContext {
     /// The RelaySwitch starts with no masters. Use `add_master()` or
     /// `add_cartridge_host()` to add masters before executing caps.
     ///
-    /// Requires a CapRegistry for the RelaySwitch to use when building
-    /// the LiveCapFab for path finding queries.
-    pub async fn new(cap_registry: Arc<CapRegistry>) -> Result<Self, ExecutionError> {
-        let switch = RelaySwitch::new(vec![], cap_registry)
+    /// Requires a CapRegistry and MediaUrnRegistry for the RelaySwitch to
+    /// use when building the LiveCapFab for path finding queries. The
+    /// MediaUrnRegistry is read at every LiveCapFab sync to compute the
+    /// bookend-eligible URN set.
+    pub async fn new(
+        cap_registry: Arc<CapRegistry>,
+        media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+    ) -> Result<Self, ExecutionError> {
+        let switch = RelaySwitch::new(vec![], cap_registry, media_registry)
             .await
             .map_err(|e| ExecutionError::HostError(format!("RelaySwitch init: {}", e)))?;
 
@@ -1452,6 +1457,7 @@ pub async fn execute_dag(
     initial_is_sequence: HashMap<String, bool>,
     dev_binaries: Vec<PathBuf>,
     cap_registry: Arc<CapRegistry>,
+    media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
     progress_fn: Option<&CapProgressFn>,
     node_values: &HashMap<String, HashMap<String, serde_json::Value>>,
 ) -> Result<HashMap<String, NodeData>, ExecutionError> {
@@ -1464,7 +1470,7 @@ pub async fn execute_dag(
     let cartridges = cartridge_manager.resolve_cartridges(&cap_urns).await?;
 
     // 2. Create execution context and add cartridge host as master
-    let mut ctx = ExecutionContext::new(cap_registry).await?;
+    let mut ctx = ExecutionContext::new(cap_registry, media_registry).await?;
     // Channel is discovered per-cartridge from each cartridge.json
     // inside add_cartridge_host. Dev binaries (no cartridge.json on
     // disk) fall back to the scope-level `channel` here — that's
@@ -1895,13 +1901,13 @@ mod tests {
     #[test]
     fn test918_activity_timeout_error_display() {
         let err = ExecutionError::ActivityTimeout {
-            cap_urn: "cap:op=describe_image".to_string(),
+            cap_urn: "cap:describe-image".to_string(),
             idle_secs: 125,
             limit_secs: 120,
         };
         let msg = format!("{}", err);
         assert!(msg.contains("Activity timeout"), "msg: {}", msg);
-        assert!(msg.contains("cap:op=describe_image"), "msg: {}", msg);
+        assert!(msg.contains("cap:describe-image"), "msg: {}", msg);
         assert!(msg.contains("125s"), "msg: {}", msg);
         assert!(msg.contains("120s"), "msg: {}", msg);
     }

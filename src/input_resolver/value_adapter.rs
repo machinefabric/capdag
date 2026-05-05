@@ -30,7 +30,7 @@ pub struct ValueAdapterResult {
 /// A `ModelSpecValueAdapter` inspects a model spec string like
 /// `hf:MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF` and adds a `mistral`
 /// marker tag to the base URN `media:model-spec;textable;llm`, producing
-/// `media:llm;mistral;model-spec;textable` (canonical sorted form).
+/// `media:mistral;model-spec;textable` (canonical sorted form).
 pub trait ValueAdapter: Send + Sync {
     /// Unique name for this adapter (for debugging/logging)
     fn name(&self) -> &'static str;

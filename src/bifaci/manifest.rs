@@ -237,7 +237,7 @@ mod tests {
     // TEST148: Manifest creation with cap groups
     #[test]
     fn test148_cap_manifest_creation() {
-        let urn = CapUrn::from_string(&test_urn("op=extract;target=metadata")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
         let cap = Cap::new(urn, "Extract Metadata".to_string(), "extract-metadata".to_string());
 
         let manifest = CapManifest::new(
@@ -263,7 +263,7 @@ mod tests {
     // a hard parse error — no defaults.
     #[test]
     fn test117_cap_manifest_channel_roundtrip() {
-        let urn = CapUrn::from_string(&test_urn("op=extract;target=metadata")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
         let cap = Cap::new(urn, "Extract Metadata".to_string(), "extract-metadata".to_string());
 
         let manifest = CapManifest::new(
@@ -336,7 +336,7 @@ mod tests {
     // pass for a dev build.
     #[test]
     fn test118_dev_manifest_registry_url_is_explicit_null() {
-        let urn = CapUrn::from_string(&test_urn("op=dev")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("dev")).unwrap();
         let cap = Cap::new(urn, "Dev".to_string(), "dev".to_string());
         let manifest = CapManifest::new(
             "DevComponent".to_string(),
@@ -359,7 +359,7 @@ mod tests {
     // TEST149: Author field
     #[test]
     fn test149_cap_manifest_with_author() {
-        let urn = CapUrn::from_string(&test_urn("op=extract;target=metadata")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
         let cap = Cap::new(urn, "Extract Metadata".to_string(), "extract-metadata".to_string());
 
         let manifest = CapManifest::new(
@@ -380,7 +380,7 @@ mod tests {
     fn test150_cap_manifest_json_serialization() {
         use crate::{ArgSource, CapArg};
 
-        let urn = CapUrn::from_string(&test_urn("op=extract;target=metadata")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
         let mut cap = Cap::new(urn, "Extract Metadata".to_string(), "extract-metadata".to_string());
         cap.add_arg(CapArg::new(
             "media:pdf",
@@ -419,10 +419,10 @@ mod tests {
     // TEST152: Multiple caps across groups
     #[test]
     fn test152_cap_manifest_with_multiple_caps() {
-        let id1 = CapUrn::from_string(&test_urn("op=extract;target=metadata")).unwrap();
+        let id1 = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
         let cap1 = Cap::new(id1, "Extract Metadata".to_string(), "extract-metadata".to_string());
 
-        let id2 = CapUrn::from_string(&test_urn("op=extract;target=outline")).unwrap();
+        let id2 = CapUrn::from_string(&test_urn("extract;target=outline")).unwrap();
         let mut metadata = HashMap::new();
         metadata.insert("supports_outline".to_string(), "true".to_string());
         let cap2 = Cap::with_metadata(id2, "Extract Outline".to_string(), "extract-outline".to_string(), metadata);
@@ -465,7 +465,7 @@ mod tests {
     // TEST154: Optional author field omitted in serialization
     #[test]
     fn test154_cap_manifest_optional_author_field() {
-        let urn = CapUrn::from_string(&test_urn("op=validate;file")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("validate;file")).unwrap();
         let cap = Cap::new(urn, "Validate".to_string(), "validate".to_string());
 
         let manifest = CapManifest::new(
@@ -502,7 +502,7 @@ mod tests {
             }
         }
 
-        let urn = CapUrn::from_string(&test_urn("op=test;type=component")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("test;type=component")).unwrap();
         let cap = Cap::new(urn, "Test Component".to_string(), "test".to_string());
 
         let component = TestComponent {
@@ -512,7 +512,7 @@ mod tests {
 
         let caps = component.caps();
         assert_eq!(caps.len(), 1);
-        assert!(caps[0].urn_string().contains("op=test"));
+        assert!(caps[0].urn_string().contains("test"));
     }
 
     // TEST475: validate() passes with CAP_IDENTITY in a cap group
@@ -534,7 +534,7 @@ mod tests {
     // TEST476: validate() fails without CAP_IDENTITY
     #[test]
     fn test476_validate_fails_without_identity() {
-        let specific_urn = CapUrn::from_string(&test_urn("op=convert")).unwrap();
+        let specific_urn = CapUrn::from_string(&test_urn("convert")).unwrap();
         let cap = Cap::new(specific_urn, "Convert".to_string(), "convert".to_string());
         let manifest = CapManifest::new(
             "TestCartridge".to_string(),
@@ -552,7 +552,7 @@ mod tests {
     // TEST1284: Cap group with adapter URNs serializes and deserializes correctly
     #[test]
     fn test1284_cap_group_with_adapter_urns() {
-        let urn = CapUrn::from_string(&test_urn("op=convert")).unwrap();
+        let urn = CapUrn::from_string(&test_urn("convert")).unwrap();
         let cap = Cap::new(urn, "Convert".to_string(), "convert".to_string());
 
         let group = CapGroup {

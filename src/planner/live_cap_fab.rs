@@ -133,6 +133,18 @@ pub struct LiveCapFab {
     nodes: HashSet<MediaUrn>,
     /// Cap URN → edge indices for removal.
     cap_to_edges: HashMap<CapUrn, Vec<usize>>,
+    /// Subset of `nodes` that are eligible to serve as a strand bookend
+    /// (source or target of a transmute) — a URN has at least one file
+    /// extension registered in the media registry, i.e. concrete content
+    /// can actually exist as a file of that type.
+    ///
+    /// Computed at sync time from the registry snapshot supplied to
+    /// `sync_from_caps` / `sync_from_cap_urns`. The graph is rebuilt on
+    /// every cap-set change, so the bookend set tracks the live registry
+    /// state exactly: new media specs with extensions added between
+    /// syncs become bookends after the next sync; specs whose extensions
+    /// are removed stop being bookends after the next sync.
+    bookend_nodes: HashSet<MediaUrn>,
 }
 
 /// Information about a reachable target from a source media type.
@@ -317,6 +329,7 @@ impl LiveCapFab {
             incoming: HashMap::new(),
             nodes: HashSet::new(),
             cap_to_edges: HashMap::new(),
+            bookend_nodes: HashSet::new(),
         }
     }
 
@@ -327,6 +340,21 @@ impl LiveCapFab {
         self.incoming.clear();
         self.nodes.clear();
         self.cap_to_edges.clear();
+        self.bookend_nodes.clear();
+    }
+
+    /// Returns `true` if the given URN is a bookend-eligible node — a node
+    /// whose registered media spec has at least one file extension, so
+    /// concrete file content of that type can exist on disk.
+    ///
+    /// Strand bookends (transmute source or target) MUST be bookend-eligible.
+    /// Internal URNs that appear as cap inputs/outputs but do not name a
+    /// concrete file format (wildcards like `media:textable`, primitives
+    /// like `media:integer;numeric;textable`, role markers like
+    /// `media:page;textable`) are tracked as nodes for path-finding but
+    /// are not valid bookends and never appear as transmute sources/targets.
+    pub fn is_bookend(&self, urn: &MediaUrn) -> bool {
+        self.bookend_nodes.contains(urn)
     }
 
     /// Rebuild the graph from a list of capabilities.
@@ -337,13 +365,39 @@ impl LiveCapFab {
     /// Only Cap edges are stored in the graph. Cardinality transitions
     /// (ForEach/Collect) are synthesized dynamically by
     /// `get_outgoing_edges()` based on source cardinality.
-    pub fn sync_from_caps(&mut self, caps: &[Cap]) {
+    ///
+    /// `bookend_urns` is the live snapshot of media-registry URNs whose
+    /// stored spec has at least one file extension. Nodes in the graph
+    /// are intersected with this set to mark which can serve as strand
+    /// bookends. The intersection is computed once per sync; lookups
+    /// during traversal are O(1) HashSet hits with no registry calls.
+    pub fn sync_from_caps(&mut self, caps: &[Cap], bookend_urns: &HashSet<MediaUrn>) {
         self.clear();
 
         for cap in caps {
             self.add_cap(cap);
         }
 
+        self.refresh_bookends(bookend_urns);
+    }
+
+    /// Recompute the bookend node set as the intersection of `self.nodes`
+    /// and the supplied registry snapshot. Public so callers that build the
+    /// graph incrementally via `add_cap` (e.g. tests) can refresh the
+    /// bookend set independently of a full sync.
+    pub fn set_bookends(&mut self, bookend_urns: &HashSet<MediaUrn>) {
+        self.refresh_bookends(bookend_urns);
+    }
+
+    /// Recompute the bookend node set as the intersection of `self.nodes`
+    /// and the supplied registry snapshot.
+    fn refresh_bookends(&mut self, bookend_urns: &HashSet<MediaUrn>) {
+        self.bookend_nodes = self
+            .nodes
+            .iter()
+            .filter(|n| bookend_urns.contains(*n))
+            .cloned()
+            .collect();
     }
 
     /// Rebuild the graph from a list of cap URN strings using the registry.
@@ -356,7 +410,12 @@ impl LiveCapFab {
     /// must have an exact semantic match in the registry. Unmatched caps are rejected
     /// with an error and excluded from the graph — a cartridge advertising an unregistered
     /// capability is a configuration bug that must be fixed.
-    pub async fn sync_from_cap_urns(&mut self, cap_urns: &[String], registry: &Arc<CapRegistry>) {
+    pub async fn sync_from_cap_urns(
+        &mut self,
+        cap_urns: &[String],
+        registry: &Arc<CapRegistry>,
+        bookend_urns: &HashSet<MediaUrn>,
+    ) {
         self.clear();
 
         // Get all cached caps from registry
@@ -426,6 +485,8 @@ impl LiveCapFab {
         }
 
         let _ = (matched_count, identity_count, rejected_count);
+
+        self.refresh_bookends(bookend_urns);
     }
 
     /// Add a capability as an edge in the graph.
@@ -690,13 +751,24 @@ impl LiveCapFab {
             }
         }
 
+        // Filter to bookend-eligible targets. Reachability in the cap graph
+        // includes URNs that exist only as cap-input wildcards (e.g.
+        // `media:textable`, `media:integer;numeric;textable`). Such URNs
+        // describe the value type a cap accepts, not a file format that
+        // can sit on disk, so they are never valid transmute targets. The
+        // bookend set is precomputed at sync time from the live media
+        // registry — no registry call here.
+        let mut targets: Vec<_> = results
+            .into_values()
+            .filter(|t| self.bookend_nodes.contains(&t.media_spec))
+            .collect();
+
         // Sort by (min_path_length, display_name).
         //
         // `display_name` is a presentation string (not an
         // identity key), so lex-comparing it as a String is
         // the correct semantics — this is user-visible
         // alphabetical sort, not URN equivalence.
-        let mut targets: Vec<_> = results.into_values().collect();
         targets.sort_by(|a, b| {
             a.min_path_length
                 .cmp(&b.min_path_length)
@@ -1127,6 +1199,24 @@ mod tests {
     use crate::cap::definition::Cap;
     use crate::urn::cap_urn::CapUrn;
 
+    /// Bookend set that treats every URN appearing in the supplied caps
+    /// (in or out direction) as bookend-eligible. Tests use this when
+    /// they want graph reachability without an extra "filter to file
+    /// formats" constraint — the planner's bookend filter is exercised
+    /// elsewhere.
+    fn all_bookends(caps: &[Cap]) -> HashSet<MediaUrn> {
+        let mut s = HashSet::new();
+        for cap in caps {
+            if let Ok(u) = MediaUrn::from_string(cap.urn.in_spec()) {
+                s.insert(u);
+            }
+            if let Ok(u) = MediaUrn::from_string(cap.urn.out_spec()) {
+                s.insert(u);
+            }
+        }
+        s
+    }
+
     fn make_test_cap(in_spec: &str, out_spec: &str, op: &str, title: &str) -> Cap {
         use crate::urn::cap_urn::CapUrnBuilder;
 
@@ -1206,6 +1296,7 @@ mod tests {
             "Extract Text",
         );
         graph.add_cap(&cap);
+        graph.set_bookends(&all_bookends(&[cap.clone()]));
 
         assert_eq!(graph.edges.len(), 1);
         assert_eq!(graph.nodes.len(), 2);
@@ -1389,7 +1480,9 @@ mod tests {
             make_test_cap("media:extracted-text", "media:summary-text", "op2", "Op2"),
         ];
 
-        graph.sync_from_caps(&caps);
+        let __caps = &caps;
+
+        graph.sync_from_caps(__caps, &all_bookends(__caps));
 
         assert_eq!(graph.edges.len(), 2);
         assert_eq!(graph.nodes.len(), 3);
@@ -1402,7 +1495,9 @@ mod tests {
             "OCR",
         )];
 
-        graph.sync_from_caps(&new_caps);
+        let __caps = &new_caps;
+
+        graph.sync_from_caps(__caps, &all_bookends(__caps));
 
         assert_eq!(graph.edges.len(), 1);
         assert_eq!(graph.nodes.len(), 2);
@@ -1478,6 +1573,7 @@ mod tests {
 
         graph.add_cap(&cap1);
         graph.add_cap(&cap2);
+        graph.set_bookends(&all_bookends(&[cap1.clone(), cap2.clone()]));
 
         let source = MediaUrn::from_string("media:a").unwrap();
         let targets = graph.get_reachable_targets(&source, false, 5);
@@ -1509,7 +1605,7 @@ mod tests {
         graph.add_cap(&pdf_to_text);
 
         // Try to find path from PNG (not PDF)
-        let source = MediaUrn::from_string("media:png").unwrap();
+        let source = MediaUrn::from_string("media:image;png").unwrap();
         let target = MediaUrn::from_string("media:textable").unwrap();
 
         let paths = graph.find_paths_to_exact_target(&source, &target, false, 5, 10);
@@ -1528,7 +1624,7 @@ mod tests {
 
         // Only add PNG->thumbnail cap
         let png_to_thumb = make_test_cap(
-            "media:png",
+            "media:image;png",
             "media:thumbnail",
             "png2thumb",
             "PNG to Thumbnail",
@@ -1555,7 +1651,7 @@ mod tests {
 
         let pdf_to_text = make_test_cap("media:pdf", "media:textable", "pdf2text", "PDF to Text");
         let png_to_thumb = make_test_cap(
-            "media:png",
+            "media:image;png",
             "media:thumbnail",
             "png2thumb",
             "PNG to Thumbnail",
@@ -1563,9 +1659,10 @@ mod tests {
 
         graph.add_cap(&pdf_to_text);
         graph.add_cap(&png_to_thumb);
+        graph.set_bookends(&all_bookends(&[pdf_to_text.clone(), png_to_thumb.clone()]));
 
         // PNG should reach thumbnail (cap target) but NOT textable (PDF-only cap)
-        let png_source = MediaUrn::from_string("media:png").unwrap();
+        let png_source = MediaUrn::from_string("media:image;png").unwrap();
         let png_targets = graph.get_reachable_targets(&png_source, false, 5);
         let media_thumbnail = MediaUrn::from_string("media:thumbnail").unwrap();
         let media_textable = MediaUrn::from_string("media:textable").unwrap();
@@ -1607,7 +1704,7 @@ mod tests {
     fn test781_find_paths_respects_type_chain() {
         let mut graph = LiveCapFab::new();
 
-        let resize_png = make_test_cap("media:png", "media:resized-png", "resize", "Resize PNG");
+        let resize_png = make_test_cap("media:image;png", "media:resized-png", "resize", "Resize PNG");
         let to_thumb = make_test_cap(
             "media:resized-png",
             "media:thumbnail",
@@ -1619,7 +1716,7 @@ mod tests {
         graph.add_cap(&to_thumb);
 
         // PNG should find path through resized-png to thumbnail
-        let png_source = MediaUrn::from_string("media:png").unwrap();
+        let png_source = MediaUrn::from_string("media:image;png").unwrap();
         let thumb_target = MediaUrn::from_string("media:thumbnail").unwrap();
         let png_paths = graph.find_paths_to_exact_target(&png_source, &thumb_target, false, 5, 10);
         assert_eq!(
@@ -1656,7 +1753,9 @@ mod tests {
             "Make a Decision",
         );
 
-        graph.sync_from_caps(&[disbind, choose]);
+        let __caps = &[disbind, choose];
+
+        graph.sync_from_caps(__caps, &all_bookends(__caps));
         assert_eq!(
             graph.edges.len(),
             2,
@@ -1715,10 +1814,13 @@ mod tests {
         // Create cap URN strings as cartridges would report them
         let cap_urns: Vec<String> = vec![disbind.urn.to_string(), choose.urn.to_string()];
 
-        // Sync from URNs
+        // Sync from URNs. The bookend set treats every URN appearing in
+        // either cap as eligible — this is a registry-graph sync test,
+        // not a bookend-filter test.
+        let bookends = all_bookends(&[disbind.clone(), choose.clone()]);
         let mut graph = LiveCapFab::new();
         graph
-            .sync_from_cap_urns(&cap_urns, &Arc::new(registry))
+            .sync_from_cap_urns(&cap_urns, &Arc::new(registry), &bookends)
             .await;
 
         // Should have exactly 2 Cap edges (no pre-computed cardinality edges)
@@ -1741,7 +1843,7 @@ mod tests {
 
         // A specific cap should NOT be equivalent to identity
         let specific_cap = crate::CapUrn::from_string(
-            r#"cap:in=media:pdf;op=disbind;out="media:disbound-page;textable""#,
+            r#"cap:disbind;in=media:pdf;out="media:disbound-page;textable""#,
         )
         .unwrap();
 
@@ -1755,7 +1857,7 @@ mod tests {
     #[test]
     fn test789_cap_from_json_has_valid_specs() {
         let json = r#"{
-            "urn": "cap:in=media:pdf;op=disbind;out=\"media:disbound-page;textable\"",
+            "urn": "cap:disbind;in=media:pdf;out=\"media:disbound-page;textable\"",
             "command": "disbind",
             "title": "Disbind PDF",
             "args": [],
@@ -1819,7 +1921,7 @@ mod tests {
                 StrandStep {
                     step_type: StrandStepType::Cap {
                         cap_urn: CapUrn::from_string(
-                            r#"cap:in=media:pdf;op=disbind;out="media:page;textable""#,
+                            r#"cap:disbind;in=media:pdf;out="media:page;textable""#,
                         )
                         .unwrap(),
                         title: "Disbind PDF Into Pages".to_string(),
@@ -1891,7 +1993,8 @@ mod tests {
             "make_decision",
             "Make Decision",
         );
-        graph.sync_from_caps(&[make_decision]);
+        let __caps = &[make_decision];
+        graph.sync_from_caps(__caps, &all_bookends(__caps));
 
         // Source is a user-provided list that no cap outputs
         let source = MediaUrn::from_string("media:list;textable;txt").unwrap();
@@ -1940,7 +2043,8 @@ mod tests {
             "summarize",
             "Summarize",
         );
-        graph.sync_from_caps(&[summarize]);
+        let __caps = &[summarize];
+        graph.sync_from_caps(__caps, &all_bookends(__caps));
 
         let source = MediaUrn::from_string("media:textable").unwrap();
         // list;summary;textable is a different semantic type — can't reach it
@@ -1966,7 +2070,8 @@ mod tests {
             "summarize",
             "Summarize Page",
         );
-        graph.sync_from_caps(&[disbind, summarize]);
+        let __caps = &[disbind, summarize];
+        graph.sync_from_caps(__caps, &all_bookends(__caps));
 
         // Scalar path: pdf → disbind → page;textable → summarize → summary;textable
         let source = MediaUrn::from_string("media:pdf").unwrap();
@@ -1998,7 +2103,9 @@ mod tests {
             ),
         ];
 
-        graph.sync_from_caps(&caps);
+        let __caps = &caps;
+
+        graph.sync_from_caps(__caps, &all_bookends(__caps));
 
         // All stored edges must be Cap edges
         assert_eq!(graph.edges.len(), 3, "Should have exactly 3 Cap edges");
@@ -2023,7 +2130,8 @@ mod tests {
             "summarize",
             "Summarize",
         );
-        graph.sync_from_caps(&[cap]);
+        let __caps = &[cap];
+        graph.sync_from_caps(__caps, &all_bookends(__caps));
 
         let source = MediaUrn::from_string("media:textable").unwrap();
         let edges = graph.get_outgoing_edges(&source, true);
@@ -2087,7 +2195,8 @@ mod tests {
             "summarize",
             "Summarize",
         );
-        graph.sync_from_caps(&[cap]);
+        let __caps = &[cap];
+        graph.sync_from_caps(__caps, &all_bookends(__caps));
 
         let source = MediaUrn::from_string("media:textable").unwrap();
         let edges = graph.get_outgoing_edges(&source, false);
@@ -2130,7 +2239,7 @@ mod tests {
         registry.add_caps_to_cache(vec![cap]);
 
         let cap_urn =
-            CapUrn::from_string("cap:in=media:pdf;op=extract;out=\"media:txt;textable\"").unwrap();
+            CapUrn::from_string("cap:extract;in=media:pdf;out=\"media:txt;textable\"").unwrap();
         let strand = Strand {
             steps: vec![StrandStep {
                 step_type: StrandStepType::Cap {
@@ -2176,7 +2285,7 @@ mod tests {
         // Note: no caps added to the registry.
 
         let cap_urn =
-            CapUrn::from_string("cap:in=media:pdf;op=ghost;out=\"media:txt;textable\"").unwrap();
+            CapUrn::from_string("cap:ghost;in=media:pdf;out=\"media:txt;textable\"").unwrap();
         let strand = Strand {
             steps: vec![StrandStep {
                 step_type: StrandStepType::Cap {
@@ -2211,19 +2320,22 @@ mod tests {
         let mut graph = LiveCapFab::new();
 
         // textable → integer (coerce)
-        graph.add_cap(&make_test_cap(
+        let cap1 = make_test_cap(
             "media:textable",
             "media:integer;numeric;textable",
             "coerce_to_int",
             "Coerce to Integer",
-        ));
+        );
+        graph.add_cap(&cap1);
         // integer → textable (coerce back)
-        graph.add_cap(&make_test_cap(
+        let cap2 = make_test_cap(
             "media:integer;numeric;textable",
             "media:textable",
             "coerce_to_text",
             "Coerce to Text",
-        ));
+        );
+        graph.add_cap(&cap2);
+        graph.set_bookends(&all_bookends(&[cap1, cap2]));
 
         let source = MediaUrn::from_string("media:textable").unwrap();
         let targets = graph.get_reachable_targets(&source, false, 5);

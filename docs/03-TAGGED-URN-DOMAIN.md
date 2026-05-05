@@ -35,8 +35,8 @@ identifier  ::= [a-z][a-z0-9-]*
 ```
 media:                           # Identity (no tags)
 media:pdf;bytes                  # Two tags with implicit * values
-cap:in=media:pdf;op=extract;out=media:object
-cap:in="media:pdf;bytes";op=extract;out="media:object"
+cap:in=media:pdf;extract;out=media:object
+cap:in="media:pdf;bytes";extract;out="media:object"
 ```
 
 ---

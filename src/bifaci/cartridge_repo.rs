@@ -1272,7 +1272,7 @@ mod tests {
     #[test]
     fn test633_deserialize_rich_registry_cap() {
         let json = r#"{
-            "urn": "cap:in=\"media:pdf\";op=disbind;out=\"media:page;textable\"",
+            "urn": "cap:in=\"media:pdf\";disbind;out=\"media:page;textable\"",
             "title": "Disbind PDF",
             "command": "disbind",
             "cap_description": "Extract each PDF page as plain page text.",
@@ -1343,7 +1343,7 @@ mod tests {
                     "name": "pdf-formats",
                     "caps": [
                         {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"},
-                        {"urn": "cap:in=media:pdf;op=disbind;out=\"media:page;textable\"", "title": "Disbind PDF Into Page Text", "command": "disbind"}
+                        {"urn": "cap:in=media:pdf;disbind;out=\"media:page;textable\"", "title": "Disbind PDF Into Page Text", "command": "disbind"}
                     ],
                     "adapter_urns": ["media:pdf"]
                 }
@@ -1433,7 +1433,7 @@ mod tests {
                         {
                             "name": "image-formats",
                             "caps": [
-                                {"urn": "cap:in=\"media:image;jpeg\";op=convert_image;out=\"media:image;png\"", "title": "Convert JPEG to PNG", "command": "convert-image"}
+                                {"urn": "cap:in=\"media:image;jpeg\";convert-image;out=\"media:image;png\"", "title": "Convert JPEG to PNG", "command": "convert-image"}
                             ],
                             "adapter_urns": ["media:bmp;image", "media:image;jpeg", "media:image;png", "media:image;tiff", "media:image;webp", "media:gif;image"]
                         }
@@ -1658,7 +1658,7 @@ mod tests {
             vec![build_cap_group(
                 "pdf",
                 vec![build_cap(
-                    "cap:in=media:pdf;op=disbind;out=\"media:page;textable\"",
+                    "cap:in=media:pdf;disbind;out=\"media:page;textable\"",
                     "Disbind PDF",
                     "disbind",
                 )],
@@ -1701,11 +1701,11 @@ mod tests {
     #[test]
     fn test329_cartridge_repo_server_get_by_cap() {
         let declared_urn =
-            "cap:in=\"media:pdf\";op=disbind;out=\"media:disbound-page;textable;list\"";
+            "cap:in=\"media:pdf\";disbind;out=\"media:disbound-page;textable;list\"";
         // Same cap URN with the in/out spec tags in a different declared
         // order. Tagged-URN normalization treats them as identical.
         let request_urn =
-            "cap:in=\"media:pdf\";op=disbind;out=\"media:list;disbound-page;textable\"";
+            "cap:in=\"media:pdf\";disbind;out=\"media:list;disbound-page;textable\"";
 
         let entry = build_registry_entry(
             "PDF Cartridge",
@@ -1775,9 +1775,9 @@ mod tests {
     async fn test331_cartridge_repo_client_get_suggestions() {
         let repo = CartridgeRepo::new(3600);
         let declared_urn =
-            "cap:in=\"media:pdf\";op=disbind;out=\"media:disbound-page;textable;list\"";
+            "cap:in=\"media:pdf\";disbind;out=\"media:disbound-page;textable;list\"";
         let request_urn =
-            "cap:in=\"media:pdf\";op=disbind;out=\"media:list;disbound-page;textable\"";
+            "cap:in=\"media:pdf\";disbind;out=\"media:list;disbound-page;textable\"";
 
         let registry = CartridgeRegistryResponse {
             cartridges: vec![{
@@ -1850,9 +1850,9 @@ mod tests {
     #[tokio::test]
     async fn test333_cartridge_repo_client_get_all_caps() {
         let repo = CartridgeRepo::new(3600);
-        let cap1 = "cap:in=\"media:pdf\";op=disbind;out=\"media:disbound-page;textable;list\"";
+        let cap1 = "cap:in=\"media:pdf\";disbind;out=\"media:disbound-page;textable;list\"";
         let cap2 =
-            "cap:in=\"media:txt;textable\";op=disbind;out=\"media:disbound-page;textable;list\"";
+            "cap:in=\"media:txt;textable\";disbind;out=\"media:disbound-page;textable;list\"";
 
         let registry = CartridgeRegistryResponse {
             cartridges: vec![
@@ -1899,7 +1899,7 @@ mod tests {
     // and the signed flag.
     #[test]
     fn test335_cartridge_repo_server_client_integration() {
-        let cap_urn = "cap:in=\"media:test\";op=test;out=\"media:result\"";
+        let cap_urn = "cap:in=\"media:test\";test;out=\"media:result\"";
         let entry = build_registry_entry(
             "Test Cartridge",
             vec![build_cap_group(

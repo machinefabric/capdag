@@ -8,6 +8,23 @@ use crate::input_resolver::{ContentStructure, InputResolverError};
 use async_trait::async_trait;
 use std::path::Path;
 
+/// Maximum bytes of file content sent to a cartridge for adapter
+/// (content-inspection) selection.
+///
+/// This is the single source of truth for the inspection prefix size.
+/// All paths that hand bytes to a content-inspection adapter — the
+/// host-side adapter invoker (cartridge route) and the engine's
+/// extension-based content-analysis path (in-process route) — must
+/// read at most this many bytes so cartridge handlers and the
+/// engine's pattern validators see exactly the same prefix.
+///
+/// 100 KiB is generous enough to cover headers, magic-byte regions,
+/// JSON top-level structures, and the first few pages of text in any
+/// realistic file format, while keeping per-file analysis bounded so
+/// dropping a folder of large media doesn't push hundreds of MB
+/// through the adapter pipeline.
+pub const MAX_CONTENT_INSPECTION_BYTES: usize = 100 * 1024;
+
 /// Result of adapter detection — a selected media URN and its structure
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdapterResult {
