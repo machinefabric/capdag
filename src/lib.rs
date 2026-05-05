@@ -107,7 +107,8 @@ pub use bifaci::host_runtime::{CartridgeProcessHandle, CartridgeProcessInfo, Hos
 
 // Cartridge install metadata
 pub use bifaci::cartridge_json::{
-    hash_cartridge_directory, CartridgeInstallSource, CartridgeJson, CartridgeJsonError,
+    hash_cartridge_directory, validate_registry_url_scheme, CartridgeInstallSource, CartridgeJson,
+    CartridgeJsonError, RegistryUrlSchemeResult,
 };
 
 // Registry slug — deterministic on-disk folder name for a registry URL.
@@ -119,8 +120,9 @@ pub use bifaci::in_process_host::{
 };
 pub use bifaci::relay::{RelayMaster, RelaySlave};
 pub use bifaci::relay_switch::{
-    CartridgeAttachmentError, CartridgeAttachmentErrorKind, InstalledCartridgeIdentity,
-    MasterHealthStatus, RelayNotifyCapabilitiesPayload, RelaySwitch, RelaySwitchError,
+    CartridgeAttachmentError, CartridgeAttachmentErrorKind, CartridgeLifecycle,
+    InstalledCartridgeRecord, MasterHealthStatus, RelayNotifyCapabilitiesPayload, RelaySwitch,
+    RelaySwitchError,
 };
 
 // Planner — planning, discovery, and execution for machines

@@ -17,13 +17,29 @@ use crate::bifaci::cartridge_slug::{slug_for, DEV_SLUG};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// How a cartridge was installed.
+/// How a cartridge was installed. Pure metadata — not consulted for
+/// any host or engine routing decision. Kept around so downstream
+/// telemetry / audit / inventory tooling can record install
+/// provenance without growing a parallel data structure.
+///
+/// New variants may be added freely; the deserializer rejects unknown
+/// values rather than silently coercing them so a corrupted /
+/// future-version installer surfaces immediately. Within the codebase
+/// nothing should branch on the variant — see the field's doc comment
+/// on [`CartridgeJson::installed_from`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CartridgeInstallSource {
+    /// Pulled from a remote cartridge registry (`dx cartridge --install --registry …`).
     Registry,
+    /// Built locally from the developer's source tree (`dx cartridge --install` with no registry).
     Dev,
+    /// Shipped pre-installed under the engine's `providers/` tree at app build time.
     Bundle,
+    /// Written by the macOS .pkg installer's release path
+    /// (`scripts/commands/release.sh`). Distinct from `Bundle`
+    /// (engine-bundled providers) and `Registry` (remote-pulled).
+    AppInstaller,
 }
 
 /// Install-context metadata stored in `cartridge.json` inside each cartridge
@@ -70,8 +86,14 @@ pub struct CartridgeJson {
     pub entry: String,
     /// RFC3339 timestamp of when the cartridge was installed.
     pub installed_at: String,
-    /// How the cartridge was installed.
-    pub installed_from: CartridgeInstallSource,
+    /// Optional install-provenance hint. **Not consulted for any
+    /// routing or attachment decision** — the dev-vs-not-dev signal
+    /// the host actually uses is `registry_url` (null ⇔ dev). This
+    /// field is kept around as opaque metadata for future telemetry
+    /// or audit tooling. May be omitted entirely from on-disk
+    /// `cartridge.json` files; absence is not a parse error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installed_from: Option<CartridgeInstallSource>,
     /// URL the package was downloaded from (empty for dev/bundle installs).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub source_url: String,
@@ -121,7 +143,8 @@ impl<'de> Deserialize<'de> for CartridgeJson {
             registry_url: Option<String>,
             entry: String,
             installed_at: String,
-            installed_from: CartridgeInstallSource,
+            #[serde(default)]
+            installed_from: Option<CartridgeInstallSource>,
             #[serde(default)]
             source_url: String,
             #[serde(default)]
@@ -143,6 +166,66 @@ impl<'de> Deserialize<'de> for CartridgeJson {
             package_sha256: inner.package_sha256,
             package_size: inner.package_size,
         })
+    }
+}
+
+/// Verdict from `validate_registry_url_scheme`. Distinguishes "OK"
+/// from each rejection reason so callers can render an actionable
+/// message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegistryUrlSchemeResult {
+    /// URL is acceptable (either dev-mode allows it, or scheme is
+    /// `https`). Carries the original URL string so the caller can
+    /// keep using it without re-borrowing.
+    Ok,
+    /// URL string didn't parse as a valid URL.
+    NotAUrl(String),
+    /// URL parsed but scheme is not `https` and dev-mode is off.
+    /// Carries the offending scheme so the caller can include it in
+    /// the operator-facing message.
+    NonHttps { scheme: String },
+}
+
+/// Validate that a non-null `registry_url` uses the `https` scheme
+/// — UNLESS `dev_mode` is set, in which case any well-formed URL is
+/// accepted (so developers can point at `http://localhost:port` and
+/// similar during integration testing).
+///
+/// The rule lives at the deepest layer (this crate, used by every
+/// consumer that loads a `cartridge.json` or a HELLO manifest) so a
+/// caller can never bypass it by parsing the URL out of band. Each
+/// loader in the engine and the XPC service threads its own
+/// `dev_mode` value through — typically derived from
+/// `option_env!("MFR_DEV_MODE")` at the binary's build time, so
+/// release / nightly engines reject non-https URLs unconditionally.
+///
+/// Dev cartridges (`registry_url == None`) never go through this
+/// validator — they have no URL to check.
+pub fn validate_registry_url_scheme(url: &str, dev_mode: bool) -> RegistryUrlSchemeResult {
+    // Cheap parse: split once on `://`. We don't pull in a URL
+    // crate just for this check; the rule is "scheme must be the
+    // literal bytes `https`", and full URL validation is the
+    // caller's job (the registry fetcher will fail loudly on a
+    // syntactically-invalid URL).
+    let (scheme, rest) = match url.split_once("://") {
+        Some(parts) => parts,
+        None => return RegistryUrlSchemeResult::NotAUrl(url.to_string()),
+    };
+    if rest.is_empty() {
+        return RegistryUrlSchemeResult::NotAUrl(url.to_string());
+    }
+    if dev_mode {
+        // Dev mode: accept any well-formed scheme. We still require
+        // SOME scheme to be present (caught above) — an empty
+        // scheme is malformed regardless of mode.
+        return RegistryUrlSchemeResult::Ok;
+    }
+    if scheme.eq_ignore_ascii_case("https") {
+        RegistryUrlSchemeResult::Ok
+    } else {
+        RegistryUrlSchemeResult::NonHttps {
+            scheme: scheme.to_string(),
+        }
     }
 }
 
@@ -405,7 +488,7 @@ mod tests {
             version: "0.168.411".to_string(),
             entry: "pdfcartridge".to_string(),
             installed_at: "2026-04-12T10:00:00Z".to_string(),
-            installed_from: CartridgeInstallSource::Registry,
+            installed_from: Some(CartridgeInstallSource::Registry),
             channel: CartridgeChannel::Release,
             registry_url: Some(TEST_REGISTRY.to_string()),
             source_url:
@@ -420,7 +503,7 @@ mod tests {
         assert_eq!(parsed.name, "pdfcartridge");
         assert_eq!(parsed.version, "0.168.411");
         assert_eq!(parsed.entry, "pdfcartridge");
-        assert_eq!(parsed.installed_from, CartridgeInstallSource::Registry);
+        assert_eq!(parsed.installed_from, Some(CartridgeInstallSource::Registry));
         assert_eq!(parsed.channel, CartridgeChannel::Release);
         assert_eq!(parsed.registry_url.as_deref(), Some(TEST_REGISTRY));
     }
@@ -435,7 +518,7 @@ mod tests {
             version: "0.168.411".to_string(),
             entry: "pdfcartridge".to_string(),
             installed_at: "2026-04-12T10:00:00Z".to_string(),
-            installed_from: CartridgeInstallSource::Registry,
+            installed_from: Some(CartridgeInstallSource::Registry),
             channel: CartridgeChannel::Nightly,
             registry_url: Some(TEST_REGISTRY.to_string()),
             source_url: "https://cartridges.machinefabric.com/nightly/pdfcartridge/0.168.411/pdfcartridge-0.168.411.pkg".to_string(),
@@ -508,7 +591,7 @@ mod tests {
             version: "0.1.0".to_string(),
             entry: "testcartridge".to_string(),
             installed_at: "2026-04-12T10:00:00Z".to_string(),
-            installed_from: CartridgeInstallSource::Dev,
+            installed_from: Some(CartridgeInstallSource::Dev),
             channel: CartridgeChannel::Nightly,
             registry_url: None,
             source_url: String::new(),
@@ -531,6 +614,67 @@ mod tests {
         );
     }
 
+    // TEST1513: `installed_from` is opaque optional metadata. A
+    // cartridge.json that omits the field MUST parse cleanly with
+    // `installed_from == None`, and a CartridgeJson with
+    // `installed_from == None` MUST NOT emit the key on serialize.
+    // Pins the new contract that nothing in the host or engine
+    // branches on this field — it's audit/telemetry hint only and
+    // the absence-vs-Some distinction must round-trip.
+    #[test]
+    fn test1513_installed_from_optional_round_trip() {
+        // Parse: missing key → None.
+        let json_without = r#"{
+            "name": "pdfcartridge",
+            "version": "0.168.411",
+            "channel": "nightly",
+            "registry_url": null,
+            "entry": "pdfcartridge",
+            "installed_at": "2026-04-12T10:00:00Z"
+        }"#;
+        let parsed: CartridgeJson = serde_json::from_str(json_without)
+            .expect("cartridge.json without installed_from must parse");
+        assert!(
+            parsed.installed_from.is_none(),
+            "missing installed_from must deserialize to None, got: {:?}",
+            parsed.installed_from
+        );
+
+        // Serialize: None must NOT emit the key. Without
+        // `skip_serializing_if = "Option::is_none"` we'd write
+        // `"installed_from":null`, which would re-introduce a
+        // distinction between absent-and-null on the wire that
+        // nothing in the codebase cares about and that downstream
+        // tooling could misread.
+        let cj = CartridgeJson {
+            name: "x".to_string(),
+            version: "0.1.0".to_string(),
+            channel: CartridgeChannel::Nightly,
+            registry_url: None,
+            entry: "x".to_string(),
+            installed_at: "2026-01-01T00:00:00Z".to_string(),
+            installed_from: None,
+            source_url: String::new(),
+            package_sha256: String::new(),
+            package_size: 0,
+        };
+        let serialized = serde_json::to_string(&cj).unwrap();
+        assert!(
+            !serialized.contains("installed_from"),
+            "None installed_from must not appear in JSON, got: {}",
+            serialized
+        );
+
+        // Round-trip: Some(variant) → JSON → Some(same variant).
+        let cj_some = CartridgeJson {
+            installed_from: Some(CartridgeInstallSource::Bundle),
+            ..cj
+        };
+        let s2 = serde_json::to_string(&cj_some).unwrap();
+        let p2: CartridgeJson = serde_json::from_str(&s2).unwrap();
+        assert_eq!(p2.installed_from, Some(CartridgeInstallSource::Bundle));
+    }
+
     // TEST1245: Reading cartridge metadata fails when the declared entry binary is missing.
     #[test]
     fn test1245_read_from_dir_validates_entry_exists() {
@@ -540,7 +684,7 @@ mod tests {
             version: "1.0".to_string(),
             entry: "nonexistent_binary".to_string(),
             installed_at: "2026-04-12T10:00:00Z".to_string(),
-            installed_from: CartridgeInstallSource::Dev,
+            installed_from: Some(CartridgeInstallSource::Dev),
             channel: CartridgeChannel::Nightly,
             registry_url: None,
             source_url: String::new(),
@@ -569,7 +713,7 @@ mod tests {
             version: "1.0".to_string(),
             entry: "../escaped_binary".to_string(),
             installed_at: "2026-04-12T10:00:00Z".to_string(),
-            installed_from: CartridgeInstallSource::Dev,
+            installed_from: Some(CartridgeInstallSource::Dev),
             channel: CartridgeChannel::Nightly,
             registry_url: None,
             source_url: String::new(),
@@ -599,7 +743,7 @@ mod tests {
             version: "1.0.0".to_string(),
             entry: "mycartridge".to_string(),
             installed_at: "2026-04-12T10:00:00Z".to_string(),
-            installed_from: CartridgeInstallSource::Bundle,
+            installed_from: Some(CartridgeInstallSource::Bundle),
             channel: CartridgeChannel::Release,
             registry_url: Some(TEST_REGISTRY.to_string()),
             source_url: String::new(),
@@ -632,7 +776,7 @@ mod tests {
             version: "1.0.0".to_string(),
             entry: "mycartridge".to_string(),
             installed_at: "2026-04-12T10:00:00Z".to_string(),
-            installed_from: CartridgeInstallSource::Registry,
+            installed_from: Some(CartridgeInstallSource::Registry),
             channel: CartridgeChannel::Release,
             registry_url: Some(TEST_REGISTRY.to_string()),
             source_url: String::new(),
@@ -676,7 +820,7 @@ mod tests {
             version: "1.0.0".to_string(),
             entry: "mycartridge".to_string(),
             installed_at: "2026-04-12T10:00:00Z".to_string(),
-            installed_from: CartridgeInstallSource::Dev,
+            installed_from: Some(CartridgeInstallSource::Dev),
             channel: CartridgeChannel::Nightly,
             registry_url: None, // dev provenance
             source_url: String::new(),
@@ -710,7 +854,7 @@ mod tests {
             version: "1.0.0".to_string(),
             entry: "mycartridge".to_string(),
             installed_at: "2026-04-12T10:00:00Z".to_string(),
-            installed_from: CartridgeInstallSource::Registry,
+            installed_from: Some(CartridgeInstallSource::Registry),
             channel: CartridgeChannel::Release,
             registry_url: Some(TEST_REGISTRY.to_string()),
             source_url: String::new(),
@@ -743,7 +887,7 @@ mod tests {
             version: "1.0.0".to_string(),
             entry: "mycartridge".to_string(),
             installed_at: "2026-04-12T10:00:00Z".to_string(),
-            installed_from: CartridgeInstallSource::Dev,
+            installed_from: Some(CartridgeInstallSource::Dev),
             channel: CartridgeChannel::Nightly,
             registry_url: None,
             source_url: String::new(),

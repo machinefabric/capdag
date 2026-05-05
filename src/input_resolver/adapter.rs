@@ -44,7 +44,7 @@ pub struct AdapterResult {
 pub trait CartridgeAdapterInvoker: Send + Sync {
     /// Invoke adapter-selection cap on a specific cartridge by ID.
     ///
-    /// The cartridge_id is the `InstalledCartridgeIdentity.id` string that
+    /// The cartridge_id is the `InstalledCartridgeRecord.id` string that
     /// uniquely identifies the cartridge across reconnections.
     ///
     /// Returns:

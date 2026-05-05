@@ -155,6 +155,92 @@ pub enum CartridgeAttachmentErrorKind {
     EntryPointMissing,
     /// Cartridge repeatedly crashed the host during discovery; held in quarantine.
     Quarantined,
+    /// On-disk install context disagrees with the cartridge.json the
+    /// cartridge declares — the slug folder doesn't match the
+    /// `slug_for(registry_url)` of the manifest, the channel folder
+    /// doesn't match the manifest's `channel`, or the name/version
+    /// directory components don't match. The cartridge is structurally
+    /// well-formed but cannot be trusted because its placement on
+    /// disk does not match what it claims to be. Distinct from
+    /// `Quarantined` (host decided after a crash) and from
+    /// `ManifestInvalid` (cartridge.json is itself unreadable or
+    /// schema-broken). Hosts grace-period the offending directory and
+    /// then delete it; the record is surfaced so the operator sees
+    /// what landed where before it disappears.
+    BadInstallation,
+    /// Operator explicitly disabled this cartridge through the host
+    /// UI. The cartridge is on disk and would otherwise have attached
+    /// cleanly; the host treats it as if the binary were yanked out
+    /// of the system — its caps are not registered with the engine,
+    /// and any in-flight request the cartridge process was handling
+    /// fails hard. Re-enabling is a UI-driven operator action.
+    /// Enforced at the host level (machfab-mac's XPC service); the
+    /// engine doesn't act on it differently from any other failed
+    /// attachment, but preserves the kind so consumers can render the
+    /// right reason and offer the right recovery action.
+    Disabled,
+    /// The cartridge declares a non-null `registry_url`, but the
+    /// host could not reach that registry to verify the cartridge is
+    /// listed. Distinct from `BadInstallation` (= registry confirmed
+    /// the version is missing) — `RegistryUnreachable` means we
+    /// don't know. Recovery action is "check network + retry"
+    /// rather than "rebuild as dev". The cartridge is held back
+    /// from attaching until verification succeeds; the UI shows the
+    /// actionable reason.
+    ///
+    /// Network fetch is performed by the main app (which has
+    /// outbound network entitlement) and pushed to the host as a
+    /// verdict map; the XPC service is sandboxed and cannot fetch
+    /// registries directly.
+    RegistryUnreachable,
+}
+
+/// In-progress lifecycle phases that run BEFORE a cartridge becomes
+/// dispatchable. See `machfab-mac/docs/cartridge state machine.md` for
+/// the canonical state diagram.
+///
+/// Mutually exclusive with `attachment_error` on
+/// [`InstalledCartridgeRecord`]: when the cartridge has a failed
+/// terminal classification, `attachment_error` is `Some` and
+/// `lifecycle` is irrelevant (consumers must check the error first).
+/// When `attachment_error` is `None`, the cartridge is in one of the
+/// in-progress phases or has reached `Operational`; only
+/// `Operational` cartridges are dispatchable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CartridgeLifecycle {
+    /// Discovery scan has found the version directory and is about
+    /// to inspect it. Transient — the host normally moves to
+    /// `Inspecting` in the same scan tick. Surfaced as a distinct
+    /// state so the UI has a first-render badge before hashing
+    /// starts.
+    Discovered,
+    /// Reading `cartridge.json`, computing directory hash,
+    /// validating on-disk install context (slug/channel/name/version
+    /// folder components vs the manifest). Hashing can take seconds
+    /// for large model cartridges; runs on a background queue so
+    /// other cartridges' inspections proceed in parallel.
+    Inspecting,
+    /// Inspection succeeded. The host is awaiting a verdict from
+    /// the registry verifier service for the cartridge's
+    /// `(registry_url, channel, id, version)` 4-tuple. Skipped for
+    /// dev cartridges (`registry_url == None`) and bundle
+    /// cartridges (shipped with the .app, presence guaranteed by
+    /// build) — those go straight to `Operational`.
+    Verifying,
+    /// Cleared every gate. Caps are registered with the engine and
+    /// dispatch can route requests to this cartridge.
+    Operational,
+}
+
+impl Default for CartridgeLifecycle {
+    /// Default is `Discovered` so a freshly-constructed identity
+    /// without an explicit lifecycle is treated as "scan saw it,
+    /// nothing further yet" — never as `Operational` (which would
+    /// silently expose an un-inspected cartridge for dispatch).
+    fn default() -> Self {
+        CartridgeLifecycle::Discovered
+    }
 }
 
 /// Structured per-cartridge attachment failure.
@@ -258,7 +344,7 @@ impl CartridgeRuntimeStats {
 /// — actually we don't derive `Hash`, so this only matters for the
 /// `Eq`-implies-`Hash`-consistency rule via the manual impls below.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InstalledCartridgeIdentity {
+pub struct InstalledCartridgeRecord {
     /// Registry URL the cartridge was published from. `None` ⇔ dev
     /// install. Compared byte-wise; never normalized.
     pub registry_url: Option<String>,
@@ -286,9 +372,24 @@ pub struct InstalledCartridgeIdentity {
     /// cartridges handled directly by the engine).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_stats: Option<CartridgeRuntimeStats>,
+    /// Positive lifecycle phase. Mutually exclusive with
+    /// `attachment_error`: when the cartridge has a failed terminal
+    /// classification, `attachment_error` is `Some` and `lifecycle`
+    /// should be ignored. When `attachment_error` is `None`,
+    /// `lifecycle` carries the in-progress phase
+    /// (`Discovered` → `Inspecting` → `Verifying` → `Operational`)
+    /// and the cartridge is dispatchable iff `lifecycle ==
+    /// Operational`.
+    ///
+    /// Defaults to `Discovered` so a freshly-constructed identity
+    /// without an explicit lifecycle never accidentally appears as
+    /// `Operational` (the safe-default rule). Producers MUST set
+    /// the field explicitly; relying on the default is a bug.
+    #[serde(default)]
+    pub lifecycle: CartridgeLifecycle,
 }
 
-impl InstalledCartridgeIdentity {
+impl InstalledCartridgeRecord {
     /// Order key for inventory sort/dedup. Only the five fields that
     /// uniquely identify an install participate in the lexicographic
     /// comparison — `cap_groups` / `attachment_error` / `runtime_stats`
@@ -318,7 +419,7 @@ impl InstalledCartridgeIdentity {
     }
 }
 
-impl InstalledCartridgeIdentity {
+impl InstalledCartridgeRecord {
     /// On-disk slug derived from `registry_url`. Dev installs hash to
     /// the literal `dev`; published installs hash to the first 16
     /// hex chars of the URL's SHA-256.
@@ -347,12 +448,12 @@ impl InstalledCartridgeIdentity {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RelayNotifyCapabilitiesPayload {
-    pub installed_cartridges: Vec<InstalledCartridgeIdentity>,
+    pub installed_cartridges: Vec<InstalledCartridgeRecord>,
 }
 
 impl RelayNotifyCapabilitiesPayload {
     /// Construct a payload from a list of installed-cartridge identities.
-    pub fn new(installed_cartridges: Vec<InstalledCartridgeIdentity>) -> Self {
+    pub fn new(installed_cartridges: Vec<InstalledCartridgeRecord>) -> Self {
         Self { installed_cartridges }
     }
 
@@ -387,7 +488,7 @@ struct MasterConnection {
     /// Parsed capability URNs from manifest
     caps: RwLock<Vec<String>>,
     /// Installed cartridge identities reported by this master
-    installed_cartridges: RwLock<Vec<InstalledCartridgeIdentity>>,
+    installed_cartridges: RwLock<Vec<InstalledCartridgeRecord>>,
     /// Connection health status
     healthy: AtomicBool,
     /// Reader task handle
@@ -438,12 +539,12 @@ pub struct RelaySwitch {
     /// Aggregate installed cartridge identities (union of all healthy masters).
     /// Includes both attached-successfully and attachment-failed cartridges;
     /// failed ones carry `attachment_error`.
-    aggregate_installed_cartridges: RwLock<Vec<InstalledCartridgeIdentity>>,
+    aggregate_installed_cartridges: RwLock<Vec<InstalledCartridgeRecord>>,
     /// Watch channel broadcasting the latest `aggregate_installed_cartridges`.
     /// Subscribers (e.g. the Mac gRPC bridge) receive the current value on
     /// subscribe and a fresh value every time `rebuild_capabilities` produces
     /// a different snapshot.
-    aggregate_installed_cartridges_tx: tokio::sync::watch::Sender<Vec<InstalledCartridgeIdentity>>,
+    aggregate_installed_cartridges_tx: tokio::sync::watch::Sender<Vec<InstalledCartridgeRecord>>,
     /// Negotiated limits (minimum across all masters)
     negotiated_limits: RwLock<Limits>,
     /// Channel receiver for frames from master reader tasks (Mutex for exclusive receive)
@@ -832,7 +933,7 @@ impl RelaySwitch {
     }
 
     /// Get the aggregate installed cartridges of all healthy masters.
-    pub async fn installed_cartridges(&self) -> Vec<InstalledCartridgeIdentity> {
+    pub async fn installed_cartridges(&self) -> Vec<InstalledCartridgeRecord> {
         self.aggregate_installed_cartridges.read().await.clone()
     }
 
@@ -841,7 +942,7 @@ impl RelaySwitch {
     /// every time the aggregate changes.
     pub fn subscribe_installed_cartridges(
         &self,
-    ) -> tokio::sync::watch::Receiver<Vec<InstalledCartridgeIdentity>> {
+    ) -> tokio::sync::watch::Receiver<Vec<InstalledCartridgeRecord>> {
         self.aggregate_installed_cartridges_tx.subscribe()
     }
 
@@ -1114,20 +1215,31 @@ impl RelaySwitch {
     ///   1. The number of connected masters is at least
     ///      `expected_master_count` (declared via
     ///      `set_expected_master_count`), AND
-    ///   2. Every connected master is healthy AND has reported a
-    ///      non-empty cap set via RelayNotify.
+    ///   2. Every connected master is healthy.
     ///
-    /// This is the engine-side definition of "cartridges fully
-    /// initialized" — same in both editions:
-    ///   - WEBSITE: the master backed by CartridgeXPCService has
-    ///     forwarded its discovered XPC cartridges' caps via
-    ///     RelayNotify.
-    ///   - MAS: the master backed by engine-spawned external
-    ///     providers has RelayNotify'd its caps after spawn +
-    ///     HELLO + cap-probe completed.
+    /// **Cap-set non-emptiness is intentionally NOT required.** A
+    /// master can be healthy and connected with zero caps while its
+    /// cartridges are still inspecting / verifying — see
+    /// `machfab-mac/docs/cartridge state machine.md`. Tying readiness
+    /// to caps would mean the splash screen waits for every cartridge
+    /// to clear inspection + verification, which can take many seconds
+    /// for large model cartridges + slow registry fetches. Caps
+    /// register incrementally as cartridges progress to `Operational`;
+    /// the dispatch table grows under the engine over time.
     ///
-    /// The host app polls this (via SendHeartbeatResponse.cartridges_ready)
-    /// to flip its own readiness gate from `.configuring` to `.ready`.
+    /// Editions differ only in the expected master count (see
+    /// `set_expected_master_count`):
+    ///   - WEBSITE: 3 (engine internal-providers, engine
+    ///     external-providers, XPC service).
+    ///   - MAS: 2 (engine internal-providers, engine
+    ///     external-providers — no XPC service).
+    ///
+    /// The host app polls this (via
+    /// `SendHeartbeatResponse.cartridges_ready`) to flip its own
+    /// readiness gate from `.configuring` to `.ready`. The name of
+    /// that field is historical — what it actually signals is "all
+    /// expected masters connected and healthy", which is decoupled
+    /// from any specific cartridge's lifecycle.
     pub async fn all_masters_ready(&self) -> bool {
         let expected = self.expected_master_count.load(Ordering::SeqCst);
         if expected == 0 {
@@ -1142,9 +1254,6 @@ impl RelaySwitch {
         for master in masters.iter() {
             // An unhealthy master is by definition not ready.
             if !master.healthy.load(Ordering::SeqCst) {
-                return false;
-            }
-            if master.caps.read().await.is_empty() {
                 return false;
             }
         }
@@ -2907,7 +3016,7 @@ impl RelaySwitch {
     async fn rebuild_capabilities(&self) {
         // Collect caps per master for detailed logging
         let mut caps_by_master: Vec<(usize, bool, Vec<String>)> = Vec::new();
-        let mut installed_cartridges_by_master: Vec<(bool, Vec<InstalledCartridgeIdentity>)> =
+        let mut installed_cartridges_by_master: Vec<(bool, Vec<InstalledCartridgeRecord>)> =
             Vec::new();
         let masters = self.masters.read().await;
         for (idx, master) in masters.iter().enumerate() {
@@ -2946,22 +3055,22 @@ impl RelaySwitch {
         // physically installed and known to any master, regardless of
         // current per-master reachability. We do NOT filter by health
         // here. The reachability story lives in
-        // `InstalledCartridgeIdentity.runtime_stats.running` (per
+        // `InstalledCartridgeRecord.runtime_stats.running` (per
         // cartridge), not in whether the parent master happens to be
         // unhealthy at this exact tick. Filtering the inventory by
         // master health caused the "all cartridges disappeared"
         // symptom on every transient master flap (XPC bridge
         // reconnect, in-process master restart, RelayNotify race at
         // startup before the first heartbeat round-trip).
-        let mut all_installed_cartridges: Vec<InstalledCartridgeIdentity> = Vec::new();
+        let mut all_installed_cartridges: Vec<InstalledCartridgeRecord> = Vec::new();
         for (_healthy, installed_cartridges) in installed_cartridges_by_master {
             all_installed_cartridges.extend(installed_cartridges);
         }
         // Sort by the install's identity tuple — see
-        // `InstalledCartridgeIdentity::identity_cmp` for the
+        // `InstalledCartridgeRecord::identity_cmp` for the
         // rationale (cap URNs aren't totally ordered, so the
         // manifest/runtime-stats fields are excluded from the key).
-        all_installed_cartridges.sort_by(InstalledCartridgeIdentity::identity_cmp);
+        all_installed_cartridges.sort_by(InstalledCartridgeRecord::identity_cmp);
         // Identity tuple is `(registry_url, channel, id, version, sha256)`.
         // Two installs of the same id+version from different registries
         // (or different channels) are distinct cartridges with their own
@@ -4963,6 +5072,53 @@ mod tests {
         );
     }
 
+    /// Helper: build a switch whose masters connect but RelayNotify
+    /// an EMPTY cap set. Mirrors the real-world "cartridges still
+    /// inspecting / verifying" state where the XPC master has
+    /// connected but no cartridge has reached `Operational` yet.
+    async fn build_switch_with_n_capless_masters(n: usize) -> Arc<RelaySwitch> {
+        let mut engine_socks = Vec::with_capacity(n);
+        for _ in 0..n {
+            let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
+            engine_socks.push(engine_sock);
+            tokio::spawn(async move {
+                slave_notify_with_identity(
+                    slave_sock,
+                    &serde_json::json!([]),
+                    &Limits::default(),
+                )
+                .await;
+            });
+        }
+        Arc::new(
+            RelaySwitch::new(engine_socks, test_cap_registry(), test_media_registry())
+                .await
+                .unwrap(),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_all_masters_ready_true_when_masters_connected_but_capless() {
+        // Cartridges in `.discovered` / `.inspecting` / `.verifying`
+        // contribute zero caps to their master's RelayNotify. The
+        // engine readiness gate must still fire so the splash screen
+        // can unblock — caps register incrementally as cartridges
+        // progress to `.operational`. See
+        // `machfab-mac/docs/cartridge state machine.md` and the
+        // `all_masters_ready` doc comment for the rationale. A
+        // regression that re-coupled readiness to cap-set
+        // non-emptiness would make this test fail (and would hang
+        // the splash screen on every cold start with slow
+        // cartridges).
+        let switch = build_switch_with_n_capless_masters(2).await;
+        switch.set_expected_master_count(2);
+        assert_eq!(
+            switch.all_masters_ready().await,
+            true,
+            "all_masters_ready must NOT require master.caps to be non-empty — caps register asynchronously as cartridges progress to Operational"
+        );
+    }
+
     #[tokio::test]
     async fn test_all_masters_ready_does_not_overshoot() {
         // 2 masters connected, 1 expected. The predicate should
@@ -4977,6 +5133,233 @@ mod tests {
             switch.all_masters_ready().await,
             true,
             "all_masters_ready uses >= not == against expected_master_count"
+        );
+    }
+
+    // ============================================================
+    // Wire-format tests for `CartridgeAttachmentErrorKind`
+    // ============================================================
+    //
+    // The kind enum crosses three boundaries:
+    //   * RelayNotify JSON over the relay socket (Swift host → engine)
+    //   * gRPC enum in cartridge.proto (engine → Mac app)
+    //   * NSXPC reply dictionaries (XPC service → Mac app)
+    //
+    // Every variant's serde rename MUST match its proto snake_case
+    // name byte-for-byte. The proto mapping in
+    // `machfab/src/grpc/service/cartridge_grpc_service.rs` is
+    // exhaustive (no wildcard arm), so a missing variant there
+    // would fail to compile — but the JSON wire format is strings
+    // and silently accepts new variants. These tests are the only
+    // thing that catches a rename / typo on the JSON side before
+    // it hits a relay-disconnect-with-bad-payload bug in the wild.
+
+    /// TEST1720: Every variant serializes to the snake_case
+    /// string the proto and the Swift / Go / Python ports use.
+    /// Adding a new variant requires an entry here AND a matching
+    /// CARTRIDGE_ATTACHMENT_ERROR_FOO entry in cartridge.proto;
+    /// the test fails with a clear "expected X for Y" message
+    /// when the two sides drift.
+    #[test]
+    fn test1720_kind_serde_renames_match_proto_snake_case() {
+        use super::CartridgeAttachmentErrorKind;
+        let cases = [
+            (CartridgeAttachmentErrorKind::Incompatible,         "incompatible"),
+            (CartridgeAttachmentErrorKind::ManifestInvalid,      "manifest_invalid"),
+            (CartridgeAttachmentErrorKind::HandshakeFailed,      "handshake_failed"),
+            (CartridgeAttachmentErrorKind::IdentityRejected,     "identity_rejected"),
+            (CartridgeAttachmentErrorKind::EntryPointMissing,    "entry_point_missing"),
+            (CartridgeAttachmentErrorKind::Quarantined,          "quarantined"),
+            (CartridgeAttachmentErrorKind::BadInstallation,      "bad_installation"),
+            (CartridgeAttachmentErrorKind::Disabled,             "disabled"),
+            (CartridgeAttachmentErrorKind::RegistryUnreachable,  "registry_unreachable"),
+        ];
+        for (variant, expected) in cases {
+            let json = serde_json::to_string(&variant)
+                .expect("variant must serialize");
+            // serde_json emits scalar enums as JSON strings:
+            // surrounded by quotes. Strip them for the byte
+            // comparison so the test message reads naturally.
+            let trimmed = json.trim_matches('"');
+            assert_eq!(
+                trimmed, expected,
+                "variant {:?} must serialize as '{}' to match cartridge.proto's CartridgeAttachmentErrorKind (got '{}')",
+                variant, expected, trimmed
+            );
+        }
+    }
+
+    /// TEST1721: Wire-format JSON deserializes into the right
+    /// variant. This is the engine-receives-from-XPC path: the
+    /// machfab-mac side emits `{"kind":"bad_installation",...}`
+    /// and the engine must resolve it to `BadInstallation`.
+    /// Asserts every variant explicitly so a single-variant typo
+    /// in the rename map can't hide behind a passing healthy-case.
+    #[test]
+    fn test1721_kind_decodes_wire_format_into_expected_variants() {
+        use super::CartridgeAttachmentErrorKind;
+        let cases: [(&str, CartridgeAttachmentErrorKind); 9] = [
+            ("incompatible",         CartridgeAttachmentErrorKind::Incompatible),
+            ("manifest_invalid",     CartridgeAttachmentErrorKind::ManifestInvalid),
+            ("handshake_failed",     CartridgeAttachmentErrorKind::HandshakeFailed),
+            ("identity_rejected",    CartridgeAttachmentErrorKind::IdentityRejected),
+            ("entry_point_missing",  CartridgeAttachmentErrorKind::EntryPointMissing),
+            ("quarantined",          CartridgeAttachmentErrorKind::Quarantined),
+            ("bad_installation",     CartridgeAttachmentErrorKind::BadInstallation),
+            ("disabled",             CartridgeAttachmentErrorKind::Disabled),
+            ("registry_unreachable", CartridgeAttachmentErrorKind::RegistryUnreachable),
+        ];
+        for (raw, expected_variant) in cases {
+            let json = format!("\"{}\"", raw);
+            let decoded: CartridgeAttachmentErrorKind = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("wire kind '{}' must decode: {}", raw, e));
+            assert_eq!(
+                decoded, expected_variant,
+                "wire kind '{}' must decode to {:?}",
+                raw, expected_variant
+            );
+        }
+    }
+
+    /// TEST1730: Every `CartridgeLifecycle` variant serializes to
+    /// its proto snake_case name byte-for-byte. Adding a variant
+    /// requires an entry here AND a `CARTRIDGE_LIFECYCLE_FOO`
+    /// constant in `cartridge.proto`. Cross-language drift on this
+    /// enum makes lifecycle states silently invisible to one side
+    /// of the wire.
+    #[test]
+    fn test1730_lifecycle_serde_renames_match_proto_snake_case() {
+        use super::CartridgeLifecycle;
+        let cases = [
+            (CartridgeLifecycle::Discovered,  "discovered"),
+            (CartridgeLifecycle::Inspecting,  "inspecting"),
+            (CartridgeLifecycle::Verifying,   "verifying"),
+            (CartridgeLifecycle::Operational, "operational"),
+        ];
+        for (variant, expected) in cases {
+            let json = serde_json::to_string(&variant).expect("serialize");
+            let trimmed = json.trim_matches('"');
+            assert_eq!(
+                trimmed, expected,
+                "lifecycle variant {:?} must serialize as '{}' (got '{}')",
+                variant, expected, trimmed
+            );
+        }
+    }
+
+    /// TEST1731: `CartridgeLifecycle` defaults to `Discovered`
+    /// (the safe sentinel) — never `Operational`. Pins the
+    /// safe-default rule the doc explicitly calls out: a
+    /// freshly-constructed record without an explicit lifecycle
+    /// MUST NOT silently expose an un-inspected cartridge for
+    /// dispatch.
+    #[test]
+    fn test1731_lifecycle_default_is_discovered() {
+        use super::CartridgeLifecycle;
+        assert_eq!(
+            CartridgeLifecycle::default(),
+            CartridgeLifecycle::Discovered,
+            "CartridgeLifecycle::default() must be Discovered (safe sentinel), not Operational"
+        );
+    }
+
+    /// TEST1732: An `InstalledCartridgeRecord` deserialized from a
+    /// JSON payload that omits the `lifecycle` field defaults to
+    /// `Discovered` — never `Operational`. The wire-shape contract
+    /// covered by the safe-default rule.
+    #[test]
+    fn test1732_installed_cartridge_record_lifecycle_defaults_when_missing() {
+        use super::CartridgeLifecycle;
+        use crate::bifaci::cartridge_repo::CartridgeChannel;
+        let json = r#"{
+            "registry_url": null,
+            "id": "test",
+            "channel": "release",
+            "version": "0.0.1",
+            "sha256": "deadbeef"
+        }"#;
+        let record: super::InstalledCartridgeRecord =
+            serde_json::from_str(json).expect("decode");
+        assert_eq!(
+            record.lifecycle,
+            CartridgeLifecycle::Discovered,
+            "InstalledCartridgeRecord without `lifecycle` field must default to Discovered, not Operational"
+        );
+        // Also assert other fields landed correctly so the test
+        // exposes a regression that drops more than just lifecycle.
+        assert_eq!(record.id, "test");
+        assert_eq!(record.channel, CartridgeChannel::Release);
+    }
+
+    /// TEST1733: `validate_registry_url_scheme` accepts https
+    /// unconditionally, rejects non-https in production builds,
+    /// and accepts non-https in dev mode. Pins the deepest layer
+    /// of the HTTPS rule.
+    #[test]
+    fn test1733_registry_url_scheme_validator() {
+        use super::super::cartridge_json::{
+            validate_registry_url_scheme, RegistryUrlSchemeResult,
+        };
+        // https always OK.
+        assert_eq!(
+            validate_registry_url_scheme("https://example.com/manifest", false),
+            RegistryUrlSchemeResult::Ok
+        );
+        assert_eq!(
+            validate_registry_url_scheme("https://example.com/manifest", true),
+            RegistryUrlSchemeResult::Ok
+        );
+        // http rejected in production, accepted in dev.
+        assert_eq!(
+            validate_registry_url_scheme("http://localhost:8080/manifest", false),
+            RegistryUrlSchemeResult::NonHttps {
+                scheme: "http".to_string()
+            }
+        );
+        assert_eq!(
+            validate_registry_url_scheme("http://localhost:8080/manifest", true),
+            RegistryUrlSchemeResult::Ok
+        );
+        // Malformed URL is always NotAUrl, regardless of mode.
+        assert_eq!(
+            validate_registry_url_scheme("not a url", false),
+            RegistryUrlSchemeResult::NotAUrl("not a url".to_string())
+        );
+        assert_eq!(
+            validate_registry_url_scheme("not a url", true),
+            RegistryUrlSchemeResult::NotAUrl("not a url".to_string())
+        );
+        // Empty rest after `://` is also NotAUrl.
+        assert_eq!(
+            validate_registry_url_scheme("https://", false),
+            RegistryUrlSchemeResult::NotAUrl("https://".to_string())
+        );
+        // Case-insensitive on the scheme — `HTTPS` is still
+        // https. RFC 3986 says schemes are case-insensitive.
+        assert_eq!(
+            validate_registry_url_scheme("HTTPS://example.com", false),
+            RegistryUrlSchemeResult::Ok
+        );
+    }
+
+    /// TEST1722: An unknown wire kind FAILS to decode rather than
+    /// silently coercing to a default variant. Older capdag binaries
+    /// that don't know `bad_installation` or `disabled` will see
+    /// those strings on the wire from a newer Swift side; rejecting
+    /// the unknown variant is the correct behaviour because silently
+    /// coercing it would hide the version-skew bug. The engine's
+    /// per-master JSON parse failure path is what surfaces this to
+    /// the operator (the master's manifest fails to parse and the
+    /// master is held unhealthy until the version is patched).
+    #[test]
+    fn test1722_unknown_kind_fails_to_decode() {
+        use super::CartridgeAttachmentErrorKind;
+        let json = "\"completely_made_up_kind\"";
+        let result: Result<CartridgeAttachmentErrorKind, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "unknown wire kind must error rather than silently coerce; got: {:?}",
+            result
         );
     }
 }

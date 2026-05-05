@@ -804,7 +804,7 @@ impl CartridgeManager {
                     .expect("system clock before epoch");
                 format!("{}Z", now.as_secs())
             },
-            installed_from: crate::CartridgeInstallSource::Registry,
+            installed_from: Some(crate::CartridgeInstallSource::Registry),
             source_url: download_url.to_string(),
             package_sha256: package.sha256.clone(),
             package_size: package.size,

@@ -28,8 +28,8 @@
 use crate::bifaci::frame::{FlowKey, Frame, FrameType, Limits, MessageId, SeqAssigner};
 use crate::bifaci::io::{handshake, verify_identity, CborError, FrameReader, FrameWriter};
 use crate::bifaci::relay_switch::{
-    CartridgeAttachmentError, CartridgeAttachmentErrorKind, CartridgeRuntimeStats,
-    InstalledCartridgeIdentity, RelayNotifyCapabilitiesPayload,
+    CartridgeAttachmentError, CartridgeAttachmentErrorKind, CartridgeLifecycle,
+    CartridgeRuntimeStats, InstalledCartridgeRecord, RelayNotifyCapabilitiesPayload,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -324,7 +324,7 @@ struct ManagedCartridge {
     /// `known_caps` field that could drift.
     cap_groups: Vec<crate::bifaci::manifest::CapGroup>,
     /// Installed cartridge identity derived from the registered binary path.
-    installed_identity: Option<InstalledCartridgeIdentity>,
+    installed_identity: Option<InstalledCartridgeRecord>,
     /// Whether the cartridge is currently running and healthy.
     running: bool,
     /// Reader task handle.
@@ -373,7 +373,7 @@ impl ManagedCartridge {
         cap_groups: Vec<crate::bifaci::manifest::CapGroup>,
     ) -> Self {
         let installed_identity =
-            installed_cartridge_identity_from_binary(&path, channel, registry_url);
+            installed_cartridge_record_from_binary(&path, channel, registry_url);
         Self {
             path,
             cartridge_dir: None,
@@ -423,7 +423,7 @@ impl ManagedCartridge {
         let (installed_identity, hello_failed) =
             match crate::bifaci::cartridge_json::hash_cartridge_directory(&cartridge_dir) {
                 Ok(sha256) => (
-                    Some(InstalledCartridgeIdentity {
+                    Some(InstalledCartridgeRecord {
                         registry_url: registry_url.clone(),
                         id,
                         channel,
@@ -432,6 +432,21 @@ impl ManagedCartridge {
                         cap_groups: Vec::new(),
                         attachment_error: None,
                         runtime_stats: None,
+                        // Engine-bundled / engine-spawned external
+                        // providers are operational by construction:
+                        // the engine walked its own `providers/`
+                        // tree, validated the install context, and
+                        // probed the cartridge synchronously before
+                        // calling this constructor. There is no
+                        // separate "still inspecting / verifying"
+                        // phase to model on this path — the work
+                        // already happened. The XPC-cartridge path
+                        // (machfab-mac) is the one that transitions
+                        // through `Discovered` → `Inspecting` →
+                        // `Verifying` → `Operational` because its
+                        // hashing + verifier round-trips are
+                        // user-visible.
+                        lifecycle: CartridgeLifecycle::Operational,
                     }),
                     false,
                 ),
@@ -455,7 +470,7 @@ impl ManagedCartridge {
                         "Cartridge directory not hashable — recording attachment failure"
                     );
                     (
-                        Some(InstalledCartridgeIdentity {
+                        Some(InstalledCartridgeRecord {
                             registry_url: registry_url.clone(),
                             id,
                             channel,
@@ -464,6 +479,12 @@ impl ManagedCartridge {
                             cap_groups: Vec::new(),
                             attachment_error: Some(err),
                             runtime_stats: None,
+                            // attachment_error is Some, so
+                            // lifecycle is irrelevant per the
+                            // mutual-exclusivity contract; default
+                            // to Discovered (the safe sentinel)
+                            // rather than asserting Operational.
+                            lifecycle: CartridgeLifecycle::Discovered,
                         }),
                         true,
                     )
@@ -522,7 +543,7 @@ impl ManagedCartridge {
         }
     }
 
-    fn installed_cartridge_identity(&self) -> Option<InstalledCartridgeIdentity> {
+    fn installed_cartridge_record(&self) -> Option<InstalledCartridgeRecord> {
         self.installed_identity.clone()
     }
 
@@ -576,7 +597,7 @@ impl ManagedCartridge {
             None => {
                 // Reaching this branch means a HELLO failed against a
                 // cartridge whose registration path didn't supply an
-                // `InstalledCartridgeIdentity`. In production both
+                // `InstalledCartridgeRecord`. In production both
                 // `new_registered_binary` and `new_registered_dir`
                 // synthesize an identity at construction time, so the
                 // only legitimate path here is an ad-hoc test attach
@@ -587,7 +608,7 @@ impl ManagedCartridge {
                 // wire boundary.
                 panic!(
                     "BUG: record_attachment_error fired on a cartridge without an \
-                     InstalledCartridgeIdentity (path '{}'). Channels are part of \
+                     InstalledCartridgeRecord (path '{}'). Channels are part of \
                      identity; we never synthesize one without channel info.",
                     self.path.display()
                 );
@@ -618,18 +639,18 @@ fn parse_installed_cartridge_name(name: &str) -> Option<(String, String)> {
 /// "unmanaged binary inside a cartridge dir" diagnostic; the
 /// production directory-cartridge path goes through
 /// `new_registered_dir`.
-fn installed_cartridge_identity_from_binary(
+fn installed_cartridge_record_from_binary(
     path: &Path,
     channel: crate::bifaci::cartridge_repo::CartridgeChannel,
     registry_url: Option<String>,
-) -> Option<InstalledCartridgeIdentity> {
+) -> Option<InstalledCartridgeRecord> {
     let name = path.file_stem()?.to_str()?;
     let (id, version) = parse_installed_cartridge_name(name)?;
     let bytes = std::fs::read(path).ok()?;
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     let sha256 = format!("{:x}", hasher.finalize());
-    Some(InstalledCartridgeIdentity {
+    Some(InstalledCartridgeRecord {
         registry_url,
         id,
         channel,
@@ -638,6 +659,11 @@ fn installed_cartridge_identity_from_binary(
         cap_groups: Vec::new(),
         attachment_error: None,
         runtime_stats: None,
+        // Unmanaged-binary probe path: caller is constructing a
+        // record for diagnostic surface, not for dispatch. Start at
+        // Discovered (the safe sentinel) — promotion to
+        // Operational only happens via a successful host attach.
+        lifecycle: CartridgeLifecycle::Discovered,
     })
 }
 
@@ -983,7 +1009,7 @@ impl CartridgeHostRuntime {
     /// Identity is computed from the directory tree hash. `channel`
     /// and `registry_url` must come from `cartridge.json` (the host
     /// has already validated the three-place rule before calling
-    /// this); they propagate through `InstalledCartridgeIdentity` to
+    /// this); they propagate through `InstalledCartridgeRecord` to
     /// the engine's RelayNotify so consumers preserve the
     /// `(registry, channel)` provenance end-to-end.
     pub fn register_cartridge_dir(
@@ -2492,7 +2518,7 @@ impl CartridgeHostRuntime {
     /// injecting live runtime stats derived from the routing tables and
     /// cartridge process state. One source of truth — the engine sees what
     /// the host sees with no time skew beyond the send itself.
-    fn build_installed_cartridge_identities(&self) -> Vec<InstalledCartridgeIdentity> {
+    fn build_installed_cartridge_identities(&self) -> Vec<InstalledCartridgeRecord> {
         // Count active incoming requests per cartridge index.
         let mut active_counts: HashMap<usize, u64> = HashMap::new();
         for &idx in self.incoming_rxids.values() {
@@ -2508,7 +2534,7 @@ impl CartridgeHostRuntime {
             .iter()
             .enumerate()
             .filter_map(|(idx, cartridge)| {
-                let base = cartridge.installed_cartridge_identity()?;
+                let base = cartridge.installed_cartridge_record()?;
                 let pid = cartridge.process.as_ref().and_then(|c| c.id());
                 let stats = CartridgeRuntimeStats {
                     running: cartridge.running,
@@ -2520,7 +2546,7 @@ impl CartridgeHostRuntime {
                     last_heartbeat_unix_seconds: cartridge.last_heartbeat_unix_seconds,
                     restart_count: cartridge.restart_count,
                 };
-                Some(InstalledCartridgeIdentity {
+                Some(InstalledCartridgeRecord {
                     runtime_stats: Some(stats),
                     cap_groups: cartridge.cap_groups.clone(),
                     ..base

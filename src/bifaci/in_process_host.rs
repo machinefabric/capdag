@@ -26,7 +26,7 @@ use crate::bifaci::cartridge_runtime::{
 };
 use crate::bifaci::frame::{FlowKey, Frame, FrameType, Limits, MessageId, SeqAssigner};
 use crate::bifaci::io::{CborError, FrameReader, FrameWriter};
-use crate::bifaci::relay_switch::{InstalledCartridgeIdentity, RelayNotifyCapabilitiesPayload};
+use crate::bifaci::relay_switch::{InstalledCartridgeRecord, RelayNotifyCapabilitiesPayload};
 use crate::cap::caller::CapArgumentValue;
 use crate::cap::definition::Cap;
 use crate::standard::caps::CAP_IDENTITY;
@@ -576,14 +576,14 @@ impl InProcessCartridgeHost {
     /// The host has no on-disk cartridge directory, but the embedder
     /// supplies an `InProcessHostIdentity` that mirrors a real
     /// cartridge install's identity tuple. We assemble one
-    /// `InstalledCartridgeIdentity` from that and put every
+    /// `InstalledCartridgeRecord` from that and put every
     /// handler-contributed cap into its lone cap group. The wire
     /// format is symmetric with out-of-process hosts: the engine
     /// reads `cap_groups` from `installed_cartridges` and derives the
     /// flat cap list itself.
     fn build_manifest(&self) -> Vec<u8> {
         use crate::bifaci::manifest::CapGroup as ManifestCapGroup;
-        use crate::bifaci::relay_switch::InstalledCartridgeIdentity;
+        use crate::bifaci::relay_switch::InstalledCartridgeRecord;
 
         // Collect all handler caps; prepend CAP_IDENTITY exactly once.
         let mut caps: Vec<Cap> = vec![crate::standard::caps::identity_cap()];
@@ -595,7 +595,7 @@ impl InProcessCartridgeHost {
             }
         }
 
-        let cartridge = InstalledCartridgeIdentity {
+        let cartridge = InstalledCartridgeRecord {
             registry_url: self.identity.registry_url.clone(),
             channel: self.identity.channel,
             id: self.identity.id.clone(),
@@ -608,6 +608,11 @@ impl InProcessCartridgeHost {
             }],
             attachment_error: None,
             runtime_stats: None,
+            // In-process cartridges have no on-disk presence to
+            // inspect and no registry to verify against — the
+            // embedder constructed them directly. They are
+            // operational from the moment the host advertises them.
+            lifecycle: crate::bifaci::relay_switch::CartridgeLifecycle::Operational,
         };
 
         let payload = RelayNotifyCapabilitiesPayload::new(vec![cartridge]);
