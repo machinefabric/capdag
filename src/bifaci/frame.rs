@@ -3019,7 +3019,7 @@ mod tests {
         );
         for i in 0..99 {
             large_manifest.push_str(&format!(
-                r#",{{"urn":"cap:in=\"media:void\";op=op{i};out=\"media:void\"","title":"Op{i}","command":"op{i}"}}"#,
+                r#",{{"urn":"cap:in=\"media:void\";op{i};out=\"media:void\"","title":"Op{i}","command":"op{i}"}}"#,
             ));
         }
         large_manifest.push_str("]}]}");

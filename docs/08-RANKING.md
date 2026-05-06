@@ -124,7 +124,7 @@ Request: cap:in=media:pdf;extract;out=media:object
 Valid providers:
   A: cap:in=media:pdf;extract;out=media:object     spec=3, dist=0
   B: cap:in=media:pdf;extract;out=media:object;v=2 spec=4, dist=+1
-  C: cap:op=extract                                    spec=1, dist=-2
+  C: cap:extract;in=media:;out=media:                                    spec=1, dist=-2
 
 Ranking: A (dist=0) ≺ B (dist=+1) ≺ C (dist=-2)
 Selected: A
@@ -133,13 +133,13 @@ Selected: A
 ### 6.2 Refinement When No Exact Match
 
 ```
-Request: cap:op=convert
+Request: cap:convert;in=media:;out=media:
          spec = 1
 
 Valid providers:
   A: cap:in=media:pdf;convert;out=media:html   spec=3, dist=+2
   B: cap:in=media:image;convert;out=media:png  spec=3, dist=+2
-  C: cap:op=convert                                spec=1, dist=0
+  C: cap:convert;in=media:;out=media:                                spec=1, dist=0
 
 Ranking: C (dist=0) ≺ {A, B} (dist=+2, tie)
 Selected: C
@@ -157,7 +157,7 @@ Request: cap:in=media:pdf;v=2.0;extract;out=media:object;format=json
 
 Valid providers:
   A: cap:in=media:pdf;extract;out=media:object  spec=3, dist=-2
-  B: cap:op=extract                                 spec=1, dist=-4
+  B: cap:extract;in=media:;out=media:                                 spec=1, dist=-4
 
 Ranking: A (dist=-2) ≺ B (dist=-4)
 Selected: A (closer to request despite being less specific)

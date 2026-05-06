@@ -205,7 +205,7 @@ For dispatch validity with wildcards:
 ### 6.1 Generic Request, Specific Provider
 
 ```
-Request:  cap:op=download-model
+Request:  cap:download-model;in=media:;out=media:
 Provider: cap:in="media:model-spec";download-model;out="media:download-result"
 
 Input:  i_r=media: (⊤), i_p=media:model-spec

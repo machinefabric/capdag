@@ -21,8 +21,8 @@ use crate::urn::media_urn::{MediaUrn, MediaUrnError, MEDIA_OBJECT, MEDIA_VOID};
 /// fields specify the input and output media URNs respectively.
 ///
 /// Examples:
-/// - `cap:in="media:binary";op=generate;out="media:binary";target=thumbnail`
-/// - `cap:in="media:void";op=dimensions;out="media:integer"`
+/// - `cap:in="media:binary";generate;out="media:binary";target=thumbnail`
+/// - `cap:dimensions;in=media:void;out=media:integer`
 /// - `cap:in="media:string";out="media:object";key="Value With Spaces"`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CapUrn {
@@ -1027,8 +1027,8 @@ mod tests {
     // TEST001: Test that cap URN is created with tags parsed correctly and direction specs accessible
     #[test]
     fn test001_cap_urn_creation() {
-        let cap = CapUrn::from_string(&test_urn("op=generate;ext=pdf;target=thumbnail")).unwrap();
-        assert_eq!(cap.get_tag("op"), Some(&"generate".to_string()));
+        let cap = CapUrn::from_string(&test_urn("generate;ext=pdf;target=thumbnail")).unwrap();
+        assert!(cap.has_marker_tag("generate"));
         assert_eq!(cap.get_tag("target"), Some(&"thumbnail".to_string()));
         assert_eq!(cap.get_tag("ext"), Some(&"pdf".to_string()));
         // Direction specs are required and accessible
@@ -1040,20 +1040,20 @@ mod tests {
     #[test]
     fn test002_direction_specs_default_to_wildcard() {
         // Missing 'in' defaults to media:
-        let cap = CapUrn::from_string(&format!("cap:out=\"{}\";op=test", MEDIA_OBJECT))
+        let cap = CapUrn::from_string(&format!("cap:out=\"{}\";test", MEDIA_OBJECT))
             .expect("Missing in should default to media:");
         assert_eq!(cap.in_spec(), "media:");
         assert_eq!(cap.out_spec(), MEDIA_OBJECT);
 
         // Missing 'out' defaults to media:
-        let cap = CapUrn::from_string(&format!("cap:in=\"{}\";op=test", MEDIA_VOID))
+        let cap = CapUrn::from_string(&format!("cap:in=\"{}\";test", MEDIA_VOID))
             .expect("Missing out should default to media:");
         assert_eq!(cap.in_spec(), MEDIA_VOID);
         assert_eq!(cap.out_spec(), "media:");
 
         // Both present should succeed
         let cap = CapUrn::from_string(&format!(
-            "cap:in=\"{}\";out=\"{}\";op=test",
+            "cap:in=\"{}\";out=\"{}\";test",
             MEDIA_VOID, MEDIA_OBJECT
         ))
         .expect("Both specs present should succeed");
@@ -1071,12 +1071,12 @@ mod tests {
 
         // Direction specs must match for caps to match
         let cap1 = CapUrn::from_string(&format!(
-            "cap:in=\"{}\";op=test;out=\"{}\"",
+            "cap:in=\"{}\";test;out=\"{}\"",
             in_str, out_obj
         ))
         .unwrap();
         let cap2 = CapUrn::from_string(&format!(
-            "cap:in=\"{}\";op=test;out=\"{}\"",
+            "cap:in=\"{}\";test;out=\"{}\"",
             in_str, out_obj
         ))
         .unwrap();
@@ -1084,7 +1084,7 @@ mod tests {
 
         // Different in_urn should not match
         let cap3 = CapUrn::from_string(&format!(
-            "cap:in=\"{}\";op=test;out=\"{}\"",
+            "cap:in=\"{}\";test;out=\"{}\"",
             in_bin, out_obj
         ))
         .unwrap();
@@ -1092,14 +1092,14 @@ mod tests {
 
         // Different out_urn should not match
         let cap4 = CapUrn::from_string(&format!(
-            "cap:in=\"{}\";op=test;out=\"{}\"",
+            "cap:in=\"{}\";test;out=\"{}\"",
             in_str, out_int
         ))
         .unwrap();
         assert!(!cap1.accepts(&cap4));
 
         // Wildcard in=* direction: cap5 has media: for in, specific for out
-        let cap5 = CapUrn::from_string(&format!("cap:in=*;op=test;out=\"{}\"", out_obj)).unwrap();
+        let cap5 = CapUrn::from_string(&format!("cap:in=*;test;out=\"{}\"", out_obj)).unwrap();
         // cap1 (specific in) as pattern rejects cap5 (bare media: in) — specific pattern doesn't accept broad instance
         assert!(!cap1.accepts(&cap5));
         // cap5 (wildcard in) as pattern accepts cap1 (specific in) — wildcard pattern accepts anything
@@ -1113,7 +1113,7 @@ mod tests {
         let cap = CapUrn::from_string(&test_urn("OP=Generate;EXT=PDF;Target=Thumbnail")).unwrap();
 
         // Keys are always lowercase
-        assert_eq!(cap.get_tag("op"), Some(&"generate".to_string()));
+        assert!(cap.has_marker_tag("generate"));
         assert_eq!(cap.get_tag("ext"), Some(&"pdf".to_string()));
         assert_eq!(cap.get_tag("target"), Some(&"thumbnail".to_string()));
 
@@ -1122,7 +1122,7 @@ mod tests {
         assert_eq!(cap.get_tag("Op"), Some(&"generate".to_string()));
 
         // Both URNs parse to same lowercase values (same tags, same values)
-        let cap2 = CapUrn::from_string(&test_urn("op=generate;ext=pdf;target=thumbnail")).unwrap();
+        let cap2 = CapUrn::from_string(&test_urn("generate;ext=pdf;target=thumbnail")).unwrap();
         assert_eq!(cap.to_string(), cap2.to_string());
         assert_eq!(cap, cap2);
     }
@@ -1257,7 +1257,7 @@ mod tests {
     // TEST012: Test that simple cap URN round-trips (parse -> serialize -> parse equals original)
     #[test]
     fn test012_round_trip_simple() {
-        let original = test_urn("op=generate;ext=pdf");
+        let original = test_urn("generate;ext=pdf");
         let cap = CapUrn::from_string(&original).unwrap();
         let serialized = cap.to_string();
         let reparsed = CapUrn::from_string(&serialized).unwrap();
@@ -1297,30 +1297,30 @@ mod tests {
     fn test015_cap_prefix_required() {
         // Missing cap: prefix should fail
         assert!(CapUrn::from_string(&format!(
-            "in=\"{}\";out=\"{}\";op=generate",
+            "in=\"{}\";out=\"{}\";generate",
             MEDIA_VOID, MEDIA_OBJECT
         ))
         .is_err());
 
         // Valid cap: prefix should work
-        let cap = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
-        assert_eq!(cap.get_tag("op"), Some(&"generate".to_string()));
+        let cap = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
+        assert!(cap.has_marker_tag("generate"));
 
         // Case-insensitive prefix
         let cap2 = CapUrn::from_string(&format!(
-            "CAP:in=\"{}\";out=\"{}\";op=generate",
+            "CAP:in=\"{}\";out=\"{}\";generate",
             MEDIA_VOID, MEDIA_OBJECT
         ))
         .unwrap();
-        assert_eq!(cap2.get_tag("op"), Some(&"generate".to_string()));
+        assert!(cap2.has_marker_tag("generate"));
     }
 
     // TEST016: Test that trailing semicolon is equivalent (same hash, same string, matches)
     #[test]
     fn test016_trailing_semicolon_equivalence() {
         // Both with and without trailing semicolon should be equivalent
-        let cap1 = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
-        let cap2 = CapUrn::from_string(&format!("{};", test_urn("op=generate;ext=pdf"))).unwrap();
+        let cap1 = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
+        let cap2 = CapUrn::from_string(&format!("{};", test_urn("generate;ext=pdf"))).unwrap();
 
         // They should be equal
         assert_eq!(cap1, cap2);
@@ -1350,16 +1350,16 @@ mod tests {
     // TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch
     #[test]
     fn test017_tag_matching() {
-        let cap = CapUrn::from_string(&test_urn("op=generate;ext=pdf;target=thumbnail")).unwrap();
+        let cap = CapUrn::from_string(&test_urn("generate;ext=pdf;target=thumbnail")).unwrap();
 
         // Exact match — both directions accept
         let request1 =
-            CapUrn::from_string(&test_urn("op=generate;ext=pdf;target=thumbnail")).unwrap();
+            CapUrn::from_string(&test_urn("generate;ext=pdf;target=thumbnail")).unwrap();
         assert!(cap.accepts(&request1));
         assert!(request1.accepts(&cap));
 
-        // Routing direction: request(op=generate) accepts cap(op,ext,target) — request only needs op
-        let request2 = CapUrn::from_string(&test_urn("op=generate")).unwrap();
+        // Routing direction: request(generate) accepts cap(op,ext,target) — request only needs op
+        let request2 = CapUrn::from_string(&test_urn("generate")).unwrap();
         assert!(request2.accepts(&cap));
         // Reverse: cap(op,ext,target) as pattern rejects request missing ext,target
         assert!(!cap.accepts(&request2));
@@ -1369,7 +1369,7 @@ mod tests {
         assert!(request3.accepts(&cap));
 
         // Conflicting value — neither direction accepts
-        let request4 = CapUrn::from_string(&test_urn("op=extract")).unwrap();
+        let request4 = CapUrn::from_string(&test_urn("extract")).unwrap();
         assert!(!cap.accepts(&request4));
         assert!(!request4.accepts(&cap));
     }
@@ -1391,7 +1391,7 @@ mod tests {
     // TEST019: Missing tag in instance causes rejection — pattern's tags are constraints
     #[test]
     fn test019_missing_tag_handling() {
-        let cap = CapUrn::from_string(&test_urn("op=generate")).unwrap();
+        let cap = CapUrn::from_string(&test_urn("generate")).unwrap();
         let request1 = CapUrn::from_string(&test_urn("ext=pdf")).unwrap();
 
         // cap(op) as pattern: instance(ext) missing op → reject
@@ -1400,8 +1400,8 @@ mod tests {
         assert!(!request1.accepts(&cap));
 
         // Routing: request(op) accepts cap(op,ext) — instance has op → match
-        let cap2 = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
-        let request2 = CapUrn::from_string(&test_urn("op=generate")).unwrap();
+        let cap2 = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
+        let request2 = CapUrn::from_string(&test_urn("generate")).unwrap();
         assert!(request2.accepts(&cap2));
         // Reverse: cap(op,ext) as pattern rejects request missing ext
         assert!(!cap2.accepts(&request2));
@@ -1414,8 +1414,8 @@ mod tests {
         // MEDIA_VOID = "media:void" -> 1 tag (void)
         // MEDIA_OBJECT = "media:record" -> 1 tag (record)
         let cap1 = CapUrn::from_string(&test_urn("type=general")).unwrap();
-        let cap2 = CapUrn::from_string(&test_urn("op=generate")).unwrap();
-        let cap3 = CapUrn::from_string(&test_urn("op=*;ext=pdf")).unwrap();
+        let cap2 = CapUrn::from_string(&test_urn("generate")).unwrap();
+        let cap3 = CapUrn::from_string(&test_urn("op;ext=pdf")).unwrap();
 
         assert_eq!(cap1.specificity(), 3); // void(1) + record(1) + type(1)
         assert_eq!(cap2.specificity(), 3); // void(1) + record(1) + op(1)
@@ -1423,7 +1423,7 @@ mod tests {
 
         // Wildcard in direction doesn't count
         let cap4 =
-            CapUrn::from_string(&format!("cap:in=*;out=\"{}\";op=test", MEDIA_OBJECT)).unwrap();
+            CapUrn::from_string(&format!("cap:in=*;out=\"{}\";test", MEDIA_OBJECT)).unwrap();
         assert_eq!(cap4.specificity(), 2); // record(1) + op(1) (in wildcard doesn't count)
     }
 
@@ -1439,7 +1439,7 @@ mod tests {
             .build()
             .unwrap();
 
-        assert_eq!(cap.get_tag("op"), Some(&"generate".to_string()));
+        assert!(cap.has_marker_tag("generate"));
         assert_eq!(cap.in_spec(), MEDIA_VOID);
         assert_eq!(cap.out_spec(), MEDIA_OBJECT);
     }
@@ -1486,9 +1486,9 @@ mod tests {
     // TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy
     #[test]
     fn test024_directional_accepts() {
-        let cap1 = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
-        let cap2 = CapUrn::from_string(&test_urn("op=generate;format=*")).unwrap();
-        let cap3 = CapUrn::from_string(&test_urn("type=image;op=extract")).unwrap();
+        let cap1 = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
+        let cap2 = CapUrn::from_string(&test_urn("generate;format=*")).unwrap();
+        let cap3 = CapUrn::from_string(&test_urn("type=image;extract")).unwrap();
 
         // cap1(op,ext) as pattern: cap2 missing ext → reject
         assert!(!cap1.accepts(&cap2));
@@ -1499,14 +1499,14 @@ mod tests {
         assert!(!cap3.accepts(&cap1));
 
         // Routing: general request(op) accepts specific cap(op,ext) — instance has op
-        let cap4 = CapUrn::from_string(&test_urn("op=generate")).unwrap();
+        let cap4 = CapUrn::from_string(&test_urn("generate")).unwrap();
         assert!(cap4.accepts(&cap1)); // cap4 only requires op, cap1 has it
                                       // Reverse: specific cap(op,ext) rejects general request missing ext
         assert!(!cap1.accepts(&cap4));
 
         // Different direction specs: neither accepts the other
         let cap5 = CapUrn::from_string(&format!(
-            "cap:in=\"media:pdf\";out=\"{}\";op=generate",
+            "cap:in=\"media:pdf\";out=\"{}\";generate",
             MEDIA_OBJECT
         ))
         .unwrap();
@@ -1518,12 +1518,12 @@ mod tests {
     #[test]
     fn test025_best_match() {
         let caps = vec![
-            CapUrn::from_string(&test_urn("op=*")).unwrap(),
-            CapUrn::from_string(&test_urn("op=generate")).unwrap(),
-            CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap(),
+            CapUrn::from_string(&test_urn("op")).unwrap(),
+            CapUrn::from_string(&test_urn("generate")).unwrap(),
+            CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap(),
         ];
 
-        let request = CapUrn::from_string(&test_urn("op=generate")).unwrap();
+        let request = CapUrn::from_string(&test_urn("generate")).unwrap();
         let best = CapMatcher::find_best_match(&caps, &request).unwrap();
 
         // Most specific cap that accepts the request
@@ -1533,7 +1533,7 @@ mod tests {
     // TEST026: Test merge combines tags from both caps, subset keeps only specified tags
     #[test]
     fn test026_merge_and_subset() {
-        let cap1 = CapUrn::from_string(&test_urn("op=generate")).unwrap();
+        let cap1 = CapUrn::from_string(&test_urn("generate")).unwrap();
         let cap2 = CapUrn::from_string(&format!(
             "cap:in=media:;out=media:integer;ext=pdf;output=binary"
         ))
@@ -1544,7 +1544,7 @@ mod tests {
         assert_eq!(merged.in_spec(), "media:");
         assert_eq!(merged.out_spec(), "media:integer");
         // Has tags from both
-        assert_eq!(merged.get_tag("op"), Some(&"generate".to_string()));
+        assert!(merged.has_marker_tag("generate"));
         assert_eq!(merged.get_tag("ext"), Some(&"pdf".to_string()));
 
         let subset = merged.subset(&["type", "ext"]);
@@ -1719,7 +1719,7 @@ mod tests {
         let in_str = "media:string";
         let out_int = "media:integer";
         let cap = CapUrn::from_string(&format!(
-            "cap:in=\"{}\";op=test;out=\"{}\"",
+            "cap:in=\"{}\";test;out=\"{}\"",
             in_str, out_int
         ))
         .unwrap();
@@ -1727,7 +1727,7 @@ mod tests {
         // get_tag works for in/out
         assert_eq!(cap.get_tag("in"), Some(&in_str.to_string()));
         assert_eq!(cap.get_tag("out"), Some(&out_int.to_string()));
-        assert_eq!(cap.get_tag("op"), Some(&"test".to_string()));
+        assert!(cap.has_marker_tag("test"));
 
         // Case-insensitive lookup for in/out
         assert_eq!(cap.get_tag("IN"), Some(&in_str.to_string()));
@@ -1745,8 +1745,8 @@ mod tests {
     #[test]
     fn test040_matching_semantics_test1_exact_match() {
         // Test 1: Exact match
-        let cap = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
-        let request = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
+        let cap = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
+        let request = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
         assert!(cap.accepts(&request), "Test 1: Exact match should succeed");
     }
 
@@ -1754,8 +1754,8 @@ mod tests {
     #[test]
     fn test041_matching_semantics_test2_cap_missing_tag() {
         // Test 2: Cap missing tag (implicit wildcard for other tags, not direction)
-        let cap = CapUrn::from_string(&test_urn("op=generate")).unwrap();
-        let request = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
+        let cap = CapUrn::from_string(&test_urn("generate")).unwrap();
+        let request = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
         assert!(
             cap.accepts(&request),
             "Test 2: Cap missing tag should match (implicit wildcard)"
@@ -1765,8 +1765,8 @@ mod tests {
     // TEST042: Pattern rejects instance missing required tags
     #[test]
     fn test042_matching_semantics_test3_cap_has_extra_tag() {
-        let cap = CapUrn::from_string(&test_urn("op=generate;ext=pdf;version=2")).unwrap();
-        let request = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
+        let cap = CapUrn::from_string(&test_urn("generate;ext=pdf;version=2")).unwrap();
+        let request = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
         // cap(op,ext,version) as pattern rejects request missing version
         assert!(
             !cap.accepts(&request),
@@ -1783,8 +1783,8 @@ mod tests {
     #[test]
     fn test043_matching_semantics_test4_request_has_wildcard() {
         // Test 4: Request has wildcard
-        let cap = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
-        let request = CapUrn::from_string(&test_urn("op=generate;ext=*")).unwrap();
+        let cap = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
+        let request = CapUrn::from_string(&test_urn("generate;ext=*")).unwrap();
         assert!(
             cap.accepts(&request),
             "Test 4: Request wildcard should match"
@@ -1795,8 +1795,8 @@ mod tests {
     #[test]
     fn test044_matching_semantics_test5_cap_has_wildcard() {
         // Test 5: Cap has wildcard
-        let cap = CapUrn::from_string(&test_urn("op=generate;ext=*")).unwrap();
-        let request = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
+        let cap = CapUrn::from_string(&test_urn("generate;ext=*")).unwrap();
+        let request = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
         assert!(cap.accepts(&request), "Test 5: Cap wildcard should match");
     }
 
@@ -1804,8 +1804,8 @@ mod tests {
     #[test]
     fn test045_matching_semantics_test6_value_mismatch() {
         // Test 6: Value mismatch
-        let cap = CapUrn::from_string(&test_urn("op=generate;ext=pdf")).unwrap();
-        let request = CapUrn::from_string(&test_urn("op=generate;ext=docx")).unwrap();
+        let cap = CapUrn::from_string(&test_urn("generate;ext=pdf")).unwrap();
+        let request = CapUrn::from_string(&test_urn("generate;ext=docx")).unwrap();
         assert!(
             !cap.accepts(&request),
             "Test 6: Value mismatch should not match"
@@ -1818,12 +1818,12 @@ mod tests {
         // Test 7: Fallback pattern
         let in_bin = "media:binary";
         let cap = CapUrn::from_string(&format!(
-            "cap:in=\"{}\";op=generate_thumbnail;out=\"{}\"",
+            "cap:in=\"{}\";generate_thumbnail;out=\"{}\"",
             in_bin, in_bin
         ))
         .unwrap();
         let request = CapUrn::from_string(&format!(
-            "cap:ext=wav;in=\"{}\";op=generate_thumbnail;out=\"{}\"",
+            "cap:ext=wav;in=\"{}\";generate_thumbnail;out=\"{}\"",
             in_bin, in_bin
         ))
         .unwrap();
@@ -1839,12 +1839,12 @@ mod tests {
         // Test 7b: Thumbnail fallback with void input (real-world scenario)
         let out_bin = "media:binary";
         let cap = CapUrn::from_string(&format!(
-            "cap:in=\"{}\";op=generate_thumbnail;out=\"{}\"",
+            "cap:in=\"{}\";generate_thumbnail;out=\"{}\"",
             MEDIA_VOID, out_bin
         ))
         .unwrap();
         let request = CapUrn::from_string(&format!(
-            "cap:ext=wav;in=\"{}\";op=generate_thumbnail;out=\"{}\"",
+            "cap:ext=wav;in=\"{}\";generate_thumbnail;out=\"{}\"",
             MEDIA_VOID, out_bin
         ))
         .unwrap();
@@ -1860,7 +1860,7 @@ mod tests {
         // Test 8: Wildcard direction matches anything
         let cap = CapUrn::from_string("cap:in=*;out=*").unwrap();
         let request = CapUrn::from_string(&format!(
-            "cap:ext=pdf;in=media:string;op=generate;out=\"{}\"",
+            "cap:ext=pdf;in=media:string;generate;out=\"{}\"",
             MEDIA_OBJECT
         ))
         .unwrap();
@@ -1873,7 +1873,7 @@ mod tests {
     // TEST049: Non-overlapping tags — neither direction accepts
     #[test]
     fn test049_matching_semantics_test9_cross_dimension_independence() {
-        let cap = CapUrn::from_string(&test_urn("op=generate")).unwrap();
+        let cap = CapUrn::from_string(&test_urn("generate")).unwrap();
         let request = CapUrn::from_string(&test_urn("ext=pdf")).unwrap();
         // cap(op) rejects request missing op; request(ext) rejects cap missing ext
         assert!(
@@ -1893,12 +1893,12 @@ mod tests {
         // media:string has tags {textable:*, form:scalar}, media: has no tags (wildcard)
         // Neither can provide input for the other (completely different marker tags)
         let cap = CapUrn::from_string(&format!(
-            "cap:in=media:string;op=generate;out=\"{}\"",
+            "cap:in=media:string;generate;out=\"{}\"",
             MEDIA_OBJECT
         ))
         .unwrap();
         let request = CapUrn::from_string(&format!(
-            "cap:in=media:;op=generate;out=\"{}\"",
+            "cap:in=media:;generate;out=\"{}\"",
             MEDIA_OBJECT
         ))
         .unwrap();
@@ -1914,11 +1914,11 @@ mod tests {
         // A cap accepting media: (generic wildcard) should match a request with media:pdf (specific)
         // because media:pdf has the media: wildcard pattern (accepts everything)
         let generic_cap = CapUrn::from_string(
-            "cap:in=\"media:\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
         )
         .unwrap();
         let pdf_request = CapUrn::from_string(
-            "cap:in=\"media:pdf\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:pdf;out=\"media:image;png;thumbnail\"",
         )
         .unwrap();
         assert!(
@@ -1928,7 +1928,7 @@ mod tests {
 
         // Generic cap also matches epub (any media subtype)
         let epub_request = CapUrn::from_string(
-            "cap:in=\"media:epub\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:epub;out=\"media:image;png;thumbnail\"",
         )
         .unwrap();
         assert!(
@@ -1939,11 +1939,11 @@ mod tests {
         // Reverse: specific cap does NOT match generic request
         // A pdf-only handler cannot accept arbitrary bytes
         let pdf_cap = CapUrn::from_string(
-            "cap:in=\"media:pdf\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:pdf;out=\"media:image;png;thumbnail\"",
         )
         .unwrap();
         let generic_request = CapUrn::from_string(
-            "cap:in=\"media:\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
         )
         .unwrap();
         assert!(
@@ -1959,11 +1959,11 @@ mod tests {
 
         // Output direction: cap producing more specific output matches less specific request
         let specific_out_cap = CapUrn::from_string(
-            "cap:in=\"media:\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
         )
         .unwrap();
         let generic_out_request =
-            CapUrn::from_string("cap:in=\"media:\";op=generate_thumbnail;out=\"media:image\"")
+            CapUrn::from_string("cap:generate_thumbnail;in=media:;out=media:image")
                 .unwrap();
         assert!(
             specific_out_cap.accepts(&generic_out_request),
@@ -1972,10 +1972,10 @@ mod tests {
 
         // Reverse output: generic output cap does NOT match specific output request
         let generic_out_cap =
-            CapUrn::from_string("cap:in=\"media:\";op=generate_thumbnail;out=\"media:image\"")
+            CapUrn::from_string("cap:generate_thumbnail;in=media:;out=media:image")
                 .unwrap();
         let specific_out_request = CapUrn::from_string(
-            "cap:in=\"media:\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
         )
         .unwrap();
         assert!(
@@ -1990,11 +1990,11 @@ mod tests {
         // media: has 0 tags (wildcard), media:pdf has 1 tag
         // media:image;png;thumbnail has 3 tags
         let generic_cap = CapUrn::from_string(
-            "cap:in=\"media:\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
         )
         .unwrap();
         let specific_cap = CapUrn::from_string(
-            "cap:in=\"media:pdf\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:pdf;out=\"media:image;png;thumbnail\"",
         )
         .unwrap();
 
@@ -2010,7 +2010,7 @@ mod tests {
 
         // CapMatcher should prefer the more specific cap when both match
         let pdf_request = CapUrn::from_string(
-            "cap:in=\"media:pdf\";op=generate_thumbnail;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:pdf;out=\"media:image;png;thumbnail\"",
         )
         .unwrap();
         let caps = vec![generic_cap.clone(), specific_cap.clone()];
@@ -2132,13 +2132,13 @@ fn test649_wildcard_011_specificity_scoring() {
     );
 }
 
-// TEST650: cap:in;out;op=test preserves other tags
+// TEST650: cap:in=media:;out=media:;test preserves other tags
 #[test]
 fn test650_wildcard_012_preserve_other_tags() {
-    let cap = CapUrn::from_string("cap:in;out;op=test").unwrap();
+    let cap = CapUrn::from_string("cap:in=media:;out=media:;test").unwrap();
     assert_eq!(cap.in_spec(), "media:");
     assert_eq!(cap.out_spec(), "media:");
-    assert_eq!(cap.get_tag("op").map(|s| s.as_str()), Some("test"));
+    assert!(cap.has_marker_tag("test"));
 }
 
 // TEST651: All identity forms produce the same CapUrn
@@ -2199,7 +2199,7 @@ fn test652_wildcard_014_cap_identity_constant_works() {
     assert!(long_form.accepts(&identity));
 
     // Identity as pattern accepts any specific cap (wildcard in/out, no tags)
-    let specific = CapUrn::from_string("cap:in=\"media:void\";op=test;out=\"media:void\"").unwrap();
+    let specific = CapUrn::from_string("cap:in=media:void;out=media:void;test").unwrap();
     assert!(
         identity.accepts(&specific),
         "Identity pattern must accept specific cap"
@@ -2213,7 +2213,7 @@ fn test652_wildcard_014_cap_identity_constant_works() {
 
     // conforms_to is the reverse of accepts
     // identity.conforms_to(specific) = specific.accepts(identity) → false
-    // (specific requires void in/out + op=test, identity has bare media: + no tags)
+    // (specific requires void in/out + test, identity has bare media: + no tags)
     assert!(
         !identity.conforms_to(&specific),
         "Identity does not conform to specific cap"
@@ -2231,7 +2231,7 @@ fn test652_wildcard_014_cap_identity_constant_works() {
 fn test653_wildcard_015_identity_routing_isolation() {
     let identity = CapUrn::from_string("cap:").unwrap();
     let specific_request =
-        CapUrn::from_string("cap:in=\"media:void\";op=test;out=\"media:void\"").unwrap();
+        CapUrn::from_string("cap:in=media:void;out=media:void;test").unwrap();
 
     // Routing direction: request.accepts(registered_cap)
     // Specific request rejects identity — identity's bare media: doesn't satisfy specific in/out
@@ -2264,10 +2264,10 @@ mod tier_tests {
     #[test]
     fn test559_without_tag() {
         let cap =
-            CapUrn::from_string(r#"cap:in="media:void";op=test;ext=pdf;out="media:void""#).unwrap();
+            CapUrn::from_string(r#"cap:ext=pdf;in=media:void;out=media:void;test"#).unwrap();
         let removed = cap.clone().without_tag("ext");
         assert_eq!(removed.get_tag("ext"), None);
-        assert_eq!(removed.get_tag("op"), Some(&"test".to_string()));
+        assert!(removed.has_marker_tag("test"));
 
         // Case-insensitive removal
         let removed2 = cap.clone().without_tag("EXT");
@@ -2287,12 +2287,12 @@ mod tier_tests {
     // TEST560: with_in_spec and with_out_spec change direction specs
     #[test]
     fn test560_with_in_out_spec() {
-        let cap = CapUrn::from_string(r#"cap:in="media:void";op=test;out="media:void""#).unwrap();
+        let cap = CapUrn::from_string(r#"cap:in=media:void;out=media:void;test"#).unwrap();
 
         let changed_in = cap.clone().with_in_spec("media:".to_string());
         assert_eq!(changed_in.in_spec(), "media:");
         assert_eq!(changed_in.out_spec(), MEDIA_VOID);
-        assert_eq!(changed_in.get_tag("op"), Some(&"test".to_string()));
+        assert!(changed_in.has_marker_tag("test"));
 
         let changed_out = cap.clone().with_out_spec("media:string".to_string());
         assert_eq!(changed_out.in_spec(), MEDIA_VOID);
@@ -2309,7 +2309,7 @@ mod tier_tests {
     // TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn
     #[test]
     fn test561_in_out_media_urn() {
-        let cap = CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:txt;textable""#)
+        let cap = CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:textable;txt""#)
             .unwrap();
 
         let in_urn = cap
@@ -2342,7 +2342,7 @@ mod tier_tests {
         assert_eq!(result, None);
 
         // Some valid input → Ok(Some(canonical))
-        let input = r#"cap:op=test;in="media:void";out="media:void""#;
+        let input = r#"cap:in=media:void;out=media:void;test"#;
         let result = CapUrn::canonical_option(Some(input)).unwrap();
         assert!(result.is_some());
         let canonical = result.unwrap();
@@ -2360,16 +2360,16 @@ mod tier_tests {
     #[test]
     fn test563_find_all_matches() {
         let caps = vec![
-            CapUrn::from_string(r#"cap:in="media:void";op=test;out="media:void""#).unwrap(),
-            CapUrn::from_string(r#"cap:in="media:void";op=test;ext=pdf;out="media:void""#).unwrap(),
-            CapUrn::from_string(r#"cap:in="media:void";op=different;out="media:void""#).unwrap(),
+            CapUrn::from_string(r#"cap:in=media:void;out=media:void;test"#).unwrap(),
+            CapUrn::from_string(r#"cap:ext=pdf;in=media:void;out=media:void;test"#).unwrap(),
+            CapUrn::from_string(r#"cap:different;in=media:void;out=media:void"#).unwrap(),
         ];
 
         let request =
-            CapUrn::from_string(r#"cap:in="media:void";op=test;out="media:void""#).unwrap();
+            CapUrn::from_string(r#"cap:in=media:void;out=media:void;test"#).unwrap();
         let matches = CapMatcher::find_all_matches(&caps, &request);
 
-        // Should find 2 matches (op=test and op=test;ext=pdf), not op=different
+        // Should find 2 matches (test and test;ext=pdf), not different
         assert_eq!(matches.len(), 2);
         // Sorted by specificity descending: ext=pdf first (more specific)
         assert!(matches[0].specificity() >= matches[1].specificity());
@@ -2380,22 +2380,22 @@ mod tier_tests {
     #[test]
     fn test564_are_compatible() {
         let caps1 =
-            vec![CapUrn::from_string(r#"cap:in="media:void";op=test;out="media:void""#).unwrap()];
+            vec![CapUrn::from_string(r#"cap:in=media:void;out=media:void;test"#).unwrap()];
         let caps2 =
             vec![
-                CapUrn::from_string(r#"cap:in="media:void";op=test;ext=pdf;out="media:void""#)
+                CapUrn::from_string(r#"cap:ext=pdf;in=media:void;out=media:void;test"#)
                     .unwrap(),
             ];
         let caps3 =
             vec![
-                CapUrn::from_string(r#"cap:in="media:void";op=different;out="media:void""#)
+                CapUrn::from_string(r#"cap:different;in=media:void;out=media:void"#)
                     .unwrap(),
             ];
 
-        // caps1 (op=test) accepts caps2 (op=test;ext=pdf) → compatible
+        // caps1 (test) accepts caps2 (test;ext=pdf) → compatible
         assert!(CapMatcher::are_compatible(&caps1, &caps2));
 
-        // caps1 (op=test) vs caps3 (op=different) → not compatible
+        // caps1 (test) vs caps3 (different) → not compatible
         assert!(!CapMatcher::are_compatible(&caps1, &caps3));
 
         // Empty sets are not compatible
@@ -2406,18 +2406,18 @@ mod tier_tests {
     // TEST565: tags_to_string returns only tags portion without prefix
     #[test]
     fn test565_tags_to_string() {
-        let cap = CapUrn::from_string(r#"cap:in="media:void";op=test;out="media:void""#).unwrap();
+        let cap = CapUrn::from_string(r#"cap:in=media:void;out=media:void;test"#).unwrap();
         let tags_str = cap.tags_to_string();
         // Should NOT start with "cap:"
         assert!(!tags_str.starts_with("cap:"));
         // Should contain in, out, op tags
-        assert!(tags_str.contains("op=test"));
+        assert!(tags_str.contains("test"));
     }
 
     // TEST566: with_tag silently ignores in/out keys
     #[test]
     fn test566_with_tag_ignores_in_out() {
-        let cap = CapUrn::from_string(r#"cap:in="media:void";op=test;out="media:void""#).unwrap();
+        let cap = CapUrn::from_string(r#"cap:in=media:void;out=media:void;test"#).unwrap();
         // Attempting to set in/out via with_tag is silently ignored
         let same = cap
             .clone()
@@ -2443,19 +2443,19 @@ mod tier_tests {
     // TEST567: conforms_to_str and accepts_str work with string arguments
     #[test]
     fn test567_str_variants() {
-        let cap = CapUrn::from_string(r#"cap:in="media:void";op=test;out="media:void""#).unwrap();
+        let cap = CapUrn::from_string(r#"cap:in=media:void;out=media:void;test"#).unwrap();
 
         // accepts_str
         assert!(cap
-            .accepts_str(r#"cap:in="media:void";op=test;ext=pdf;out="media:void""#)
+            .accepts_str(r#"cap:ext=pdf;in=media:void;out=media:void;test"#)
             .unwrap());
         assert!(!cap
-            .accepts_str(r#"cap:in="media:void";op=different;out="media:void""#)
+            .accepts_str(r#"cap:different;in=media:void;out=media:void"#)
             .unwrap());
 
         // conforms_to_str
         assert!(cap
-            .conforms_to_str(r#"cap:in="media:void";op=test;out="media:void""#)
+            .conforms_to_str(r#"cap:in=media:void;out=media:void;test"#)
             .unwrap());
 
         // Invalid URN string → error
@@ -2468,11 +2468,11 @@ mod tier_tests {
     fn test568_dispatch_output_tag_order() {
         // Provider has: record;textable
         let provider = CapUrn::from_string(
-            r#"cap:in="media:model-spec;textable";op=download-model;out="media:download-result;record;textable""#
+            r#"cap:download-model;in="media:model-spec;textable";out="media:download-result;record;textable""#
         ).unwrap();
         // Request has: textable;record (same tags, different order)
         let request = CapUrn::from_string(
-            r#"cap:in="media:model-spec;textable";op=download-model;out="media:download-result;textable;record""#
+            r#"cap:download-model;in="media:model-spec;textable";out="media:download-result;record;textable""#
         ).unwrap();
 
         // After parsing, both should be normalized to same canonical form
@@ -2493,10 +2493,10 @@ mod tier_tests {
     #[test]
     fn test823_dispatch_exact_match() {
         let provider =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
                 .unwrap();
         let request =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
                 .unwrap();
         assert!(provider.is_dispatchable(&request));
     }
@@ -2505,10 +2505,10 @@ mod tier_tests {
     #[test]
     fn test824_dispatch_contravariant_input() {
         let provider =
-            CapUrn::from_string(r#"cap:in="media:";op=analyze;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:analyze;in=media:;out="media:record;textable""#)
                 .unwrap();
         let request =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=analyze;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:analyze;in=media:pdf;out="media:record;textable""#)
                 .unwrap();
         assert!(provider.is_dispatchable(&request));
     }
@@ -2518,10 +2518,10 @@ mod tier_tests {
     #[test]
     fn test825_dispatch_request_unconstrained_input() {
         let provider =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=analyze;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:analyze;in=media:pdf;out="media:record;textable""#)
                 .unwrap();
         let request =
-            CapUrn::from_string(r#"cap:in="media:";op=analyze;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:analyze;in=media:;out="media:record;textable""#)
                 .unwrap();
         assert!(
             provider.is_dispatchable(&request),
@@ -2533,10 +2533,10 @@ mod tier_tests {
     #[test]
     fn test826_dispatch_covariant_output() {
         let provider =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
                 .unwrap();
         let request =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:textable""#).unwrap();
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out=media:textable"#).unwrap();
         assert!(
             provider.is_dispatchable(&request),
             "Provider output record;textable conforms to request output textable"
@@ -2547,9 +2547,9 @@ mod tier_tests {
     #[test]
     fn test827_dispatch_generic_output_fails() {
         let provider =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:""#).unwrap();
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out=media:"#).unwrap();
         let request =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
                 .unwrap();
         assert!(
             !provider.is_dispatchable(&request),
@@ -2561,11 +2561,11 @@ mod tier_tests {
     #[test]
     fn test828_dispatch_wildcard_requires_tag_presence() {
         let provider = CapUrn::from_string(
-            r#"cap:in="media:model-spec";op=run-inference;out="media:record;textable""#,
+            r#"cap:in=media:model-spec;out="media:record;textable";run-inference"#,
         )
         .unwrap();
         let request = CapUrn::from_string(
-            r#"cap:in="media:model-spec";candle=*;op=run-inference;out="media:record;textable""#,
+            r#"cap:candle;in=media:model-spec;out="media:record;textable";run-inference"#,
         )
         .unwrap();
         assert!(
@@ -2578,10 +2578,10 @@ mod tier_tests {
     #[test]
     fn test829_dispatch_wildcard_with_tag_present() {
         let provider = CapUrn::from_string(
-            r#"cap:candle=metal;in="media:model-spec";op=run-inference;out="media:record;textable""#
+            r#"cap:candle=metal;in=media:model-spec;out="media:record;textable";run-inference"#
         ).unwrap();
         let request = CapUrn::from_string(
-            r#"cap:in="media:model-spec";candle=*;op=run-inference;out="media:record;textable""#,
+            r#"cap:candle;in=media:model-spec;out="media:record;textable";run-inference"#,
         )
         .unwrap();
         assert!(
@@ -2594,10 +2594,10 @@ mod tier_tests {
     #[test]
     fn test830_dispatch_provider_extra_tags() {
         let provider = CapUrn::from_string(
-            r#"cap:candle=metal;in="media:model-spec";op=run-inference;out="media:record;textable""#
+            r#"cap:candle=metal;in=media:model-spec;out="media:record;textable";run-inference"#
         ).unwrap();
         let request = CapUrn::from_string(
-            r#"cap:in="media:model-spec";op=run-inference;out="media:record;textable""#,
+            r#"cap:in=media:model-spec;out="media:record;textable";run-inference"#,
         )
         .unwrap();
         assert!(
@@ -2610,11 +2610,11 @@ mod tier_tests {
     #[test]
     fn test831_dispatch_cross_backend_mismatch() {
         let gguf_provider = CapUrn::from_string(
-            r#"cap:gguf=q4_k_m;in="media:model-spec";op=run-inference;out="media:record;textable""#,
+            r#"cap:gguf=q4_k_m;in=media:model-spec;out="media:record;textable";run-inference"#,
         )
         .unwrap();
         let candle_request = CapUrn::from_string(
-            r#"cap:candle=*;in="media:model-spec";op=run-inference;out="media:record;textable""#,
+            r#"cap:candle;in=media:model-spec;out="media:record;textable";run-inference"#,
         )
         .unwrap();
         assert!(
@@ -2627,10 +2627,10 @@ mod tier_tests {
     #[test]
     fn test832_dispatch_asymmetric() {
         let broad =
-            CapUrn::from_string(r#"cap:in="media:";op=process;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:in=media:;out="media:record;textable";process"#)
                 .unwrap();
         let narrow =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=process;out="media:textable""#).unwrap();
+            CapUrn::from_string(r#"cap:in=media:pdf;out=media:textable;process"#).unwrap();
         // broad provider CAN dispatch narrow request:
         //   input:  provider in=media: accepts anything → OK
         //   output: provider out=media:record;textable conforms to request out=media:textable → OK
@@ -2646,8 +2646,8 @@ mod tier_tests {
     #[test]
     fn test833_comparable_symmetric() {
         let a =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:textable""#).unwrap();
-        let b = CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out=media:textable"#).unwrap();
+        let b = CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
             .unwrap();
         assert!(a.is_comparable(&b));
         assert!(b.is_comparable(&a));
@@ -2657,9 +2657,9 @@ mod tier_tests {
     #[test]
     fn test834_comparable_unrelated() {
         let a =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:textable""#).unwrap();
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out=media:textable"#).unwrap();
         let b = CapUrn::from_string(
-            r#"cap:in="media:audio";op=transcribe;out="media:record;textable""#,
+            r#"cap:in=media:audio;out="media:record;textable";transcribe"#,
         )
         .unwrap();
         assert!(!a.is_comparable(&b));
@@ -2669,9 +2669,9 @@ mod tier_tests {
     // TEST835: is_equivalent — identical caps
     #[test]
     fn test835_equivalent_identical() {
-        let a = CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:record;textable""#)
+        let a = CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
             .unwrap();
-        let b = CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:record;textable""#)
+        let b = CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
             .unwrap();
         assert!(a.is_equivalent(&b));
         assert!(b.is_equivalent(&a));
@@ -2681,8 +2681,8 @@ mod tier_tests {
     #[test]
     fn test836_equivalent_non_equivalent() {
         let a =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:textable""#).unwrap();
-        let b = CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out=media:textable"#).unwrap();
+        let b = CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
             .unwrap();
         assert!(a.is_comparable(&b));
         assert!(!a.is_equivalent(&b));
@@ -2692,10 +2692,10 @@ mod tier_tests {
     #[test]
     fn test837_dispatch_op_mismatch() {
         let provider =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
                 .unwrap();
         let request =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=summarize;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:in=media:pdf;out="media:record;textable";summarize"#)
                 .unwrap();
         assert!(!provider.is_dispatchable(&request));
     }
@@ -2704,9 +2704,9 @@ mod tier_tests {
     #[test]
     fn test838_dispatch_request_wildcard_output() {
         let provider =
-            CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:record;textable""#)
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
                 .unwrap();
-        let request = CapUrn::from_string(r#"cap:in="media:pdf";op=extract;out="media:""#).unwrap();
+        let request = CapUrn::from_string(r#"cap:extract;in=media:pdf;out=media:"#).unwrap();
         assert!(
             provider.is_dispatchable(&request),
             "Request out=media: is unconstrained — any provider output accepted"

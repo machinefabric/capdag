@@ -74,8 +74,8 @@ Cap URN processing distinguishes three forms:
 
 Users may omit direction tags. These are all valid surface syntax:
 ```
-cap:op=test
-cap:in;op=test
+cap:in=media:;out=media:;test
+cap:in=media:;out=media:;test
 cap:in=*;test;out=*
 ```
 
@@ -232,7 +232,7 @@ spec_C(i, o, y) = tags(i) + tags(o) + count(non-* y-tags)
 Examples:
 ```
 cap:                                    → 0
-cap:op=extract                          → 1
+cap:extract;in=media:;out=media:                          → 1
 cap:in=media:pdf;extract;out=media:object → 3
 ```
 
@@ -245,9 +245,9 @@ Cap URNs form a partial order (specialization order) in the product space:
 ```
                         cap:                          (top)
                          |
-              cap:op=extract
+              cap:extract;in=media:;out=media:
                 /              \
-cap:in=media:pdf;op=extract    cap:extract;out=media:object
+cap:extract;in=media:pdf;out=media:    cap:extract;out=media:object
                 \              /
         cap:in=media:pdf;extract;out=media:object
                          |
@@ -298,7 +298,7 @@ Cap URNs must satisfy (from [10-VALIDATION-RULES](./10-VALIDATION-RULES.md)):
 ### 11.1 Generic Capability
 
 ```
-cap:op=transform
+cap:in=media:;out=media:;transform
 ```
 
 Accepts any input, produces any output, performs "transform".

@@ -4900,7 +4900,7 @@ mod tests {
         assert!(!runtime_basic.manifest_data.is_empty());
         assert!(
             runtime_basic.manifest.is_some(),
-            "TEST_MANIFEST must parse: cap:op=test is valid (in/out default to media:)"
+            "TEST_MANIFEST must parse: cap:in=media:;out=media:;test is valid (in/out default to media:)"
         );
         let manifest = runtime_basic.manifest.unwrap();
         assert_eq!(manifest.all_caps().len(), 2, "Two caps declared: identity + test");

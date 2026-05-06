@@ -39,7 +39,7 @@ cap:in="<media-urn>";out="<media-urn>";<other-tags>
 **Examples**:
 ```
 # Surface syntax → Canonical form
-cap:op=transform  →  cap:in=media:;transform;out=media:   ✓ (normalized)
+cap:in=media:;out=media:;transform  →  cap:in=media:;transform;out=media:   ✓ (normalized)
 
 # Already canonical
 cap:in="media:pdf";extract;out="media:object"             ✓

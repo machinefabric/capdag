@@ -95,7 +95,7 @@ For non-direction tags (op, ext, model, etc.):
 cap:                                         → 0 + 0 + 0 = 0
 # in=media: (0), out=media: (0), no cap-tags (0)
 
-cap:op=extract                               → 0 + 0 + 1 = 1
+cap:extract;in=media:;out=media:                               → 0 + 0 + 1 = 1
 # in=media: (0), out=media: (0), op=extract (1)
 
 cap:in=media:pdf;extract;out=media:object → 1 + 1 + 1 = 3
