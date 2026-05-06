@@ -19,34 +19,75 @@ media:image;subtype=png;visual  # PNG image
 
 ---
 
-## 2. The Identity
+## 2. Top and Unit Types
 
-### 2.1 Definition
+The media URN order has two distinguished anchors. They are **not**
+interchangeable: confusing them flips the meaning of every cap that
+uses them.
 
-The **media identity** is:
+### 2.1 `media:` — the Top Type
 
 ```
 media:
 ```
 
-This URN:
-- Has no tags
-- Represents "any media type"
-- Is the **top** of the media partial order
-- Has specificity 0
+The bare prefix with no tags. Reads as "any data type."
 
-### 2.2 Constant
+- Has no tags.
+- Every other media URN `conforms_to` it.
+- Specificity 0.
+- The **top** of the media partial order.
 
 ```rust
 pub const MEDIA_IDENTITY: &str = "media:";
 ```
 
-### 2.3 Properties
-
 ```
-∀m ∈ MediaUrn, m ⪯ media:     (all media URNs conform to identity)
+∀m ∈ MediaUrn, m ⪯ media:     (every media URN conforms to top)
 media: ⪯ media:               (reflexive)
 ```
+
+A cap with `in=media:` says "I accept any input." A cap with
+`out=media:` says "I may produce any output." Used on both sides of
+a cap with no other tags, the cap is the [identity morphism](/docs/06-cap-urn-structure#4-cap-kinds)
+of the category.
+
+### 2.2 `media:void` — the Unit Type
+
+```
+media:void
+```
+
+Reads as "no data" — the nullary value, the type with exactly one
+inhabitant.
+
+- Has the `void` marker tag.
+- Distinct from `media:`. Top means "any A flows here"; unit means
+  "() flows here, no meaningful payload."
+
+```rust
+pub const MEDIA_VOID: &str = "media:void";
+```
+
+A cap with `in=media:void` does not consume data — it is driven
+entirely by its non-directional tags and any peer state. A cap with
+`out=media:void` produces no data; it exists for the side effect.
+Caps with `media:void` on both sides are pure side-effect commands
+(see [CapKind](/docs/06-cap-urn-structure#4-cap-kinds): Source,
+Sink, Effect).
+
+### 2.3 Top vs Unit at a Glance
+
+| Side type     | Reads as           | Used for                       |
+|---------------|--------------------|--------------------------------|
+| `media:`      | "any A"            | wildcards, generic passthrough |
+| `media:void`  | "()"               | sources, sinks, effects        |
+| concrete      | a specific type    | normal data flow               |
+
+`media:` and `media:void` look superficially similar (both are
+"unspecific" in some sense) but they sit at opposite ends of the
+type lattice. `media:` is the **maximum** of the order; `media:void`
+is a leaf carrying the nullary value.
 
 ---
 
@@ -119,8 +160,8 @@ media:integer;textable;form=list   # Array of integers
 
 | Media URN | Constant | Description |
 |-----------|----------|-------------|
-| `media:` | `MEDIA_IDENTITY` | Any/raw binary |
-| `media:void` | `MEDIA_VOID` | No data |
+| `media:` | `MEDIA_IDENTITY` | **Top** — any data type (universal wildcard) |
+| `media:void` | `MEDIA_VOID` | **Unit** — the nullary value (no data flows here) |
 | `media:textable;form=scalar` | `MEDIA_STRING` | UTF-8 string |
 | `media:integer` | `MEDIA_INTEGER` | Integer |
 | `media:textable;numeric;form=scalar` | `MEDIA_NUMBER` | Float |
@@ -223,7 +264,14 @@ let urn = MediaUrn::from_string("media:textable;form=scalar")?;
 urn.is_text()    // true for string, text/*
 urn.is_json()    // true for object, object-array
 urn.is_binary()  // true for raw binary, images
+urn.is_void()    // true iff the `void` marker tag is present (unit type)
+urn.is_top()     // true iff the URN has no tags at all (top type)
 ```
+
+`is_void` and `is_top` are the predicates the [CapKind](/docs/06-cap-urn-structure#4-cap-kinds)
+classifier consults. Together they let any caller reason about
+whether a media URN is a concrete type, the wildcard, or the unit
+without parsing strings.
 
 ### 8.2 Tag Queries
 
@@ -256,19 +304,24 @@ const MEDIA_LOG_ENTRY: &str = "media:log-entry;textable;form=map";
 
 ## 10. Partial Order Position
 
-Media URNs form a partial order (specialization order):
+Media URNs form a partial order (specialization order). `media:` is
+the unique top; `media:void` is a leaf, distinct from every concrete
+type:
 
 ```
-                    media:                    (top - any)
-                      |
-              media:textable
-                /         \
-    media:textable;form=scalar   media:textable;form=map
-            |                            |
-    media:integer;textable       media:json;textable;form=map
+                    media:                          (top — any A)
+                  /        \
+          media:textable    media:void              (leaf — unit ())
+            /         \
+media:textable;form=scalar   media:textable;form=map
+        |                            |
+media:integer;textable       media:json;textable;form=map
 ```
 
-More tags = lower in the order = more specific.
+More tags = lower in the order = more specific. `media:void` carries
+exactly one tag (`void`) and so sits at specificity 2 (one
+must-have-any tag, plus the prefix); it is not a refinement of any
+concrete type.
 
 ---
 
@@ -277,13 +330,16 @@ More tags = lower in the order = more specific.
 | Concept | Definition |
 |---------|------------|
 | Structure | `media:<type>[;tag=value]...` |
-| Identity | `media:` (any media, top of partial order) |
+| Top | `media:` — universal wildcard, max of the partial order, "any A" |
+| Unit | `media:void` — nullary value, leaf of the partial order, "()" |
 | Coercion tags | textable, binary, numeric, scalar, sequence, map, visual |
 | Form tag | scalar, list, map |
 | Matching | Tagged URN semantics (truth table) |
 | Specificity | Sum of per-tag scores |
 
 Media URNs describe data types. They are used:
-- In Cap URN `in`/`out` specs
+- In Cap URN `in`/`out` specs (where the choice between `media:`,
+  `media:void`, and a concrete type determines the cap's
+  [kind](/docs/06-cap-urn-structure#4-cap-kinds))
 - As argument identifiers
 - For type matching in dispatch

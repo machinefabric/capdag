@@ -13,7 +13,83 @@ use std::fmt;
 use std::str::FromStr;
 use tagged_urn::{TaggedUrn, TaggedUrnBuilder, TaggedUrnError};
 
-use crate::urn::media_urn::{MediaUrn, MediaUrnError, MEDIA_OBJECT, MEDIA_VOID};
+use crate::urn::media_urn::{MediaUrn, MediaUrnError, MEDIA_IDENTITY, MEDIA_OBJECT, MEDIA_VOID};
+
+/// Functional category of a cap, derived from all three axes (`in`,
+/// `out`, and the remaining tags). The classification is **logical**
+/// — the dispatch protocol (specificity, conformance, accepts /
+/// conforms_to) does not branch on `CapKind`. The kind is exposed so
+/// tools, UIs, planners, and tests can reason about a cap's role in
+/// plain terms (`A → B`, generator, discarder, effect, identity
+/// passthrough) without re-deriving the rules.
+///
+/// `media:void` is the **unit type** — the nullary value, no
+/// meaningful data. Not "invalid" or "absent". `media:` is the
+/// **top type** — the wildcard over every media URN. With those two
+/// anchors the five kinds fall out:
+///
+/// | Kind       | `in`         | `out`        | other tags | Reads as |
+/// |------------|--------------|--------------|------------|----------|
+/// | Identity   | `media:`     | `media:`     | none       | `A → A`  |
+/// | Source     | `media:void` | not `void`   | any        | `() → B` |
+/// | Sink       | not `void`   | `media:void` | any        | `A → ()` |
+/// | Effect     | `media:void` | `media:void` | any        | `() → ()`|
+/// | Transform  | anything else                                       |
+///
+/// `Identity` is the **fully generic** cap on every axis: input wide
+/// open, output wide open, no operation/metadata tags. The canonical
+/// form is `cap:` and only `cap:`. Adding any tag specifies something
+/// on the third axis and demotes the morphism to a Transform whose
+/// in/out happen to be the wildcards (e.g. `cap:passthrough` is a
+/// Transform that says "for the routing label `passthrough`, accept
+/// any input and produce any output").
+///
+/// Examples:
+/// - `cap:` — Identity
+/// - `cap:passthrough` — Transform (specifies the operation, even
+///   though in/out are unconstrained)
+/// - `cap:in=media:void;out=media:model-artifact;warm` — Source
+/// - `cap:in=media:json;out=media:void;log` — Sink
+/// - `cap:in=media:void;out=media:void;ping` — Effect (health check)
+/// - `cap:in=media:pdf;out=media:textable;extract` — Transform
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CapKind {
+    /// `media:` → `media:` with no other tags. The categorical
+    /// identity morphism.
+    Identity,
+    /// `media:void` → non-`void`. A generator: produces a value with
+    /// no meaningful input.
+    Source,
+    /// non-`void` → `media:void`. A consumer: absorbs a value with no
+    /// meaningful output.
+    Sink,
+    /// `media:void` → `media:void`. A nullary effect: side-effect with
+    /// no data flow on either end (warm cache, ping, health check).
+    Effect,
+    /// Anything else: a normal data-processing cap with a non-trivial
+    /// in/out signature.
+    Transform,
+}
+
+impl CapKind {
+    /// Stable wire/log/UI label for the kind. Snake_case to match
+    /// other capdag enum serializations on the wire (proto, JSON).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CapKind::Identity => "identity",
+            CapKind::Source => "source",
+            CapKind::Sink => "sink",
+            CapKind::Effect => "effect",
+            CapKind::Transform => "transform",
+        }
+    }
+}
+
+impl fmt::Display for CapKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// A cap URN using flat, ordered tags with required direction specifiers
 ///
@@ -219,12 +295,27 @@ impl CapUrn {
     /// No trailing semicolon in canonical form
     /// Values are quoted only when necessary (smart quoting via TaggedUrn)
     /// Build a TaggedUrn representation of this CapUrn (internal helper)
+    ///
+    /// `in` and `out` segments are emitted only when they refine beyond
+    /// the trivial wildcard `media:`. A cap whose `in`/`out` are both
+    /// `media:` and which has no other tags has the canonical form
+    /// `cap:` — the bare identity URN. This is the same morphism whether
+    /// written as `cap:`, `cap:in=media:;out=media:`, or any reordering
+    /// of those segments; the canonicalizer collapses them all to one
+    /// representative so byte-equality matches semantic identity.
     fn build_tagged_urn(&self) -> TaggedUrn {
-        let mut builder = TaggedUrnBuilder::new(Self::PREFIX)
-            .tag("in", &self.in_urn)
-            .expect("in_urn guaranteed non-empty")
-            .tag("out", &self.out_urn)
-            .expect("out_urn guaranteed non-empty");
+        let mut builder = TaggedUrnBuilder::new(Self::PREFIX);
+
+        if self.in_urn != crate::urn::media_urn::MEDIA_IDENTITY {
+            builder = builder
+                .tag("in", &self.in_urn)
+                .expect("in_urn guaranteed non-empty");
+        }
+        if self.out_urn != crate::urn::media_urn::MEDIA_IDENTITY {
+            builder = builder
+                .tag("out", &self.out_urn)
+                .expect("out_urn guaranteed non-empty");
+        }
 
         for (k, v) in &self.tags {
             // Tags are validated at construction time
@@ -278,6 +369,60 @@ impl CapUrn {
     /// Get the output as a parsed MediaUrn
     pub fn out_media_urn(&self) -> Result<MediaUrn, MediaUrnError> {
         MediaUrn::from_string(&self.out_urn)
+    }
+
+    /// Functional category of this cap, derived from all three axes:
+    /// `in`, `out`, and the rest of the tags (the "operation/metadata"
+    /// axis). All three are inspected — Identity is the **fully
+    /// generic** cap that constrains nothing on any axis: input wide
+    /// open (`media:`), output wide open (`media:`), no other tags.
+    /// Adding even one extra tag specifies something on the third axis
+    /// and demotes the cap from Identity to a Transform whose `in`/
+    /// `out` happen to be the wildcards.
+    ///
+    /// Source/Sink/Effect are decided by the directional axes
+    /// alone (presence of `media:void` on either side), since the
+    /// unit-vs-top reading of those slots determines whether data
+    /// flows there. Tags refine the operation but don't change
+    /// whether one side is the unit.
+    ///
+    /// See [`CapKind`] for the full taxonomy and the unit-vs-top
+    /// reading of `media:void` / `media:`.
+    ///
+    /// Because this method parses both axes through `MediaUrn`, it
+    /// returns an error if either side is somehow not a valid media
+    /// URN. In normal use both fields are validated at `CapUrn`
+    /// construction time, so this only fails on internally
+    /// inconsistent state — a hard signal that something upstream is
+    /// broken.
+    pub fn kind(&self) -> Result<CapKind, MediaUrnError> {
+        let in_media = self.in_media_urn()?;
+        let out_media = self.out_media_urn()?;
+
+        let in_void = in_media.is_void();
+        let out_void = out_media.is_void();
+        let in_top = in_media.is_top();
+        let out_top = out_media.is_top();
+        let no_extra_tags = self.tags.is_empty();
+
+        // Identity: fully generic on every axis. `cap:` is the only
+        // canonical-form cap that classifies as Identity. Adding any
+        // tag (operation name, target, language, anything) specifies
+        // something on the third axis and demotes the morphism to a
+        // Transform whose in/out happen to be the wildcards.
+        if in_top && out_top && no_extra_tags {
+            return Ok(CapKind::Identity);
+        }
+        if in_void && out_void {
+            return Ok(CapKind::Effect);
+        }
+        if in_void {
+            return Ok(CapKind::Source);
+        }
+        if out_void {
+            return Ok(CapKind::Sink);
+        }
+        Ok(CapKind::Transform)
     }
 
     /// Check if this cap has a specific tag with a specific value
@@ -2711,5 +2856,153 @@ mod tier_tests {
             provider.is_dispatchable(&request),
             "Request out=media: is unconstrained — any provider output accepted"
         );
+    }
+
+    // -------------------------------------------------------------------
+    // CapKind classifier tests (test1800–test1805).
+    //
+    // These tests are mirrored across every language port (Rust, Go,
+    // Python, Swift/ObjC, JS) under the SAME numbers. Any divergence
+    // is a wire-level inconsistency — the kind taxonomy is part of
+    // the protocol's public surface, not a per-port detail.
+    // -------------------------------------------------------------------
+
+    // TEST1800: Identity classifier — and only the bare cap: form
+    // qualifies. `cap:` is the fully generic morphism on every axis;
+    // adding any tag (even one that doesn't constrain in/out) demotes
+    // the cap to Transform because the operation/metadata axis is no
+    // longer fully generic.
+    #[test]
+    fn test1800_kind_identity_only_for_bare_cap() {
+        let identity = CapUrn::from_string("cap:").unwrap();
+        assert_eq!(identity.kind().unwrap(), CapKind::Identity);
+
+        // Every long-hand spelling of identity canonicalizes to `cap:`
+        // and therefore classifies the same way.
+        for spelling in &[
+            "cap:in=media:;out=media:",
+            "cap:in=*;out=*",
+            "cap:in=media:",
+            "cap:out=media:",
+        ] {
+            let cap = CapUrn::from_string(spelling).unwrap();
+            assert_eq!(
+                cap.kind().unwrap(),
+                CapKind::Identity,
+                "{spelling} should classify as Identity (canonical form is `cap:`)"
+            );
+        }
+
+        // Any non-directional tag demotes Identity to Transform.
+        let with_op = CapUrn::from_string("cap:passthrough").unwrap();
+        assert_eq!(
+            with_op.kind().unwrap(),
+            CapKind::Transform,
+            "cap:passthrough specifies the operation axis — not Identity"
+        );
+    }
+
+    // TEST1801: Source classifier — in=media:void, out non-void.
+    // The y dimension may carry any tags; void on the input alone is
+    // what matters.
+    #[test]
+    fn test1801_kind_source_when_input_is_void() {
+        let warm = CapUrn::from_string(
+            r#"cap:in=media:void;out="media:model-artifact";warm"#,
+        )
+        .unwrap();
+        assert_eq!(warm.kind().unwrap(), CapKind::Source);
+
+        // Output need not be a leaf type — even out=media: counts as
+        // non-void, and that pairing with in=void is a Source. (The
+        // protocol does not privilege out=media: here; the
+        // classifier looks for `void` specifically.)
+        let generator = CapUrn::from_string("cap:in=media:void;out=media:textable").unwrap();
+        assert_eq!(generator.kind().unwrap(), CapKind::Source);
+    }
+
+    // TEST1802: Sink classifier — out=media:void, in non-void.
+    #[test]
+    fn test1802_kind_sink_when_output_is_void() {
+        let discard = CapUrn::from_string("cap:discard;in=media:;out=media:void").unwrap();
+        assert_eq!(discard.kind().unwrap(), CapKind::Sink);
+
+        let log =
+            CapUrn::from_string(r#"cap:in="media:json;textable";log;out=media:void"#).unwrap();
+        assert_eq!(log.kind().unwrap(), CapKind::Sink);
+    }
+
+    // TEST1803: Effect classifier — both sides void. Reads as `() → ()`.
+    #[test]
+    fn test1803_kind_effect_when_both_sides_void() {
+        let ping = CapUrn::from_string("cap:in=media:void;out=media:void;ping").unwrap();
+        assert_eq!(ping.kind().unwrap(), CapKind::Effect);
+
+        // Effect is decided by the directional axes alone — y may be
+        // empty (no other tags), but a fully bare `cap:in=void;out=void`
+        // is still an Effect. The y axis carries identity, not kind.
+        let bare_effect = CapUrn::from_string("cap:in=media:void;out=media:void").unwrap();
+        assert_eq!(bare_effect.kind().unwrap(), CapKind::Effect);
+    }
+
+    // TEST1804: Transform classifier — at least one side non-void,
+    // and the cap is not the bare identity. The default kind for
+    // ordinary data-processing caps.
+    #[test]
+    fn test1804_kind_transform_for_normal_data_processors() {
+        let extract =
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:record;textable""#)
+                .unwrap();
+        assert_eq!(extract.kind().unwrap(), CapKind::Transform);
+
+        // Adding any tag to a fully generic shape is also a Transform —
+        // op tag is just metadata, but its presence makes y non-empty
+        // so the cap is no longer Identity.
+        let labeled =
+            CapUrn::from_string("cap:passthrough;in=media:;out=media:").unwrap();
+        assert_eq!(labeled.kind().unwrap(), CapKind::Transform);
+    }
+
+    // TEST1805: Kind is invariant under canonicalization. The same
+    // morphism written in many surface forms must classify the same
+    // way once parsed. This pins the rule that kind is a property of
+    // the cap as a structured object, not of any particular spelling.
+    #[test]
+    fn test1805_kind_invariant_under_canonical_spellings() {
+        // Each tuple: (spelling_a, spelling_b, expected kind).
+        // The two spellings parse to canonically-equal URNs.
+        let cases: &[(&str, &str, CapKind)] = &[
+            // Identity — both forms must collapse to `cap:`.
+            ("cap:", "cap:in=media:;out=media:", CapKind::Identity),
+            // Transform — quoted vs unquoted single-tag media URN.
+            (
+                "cap:extract;in=media:pdf;out=media:textable",
+                r#"cap:extract;in="media:pdf";out="media:textable""#,
+                CapKind::Transform,
+            ),
+            // Source — segment order at parse time must not change kind.
+            (
+                "cap:in=media:void;out=media:textable;warm",
+                "cap:warm;out=media:textable;in=media:void",
+                CapKind::Source,
+            ),
+        ];
+
+        for (a, b, expected) in cases {
+            let kind_a = CapUrn::from_string(a).unwrap().kind().unwrap();
+            let kind_b = CapUrn::from_string(b).unwrap().kind().unwrap();
+            assert_eq!(
+                kind_a, *expected,
+                "{a} should classify as {expected:?}, got {kind_a:?}"
+            );
+            assert_eq!(
+                kind_b, *expected,
+                "{b} should classify as {expected:?}, got {kind_b:?}"
+            );
+            assert_eq!(
+                kind_a, kind_b,
+                "{a} and {b} parse to the same cap and must classify identically"
+            );
+        }
     }
 }

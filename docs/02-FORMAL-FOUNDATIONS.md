@@ -165,6 +165,58 @@ Where:
 
 All three dimensions reuse the same base domain U and relation ⪯.
 
+### 8.1 Distinguished Media URNs: Top and Unit
+
+Two media URNs play distinguished roles in the directional axes of
+C. They are formally distinct elements of U; the rest of the spec
+relies on this distinction.
+
+**Top (`media:`).** The maximum of the media URN order under ⪯:
+
+```
+∀ m ∈ MediaUrn,    m ⪯ media:
+```
+
+A directional spec set to `media:` is unconstrained on that axis: it
+matches every more specific media URN. In type-theoretic terms, a
+side typed `media:` is the **top type** — read as "any A."
+
+**Unit (`media:void`).** A leaf carrying the marker tag `void`:
+
+```
+media:void ∈ MediaUrn,    media:void ⪯ media:,    ¬(m ⪯ media:void) for any concrete m
+```
+
+A directional spec set to `media:void` is the **unit type** — read
+as "()." It is *not* the top, *not* "invalid," *not* "absent." It is
+a distinct first-class type whose meaning is "no payload flows on
+this side."
+
+The dispatch relation treats `media:void` exactly like any other
+media URN. The fact that it admits a logical reading as the unit
+type is a property the [CapKind](./06-CAP-URN-STRUCTURE.md#4-cap-kinds)
+classifier exploits to label caps; it never enters the dispatch
+predicate as a special case.
+
+### 8.2 Cap Kinds (Logical Layer)
+
+The product C admits a five-way classification by inspecting `(i, o)`
+and the emptiness of `y`:
+
+| Kind        | `i`            | `o`            | `y`     | Reading      |
+|-------------|----------------|----------------|---------|--------------|
+| Identity    | `media:`       | `media:`       | empty   | A → A        |
+| Source      | `media:void`   | not `media:void`| any    | () → B       |
+| Sink        | not `media:void`| `media:void`  | any     | A → ()       |
+| Effect      | `media:void`   | `media:void`   | any     | () → ()      |
+| Transform   | otherwise                                       | A → B        |
+
+This classification is **logical only**. The dispatch relation
+defined in §10 does not branch on kind; the kind is a description of
+the resulting morphism, not a routing dimension. See
+[06-CAP-URN-STRUCTURE §4](./06-CAP-URN-STRUCTURE.md#4-cap-kinds) for
+the full taxonomy.
+
 ---
 
 ## 9. Cap Specificity

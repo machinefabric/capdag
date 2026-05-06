@@ -3293,7 +3293,12 @@ mod tests {
         );
     }
 
-    // TEST413: Register cartridge adds entries to cap_table
+    // TEST413: Register cartridge adds entries to cap_table.
+    //
+    // The cap_table stores canonical URN strings (alphabetical tag order,
+    // no unnecessary quotes around single-tag media URNs). The input
+    // forms below get canonicalized at parse-time and the table reads
+    // back as the canonical form.
     #[test]
     fn test413_register_cartridge_adds_to_cap_table() {
         let mut runtime = CartridgeHostRuntime::new();
@@ -3302,20 +3307,20 @@ mod tests {
             crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             None,
             &cap_groups_from_urns(&[
-                "cap:in=\"media:void\";convert;out=\"media:void\"",
-                "cap:in=\"media:void\";analyze;out=\"media:void\"",
+                "cap:convert;in=media:void;out=media:void",
+                "cap:analyze;in=media:void;out=media:void",
             ]),
         );
 
         assert_eq!(runtime.cap_table.len(), 2);
         assert_eq!(
             runtime.cap_table[0].0,
-            "cap:in=\"media:void\";convert;out=\"media:void\""
+            "cap:convert;in=media:void;out=media:void"
         );
         assert_eq!(runtime.cap_table[0].1, 0);
         assert_eq!(
             runtime.cap_table[1].0,
-            "cap:in=\"media:void\";analyze;out=\"media:void\""
+            "cap:analyze;in=media:void;out=media:void"
         );
         assert_eq!(runtime.cap_table[1].1, 0);
         assert_eq!(runtime.cartridges.len(), 1);
@@ -4714,18 +4719,24 @@ mod tests {
             &cap_groups,
         );
 
-        // Verify the cap_table has both URNs.
+        // Verify the cap_table has both URNs in canonical form.
+        // `cap:` is the canonical bare-identity form (in/out are the
+        // trivial wildcard `media:` and there are no other tags, so
+        // both segments are dropped). Multi-tag media URNs are
+        // unquoted unless containing reserved characters.
         assert_eq!(runtime.cap_table.len(), 2);
         assert_eq!(runtime.cap_table[0].0, "cap:");
         assert_eq!(
             runtime.cap_table[1].0,
-            "cap:in=\"media:pdf\";thumbnail;out=\"media:image;png\""
+            "cap:in=media:pdf;out=\"media:image;png\";thumbnail"
         );
 
         // Build capabilities (no outbound_tx, so no RelayNotify sent)
         runtime.rebuild_capabilities(None);
 
-        // Verify capabilities include the cartridge's caps.
+        // Verify capabilities include the cartridge's caps. The internal
+        // capabilities() byte-blob is a JSON array of canonical cap URN
+        // strings.
         let caps_json = std::str::from_utf8(runtime.capabilities()).unwrap();
         let caps: serde_json::Value = serde_json::from_str(caps_json).unwrap();
         let cap_urns: Vec<&str> = caps

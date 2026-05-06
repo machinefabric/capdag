@@ -572,10 +572,23 @@ impl MediaUrn {
         self.get_tag("bool").is_some()
     }
 
-    /// Check if this represents a void (no data) type
+    /// Check if this represents a void (no data) type — the **unit
+    /// type** in the type-theoretic reading. `media:void` is the
+    /// nullary value; a cap with `media:void` on a side has no
+    /// meaningful data on that side. It is NOT "invalid" or "absent".
     pub fn is_void(&self) -> bool {
         // Check for "void" marker tag
         self.0.tags.contains_key("void")
+    }
+
+    /// Check if this is the **top** media URN — the universal
+    /// wildcard `media:` with no tags. Order-theoretically, every
+    /// other media URN `conforms_to` this one. Functionally it means
+    /// "any data type is acceptable here." Distinct from `media:void`,
+    /// which is the unit value (no data); a top-typed slot is `A` for
+    /// any `A`, a void-typed slot is `()`.
+    pub fn is_top(&self) -> bool {
+        self.0.tags.is_empty()
     }
 
     /// Check if this represents a file path type.

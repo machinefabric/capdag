@@ -3889,19 +3889,17 @@ mod tests {
             .await
             .unwrap();
 
-        // Caps already populated during construction (plain JSON array)
+        // Caps already populated during construction (plain JSON array
+        // of canonical cap URN strings — alphabetical tag order, no
+        // unnecessary quoting, `cap:` for the bare identity).
         let mut cap_list: Vec<String> =
             serde_json::from_slice(&switch.capabilities().await).unwrap();
         cap_list.sort();
 
         assert_eq!(cap_list.len(), 3);
-        assert!(
-            cap_list.contains(&"cap:in=\"media:void\";double;out=\"media:void\"".to_string())
-        );
-        assert!(cap_list.contains(&"cap:in=media:;out=media:".to_string()));
-        assert!(
-            cap_list.contains(&"cap:in=\"media:void\";triple;out=\"media:void\"".to_string())
-        );
+        assert!(cap_list.contains(&"cap:double;in=media:void;out=media:void".to_string()));
+        assert!(cap_list.contains(&"cap:".to_string()));
+        assert!(cap_list.contains(&"cap:in=media:void;out=media:void;triple".to_string()));
     }
 
     // TEST434: Limits negotiation takes minimum

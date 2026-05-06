@@ -12,6 +12,15 @@ The dispatch question is:
 
 This is answered by the **dispatch predicate**.
 
+The predicate is **kind-agnostic**. The
+[CapKind](./06-CAP-URN-STRUCTURE.md#4-cap-kinds) classification
+(Identity / Source / Sink / Effect / Transform) is a logical taxonomy
+derived from the URN; it does not appear in the dispatch rule.
+Whether a provider is a Source matching a request whose `in` happens
+to be `media:void`, or a Transform matching a request whose `in` is a
+concrete type, is the same matching rule applied to the same three
+axes. Dispatch is one rule; kind is a description of the result.
+
 ---
 
 ## 2. The Dispatch Predicate

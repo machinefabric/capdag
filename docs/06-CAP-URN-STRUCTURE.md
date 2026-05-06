@@ -48,15 +48,14 @@ The `in` and `out` tags are **required** in the canonical form:
 
 ### 2.3 Non-Direction Tags
 
-All other tags form the `y` dimension:
-
-| Common Tag | Purpose |
-|------------|---------|
-| `op` | Operation name |
-| `ext` | File extension hint |
-| `model` | Model identifier |
-| `language` | Language code |
-| `constrained` | Constrained output flag |
+All other tags form the `y` dimension. **No tag in `y` has functional
+meaning to the protocol** — only `in` and `out` participate in
+dispatch, conformance, and ranking. Cap-tags are arbitrary descriptive
+metadata: they refine the cap's identity (so two caps with different
+`y` are different caps), but no tag key is privileged. Common
+descriptive tags include operation names (`extract`, `generate`),
+language codes, model identifiers, hints — all are equal under the
+protocol.
 
 ---
 
@@ -72,22 +71,32 @@ Cap URN processing distinguishes three forms:
 
 ### 3.1 Surface Syntax (Accepted Input)
 
-Users may omit direction tags. These are all valid surface syntax:
+Users may omit direction tags or write the trivial wildcard
+explicitly. These are all valid surface syntax:
 ```
-cap:in=media:;out=media:;test
+cap:test
 cap:in=media:;out=media:;test
 cap:in=*;test;out=*
 ```
 
 ### 3.2 Normalization to Canonical Form
 
-During parsing, missing or wildcard direction tags are filled with `media:`:
+Parsing produces a unique canonical representative per cap. Two
+rules govern the directional axes:
+
+1. Missing or wildcard direction tags resolve to `media:` internally.
+2. When `in` resolves to the top media URN (`media:`), the segment
+   is **omitted** in canonical form. Same for `out`. The internal
+   value is still `media:`; the rendered form just doesn't show it.
 
 | Surface Syntax | Canonical Form |
 |----------------|----------------|
-| `cap:op=test` | `cap:in=media:;test;out=media:` |
-| `cap:in;op=test` | `cap:in=media:;test;out=media:` |
-| `cap:in=*;test;out=*` | `cap:in=media:;test;out=media:` |
+| `cap:test` | `cap:test` |
+| `cap:in=media:;test;out=media:` | `cap:test` |
+| `cap:in=*;test;out=*` | `cap:test` |
+| `cap:in=media:pdf;extract;out=media:textable` | `cap:extract;in=media:pdf;out=media:textable` |
+| `cap:` | `cap:` |
+| `cap:in=media:;out=media:` | `cap:` |
 
 The value `*` in direction tags expands to `media:`:
 ```
@@ -95,7 +104,8 @@ in=*  →  in=media:
 out=* →  out=media:
 ```
 
-This ensures `media:` is the unique identity for "any media type".
+This ensures `media:` is the unique top of the directional order, and
+the canonical form is byte-equal across every way of writing it.
 
 ### 3.3 Validation Target
 
@@ -114,86 +124,163 @@ Without quotes, `media:pdf;bytes` would parse incorrectly.
 
 ---
 
-## 4. Identity Cap
+## 4. Cap Kinds
 
-### 4.1 Definition
+The (i, o, y) triple admits a five-way classification by inspecting
+the directional axes. The classification is **logical only** — the
+dispatch protocol does not branch on kind. Tools, UIs, planners, and
+human readers use it to talk about what a cap *does* without
+re-deriving the rules each time.
 
-The **identity cap** is:
-```
-cap:
-```
+Two anchor types make the taxonomy fall out:
 
-Which normalizes to:
-```
-cap:in=media:;out=media:
-```
+- **`media:`** is the **top type** — the universal wildcard over the
+  media URN order. Every other media URN `conforms_to` this one. A
+  side typed as `media:` reads as "any A": there is no constraint on
+  what data flows there.
+- **`media:void`** is the **unit type** — the nullary value. A side
+  typed as `media:void` reads as "()": no meaningful data flows
+  there. It is *not* "invalid" or "absent"; it is the type with
+  exactly one value.
 
-### 4.2 Semantics
+### 4.1 The Five Kinds
 
-The identity cap:
-- Accepts any input (`in=media:`)
-- Produces any output (`out=media:`)
-- Has no operation constraints
-- Has specificity 0
-- Is the **top** of the Cap partial order
+| Kind        | `i`           | `o`           | `y`           | Reads as     |
+|-------------|---------------|---------------|---------------|--------------|
+| `Identity`  | `media:`      | `media:`      | empty         | `A → A`      |
+| `Source`    | `media:void`  | not `void`    | any           | `() → B`     |
+| `Sink`      | not `void`    | `media:void`  | any           | `A → ()`     |
+| `Effect`    | `media:void`  | `media:void`  | any           | `() → ()`    |
+| `Transform` | anything else (at least one side non-void)   | `A → B`      |
 
-### 4.3 Constant
+Each implementation exposes this classification via a `kind()` method
+on `CapUrn` (or its language-port equivalent), returning a `CapKind`
+enum value.
+
+### 4.2 Identity Is Fully Generic
+
+`Identity` is the **fully generic** cap on every axis:
+
+- input wide open (`media:`),
+- output wide open (`media:`),
+- no operation/metadata tags.
+
+The canonical form is `cap:` and only `cap:`. Adding any tag — even
+one with no special meaning — specifies *something* on the third
+axis and demotes the morphism from `Identity` to a `Transform` whose
+`in`/`out` happen to be the wildcards. So:
+
+| URN              | Kind      | Reading                                |
+|------------------|-----------|----------------------------------------|
+| `cap:`           | Identity  | `A → A` for any `A`                    |
+| `cap:passthrough`| Transform | "for the routing label *passthrough*, accept any input, produce any output" |
+
+`Identity` is also the **top** of the Cap partial order: every other
+cap is more specific. Specificity 0.
 
 ```rust
 pub const CAP_IDENTITY: &str = "cap:";
 ```
 
-### 4.4 Requirement
+Every capset **must** include the identity cap (see CU1 in
+[10-VALIDATION-RULES](./10-VALIDATION-RULES.md)).
 
-Every capset **must** include the identity cap (see CU1 in [10-VALIDATION-RULES](./10-VALIDATION-RULES.md)).
+### 4.3 Source, Sink, Effect: void as Unit
+
+`media:void` lets the `(i, o, y)` triple express caps that are not
+data transformers in the conventional sense.
+
+- A **Source** has `i = media:void` and `o ≠ media:void`. It produces
+  a value with no meaningful input. Examples: warming a model
+  (`cap:in=media:void;out=media:model-artifact;warm`), search-models,
+  list-compatible-models, generators driven by configuration alone.
+- A **Sink** has `i ≠ media:void` and `o = media:void`. It absorbs a
+  value with no meaningful output. Examples: discard caps, log-to-
+  telemetry, append-to-index.
+- An **Effect** has both sides `media:void`. Reads as `() → ()`. A
+  nullary side-effect cap: warm-cache, ping, health-check,
+  initialize-index, sync-registry, log-heartbeat. Valid in the type
+  theory; useful in practice for command-style operations whose
+  whole purpose is the side effect.
+
+In all three cases the `y` dimension may carry any tags. `media:void`
+on a side is a directional decision; `y` continues to refine the
+identity of the cap.
+
+### 4.4 Transform: The Default
+
+`Transform` is the catch-all: at least one side is a non-void media
+URN, and the cap is not the bare identity. Transform covers the
+overwhelming majority of caps in practice — the actual data
+processors (extract, render, generate-text, embed, convert).
+
+### 4.5 Why the Distinction Is Logical Only
+
+Dispatch (the `accepts` / `conforms_to` predicates) operates on the
+`(i, o, y)` triple uniformly. It does not consult `CapKind`. A
+`Source` and a `Transform` whose `in` happens to specialize a
+pattern's `media:void` are matched by the same rules; the kind is a
+description of the result, not a routing dimension.
+
+This separation matters because:
+
+- The protocol stays simple (one matching rule, three axes).
+- Tools and humans can still reason about caps in plain terms
+  ("this is a Source — it doesn't take input").
+- The kind cannot drift: it is always derivable from the URN. There
+  is no separate field to keep in sync, and no flag a cartridge
+  could set wrongly.
 
 ---
 
 ## 5. Dimension Semantics
 
+The three axes of `(i, o, y)` correspond to three independent
+questions. The kind taxonomy from §4 is what falls out when those
+questions are answered.
+
 ### 5.1 Input Dimension (i)
 
-The `in` tag specifies what input the capability accepts:
+`in` answers: *what data does this cap consume?*
 
-```
-cap:in="media:pdf";...
-```
+| Value          | Meaning                                          |
+|----------------|--------------------------------------------------|
+| `media:pdf`    | "Requires a PDF."                                |
+| `media:`       | "Accepts any input." (top — Identity / generic)  |
+| `media:void`   | "Takes no data input." (unit — Source / Effect)  |
 
-Meaning: "This capability requires PDF input."
-
-Wildcard:
-```
-cap:in=media:;...
-```
-
-Meaning: "This capability accepts any input."
+`media:` and `media:void` are not interchangeable: one says "anything
+goes here," the other says "nothing flows here."
 
 ### 5.2 Output Dimension (o)
 
-The `out` tag specifies what output the capability produces:
+`out` answers: *what data does this cap produce?*
 
-```
-cap:..;out="media:object"
-```
-
-Meaning: "This capability produces a JSON object."
-
-Wildcard:
-```
-cap:...;out=media:
-```
-
-Meaning: "This capability may produce any output."
+| Value          | Meaning                                          |
+|----------------|--------------------------------------------------|
+| `media:json`   | "Produces JSON."                                 |
+| `media:`       | "May produce any output." (top — Identity / generic) |
+| `media:void`   | "Produces no data." (unit — Sink / Effect)       |
 
 ### 5.3 Cap-Tags Dimension (y)
 
-Non-direction tags specify operation identity and constraints:
+`y` answers: *what specifies, refines, or labels this cap beyond its
+data signature?*
 
 ```
 cap:...;extract;target=metadata
 ```
 
-The `y` dimension is itself a Tagged URN (without prefix), using the same matching semantics.
+`y` is itself a Tagged URN (without prefix), with the same matching
+semantics as any other Tagged URN. Tags in `y` are arbitrary — no
+key has functional meaning to the protocol. They distinguish caps
+with the same data signature (e.g. an `extract` cap and a `summarize`
+cap can both have `media:pdf → media:textable` and remain distinct
+because their `y` differs).
+
+A non-empty `y` is also what distinguishes `cap:passthrough`
+(Transform) from `cap:` (Identity), even though the directional
+axes match.
 
 ---
 
@@ -204,57 +291,74 @@ The `y` dimension is itself a Tagged URN (without prefix), using the same matchi
 Given a Cap URN string, extract:
 
 ```rust
-let cap = CapUrn::from_string("cap:in=media:pdf;extract;out=media:object")?;
+let cap = CapUrn::from_string("cap:extract;in=media:pdf;out=media:textable")?;
 
 let input: &str = cap.in_spec();    // "media:pdf"
-let output: &str = cap.out_spec();  // "media:object"
-let op: Option<&str> = cap.tag("op"); // Some("extract")
+let output: &str = cap.out_spec();  // "media:textable"
+let has_extract: bool = cap.has_marker_tag("extract"); // true
+let kind: CapKind = cap.kind()?;    // CapKind::Transform
 ```
+
+`kind()` derives the [CapKind](#4-cap-kinds) classification from the
+parsed `(i, o, y)` triple. It returns an error only on internally
+inconsistent state (which `CapUrn` construction prevents) — a hard
+signal that something upstream is broken.
 
 ### 6.2 Component Types
 
-| Component | Type | Access |
-|-----------|------|--------|
-| Input | Media URN string | `in_spec()` |
-| Output | Media URN string | `out_spec()` |
-| Cap-tags | Key-value map | `tags`, `tag(key)` |
+| Component | Type             | Access            |
+|-----------|------------------|-------------------|
+| Input     | Media URN string | `in_spec()`       |
+| Output    | Media URN string | `out_spec()`      |
+| Cap-tags  | Key-value map    | `tags`, `tag(key)`|
+| Kind      | `CapKind` enum   | `kind()`          |
 
 ---
 
 ## 7. Specificity
 
-Cap URN specificity is defined in [03-SPECIFICITY](./05-SPECIFICITY.md):
+Cap URN specificity is defined in [05-SPECIFICITY](./05-SPECIFICITY.md):
 
 ```
 spec_C(i, o, y) = tags(i) + tags(o) + count(non-* y-tags)
 ```
 
-Examples:
-```
-cap:                                    → 0
-cap:extract;in=media:;out=media:                          → 1
-cap:in=media:pdf;extract;out=media:object → 3
-```
+Examples by kind:
+
+| URN                                      | Kind      | Specificity |
+|------------------------------------------|-----------|-------------|
+| `cap:`                                   | Identity  | 0           |
+| `cap:extract`                            | Transform | 1           |
+| `cap:extract;in=media:pdf;out=media:textable` | Transform | 3        |
+| `cap:in=media:void;out=media:void;ping`  | Effect    | 3           |
+
+Identity is uniquely at specificity 0 (top of the order). Adding any
+tag — directional or otherwise — moves a cap below identity in the
+specialization order.
 
 ---
 
 ## 8. Partial Order Structure
 
-Cap URNs form a partial order (specialization order) in the product space:
+Cap URNs form a partial order (specialization order) in the product
+space. `cap:` (Identity) is the top:
 
 ```
-                        cap:                          (top)
-                         |
-              cap:extract;in=media:;out=media:
-                /              \
-cap:extract;in=media:pdf;out=media:    cap:extract;out=media:object
-                \              /
-        cap:in=media:pdf;extract;out=media:object
-                         |
-cap:in=media:pdf;v=2.0;extract;out=media:object;target=metadata  (more specific)
+                            cap:                         (top, Identity)
+                             |
+                        cap:extract                       (Transform)
+                       /            \
+       cap:extract;in=media:pdf       cap:extract;out=media:textable
+                       \            /
+            cap:extract;in=media:pdf;out=media:textable
+                             |
+   cap:extract;in=media:pdf;out=media:textable;target=metadata     (more specific)
 ```
 
-The ordering follows from the dispatch relation (see [05-DISPATCH](./07-DISPATCH.md)).
+The ordering follows from the dispatch relation (see
+[07-DISPATCH](./07-DISPATCH.md)). Note that the kind can change as
+you move down the lattice — `cap:` is Identity, every refinement of
+it is a Transform (or Source/Sink/Effect once a side becomes void).
 
 ---
 
@@ -293,50 +397,82 @@ Cap URNs must satisfy (from [10-VALIDATION-RULES](./10-VALIDATION-RULES.md)):
 
 ---
 
-## 11. Common Patterns
+## 11. Common Patterns by Kind
 
-### 11.1 Generic Capability
+This section walks the five kinds with concrete, idiomatic examples.
 
-```
-cap:in=media:;out=media:;transform
-```
-
-Accepts any input, produces any output, performs "transform".
-
-### 11.2 Typed Transformer
-
-```
-cap:in="media:pdf";extract;out="media:object"
-```
-
-Takes PDF, produces object.
-
-### 11.3 Constrained Generation
-
-```
-cap:in="media:textable;form=scalar";generate;out="media:textable;form=map";constrained
-```
-
-Takes text prompt, produces structured output with constraints.
-
-### 11.4 Identity (Pass-through)
+### 11.1 Identity
 
 ```
 cap:
 ```
 
-The identity morphism. Required in all capsets.
+The identity morphism. Fully generic on every axis. Required in
+all capsets.
+
+### 11.2 Transform — typed data processor
+
+```
+cap:extract;in=media:pdf;out=media:textable
+cap:generate;constrained;in=media:textable;language=en;out=media:json
+cap:render-page-image;in=media:pdf;out=media:image
+```
+
+The bread and butter: real data flows in, real data flows out, the
+`y` dimension labels the operation and any modifiers.
+
+### 11.3 Source — generator
+
+```
+cap:in=media:void;out=media:model-artifact;warm
+cap:in=media:void;out=media:model-list;list-compatible-models
+cap:in=media:void;out=media:embeddings-dim;numeric;target=embeddings-dim
+```
+
+`media:void` on the input side: the cap produces a value driven by
+its `y` (configuration tags, args, peer state) rather than a piped
+input.
+
+### 11.4 Sink — consumer
+
+```
+cap:discard;in=media:;out=media:void
+cap:in=media:json;log;out=media:void
+```
+
+`media:void` on the output side: the cap absorbs a value but
+contributes no data to the downstream flow. Useful as a graph
+terminator.
+
+### 11.5 Effect — nullary side-effect
+
+```
+cap:in=media:void;out=media:void;ping
+cap:in=media:void;out=media:void;warm-cache
+cap:in=media:void;out=media:void;health-check
+```
+
+Both sides `media:void`. The whole point of the cap is the side
+effect: the protocol carries no data either way, only the
+invocation. Read as `() → ()`.
 
 ---
 
 ## 12. Summary
 
-| Concept | Definition |
-|---------|------------|
-| Structure | C = U × U × U (product of Tagged URN domain) |
-| Components | (in, out, y) |
-| Identity | `cap:` → `cap:in=media:;out=media:` |
-| Direction defaults | Missing or `*` → `media:` |
-| Canonical form | Always includes `in` and `out` |
+| Concept            | Definition                                                  |
+|--------------------|-------------------------------------------------------------|
+| Structure          | `C = U × U × U` (product of Tagged URN domain)              |
+| Components         | `(in, out, y)`                                              |
+| Top type           | `media:` — the universal wildcard for either direction      |
+| Unit type          | `media:void` — nullary value (no data flows on this side)   |
+| Identity           | `cap:` (canonical) — fully generic on every axis             |
+| Direction defaults | Missing or `*` → `media:`; canonical drops `in`/`out` when both are `media:` and `y` is empty |
+| Functional axes    | Only `in` and `out` participate in dispatch; `y` is arbitrary metadata |
+| Kinds              | Identity, Source, Sink, Effect, Transform — derived from `(i, o)` and "is `y` empty?"; logical-only |
 
-Cap URNs extend Tagged URNs with three-dimensional structure. The dispatch relation (next document) defines how these dimensions interact for routing. Once dispatch is in place, multiple Cap URNs can be wired into a data-flow graph and serialized via [07-MACHINE-NOTATION](./09-MACHINE-NOTATION.md).
+Cap URNs extend Tagged URNs with three-dimensional structure. The
+dispatch relation (next document) defines how these dimensions
+interact for routing. Once dispatch is in place, multiple Cap URNs
+can be wired into a data-flow graph and serialized via
+[09-MACHINE-NOTATION](./09-MACHINE-NOTATION.md).
