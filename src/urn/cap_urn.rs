@@ -978,7 +978,7 @@ impl CapUrnBuilder {
         self
     }
 
-    pub fn solo_tag(mut self, key: &str) -> Self {
+    pub fn marker(mut self, key: &str) -> Self {
         let key_lower = key.to_lowercase();
         if key_lower == "in" || key_lower == "out" {
             return self;

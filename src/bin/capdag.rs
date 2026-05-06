@@ -288,6 +288,16 @@ async fn main() {
         }
     };
 
+    // Create media URN registry (required by execute_dag for input
+    // resolution and adapter dispatch).
+    let media_registry = match capdag::MediaUrnRegistry::new().await {
+        Ok(r) => Arc::new(r),
+        Err(e) => {
+            eprintln!("Error creating MediaUrnRegistry: {}", e);
+            process::exit(1);
+        }
+    };
+
     // Parse and validate machine notation
     let graph = match parse_machine_to_cap_dag(&notation, registry.as_ref()).await {
         Ok(g) => g,
@@ -445,6 +455,7 @@ async fn main() {
             initial_is_sequence,
             dev_binaries.clone(),
             registry.clone(),
+            media_registry.clone(),
             Some(&progress),
             &node_values,
         )

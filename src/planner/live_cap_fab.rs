@@ -1223,7 +1223,7 @@ mod tests {
         let cap_urn = CapUrnBuilder::new()
             .in_spec(in_spec)
             .out_spec(out_spec)
-            .tag("op", op)
+            .marker(op)
             .build()
             .expect("Failed to build test cap URN");
 
@@ -1257,7 +1257,7 @@ mod tests {
         let cap_urn = CapUrnBuilder::new()
             .in_spec(in_spec)
             .out_spec(out_spec)
-            .tag("op", op)
+            .marker(op)
             .build()
             .expect("Failed to build test cap URN");
 

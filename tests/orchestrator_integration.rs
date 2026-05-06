@@ -295,6 +295,32 @@ fn create_test_cap_registry() -> Arc<CapRegistry> {
     Arc::new(registry)
 }
 
+/// Create an empty MediaUrnRegistry backed by a fresh temp cache dir.
+///
+/// `execute_dag` requires a `MediaUrnRegistry` for input resolution
+/// and adapter dispatch. The orchestrator integration tests in this
+/// file all use the testcartridge `media:nodeN;textable` synthetic
+/// types, none of which need real media spec lookup, so an empty
+/// registry is correct here. We use a unique temp dir per call so
+/// concurrent test execution doesn't collide on the cache directory.
+fn create_test_media_registry() -> Arc<capdag::MediaUrnRegistry> {
+    let temp_dir = std::env::temp_dir()
+        .join("capdag-media-test-cache")
+        .join(format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+    std::fs::create_dir_all(&temp_dir).expect("create media registry temp dir");
+    Arc::new(
+        capdag::MediaUrnRegistry::new_for_test(temp_dir)
+            .expect("MediaUrnRegistry::new_for_test"),
+    )
+}
+
 // =============================================================================
 // Phase 1: Basic macino Functionality with testcartridge
 // =============================================================================
@@ -354,6 +380,7 @@ async fn test889_execute_single_edge_dag() {
         initial_is_sequence,
         dev_binaries,
         cap_registry,
+        create_test_media_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -404,6 +431,7 @@ async fn test888_execute_edge1_to_edge2_chain() {
         initial_is_sequence,
         dev_binaries,
         cap_registry,
+        create_test_media_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -454,6 +482,7 @@ async fn test887_execute_with_file_input() {
         initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
+        create_test_media_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -500,6 +529,7 @@ async fn test952_execute_large_payload() {
         initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
+        create_test_media_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -555,6 +585,7 @@ async fn test951_fan_in_pattern() {
         initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
+        create_test_media_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -708,6 +739,7 @@ async fn test946_four_machine() {
         initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
+        create_test_media_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -767,6 +799,7 @@ async fn test945_five_machine() {
         initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
+        create_test_media_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -826,6 +859,7 @@ async fn test944_six_machine() {
         initial_is_sequence,
         dev_binaries,
         create_test_cap_registry(),
+        create_test_media_registry(),
         None,
         &std::collections::HashMap::new(),
     )
