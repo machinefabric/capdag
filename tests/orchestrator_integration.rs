@@ -229,16 +229,11 @@ fn testcartridge_bin() -> PathBuf {
     bin_path
 }
 
-/// Create a temporary cartridge directory for tests
 fn setup_test_env() -> (TempDir, PathBuf, Vec<PathBuf>) {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let cartridge_dir = temp_dir.path().join("cartridges");
     fs::create_dir_all(&cartridge_dir).expect("Failed to create cartridge dir");
-
-    // Use testcartridge as dev binary (no registry lookup needed)
-    let dev_binaries = vec![testcartridge_bin()];
-
-    (temp_dir, cartridge_dir, dev_binaries)
+    (temp_dir, cartridge_dir, vec![testcartridge_bin()])
 }
 
 /// Build the `initial_is_sequence` map that pairs with the

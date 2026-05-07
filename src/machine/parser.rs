@@ -596,15 +596,18 @@ mod tests {
         // the second to strand 1.
         assert_eq!(machine.strands()[0].edges().len(), 1);
         assert_eq!(machine.strands()[1].edges().len(), 1);
-        // First strand uses convert_a, second uses convert_b.
+        // First strand uses convert-a, second uses convert-b. The
+        // marker tag in the URN uses hyphens; the cap title is
+        // separately stored with underscores but isn't part of the
+        // URN serialization.
         assert!(machine.strands()[0].edges()[0]
             .cap_urn
             .to_string()
-            .contains("convert_a"));
+            .contains("convert-a"));
         assert!(machine.strands()[1].edges()[0]
             .cap_urn
             .to_string()
-            .contains("convert_b"));
+            .contains("convert-b"));
     }
 
     // TEST1165: Parsing fails hard when a referenced cap is missing from the registry cache.

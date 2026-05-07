@@ -87,72 +87,101 @@ Inside quotes:
 
 ---
 
-## 4. Special Values
+## 4. The Six Canonical Forms
 
-Tagged URNs support four special value forms:
+Tagged URNs encode constraints on each key using one of six canonical
+forms. Several authored aliases collapse to the same canonical form
+during parsing; serialization always emits the canonical
+representative deterministically.
 
-| Value | Name | Meaning |
-|-------|------|---------|
-| `*` | Must-have-any | Key must be present with any value |
-| `?` | Unspecified | No constraint on this key |
-| `!` | Must-not-have | Key must be absent |
-| (missing) | No constraint | Same as `?` when used as pattern |
+| Authored aliases             | Canonical | Stored value | Reading                             |
+|------------------------------|-----------|--------------|-------------------------------------|
+| `?x` ≡ `x?` ≡ `x=?`          | `?x`      | `"?"`        | no constraint                       |
+| `?x=v` ≡ `x?=v` ≡ `x=?v`     | `x?=v`    | `"?=v"`      | absent OR (present and not v)       |
+| `x` ≡ `x=*`                  | `x`       | `"*"`        | present with any value (must-have)  |
+| `!x=v` ≡ `x!=v` ≡ `x=!v`     | `x!=v`    | `"!=v"`      | present and not v                   |
+| `x=v`                        | `x=v`     | `"v"`        | present and exactly v               |
+| `!x` ≡ `x!` ≡ `x=!`          | `!x`      | `"!"`        | absent (must-not-have)              |
 
-### 4.1 Semantics
+### 4.1 Qualifier Position
 
-- **`*` (must-have-any)**: When matching, the instance MUST have this key with some value. The specific value doesn't matter, but the key must exist.
+The qualifier `?` or `!` may appear EITHER as a key prefix
+(`?x`, `!x`, `?x=v`, `!x=v`) OR as an infix immediately before `=`
+(`x?`, `x!`, `x?=v`, `x!=v`). The two notations are exact aliases.
 
-- **`?` (unspecified)**: No constraint. The pattern doesn't care whether the instance has this key or what value it has.
+### 4.2 Disallowed Combinations
 
-- **`!` (must-not-have)**: When matching, the instance MUST NOT have this key. If the instance has this key with any value, matching fails.
+Hard parse errors:
 
-- **(missing)**: On the pattern side, a missing key means "no constraint" (same as `?`). On the instance side, a missing key means the key is absent.
+- **Mixed prefix and infix**: `?x?`, `?x?=v`, `!x!=v`, `!x?` — the qualifier appears twice on the same key.
+- **Mixed `?` and `!`**: `?!x`, `!?x` — contradictory.
+- **Qualifier with sigil value**: `?x=*`, `!x=*`, `?x=?`, `?x=!` — a qualifier and a sigil-only value would conflate the two semantics.
+- **Empty value**: `x=` — exact value cannot be empty.
+- **Bare `?` or `!` with nothing after**: `prefix:?`, `prefix:!` — qualifier requires a key.
+
+### 4.3 Why Six Forms
+
+The six forms partition into two semantic chains plus their endpoints:
+
+- **Positive chain** (presence claims): `?x` (no constraint) → `x` (must-have-any) → `x=v` (must-have-exactly-v).
+- **Negative chain** (absence/exclusion claims): `?x` (no constraint) → `x?=v` (absent or not v) → `x!=v` (present and not v) → `!x` (absent).
+
+Both chains start at the same shared origin (`?x`, no constraint).
+The chains diverge by the kind of claim being made: positive chains
+*require* presence and progressively pin the value; negative chains
+*forbid* values and progressively narrow the kind of forbidding.
+
+### 4.4 Canonical of `x=*`
+
+Bare `x` and `x=*` are the same form. The parser stores both with
+value `"*"`; the serializer emits the bare form `x` (no `=*` suffix)
+as canonical. This keeps marker-style writing (`extract`, `bytes`,
+`textable`) consistent with explicit-value writing.
 
 ---
 
-## 5. Wildcard Truth Table
+## 5. Constraint Truth Table
 
-This table defines matching between an instance and a pattern for a single key:
+The full 6×6 cross-product (including the implicit "missing" form
+for keys with no entry) is in [04-PREDICATES](./04-PREDICATES.md).
+The headline rules:
 
-| Instance ↓ \ Pattern → | (missing) | K=? | K=! | K=* | K=v |
-|------------------------|-----------|-----|-----|-----|-----|
-| **(missing)** | ✓ | ✓ | ✓ | ✗ | ✗ |
-| **K=?** | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **K=!** | ✓ | ✓ | ✓ | ✗ | ✗ |
-| **K=\*** | ✓ | ✓ | ✗ | ✓ | ✓ |
-| **K=v** | ✓ | ✓ | ✗ | ✓ | v=v only |
+1. **Pattern missing or `?x`**: always matches (no constraint).
+2. **Pattern `!x`**: matches only if instance is missing, `?x`, `x?=v`, or `!x` (i.e. instance does not have the key with a value).
+3. **Pattern `x`** (must-have-any): matches only if instance has the key with some value (`x`, `x!=v`, `x=v`, or instance-side `?x` defers to runtime).
+4. **Pattern `x=v`** (exact): matches only if instance has the key with exactly `v` (or instance is `?x`/`x` deferring to runtime).
+5. **Pattern `x?=v`** (absent or not v): matches if instance is absent, or has any value other than `v`.
+6. **Pattern `x!=v`** (present and not v): matches if instance has the key with any value other than `v`.
 
 ### 5.1 Reading the Table
 
-- **Row**: What the instance has for key K
-- **Column**: What the pattern requires for key K
-- **Cell**: ✓ = match, ✗ = no match
+- **Row**: What the instance has for key K (one of the six forms or missing).
+- **Column**: What the pattern requires for key K.
+- **Cell**: ✓ = match, ✗ = no match. Some cells depend on whether the values overlap.
 
-### 5.2 Key Rules
-
-1. **Pattern missing or `?`**: Always matches (no constraint)
-2. **Pattern `!`**: Matches only if instance is missing or `!`
-3. **Pattern `*`**: Matches only if instance has a value (not missing, not `!`)
-4. **Pattern `v`**: Matches only if instance has exactly `v` (or `*` which accepts any)
-5. **Instance `?`**: Always matches (instance doesn't constrain)
-
-### 5.3 Examples
+### 5.2 Examples
 
 ```
-# Pattern: media:pdf    Instance: media:pdf;bytes
-# Pattern has: pdf=*    Instance has: pdf=*, bytes=*
+# Pattern: media:pdf      Instance: media:pdf;bytes
+# Pattern has: pdf=*      Instance has: pdf=*, bytes=*
 # For key 'pdf': Instance=*, Pattern=* → ✓
 # For key 'bytes': Instance=*, Pattern=(missing) → ✓
 # Result: MATCH
 
 # Pattern: media:pdf;!audio    Instance: media:pdf;audio=mp3
 # For key 'pdf': Instance=*, Pattern=* → ✓
-# For key 'audio': Instance=mp3, Pattern=! → ✗
-# Result: NO MATCH (instance has audio, pattern forbids it)
+# For key 'audio': Instance=mp3 (exact), Pattern=! → ✗
+# Result: NO MATCH
 
-# Pattern: media:*    Instance: media:
-# For key (any): Pattern requires *, but Instance has nothing
-# Result: NO MATCH (pattern requires at least one tag)
+# Pattern: media:pdf;v!=draft   Instance: media:pdf;v=final
+# For key 'pdf': Instance=*, Pattern=* → ✓
+# For key 'v': Instance=final, Pattern=!=draft → ✓ (final ≠ draft)
+# Result: MATCH
+
+# Pattern: media:pdf;v?=draft   Instance: media:pdf
+# For key 'pdf': Instance=*, Pattern=* → ✓
+# For key 'v': Instance=missing, Pattern=?=draft → ✓ (absence allowed)
+# Result: MATCH
 ```
 
 ---
@@ -258,9 +287,9 @@ The following conditions produce parse errors:
 The Tagged URN domain U provides:
 
 1. **Normalized representation** — Canonical string form via case/ordering rules
-2. **Wildcard semantics** — Four special values with defined matching behavior
+2. **Six-form constraint alphabet** — `?x`, `x?=v`, `x` (=`x=*`), `x!=v`, `x=v`, `!x`, plus the implicit "missing"
 3. **Partial order ⪯** — Reflexive, transitive, antisymmetric relation
 4. **Lattice structure** — Identity at top, specificity increasing downward
-5. **Compositional matching** — Per-key matching via truth table
+5. **Compositional matching** — Per-key matching via the 6×6 truth table
 
 All higher-level constructs (predicates, Cap URNs, dispatch) build on this foundation.

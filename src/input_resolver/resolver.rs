@@ -582,20 +582,42 @@ mod tests {
     }
 
     // TEST1236: Colon-delimited model spec text survives TXT candidate discrimination.
+    // TEST1236: Discrimination matches a candidate's validation
+    // pattern against the file content. media:model-spec is a value
+    // type with no associated file extension, so it does NOT appear
+    // among txt candidates. When passed in explicitly as a candidate,
+    // content that matches its `^(scheme):\S+$` regex must survive;
+    // content that doesn't (plain prose with whitespace) must be
+    // filtered out.
     #[test]
-    fn test1236_disc_2_model_spec_content_survives_pattern() {
+    fn test1236_disc_2_model_spec_validation_pattern_filters_content() {
         let (registry, _temp) = create_test_media_registry();
-        let all_txt_urns = txt_extension_urns(&registry);
+        let candidates = vec!["media:model-spec;textable".to_string()];
 
-        let content = b"hf:MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF";
-        let baseline = "media:textable;txt";
-        let survivors =
-            discriminate_candidates_by_validation(content, &all_txt_urns, &registry, baseline);
-
+        // Spec-shaped content survives the regex filter.
+        let survivors = discriminate_candidates_by_validation(
+            b"hf:MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF",
+            &candidates,
+            &registry,
+            "media:textable",
+        );
         assert!(
-            survivors.iter().any(|u| u.contains("model-spec")),
-            "At least one model-spec URN should survive — content contains a colon, survivors: {:?}",
+            survivors.iter().any(|u| u == "media:model-spec;textable"),
+            "spec-shaped content must survive, got: {:?}",
             survivors
+        );
+
+        // Plain prose with internal whitespace is rejected by the same regex.
+        let survivors_prose = discriminate_candidates_by_validation(
+            b"this is not a model spec",
+            &candidates,
+            &registry,
+            "media:textable",
+        );
+        assert!(
+            !survivors_prose.iter().any(|u| u == "media:model-spec;textable"),
+            "prose must NOT survive, got: {:?}",
+            survivors_prose
         );
     }
 

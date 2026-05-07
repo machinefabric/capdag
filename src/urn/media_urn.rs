@@ -312,13 +312,27 @@ impl MediaUrn {
 
     /// Create a new MediaUrn from a TaggedUrn
     ///
-    /// Returns an error if the TaggedUrn doesn't have the "media" prefix.
+    /// Returns an error if:
+    /// - The TaggedUrn doesn't have the `media` prefix.
+    /// - The `void` marker tag is combined with any other tag.
+    ///   `media:void` is atomic — the type-theoretic unit `()` —
+    ///   and admits no refinements. Reasons or labels belong on
+    ///   the cap URN's non-directional tags or in cap args.
     pub fn new(urn: TaggedUrn) -> Result<Self, MediaUrnError> {
         if urn.prefix != Self::PREFIX {
             return Err(MediaUrnError::InvalidPrefix {
                 expected: Self::PREFIX.to_string(),
                 actual: urn.prefix.clone(),
             });
+        }
+        if urn.tags.contains_key("void") && urn.tags.len() > 1 {
+            let extra_tags: Vec<String> = urn
+                .tags
+                .keys()
+                .filter(|k| k.as_str() != "void")
+                .cloned()
+                .collect();
+            return Err(MediaUrnError::VoidNotAtomic { extra_tags });
         }
         Ok(Self(urn))
     }
@@ -628,6 +642,11 @@ pub enum MediaUrnError {
     Parse(TaggedUrnError),
     /// Error during matching operation
     Match(TaggedUrnError),
+    /// `media:void` was combined with one or more other tags. The unit
+    /// type is atomic — there is no lattice underneath it. Reasons for
+    /// "why void was used" belong on the cap URN's non-directional
+    /// tags or in the cap's args, not as refinements of the media URN.
+    VoidNotAtomic { extra_tags: Vec<String> },
 }
 
 impl fmt::Display for MediaUrnError {
@@ -642,6 +661,12 @@ impl fmt::Display for MediaUrnError {
             }
             MediaUrnError::Parse(e) => write!(f, "failed to parse media URN: {}", e),
             MediaUrnError::Match(e) => write!(f, "media URN match error: {}", e),
+            MediaUrnError::VoidNotAtomic { extra_tags } => write!(
+                f,
+                "media:void is atomic and cannot be refined; got extra tag(s): {}. \
+                 Move why/how this void is used into cap-tags or args, not the media URN.",
+                extra_tags.join(", ")
+            ),
         }
     }
 }
@@ -1325,5 +1350,62 @@ mod debug_tests {
             "Must have record tag, got: {}",
             urn.to_string()
         );
+    }
+
+    // TEST1810: media:void is atomic — refinements are parse errors.
+    //
+    // Mirrored across every language port (Rust, Go, Python, Swift/ObjC,
+    // JS) under the SAME number. Any divergence is a wire-level
+    // inconsistency — the unit type's atomicity is part of the
+    // protocol's deepest layer, not a per-port detail.
+    //
+    // The bare `media:void` parses successfully; any combination with
+    // another tag (marker or key=value) MUST fail with VoidNotAtomic.
+    // This forecloses a fake taxonomy of unit values; reasons or
+    // labels for *why* void is used belong on the cap URN's
+    // non-directional tags or in cap args.
+    #[test]
+    fn test1810_media_void_is_atomic() {
+        // Bare void: must parse successfully.
+        let bare = MediaUrn::from_string("media:void")
+            .expect("bare `media:void` must parse — it is the unit type");
+        assert!(bare.is_void());
+
+        // Every refinement must fail with VoidNotAtomic — even a
+        // marker tag like `text` (which would otherwise be valid) and
+        // a key=value tag like `reason=warmup`.
+        let bad_inputs = [
+            "media:void;text",
+            "media:void;pdf",
+            "media:void;audio",
+            "media:void;reason=warmup",
+            "media:void;heartbeat",
+            "media:void;manual",
+            // Order must not matter — the parser canonicalizes tags
+            // before classifying.
+            "media:warmup;void",
+            "media:reason=foo;void",
+        ];
+        for input in &bad_inputs {
+            match MediaUrn::from_string(input) {
+                Err(MediaUrnError::VoidNotAtomic { extra_tags }) => {
+                    assert!(
+                        !extra_tags.is_empty(),
+                        "{input}: VoidNotAtomic must report at least one extra tag"
+                    );
+                    assert!(
+                        !extra_tags.iter().any(|t| t == "void"),
+                        "{input}: extra_tags must NOT include `void` itself, got {extra_tags:?}"
+                    );
+                }
+                Err(other) => panic!(
+                    "{input}: expected VoidNotAtomic error, got {other:?}"
+                ),
+                Ok(parsed) => panic!(
+                    "{input}: expected parse error, but parsed successfully as {}",
+                    parsed.to_string()
+                ),
+            }
+        }
     }
 }

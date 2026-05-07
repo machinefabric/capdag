@@ -476,7 +476,7 @@ impl CartridgeManager {
     pub async fn resolve_cartridges(
         &self,
         cap_urns: &[&str],
-    ) -> Result<Vec<(PathBuf, Vec<crate::bifaci::manifest::CapGroup>)>, ExecutionError> {
+    ) -> Result<Vec<(PathBuf, Option<(String, String, crate::bifaci::cartridge_repo::CartridgeChannel)>, Vec<crate::bifaci::manifest::CapGroup>)>, ExecutionError> {
         // Collect unique cartridge binaries needed for the DAG
         let mut cartridge_paths: HashSet<PathBuf> = HashSet::new();
 
@@ -496,20 +496,20 @@ impl CartridgeManager {
         // get a synthetic identity-only group so on-demand spawn can
         // route the identity probe; their real cap_groups arrive via
         // the post-spawn HELLO and overwrite this fallback.
-        let result: Vec<(PathBuf, Vec<crate::bifaci::manifest::CapGroup>)> = cartridge_paths
+        let result: Vec<(PathBuf, Option<(String, String, crate::bifaci::cartridge_repo::CartridgeChannel)>, Vec<crate::bifaci::manifest::CapGroup>)> = cartridge_paths
             .into_iter()
             .map(|path| {
-                let groups: Vec<crate::bifaci::manifest::CapGroup> =
-                    if let Some(manifest) = self.dev_cartridges.get(&path) {
-                        manifest.cap_groups.clone()
-                    } else {
-                        vec![crate::bifaci::manifest::CapGroup {
-                            name: "identity".to_string(),
-                            caps: vec![crate::standard::caps::identity_cap()],
-                            adapter_urns: Vec::new(),
-                        }]
-                    };
-                (path, groups)
+                if let Some(manifest) = self.dev_cartridges.get(&path) {
+                    let identity = Some((manifest.name.clone(), manifest.version.clone(), manifest.channel));
+                    (path, identity, manifest.cap_groups.clone())
+                } else {
+                    let groups = vec![crate::bifaci::manifest::CapGroup {
+                        name: "identity".to_string(),
+                        caps: vec![crate::standard::caps::identity_cap()],
+                        adapter_urns: Vec::new(),
+                    }];
+                    (path, None, groups)
+                }
             })
             .collect();
 
@@ -885,8 +885,17 @@ impl ExecutionContext {
             max_chunk
         };
 
+        let switch = Arc::new(switch);
+        // Start the background frame pump so master-side frames (notably
+        // RelayNotify capability updates) are continuously dispatched
+        // through `handle_master_frame` even while the orchestrator is
+        // not actively executing a cap. Without this, `wait_for_cap`
+        // polls a master.caps that never updates because no consumer is
+        // draining `frame_rx`.
+        switch.start_background_pump();
+
         Ok(Self {
-            switch: Arc::new(switch),
+            switch,
             node_data: HashMap::new(),
             node_meta: HashMap::new(),
             node_is_sequence: HashMap::new(),
@@ -947,19 +956,9 @@ impl ExecutionContext {
     /// - Socket pairs connecting them to the switch
     ///
     /// The ExecutionContext manages cleanup of these resources.
-    ///
-    /// # Arguments
-    /// * `cartridges` - Vec of (binary_path, cap_urns) to register with the host
-    /// * `dev_fallback_channel` - Channel to use when a binary has no
-    ///   cartridge.json provenance (dev/cargo-target binaries).
-    ///   Installed cartridges always read their channel from
-    ///   cartridge.json; this is only consulted for the dev-binary
-    ///   path. Pass the orchestrator's own channel so dev binaries
-    ///   inherit the right namespace.
     pub async fn add_cartridge_host(
         &mut self,
-        cartridges: Vec<(PathBuf, Vec<crate::bifaci::manifest::CapGroup>)>,
-        dev_fallback_channel: crate::bifaci::cartridge_repo::CartridgeChannel,
+        cartridges: Vec<(PathBuf, Option<(String, String, crate::bifaci::cartridge_repo::CartridgeChannel)>, Vec<crate::bifaci::manifest::CapGroup>)>,
     ) -> Result<usize, ExecutionError> {
         // Create socket pairs:
         //   switch_sock <-> slave_ext_sock (switch to slave)
@@ -988,7 +987,7 @@ impl ExecutionContext {
         // binaries (no installer wrote it) and present for installed
         // ones. Anywhere else fails hard — we never silently guess.
         let mut host = CartridgeHostRuntime::new();
-        for (path, cap_groups) in &cartridges {
+        for (path, manifest_identity, cap_groups) in &cartridges {
             let version_dir = path.parent().ok_or_else(|| {
                 ExecutionError::HostError(format!(
                     "cartridge binary {} has no parent directory",
@@ -1027,18 +1026,31 @@ impl ExecutionContext {
                 })?;
                 host.register_cartridge(
                     path,
+                    &provenance.name,
+                    &provenance.version,
                     provenance.channel,
                     provenance.registry_url.as_deref(),
                     cap_groups,
                 );
             } else {
-                // Dev binary: no provenance on disk. The HELLO probe
-                // is what establishes the cartridge's identity at
-                // runtime; we register with the orchestrator's
-                // dev-fallback channel and a null registry_url
-                // (matching the cartridge's own HELLO, which emits
-                // `registry_url: null` for dev builds).
-                host.register_cartridge(path, dev_fallback_channel, None, cap_groups);
+                // Dev binary (no cartridge.json on disk). Identity comes from the
+                // manifest the cartridge reported during the pre-registration HELLO
+                // probe. registry_url is None (dev install = absent registry).
+                let (name, version, channel) = manifest_identity.as_ref().ok_or_else(|| {
+                    ExecutionError::HostError(format!(
+                        "dev binary {} has no manifest identity \
+                         (discover_manifest should have populated this)",
+                        path.display()
+                    ))
+                })?;
+                host.register_cartridge(
+                    path,
+                    name,
+                    version,
+                    *channel,
+                    None,
+                    cap_groups,
+                );
             }
         }
 
@@ -1274,6 +1286,29 @@ impl ExecutionContext {
                 )))?;
             inputs.push((data.as_slice(), edge.in_media.as_str(), is_seq));
         }
+        // Wait until a master advertises a cap that's dispatchable
+        // for this request. Master setup is async — the RelayNotify
+        // carrying the cartridges' real cap_groups arrives some
+        // time after `add_master` returns. Polling until the cap is
+        // visible is the synchronization point that lets the
+        // orchestrator's execute_cap route correctly. Bound the wait
+        // by the activity timeout (per-edge default ~120s) so
+        // genuinely missing caps surface as a typed error rather
+        // than hanging.
+        let dispatch_timeout = std::time::Duration::from_secs(15);
+        if self
+            .switch
+            .wait_for_cap(cap_urn, dispatch_timeout)
+            .await
+            .is_none()
+        {
+            return Err(ExecutionError::HostError(format!(
+                "execute_cap: No master advertised a cap dispatchable for {} \
+                 within 15s — RelayNotify never arrived, identity probe failed, \
+                 or no provider handles this cap",
+                cap_urn
+            )));
+        }
         // Open ONE cap invocation for all inputs
         let (request_id, mut rx) = self
             .switch
@@ -1471,13 +1506,7 @@ pub async fn execute_dag(
 
     // 2. Create execution context and add cartridge host as master
     let mut ctx = ExecutionContext::new(cap_registry, media_registry).await?;
-    // Channel is discovered per-cartridge from each cartridge.json
-    // inside add_cartridge_host. Dev binaries (no cartridge.json on
-    // disk) fall back to the scope-level `channel` here — that's
-    // also what `CartridgeManager` used when resolving them, so the
-    // host and the manager agree on the dev-binary's channel
-    // namespace.
-    ctx.add_cartridge_host(cartridges, channel).await?;
+    ctx.add_cartridge_host(cartridges).await?;
 
     // 3. Resolve initial inputs to raw bytes and set on nodes.
     //    Enforce strict 1:1 correspondence between

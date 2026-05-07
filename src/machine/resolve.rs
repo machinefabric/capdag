@@ -1036,7 +1036,9 @@ mod tests {
         let resolved = resolve_strand(&strand, &registry, 0).expect("must resolve");
         assert_eq!(resolved.edges().len(), 2);
         // First edge (disbind) is not a loop; second
-        // (make_decision) is.
+        // (make-decision) is. The URN tag uses hyphens; the cap
+        // title is separately stored with underscores but isn't
+        // part of the URN serialization.
         let disbind_edge = resolved
             .edges()
             .iter()
@@ -1045,8 +1047,8 @@ mod tests {
         let decision_edge = resolved
             .edges()
             .iter()
-            .find(|e| e.cap_urn.to_string().contains("make_decision"))
-            .expect("make_decision edge present");
+            .find(|e| e.cap_urn.to_string().contains("make-decision"))
+            .expect("make-decision edge present");
         assert!(!disbind_edge.is_loop, "disbind is not in a loop");
         assert!(decision_edge.is_loop, "make_decision is inside ForEach");
 

@@ -368,12 +368,14 @@ impl ManagedCartridge {
     /// silently merge release/nightly or different-registry artefacts.
     fn new_registered_binary(
         path: PathBuf,
+        name: String,
+        version: String,
         channel: crate::bifaci::cartridge_repo::CartridgeChannel,
         registry_url: Option<String>,
         cap_groups: Vec<crate::bifaci::manifest::CapGroup>,
     ) -> Self {
         let installed_identity =
-            installed_cartridge_record_from_binary(&path, channel, registry_url);
+            installed_cartridge_record_from_binary(&path, name, version, channel, registry_url);
         Self {
             path,
             cartridge_dir: None,
@@ -617,19 +619,6 @@ impl ManagedCartridge {
     }
 }
 
-fn parse_installed_cartridge_name(name: &str) -> Option<(String, String)> {
-    let lowercase = name.to_lowercase();
-    if let Some((candidate, suffix)) = lowercase.rsplit_once('-') {
-        if !candidate.is_empty()
-            && !suffix.is_empty()
-            && suffix.chars().all(|ch| ch.is_ascii_digit() || ch == '.')
-            && suffix.chars().any(|ch| ch.is_ascii_digit())
-        {
-            return Some((candidate.to_string(), suffix.to_string()));
-        }
-    }
-    None
-}
 
 /// Compute identity for a standalone binary cartridge (probe-based discovery path).
 /// Parses id and version from the binary filename, hashes the binary content.
@@ -641,28 +630,24 @@ fn parse_installed_cartridge_name(name: &str) -> Option<(String, String)> {
 /// `new_registered_dir`.
 fn installed_cartridge_record_from_binary(
     path: &Path,
+    name: String,
+    version: String,
     channel: crate::bifaci::cartridge_repo::CartridgeChannel,
     registry_url: Option<String>,
 ) -> Option<InstalledCartridgeRecord> {
-    let name = path.file_stem()?.to_str()?;
-    let (id, version) = parse_installed_cartridge_name(name)?;
     let bytes = std::fs::read(path).ok()?;
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     let sha256 = format!("{:x}", hasher.finalize());
     Some(InstalledCartridgeRecord {
         registry_url,
-        id,
+        id: name,
         channel,
         version,
         sha256,
         cap_groups: Vec::new(),
         attachment_error: None,
         runtime_stats: None,
-        // Unmanaged-binary probe path: caller is constructing a
-        // record for diagnostic surface, not for dispatch. Start at
-        // Discovered (the safe sentinel) — promotion to
-        // Operational only happens via a successful host attach.
         lifecycle: CartridgeLifecycle::Discovered,
     })
 }
@@ -719,8 +704,6 @@ pub struct CartridgeHostRuntime {
     routing_gc_runs_total: u64,
     /// Monotonic count of entries evicted across all GC passes.
     routing_gc_evicted_total: u64,
-    /// Aggregate capabilities (serialized JSON manifest of all cartridge caps).
-    capabilities: Vec<u8>,
     /// Channel sender for cartridge events (shared with reader tasks).
     event_tx: mpsc::UnboundedSender<CartridgeEvent>,
     /// Channel receiver for cartridge events (consumed by run()).
@@ -940,7 +923,6 @@ impl CartridgeHostRuntime {
             routing_touch_seq: 0,
             routing_gc_runs_total: 0,
             routing_gc_evicted_total: 0,
-            capabilities: Vec::new(),
             event_tx,
             event_rx: Some(event_rx),
             process_snapshot: Arc::new(RwLock::new(Vec::new())),
@@ -978,12 +960,14 @@ impl CartridgeHostRuntime {
     /// via `ManagedCartridge::cap_urns`; we don't carry a parallel
     /// `known_caps` field that could drift.
     /// `channel` and `registry_url` are part of the install's identity
-    /// and must be supplied by the caller — the binary path alone
-    /// does not tell us which (channel, registry) a standalone-binary
-    /// install belongs to. `registry_url == None` ⇔ dev install.
+    /// Identity fields (`name`, `version`, `channel`, `registry_url`) are
+    /// supplied by the caller from the cartridge's own manifest — the binary
+    /// path has no bearing on them. `registry_url == None` ⇔ dev install.
     pub fn register_cartridge(
         &mut self,
         path: &Path,
+        name: &str,
+        version: &str,
         channel: crate::bifaci::cartridge_repo::CartridgeChannel,
         registry_url: Option<&str>,
         cap_groups: &[crate::bifaci::manifest::CapGroup],
@@ -992,6 +976,8 @@ impl CartridgeHostRuntime {
         let groups_owned = cap_groups.to_vec();
         let cartridge = ManagedCartridge::new_registered_binary(
             path.to_path_buf(),
+            name.to_string(),
+            version.to_string(),
             channel,
             registry_url.map(|s| s.to_string()),
             groups_owned,
@@ -1090,9 +1076,12 @@ impl CartridgeHostRuntime {
         Ok(cartridge_idx)
     }
 
-    /// Get the aggregate capabilities of all running, healthy cartridges.
-    pub fn capabilities(&self) -> &[u8] {
-        &self.capabilities
+    /// Aggregate installed-cartridge inventory the host advertises to
+    /// the engine. Identity is the gating filter — cartridges without
+    /// a resolvable identity (no on-disk anchor) are excluded.
+    /// Identical to the structure carried in `RelayNotify` payloads.
+    pub fn aggregate_installed_cartridges(&self) -> Vec<InstalledCartridgeRecord> {
+        self.build_installed_cartridge_identities()
     }
 
     /// Main run loop — reads from relay, routes to cartridges; reads from cartridges,
@@ -1162,16 +1151,8 @@ impl CartridgeHostRuntime {
         let mut stats_interval = tokio::time::interval(Duration::from_secs(2));
         stats_interval.tick().await; // skip initial tick
 
-        // Send discovery RelayNotify if cartridges were pre-attached.
-        // At this point all async tasks are spawned and running, so the frame will be delivered.
-        if !self.capabilities.is_empty() {
-            let installed_cartridges = self.build_installed_cartridge_identities();
-            let notify_payload = RelayNotifyCapabilitiesPayload::new(installed_cartridges);
-            let notify_bytes = serde_json::to_vec(&notify_payload)
-                .expect("Failed to serialize RelayNotify capabilities payload");
-            let notify_frame = Frame::relay_notify(&notify_bytes, &Limits::default());
-            let _ = outbound_tx.send(notify_frame);
-        }
+        // Send initial RelayNotify so the switch knows about pre-registered cartridges.
+        self.rebuild_capabilities(Some(&outbound_tx));
 
         let result = loop {
             tokio::select! {
@@ -2530,17 +2511,20 @@ impl CartridgeHostRuntime {
             *peer_counts.entry(idx).or_insert(0) += 1;
         }
 
-        self.cartridges
+        let result: Vec<InstalledCartridgeRecord> = self.cartridges
             .iter()
             .enumerate()
-            .filter_map(|(idx, cartridge)| {
+            .filter_map(|(_idx, cartridge)| {
+                if cartridge.hello_failed {
+                    return None;
+                }
                 let base = cartridge.installed_cartridge_record()?;
                 let pid = cartridge.process.as_ref().and_then(|c| c.id());
                 let stats = CartridgeRuntimeStats {
                     running: cartridge.running,
                     pid,
-                    active_request_count: *active_counts.get(&idx).unwrap_or(&0),
-                    peer_request_count: *peer_counts.get(&idx).unwrap_or(&0),
+                    active_request_count: *active_counts.get(&_idx).unwrap_or(&0),
+                    peer_request_count: *peer_counts.get(&_idx).unwrap_or(&0),
                     memory_footprint_mb: cartridge.memory_footprint_mb,
                     memory_rss_mb: cartridge.memory_rss_mb,
                     last_heartbeat_unix_seconds: cartridge.last_heartbeat_unix_seconds,
@@ -2552,7 +2536,8 @@ impl CartridgeHostRuntime {
                     ..base
                 })
             })
-            .collect()
+            .collect();
+        result
     }
 
     /// Rebuild the aggregate capabilities from all running, healthy cartridges.
@@ -2561,52 +2546,15 @@ impl CartridgeHostRuntime {
     /// frame with the updated capabilities. This allows RelaySwitch/RelayMaster
     /// to track capability changes dynamically as cartridges connect/disconnect/fail.
     fn rebuild_capabilities(&mut self, outbound_tx: Option<&mpsc::UnboundedSender<Frame>>) {
-        use crate::standard::caps::CAP_IDENTITY;
-
-        // Collect caps contributed by healthy (non-hello-failed) cartridges.
-        // CAP_IDENTITY is prepended only when at least one healthy cartridge
-        // exists — each cartridge's manifest mandatorily declares CAP_IDENTITY
-        // and answers the echo, so the host-level advertisement is a
-        // reflection of that reality. If no healthy cartridge is present
-        // there is no handler chain to service the engine's identity
-        // probe, and the host must not claim otherwise.
-        let mut cap_urns: Vec<String> = Vec::new();
-        let mut healthy_cartridge_count = 0usize;
-
-        // Walk every cartridge that hasn't permanently failed HELLO.
-        // Each cartridge's `cap_urns()` is the flat de-duped view of
-        // its `cap_groups` (the source of truth for what it claims to
-        // handle, populated at registration time so on-demand spawn
-        // can route to it before any process exists).
-        for cartridge in &self.cartridges {
-            if cartridge.hello_failed {
-                continue; // Permanently broken, don't advertise
-            }
-
-            healthy_cartridge_count += 1;
-            for urn_str in cartridge.cap_urns() {
-                // Don't duplicate identity (cartridges also declare it,
-                // and we prepend it once below for the host as a whole).
-                if urn_str != CAP_IDENTITY {
-                    cap_urns.push(urn_str);
-                }
-            }
-        }
-
-        if healthy_cartridge_count > 0 {
-            cap_urns.insert(0, CAP_IDENTITY.to_string());
-        }
-
-        // For internal use, store as simple JSON array of URN strings
-        self.capabilities =
-            serde_json::to_vec(&cap_urns).expect("Failed to serialize capability URNs");
-
-        // Send RelayNotify to relay if in relay mode.
+        // The relay payload is the single source of truth. Identity
+        // gates advertisement: cartridges without a resolvable
+        // installed-cartridge record are not part of the inventory
+        // the engine can route to. Cartridges with `hello_failed`
+        // are also filtered out (they have a record but cannot
+        // service requests). Both filters live inside
+        // `build_installed_cartridge_identities`.
         if let Some(tx) = outbound_tx {
             let installed_cartridges = self.build_installed_cartridge_identities();
-            // The flat cap-urn list is no longer carried on the wire —
-            // the engine derives it from `installed_cartridges[*].cap_groups`
-            // via `RelayNotifyCapabilitiesPayload::cap_urns()`.
             let notify_payload = RelayNotifyCapabilitiesPayload::new(installed_cartridges);
             let notify_bytes = serde_json::to_vec(&notify_payload)
                 .expect("Failed to serialize RelayNotify capabilities payload");
@@ -2865,6 +2813,26 @@ mod tests {
             caps,
             adapter_urns: Vec::new(),
         }]
+    }
+
+    /// Flatten the host's identity-filtered installed-cartridge inventory
+    /// into the union of cap-URN strings it advertises. Tests use this to
+    /// reason about advertised caps without re-implementing the
+    /// `installed_cartridges[*].cap_groups[*].caps[*].urn` walk.
+    fn host_advertised_cap_urns(runtime: &CartridgeHostRuntime) -> Vec<String> {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut out: Vec<String> = Vec::new();
+        for ic in runtime.aggregate_installed_cartridges() {
+            for group in &ic.cap_groups {
+                for cap in &group.caps {
+                    let urn = cap.urn.to_string();
+                    if seen.insert(urn.clone()) {
+                        out.push(urn);
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// Records spawn/death counts for `CartridgeHostObserver` contract
@@ -3304,6 +3272,8 @@ mod tests {
         let mut runtime = CartridgeHostRuntime::new();
         runtime.register_cartridge(
             Path::new("/usr/bin/test-cartridge"),
+            "test-cartridge",
+            "0.0.0",
             crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             None,
             &cap_groups_from_urns(&[
@@ -3327,29 +3297,32 @@ mod tests {
         assert!(!runtime.cartridges[0].running);
     }
 
-    // TEST414: capabilities() returns empty JSON initially (no running cartridges)
+    // TEST414: aggregate_installed_cartridges() is empty before any
+    // cartridge with a resolvable identity is attached. A binary path
+    // that does not exist on disk has no identity (`installed_identity`
+    // is `None`) and therefore does not appear in the relay payload.
     #[test]
     fn test414_capabilities_empty_initially() {
         let runtime = CartridgeHostRuntime::new();
         assert!(
-            runtime.capabilities().is_empty(),
-            "No cartridges registered = empty capabilities"
+            runtime.aggregate_installed_cartridges().is_empty(),
+            "No cartridges registered = empty inventory"
         );
 
         let mut runtime2 = CartridgeHostRuntime::new();
         runtime2.register_cartridge(
-            Path::new("/usr/bin/test"),
+            Path::new("/nonexistent/path/to/cartridge"),
+            "test",
+            "0.0.0",
             crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             None,
             &cap_groups_from_urns(&["cap:in=\"media:void\";test;out=\"media:void\""]),
         );
-        // Cartridge registered but not running — capabilities still empty
-        // (the capabilities field is only populated by the live run()
-        // loop's `rebuild_capabilities`; bare `register_cartridge` does
-        // not push to it).
+        // Binary path does not exist on disk so sha256 hashing fails
+        // and installed_identity is None — the cartridge is not advertised.
         assert!(
-            runtime2.capabilities().is_empty(),
-            "Registered but not running cartridge should not appear in capabilities"
+            runtime2.aggregate_installed_cartridges().is_empty(),
+            "Registered cartridge with unhashable binary is not advertised"
         );
     }
 
@@ -3477,15 +3450,17 @@ mod tests {
                 .any(|c| identity_urn.conforms_to(&c.urn)),
             "Cartridge must have identity cap"
         );
-        assert!(!runtime.capabilities().is_empty());
-
-        // Capabilities JSON must include identity
-        let caps: Vec<String> = serde_json::from_slice(runtime.capabilities()).unwrap();
+        // Cap routing table is populated from the cartridge's
+        // cap_groups regardless of identity. The identity-filtered
+        // inventory is a separate concern — it gates *advertisement*
+        // to the engine, not in-process routing.
         assert!(
-            caps.iter().any(|s| crate::CapUrn::from_string(s)
-                .map(|u| identity_urn.conforms_to(&u))
-                .unwrap_or(false)),
-            "Capabilities must include identity cap"
+            runtime.cap_table.iter().any(|(urn, _)| {
+                crate::CapUrn::from_string(urn)
+                    .map(|u| identity_urn.conforms_to(&u))
+                    .unwrap_or(false)
+            }),
+            "Cap table must include the identity cap for routing"
         );
 
         cartridge_handle.await.unwrap();
@@ -4076,32 +4051,29 @@ mod tests {
         let mut runtime = CartridgeHostRuntime::new();
         runtime.attach_cartridge(p_read, p_write).await.unwrap();
 
-        // Before death: caps should include the cartridge's cap
+        // Before death: cap_table is the routing source of truth — it
+        // must include the cartridge's caps so on-demand spawn /
+        // respawn can dispatch to them. (Inventory advertisement to
+        // the engine goes through `aggregate_installed_cartridges()`
+        // and is identity-gated; an attached cartridge with no
+        // on-disk anchor has no identity and is therefore not
+        // advertised, but is still locally routable.)
         let expected_urn = CapUrn::from_string("cap:in=\"media:void\";die;out=\"media:void\"")
             .expect("Expected URN should parse");
-        let caps_before = std::str::from_utf8(runtime.capabilities())
-            .unwrap()
-            .to_string();
-        let parsed_before: serde_json::Value = serde_json::from_str(&caps_before).unwrap();
-        let urn_strings: Vec<String> = parsed_before
-            .as_array()
-            .unwrap()
+        let cap_table_urns: Vec<String> = runtime
+            .cap_table
             .iter()
-            .map(|v| v.as_str().unwrap().to_string())
+            .map(|(u, _)| u.clone())
             .collect();
-
-        // Parse each URN and check if any is comparable to expected (on same chain)
-        let found = urn_strings.iter().any(|urn_str| {
-            if let Ok(cap_urn) = CapUrn::from_string(urn_str) {
-                expected_urn.is_comparable(&cap_urn)
-            } else {
-                false
-            }
+        let found = cap_table_urns.iter().any(|urn_str| {
+            CapUrn::from_string(urn_str)
+                .map(|u| expected_urn.is_comparable(&u))
+                .unwrap_or(false)
         });
         assert!(
             found,
-            "Capabilities should contain cartridge's cap. Expected URN with die marker, got: {:?}",
-            urn_strings
+            "cap_table should contain cartridge's cap. Expected URN with die marker, got: {:?}",
+            cap_table_urns
         );
 
         // Relay (close immediately to let runtime exit after processing death) - tokio sockets
@@ -4116,33 +4088,25 @@ mod tests {
 
         let _ = runtime.run(rt_read_half, rt_write_half, || vec![]).await;
 
-        // After death: capabilities should STILL include the cartridge's caps
-        // (derived from its `cap_groups`, which survive the process). Dead
-        // cartridges keep advertising so on-demand spawn can route a fresh
-        // REQ to them.
-        let caps_after = runtime.capabilities();
-        let caps_str = std::str::from_utf8(caps_after).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(caps_str).unwrap();
-        let urn_strings_after: Vec<String> = parsed
-            .as_array()
-            .unwrap()
+        // After death: cap_table should STILL include the cartridge's
+        // caps (derived from its `cap_groups`, which survive the
+        // process). Dead cartridges keep their routing entries so
+        // on-demand spawn can dispatch a fresh REQ to them.
+        let cap_table_urns_after: Vec<String> = runtime
+            .cap_table
             .iter()
-            .map(|v| v.as_str().unwrap().to_string())
+            .map(|(u, _)| u.clone())
             .collect();
-
-        // Should have CAP_IDENTITY + cartridge's known caps (identity + die marker)
-        assert!(
-            urn_strings_after.contains(&CAP_IDENTITY.to_string()),
-            "CAP_IDENTITY must always be present"
-        );
-        let found_after = urn_strings_after.iter().any(|urn_str| {
-            if let Ok(cap_urn) = CapUrn::from_string(urn_str) {
-                expected_urn.is_comparable(&cap_urn)
-            } else {
-                false
-            }
+        let found_after = cap_table_urns_after.iter().any(|urn_str| {
+            CapUrn::from_string(urn_str)
+                .map(|u| expected_urn.is_comparable(&u))
+                .unwrap_or(false)
         });
-        assert!(found_after, "Dead cartridge's caps (from cap_groups) should still be advertised for on-demand respawn. Expected URN with die marker, got: {:?}", urn_strings_after);
+        assert!(
+            found_after,
+            "Dead cartridge's caps (from cap_groups) should still be in cap_table for on-demand respawn. Expected URN with die marker, got: {:?}",
+            cap_table_urns_after
+        );
 
         cartridge_handle.await.unwrap();
     }
@@ -4597,6 +4561,8 @@ mod tests {
         let mut runtime = CartridgeHostRuntime::new();
         runtime.register_cartridge(
             Path::new("/test"),
+            "test",
+            "0.0.0",
             crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             None,
             &cap_groups_from_urns(&["cap:in=\"media:void\";known;out=\"media:void\""]),
@@ -4706,24 +4672,27 @@ mod tests {
     // a fresh REQ to it (which triggers an on-demand respawn).
     #[tokio::test]
     async fn test661_cartridge_death_keeps_caps_advertised() {
-        let mut runtime = CartridgeHostRuntime::new();
+        // Real on-disk file so sha256 hashing succeeds and the cartridge
+        // gets a valid installed_identity — required for inventory advertisement.
+        let bin_dir = tempfile::tempdir().expect("create temp dir");
+        let bin_path = bin_dir.path().join("thumbnailcartridge");
+        std::fs::write(&bin_path, b"#!/bin/false\n").expect("write binary");
 
+        let mut runtime = CartridgeHostRuntime::new();
         let cap_groups = cap_groups_from_urns(&[
             "cap:", // identity
             "cap:in=\"media:pdf\";thumbnail;out=\"media:image;png\"",
         ]);
         runtime.register_cartridge(
-            std::path::Path::new("/fake/cartridge"),
+            &bin_path,
+            "thumbnailcartridge",
+            "0.0.0",
             crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             None,
             &cap_groups,
         );
 
-        // Verify the cap_table has both URNs in canonical form.
-        // `cap:` is the canonical bare-identity form (in/out are the
-        // trivial wildcard `media:` and there are no other tags, so
-        // both segments are dropped). Multi-tag media URNs are
-        // unquoted unless containing reserved characters.
+        // cap_table is the routing source of truth.
         assert_eq!(runtime.cap_table.len(), 2);
         assert_eq!(runtime.cap_table[0].0, "cap:");
         assert_eq!(
@@ -4731,23 +4700,24 @@ mod tests {
             "cap:in=media:pdf;out=\"media:image;png\";thumbnail"
         );
 
-        // Build capabilities (no outbound_tx, so no RelayNotify sent)
+        // Build capabilities (no outbound_tx, so no RelayNotify sent).
         runtime.rebuild_capabilities(None);
 
-        // Verify capabilities include the cartridge's caps. The internal
-        // capabilities() byte-blob is a JSON array of canonical cap URN
-        // strings.
-        let caps_json = std::str::from_utf8(runtime.capabilities()).unwrap();
-        let caps: serde_json::Value = serde_json::from_str(caps_json).unwrap();
-        let cap_urns: Vec<&str> = caps
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap())
-            .collect();
-
-        assert!(cap_urns.contains(&"cap:"));
-        assert!(cap_urns.iter().any(|s| s.contains("thumbnail")));
+        // Inventory advertised to the engine: identity-filtered. The
+        // cartridge has a hashable binary so it appears, and its
+        // cap_groups are the source of truth — even though its
+        // process has not been spawned (running == false).
+        let advertised = host_advertised_cap_urns(&runtime);
+        assert!(
+            advertised.contains(&"cap:".to_string()),
+            "Identity cap must be advertised, got {:?}",
+            advertised
+        );
+        assert!(
+            advertised.iter().any(|s| s.contains("thumbnail")),
+            "Thumbnail cap must be advertised, got {:?}",
+            advertised
+        );
     }
 
     // TEST662: rebuild_capabilities includes non-running cartridges' caps
@@ -4755,8 +4725,13 @@ mod tests {
     // of whether its process has been spawned yet).
     #[tokio::test]
     async fn test662_rebuild_capabilities_includes_non_running_cartridges() {
-        let mut runtime = CartridgeHostRuntime::new();
+        let bin_dir = tempfile::tempdir().expect("create temp dir");
+        let bin_path_1 = bin_dir.path().join("extractcartridge");
+        let bin_path_2 = bin_dir.path().join("ocrcartridge");
+        std::fs::write(&bin_path_1, b"#!/bin/false\n").expect("write binary 1");
+        std::fs::write(&bin_path_2, b"#!/bin/false\n").expect("write binary 2");
 
+        let mut runtime = CartridgeHostRuntime::new();
         let groups_1 = cap_groups_from_urns(&[
             "cap:",
             "cap:in=\"media:pdf\";extract;out=\"media:text\"",
@@ -4767,13 +4742,17 @@ mod tests {
         ]);
 
         runtime.register_cartridge(
-            std::path::Path::new("/fake/cartridge1"),
+            &bin_path_1,
+            "extractcartridge",
+            "0.0.0",
             crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             None,
             &groups_1,
         );
         runtime.register_cartridge(
-            std::path::Path::new("/fake/cartridge2"),
+            &bin_path_2,
+            "ocrcartridge",
+            "0.0.0",
             crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             None,
             &groups_2,
@@ -4781,33 +4760,43 @@ mod tests {
 
         runtime.rebuild_capabilities(None);
 
-        let caps_json = std::str::from_utf8(runtime.capabilities()).unwrap();
-        let caps: serde_json::Value = serde_json::from_str(caps_json).unwrap();
-        let cap_urns: Vec<&str> = caps
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap())
-            .collect();
-
-        // Identity always present (one host-level `cap:` + each cartridge's identity).
-        assert!(cap_urns.contains(&"cap:"));
-        assert!(cap_urns.iter().any(|s| s.contains("extract")));
-        assert!(cap_urns.iter().any(|s| s.contains("ocr")));
+        // Both cartridges advertised; each is one entry in the
+        // identity-filtered inventory; the union of their cap_groups
+        // contains identity + extract + ocr.
+        let advertised = host_advertised_cap_urns(&runtime);
+        assert!(
+            advertised.contains(&"cap:".to_string()),
+            "Identity cap must be advertised, got {:?}",
+            advertised
+        );
+        assert!(
+            advertised.iter().any(|s| s.contains("extract")),
+            "Extract cap must be advertised, got {:?}",
+            advertised
+        );
+        assert!(
+            advertised.iter().any(|s| s.contains("ocr")),
+            "OCR cap must be advertised, got {:?}",
+            advertised
+        );
     }
 
     // TEST663: Cartridge with hello_failed is permanently removed from capabilities
     #[tokio::test]
     async fn test663_hello_failed_cartridge_removed_from_capabilities() {
-        let mut runtime = CartridgeHostRuntime::new();
+        let bin_dir = tempfile::tempdir().expect("create temp dir");
+        let bin_path = bin_dir.path().join("brokencartridge");
+        std::fs::write(&bin_path, b"#!/bin/false\n").expect("write binary");
 
-        // Register a cartridge
+        let mut runtime = CartridgeHostRuntime::new();
         let cap_groups = cap_groups_from_urns(&[
             "cap:",
             "cap:in=\"media:void\";broken;out=\"media:void\"",
         ]);
         runtime.register_cartridge(
-            std::path::Path::new("/fake/broken"),
+            &bin_path,
+            "brokencartridge",
+            "0.0.0",
             crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             None,
             &cap_groups,
@@ -4819,7 +4808,7 @@ mod tests {
         // update_cap_table should exclude hello_failed cartridges
         runtime.update_cap_table();
 
-        // Should only have identity cap from the runtime itself, not the broken cartridge
+        // cap_table is empty: hello_failed cartridges are not routable.
         let found_broken = runtime
             .cap_table
             .iter()
@@ -4829,21 +4818,14 @@ mod tests {
             "hello_failed cartridge caps should not be in cap_table"
         );
 
-        // rebuild_capabilities should also exclude hello_failed cartridges
+        // The host-level inventory likewise excludes hello_failed
+        // cartridges — even though their identity record exists.
         runtime.rebuild_capabilities(None);
-
-        let caps_json = std::str::from_utf8(runtime.capabilities()).unwrap();
-        let caps: serde_json::Value = serde_json::from_str(caps_json).unwrap();
-        let cap_urns: Vec<&str> = caps
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap())
-            .collect();
-
+        let advertised = host_advertised_cap_urns(&runtime);
         assert!(
-            !cap_urns.iter().any(|s| s.contains("broken")),
-            "hello_failed cartridge should not be in capabilities"
+            !advertised.iter().any(|s| s.contains("broken")),
+            "hello_failed cartridge must not be advertised, got {:?}",
+            advertised
         );
     }
 
@@ -4877,12 +4859,17 @@ mod tests {
         let mut runtime = CartridgeHostRuntime::new();
 
         // Register with stale (probe-time) cap_groups BEFORE attaching.
+        let bin_dir = tempfile::tempdir().expect("create temp dir");
+        let bin_path = bin_dir.path().join("extractcartridge");
+        std::fs::write(&bin_path, b"#!/bin/false\n").expect("write binary");
         let pre_attach_groups = cap_groups_from_urns(&[
             "cap:",
             "cap:in=\"media:pdf\";extract;out=\"media:text\"",
         ]);
         runtime.register_cartridge(
-            std::path::Path::new("/fake/path"),
+            &bin_path,
+            "extractcartridge",
+            "0.0.0",
             crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             None,
             &pre_attach_groups,
@@ -4892,25 +4879,19 @@ mod tests {
         // This simulates what happens when a registered cartridge spawns
         let _cartridge_idx = runtime.attach_cartridge(p_read, p_write).await.unwrap();
 
-        // The running cartridge's post-HELLO cap_groups should win.
-        let caps_json = std::str::from_utf8(runtime.capabilities()).unwrap();
-        let caps: serde_json::Value = serde_json::from_str(caps_json).unwrap();
-        let cap_urns: Vec<&str> = caps
-            .as_array()
-            .unwrap()
+        // cap_table is the routing source of truth and includes both
+        // the registered cartridge (with identity) AND the attached
+        // cartridge (without identity). The running cartridge's
+        // manifest caps (uppercase) must be routable.
+        let cap_table_urns: Vec<String> = runtime
+            .cap_table
             .iter()
-            .map(|v| v.as_str().unwrap())
+            .map(|(u, _)| u.clone())
             .collect();
-
-        // Should have the manifest's cap (uppercase) — the pre-attach
-        // probe-time cap (extract) was overwritten by the HELLO
-        // manifest. The test's pre-registration was for a different
-        // path, so both cartridges coexist on the host; the key
-        // assertion is that the running one's manifest cap shows up.
         assert!(
-            cap_urns.iter().any(|s| s.contains("uppercase")),
-            "Running cartridge should use manifest caps. Got: {:?}",
-            cap_urns
+            cap_table_urns.iter().any(|s| s.contains("uppercase")),
+            "Running cartridge's manifest cap must be in cap_table. Got: {:?}",
+            cap_table_urns
         );
 
         cartridge_handle.await.unwrap();
@@ -4953,6 +4934,8 @@ mod tests {
         ]);
         runtime.register_cartridge(
             std::path::Path::new("/fake/not-running"),
+            "not-running",
+            "0.0.0",
             crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             None,
             &dormant_groups,

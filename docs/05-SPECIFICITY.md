@@ -24,12 +24,29 @@ The specificity of a Tagged URN is the sum of per-tag scores.
 
 ### 2.2 Per-Tag Scoring
 
-| Tag Value | Score | Meaning |
-|-----------|-------|---------|
-| `?` or missing | 0 | No constraint |
-| `!` | 1 | Must-not-have |
-| `*` | 2 | Must-have-any |
-| exact value | 3 | Exact match required |
+The constraint alphabet has six canonical forms. Each contributes a
+fixed integer to the URN's specificity score:
+
+| Authored alias              | Canonical | Stored value | Score | Reading                                  |
+|-----------------------------|-----------|--------------|------:|------------------------------------------|
+| `?x` ≡ `x?` ≡ `x=?`         | `?x`      | `"?"`        |     0 | no constraint                            |
+| `?x=v` ≡ `x?=v` ≡ `x=?v`    | `x?=v`    | `"?=v"`      |     1 | absent OR (present and not v)            |
+| `x` ≡ `x=*`                 | `x`       | `"*"`        |     2 | present with any value (must-have-any)   |
+| `!x=v` ≡ `x!=v` ≡ `x=!v`    | `x!=v`    | `"!=v"`      |     3 | present and not v                        |
+| `x=v`                       | `x=v`     | `"v"`        |     4 | present and exactly v                    |
+| `!x` ≡ `x!` ≡ `x=!`         | `!x`      | `"!"`        |     5 | absent (must-not-have)                   |
+
+Distinct scores for every form aid disambiguation when ties would
+otherwise occur. The ladder is monotone within each branch:
+
+- **Positive chain** (presence claims):
+  `?x` (0) → `x` (2) → `x=v` (4) — from no constraint to exact identification.
+- **Negative chain** (absence/exclusion claims):
+  `?x` (0) → `x?=v` (1) → `x!=v` (3) → `!x` (5) — from no constraint to enforced absence.
+
+A missing key entry in the tag map scores 0 (same as the explicit
+`?x`); the parser treats `?x`, `x?`, and `x=?` as exact aliases of
+"no-constraint", and serialization always emits the canonical `?x`.
 
 ### 2.3 Formula
 
@@ -41,11 +58,13 @@ spec_U(u) = Σ score(tag) for all tags in u
 
 ```
 media:                           → 0        # no tags
-media:bytes                      → 2        # bytes=* (valueless = *)
+media:bytes                      → 2        # bytes=* (bare = must-have-any)
 media:pdf;bytes                  → 2 + 2 = 4
-media:pdf;v=2.0                  → 2 + 3 = 5  # pdf=*, v=2.0 (exact)
-media:pdf;v=2.0;!compressed      → 2 + 3 + 1 = 6
-media:textable;form=scalar       → 2 + 3 = 5
+media:pdf;v=2.0                  → 2 + 4 = 6  # pdf=*, v=2.0 (exact)
+media:pdf;v=2.0;!compressed      → 2 + 4 + 5 = 11
+media:textable;form=scalar       → 2 + 4 = 6
+media:pdf;v?=draft               → 2 + 1 = 3  # absent OR not draft
+media:pdf;v!=draft               → 2 + 3 = 5  # present and not draft
 ```
 
 ---
@@ -66,48 +85,120 @@ Cap URN specificity combines three components:
 ### 3.2 Formula
 
 ```
-spec_C(in, out, y) = tags(in) + tags(out) + count(non-* y-tags)
+spec_C(c) = WEIGHT_OUT * spec_U(c.out)
+          + WEIGHT_IN  * spec_U(c.in)
+          + spec_U(c.y)
+
+WEIGHT_OUT = 10_000
+WEIGHT_IN  =    100
 ```
 
-Where:
-- `tags(x)` = number of tags in media URN x (0 if x = "media:")
-- `count(non-* y-tags)` = number of cap tags with non-wildcard values
+The three axes are not equally weighted. Two orders of magnitude
+separate each, producing a single integer whose digit slots
+encode `(out, in, y)` for visual decoding (`40205` reads as
+out=4, in=2, y=5). The lexicographic priority `(out, in, y)`
+reflects routing intent:
+
+1. **Producing different things** is the largest semantic
+   difference between two caps — they are not substitutable to
+   downstream consumers.
+2. **Consuming different things** is next — same artifact, alternative
+   producers; the planner ranks among them.
+3. **Differing in y-axis metadata** is the smallest difference — `y`
+   is descriptive, not structural.
+
+`spec_U` is the **same** Tagged URN specificity function from §2.1.
+All three axes — `in`, `out`, and `y` — go through identical per-tag
+scoring; there is no cap-axis carve-out, no privileged tag key, no
+"y is just a count" simplification. The axis weights apply *after*
+the per-axis sums are computed.
 
 ### 3.3 Direction Dimension Scoring
 
-For `in` and `out` dimensions:
-- If the value is `media:` (identity), contribution is **0**
-- Otherwise, count the number of tags in the media URN
+`in` and `out` are Media URNs. Specificity is the sum of per-tag
+scores from the truth table (§2.2):
 
-This differs from Tagged URN scoring because:
-- Direction specs are Media URNs, not arbitrary tag values
-- The identity `media:` represents "any" and should not add specificity
+```
+spec_U(media:)                       = 0           (no tags, top of order)
+spec_U(media:pdf)                    = 2           (pdf=*, must-have-any)
+spec_U(media:pdf;bytes)              = 2 + 2 = 4
+spec_U(media:pdf;v=2.0)              = 2 + 4 = 6   (pdf=*, v=2.0 exact)
+spec_U(media:pdf;!compressed)        = 2 + 5 = 7   (pdf=*, !compressed must-not-have)
+spec_U(media:pdf;?v)                 = 2 + 0 = 2   (pdf=*, v explicit no-constraint)
+spec_U(media:void)                   = 2           (void marker = must-have-any)
+```
+
+The top type `media:` carries 0 tags and so contributes 0; the unit
+type `media:void` carries one marker (`void`, value `*`) and so
+contributes 2.
 
 ### 3.4 Cap-Tag Scoring
 
-For non-direction tags (op, ext, model, etc.):
-- `*` value: **0** (wildcard, no constraint)
-- Any other value: **1** (constraint present)
+The cap-tag dimension `y` is itself a Tagged URN of arbitrary
+descriptive tags — no key in `y` has functional meaning to the
+protocol, but each tag's *form* is scored exactly like any other
+Tagged URN tag (§2.2):
+
+| Tag form in `y`                         | Score | Reading                           |
+|-----------------------------------------|------:|-----------------------------------|
+| missing (key absent)                    |     0 | no constraint                     |
+| `?key`                                  |     0 | explicit no-constraint            |
+| `key?=v`                                |     1 | absent OR (present and not v)     |
+| bare marker (e.g. `extract`, value `*`) |     2 | must-have-any                     |
+| `key=*`                                 |     2 | must-have-any (same as bare)      |
+| `key!=v`                                |     3 | present and not v                 |
+| exact (`key=value`)                     |     4 | must-have-this-value              |
+| `!key`                                  |     5 | must-not-have                     |
+
+Bare segments and `key=*` are the **same** form: a marker tag
+written `extract` parses as `extract=*`, and contributes 2 just like
+any other must-have-any tag.
+
+This uniformity is deliberate. Specificity is a structural property
+of the URN's tag set, not of which axis the tag lives on. A cap that
+constrains `target=metadata` (exact, score 4) is more specific than
+one that just declares `target=*` (must-have-any, score 2), exactly
+the same way `media:pdf;v=2.0` is more specific than `media:pdf;v=*`.
 
 ### 3.5 Examples
 
+Each example shows `(out, in, y)` per-axis sums, then the
+weighted total `10000*out + 100*in + y`:
+
 ```
-cap:                                         → 0 + 0 + 0 = 0
-# in=media: (0), out=media: (0), no cap-tags (0)
+cap:                                          → (0, 0, 0)         = 0
+# in=media: (0), out=media: (0), y empty (0)
 
-cap:extract;in=media:;out=media:                               → 0 + 0 + 1 = 1
-# in=media: (0), out=media: (0), op=extract (1)
+cap:extract                                   → (0, 0, 2)         = 2
+# in=media: (0), out=media: (0), extract=* (must-have-any → 2)
 
-cap:in=media:pdf;extract;out=media:object → 1 + 1 + 1 = 3
-# in has 1 tag (pdf), out has 1 tag (object), op (1)
+cap:extract;in=media:pdf;out=media:textable   → (2, 2, 2)         = 20202
+# out: textable=* (2); in: pdf=* (2); y: extract=* (2)
 
-cap:in="media:pdf;bytes";extract;out="media:textable;form=map"
-→ 2 + 2 + 1 = 5
-# in has 2 tags (pdf, bytes), out has 2 tags (textable, form), op (1)
+cap:in="media:pdf;bytes";extract;out="media:textable;record"
+                                              → (4, 4, 2)         = 40402
+# out: textable=* + record=* (2+2); in: pdf=* + bytes=* (2+2); y: extract=* (2)
 
-cap:in=*;extract;out=*                    → 0 + 0 + 1 = 1
-# in=* normalizes to media: (0), out=* normalizes to media: (0), op (1)
+cap:in=*;extract;out=*                        → (0, 0, 2)         = 2
+# in=* normalizes to media: (0); out=* normalizes to media: (0); y: extract=* (2)
+
+cap:extract;target=metadata                   → (0, 0, 6)         = 6
+# y: extract=* (2) + target=metadata (exact → 4)
+
+cap:extract;?target                           → (0, 0, 2)         = 2
+# y: extract=* (2) + ?target (explicit no-constraint → 0)
+
+cap:extract;!constrained                      → (0, 0, 7)         = 7
+# y: extract=* (2) + !constrained (must-not-have → 5)
+
+cap:in=media:void;out=media:void;ping         → (2, 2, 2)         = 20202
+# out: void=* (2); in: void=* (2); y: ping=* (2)
 ```
+
+Two caps with the same `out` axis but different `in` axes will
+*always* compare on the `in` axis before the `y` axis, because
+`WEIGHT_IN = 100 > 1`. Two caps with different `out` axes always
+compare there first, regardless of `in` and `y`.
 
 ---
 
@@ -127,12 +218,24 @@ spec_U(media:) = 0
 spec_C(cap:) = 0
 ```
 
-### 4.3 More Tags = More Specific
+### 4.3 More Constraints = More Specific
 
-Adding tags (with non-wildcard values) increases specificity:
+Adding any tag whose form scores above 0 (everything except
+`?` / missing) increases specificity:
 ```
-spec_U(media:pdf) < spec_U(media:pdf;bytes)
+spec_U(media:)              < spec_U(media:pdf)              # added must-have-any
+spec_U(media:pdf)           < spec_U(media:pdf;bytes)        # added another must-have-any
+spec_U(media:pdf;v=*)       < spec_U(media:pdf;v=2.0)        # tightened * (2) → exact (4)
+spec_U(media:pdf;v?=draft)  < spec_U(media:pdf;v!=draft)     # tightened ?=v (1) → !=v (3)
+spec_U(media:pdf;v!=draft)  < spec_U(media:pdf;!v)           # tightened !=v (3) → ! (5)
 ```
+
+The ladder is monotone within each branch:
+- Positive: `?x` (0) → `x` (2) → `x=v` (4)
+- Negative: `?x` (0) → `x?=v` (1) → `x!=v` (3) → `!x` (5)
+
+Cross-branch transitions (e.g. `*` → `!`) also only increase the
+score, since `!` (5) > `*` (2).
 
 ### 4.4 Specificity Does Not Determine ⪯
 
@@ -172,34 +275,21 @@ See [06-RANKING](./08-RANKING.md) for complete ranking policy.
 
 ---
 
-## 6. Graded vs Tag-Count Scoring
+## 6. One Scoring Function, Three Weighted Axes
 
-The system uses two different scoring methods:
+There is exactly one per-tag scoring function (§2.2's six-form
+ladder). It is applied uniformly to every tag in every axis of every
+URN. There is no separate "graded" vs "tag-count" mode.
 
-### 6.1 Graded Scoring (Tagged URN internals)
+What differs between Tagged URN and Cap URN specificity is only the
+**axis weighting**:
 
-Used for comparing wildcards within a single URN:
-```
-? = 0, ! = 1, * = 2, value = 3
-```
+- Tagged URN: one axis (the URN's own tag set), weight 1.
+- Cap URN: three axes (`out`, `in`, `y`) with weights `(10000, 100, 1)`
+  to give `out` and `in` lexicographic priority over `y` while
+  collapsing into a single comparable integer.
 
-This captures the semantic strength of constraints.
-
-### 6.2 Tag-Count Scoring (Cap URN dimensions)
-
-Used for comparing Cap URNs:
-```
-count tags in media URNs + count non-* cap tags
-```
-
-This simplifies ranking while maintaining useful ordering.
-
-### 6.3 Why Different?
-
-- Graded scoring preserves semantic distinctions (`!` vs `*` vs exact)
-- Tag-count scoring is simpler for multi-dimensional comparison
-- For dispatch validity, the exact values matter (via truth table)
-- For ranking, coarser granularity is sufficient
+Same per-tag ladder. Same arithmetic. Just different axis weights.
 
 ---
 
@@ -212,23 +302,28 @@ spec_U(prefix:) = 0
 spec_C(cap:) = 0
 ```
 
-The identity has zero specificity.
+The identity has zero specificity. `cap:` is the canonical
+identity-cap form (in=media:, out=media:, no y-tags).
 
 ### 7.2 All Wildcards
 
 ```
-spec_U(media:*;*;*) = 2 + 2 + 2 = 6
+spec_U(media:a;b;c) = 2 + 2 + 2 = 6
 ```
 
-Wildcards still contribute to specificity (they are constraints).
+Bare markers (`x` ≡ `x=*`) still contribute to specificity (they are
+must-have-any constraints, not absence).
 
 ### 7.3 Must-Not-Have
 
 ```
-spec_U(media:!pdf) = 1
+spec_U(media:!pdf)        = 5    # !x (must-not-have, top of negative chain)
+spec_U(media:pdf;v?=draft) = 2 + 1 = 3   # absent OR not draft (weakest negative)
+spec_U(media:pdf;v!=draft) = 2 + 3 = 5   # present and not draft
 ```
 
-The `!` constraint is weaker than `*` or exact values.
+The negative branch (`?x=v` → `x!=v` → `!x`) provides graded
+specificity for absence/exclusion claims.
 
 ---
 
@@ -236,9 +331,10 @@ The `!` constraint is weaker than `*` or exact values.
 
 | Concept | Definition |
 |---------|------------|
-| Tagged URN spec | Sum of per-tag scores (0/1/2/3) |
-| Cap URN spec | tags(in) + tags(out) + count(non-* cap-tags) |
+| Tagged URN spec | Σ score(tag) over six-form ladder (0–5) |
+| Cap URN spec   | `10000 * spec_U(out) + 100 * spec_U(in) + spec_U(y)` |
 | Distance | spec(provider) - spec(request) |
 | Use | Ranking, not validity |
 
-Specificity measures how constrained a URN is. It enables ranking among valid providers but does not determine dispatch validity.
+Specificity measures how constrained a URN is. It enables ranking
+among valid providers but does not determine dispatch validity.

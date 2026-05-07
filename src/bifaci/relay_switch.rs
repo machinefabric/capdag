@@ -1211,6 +1211,33 @@ impl RelaySwitch {
         self.expected_master_count.store(expected, Ordering::SeqCst);
     }
 
+    /// Wait until a master advertises a cap that is dispatchable for
+    /// the given request URN, or until `timeout` elapses. Returns the
+    /// master index on success, or `None` on timeout.
+    ///
+    /// This is the synchronization point between async master setup
+    /// (where a RelayNotify with real caps lands some time after the
+    /// master is added) and a synchronous-feeling caller that wants
+    /// to invoke `execute_cap` and have it route to the right master.
+    /// Without this wait, callers race the RelayNotify and observe
+    /// an empty cap table.
+    pub async fn wait_for_cap(
+        &self,
+        cap_urn: &str,
+        timeout: std::time::Duration,
+    ) -> Option<usize> {
+        let started = std::time::Instant::now();
+        loop {
+            if let Some(idx) = self.find_master_for_cap(cap_urn, None).await {
+                return Some(idx);
+            }
+            if started.elapsed() >= timeout {
+                return None;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
     /// True when:
     ///   1. The number of connected masters is at least
     ///      `expected_master_count` (declared via

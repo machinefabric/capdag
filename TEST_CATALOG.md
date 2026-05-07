@@ -1,8 +1,8 @@
 # Rust Test Catalog
 
-**Total Tests:** 1089
+**Total Tests:** 1095
 
-**Numbered Tests:** 1084
+**Numbered Tests:** 1090
 
 **Unnumbered Tests:** 5
 
@@ -17,79 +17,79 @@ This catalog lists all tests in the Rust codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
-| test001 | `test001_cap_urn_creation` | TEST001: Test that cap URN is created with tags parsed correctly and direction specs accessible | src/urn/cap_urn.rs:1029 |
-| test002 | `test002_direction_specs_default_to_wildcard` | TEST002: Test that missing 'in' or 'out' defaults to media: wildcard | src/urn/cap_urn.rs:1041 |
-| test003 | `test003_direction_matching` | TEST003: Test that direction specs must match exactly, different in/out types don't match, wildcard matches any | src/urn/cap_urn.rs:1066 |
-| test004 | `test004_unquoted_values_lowercased` | TEST004: Test that unquoted keys and values are normalized to lowercase | src/urn/cap_urn.rs:1111 |
-| test005 | `test005_quoted_values_preserve_case` | TEST005: Test that quoted values preserve case while unquoted are lowercased | src/urn/cap_urn.rs:1132 |
-| test006 | `test006_quoted_value_special_chars` | TEST006: Test that quoted values can contain special characters (semicolons, equals, spaces) | src/urn/cap_urn.rs:1151 |
-| test007 | `test007_quoted_value_escape_sequences` | TEST007: Test that escape sequences in quoted values (\" and \\) are parsed correctly | src/urn/cap_urn.rs:1170 |
-| test008 | `test008_mixed_quoted_unquoted` | TEST008: Test that mixed quoted and unquoted values in same URN parse correctly | src/urn/cap_urn.rs:1189 |
-| test009 | `test009_unterminated_quote_error` | TEST009: Test that unterminated quote produces UnterminatedQuote error | src/urn/cap_urn.rs:1197 |
-| test010 | `test010_invalid_escape_sequence_error` | TEST010: Test that invalid escape sequences (like \n, \x) produce InvalidEscapeSequence error | src/urn/cap_urn.rs:1207 |
-| test011 | `test011_serialization_smart_quoting` | TEST011: Test that serialization uses smart quoting (no quotes for simple lowercase, quotes for special chars/uppercase) | src/urn/cap_urn.rs:1224 |
-| test012 | `test012_round_trip_simple` | TEST012: Test that simple cap URN round-trips (parse -> serialize -> parse equals original) | src/urn/cap_urn.rs:1259 |
-| test013 | `test013_round_trip_quoted` | TEST013: Test that quoted values round-trip preserving case and spaces | src/urn/cap_urn.rs:1269 |
-| test014 | `test014_round_trip_escapes` | TEST014: Test that escape sequences round-trip correctly | src/urn/cap_urn.rs:1283 |
-| test015 | `test015_cap_prefix_required` | TEST015: Test that cap: prefix is required and case-insensitive | src/urn/cap_urn.rs:1297 |
-| test016 | `test016_trailing_semicolon_equivalence` | TEST016: Test that trailing semicolon is equivalent (same hash, same string, matches) | src/urn/cap_urn.rs:1320 |
-| test017 | `test017_tag_matching` | TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch | src/urn/cap_urn.rs:1352 |
-| test018 | `test018_matching_case_sensitive_values` | TEST018: Test that quoted values with different case do NOT match (case-sensitive) | src/urn/cap_urn.rs:1379 |
-| test019 | `test019_missing_tag_handling` | TEST019: Missing tag in instance causes rejection — pattern's tags are constraints | src/urn/cap_urn.rs:1393 |
-| test020 | `test020_specificity` | TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count) | src/urn/cap_urn.rs:1412 |
-| test021 | `test021_builder` | TEST021: Test builder creates cap URN with correct tags and direction specs | src/urn/cap_urn.rs:1432 |
-| test022 | `test022_builder_requires_direction` | TEST022: Test builder requires both in_spec and out_spec | src/urn/cap_urn.rs:1449 |
-| test023 | `test023_builder_preserves_case` | TEST023: Test builder lowercases keys but preserves value case | src/urn/cap_urn.rs:1474 |
-| test024 | `test024_directional_accepts` | TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy | src/urn/cap_urn.rs:1488 |
-| test025 | `test025_best_match` | TEST025: Test find_best_match returns most specific matching cap | src/urn/cap_urn.rs:1519 |
-| test026 | `test026_merge_and_subset` | TEST026: Test merge combines tags from both caps, subset keeps only specified tags | src/urn/cap_urn.rs:1535 |
-| test027 | `test027_wildcard_tag` | TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out | src/urn/cap_urn.rs:1559 |
-| test028 | `test028_empty_cap_urn_defaults_to_wildcard` | TEST028: Test empty cap URN defaults to media: wildcard | src/urn/cap_urn.rs:1575 |
-| test029 | `test029_minimal_cap_urn` | TEST029: Test minimal valid cap URN has just in and out, empty tags | src/urn/cap_urn.rs:1589 |
-| test030 | `test030_extended_character_support` | TEST030: Test extended characters (forward slashes, colons) in tag values | src/urn/cap_urn.rs:1603 |
-| test031 | `test031_wildcard_restrictions` | TEST031: Test wildcard rejected in keys but accepted in values | src/urn/cap_urn.rs:1616 |
-| test032 | `test032_duplicate_key_rejection` | TEST032: Test duplicate keys are rejected with DuplicateKey error | src/urn/cap_urn.rs:1627 |
-| test033 | `test033_numeric_key_restriction` | TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed | src/urn/cap_urn.rs:1637 |
-| test034 | `test034_empty_value_error` | TEST034: Test empty values are rejected | src/urn/cap_urn.rs:1651 |
-| test035 | `test035_has_tag_case_sensitive` | TEST035: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out | src/urn/cap_urn.rs:1658 |
-| test036 | `test036_with_tag_preserves_value` | TEST036: Test with_tag preserves value case | src/urn/cap_urn.rs:1679 |
-| test037 | `test037_with_tag_rejects_empty_value` | TEST037: Test with_tag rejects empty value | src/urn/cap_urn.rs:1692 |
-| test038 | `test038_semantic_equivalence` | TEST038: Test semantic equivalence of unquoted and quoted simple lowercase values | src/urn/cap_urn.rs:1705 |
-| test039 | `test039_get_tag_returns_direction_specs` | TEST039: Test get_tag returns direction specs (in/out) with case-insensitive lookup | src/urn/cap_urn.rs:1718 |
-| test040 | `test040_matching_semantics_test1_exact_match` | TEST040: Matching semantics - exact match succeeds | src/urn/cap_urn.rs:1746 |
-| test041 | `test041_matching_semantics_test2_cap_missing_tag` | TEST041: Matching semantics - cap missing tag matches (implicit wildcard) | src/urn/cap_urn.rs:1755 |
-| test042 | `test042_matching_semantics_test3_cap_has_extra_tag` | TEST042: Pattern rejects instance missing required tags | src/urn/cap_urn.rs:1767 |
-| test043 | `test043_matching_semantics_test4_request_has_wildcard` | TEST043: Matching semantics - request wildcard matches specific cap value | src/urn/cap_urn.rs:1784 |
-| test044 | `test044_matching_semantics_test5_cap_has_wildcard` | TEST044: Matching semantics - cap wildcard matches specific request value | src/urn/cap_urn.rs:1796 |
-| test045 | `test045_matching_semantics_test6_value_mismatch` | TEST045: Matching semantics - value mismatch does not match | src/urn/cap_urn.rs:1805 |
-| test046 | `test046_matching_semantics_test7_fallback_pattern` | TEST046: Matching semantics - fallback pattern (cap missing tag = implicit wildcard) | src/urn/cap_urn.rs:1817 |
-| test047 | `test047_matching_semantics_test7b_thumbnail_void_input` | TEST047: Matching semantics - thumbnail fallback with void input | src/urn/cap_urn.rs:1838 |
-| test048 | `test048_matching_semantics_test8_wildcard_direction_matches_anything` | TEST048: Matching semantics - wildcard direction matches anything | src/urn/cap_urn.rs:1859 |
-| test049 | `test049_matching_semantics_test9_cross_dimension_independence` | TEST049: Non-overlapping tags — neither direction accepts | src/urn/cap_urn.rs:1875 |
-| test050 | `test050_matching_semantics_test10_direction_mismatch` | TEST050: Matching semantics - direction mismatch prevents matching | src/urn/cap_urn.rs:1891 |
+| test001 | `test001_cap_urn_creation` | TEST001: Test that cap URN is created with tags parsed correctly and direction specs accessible | src/urn/cap_urn.rs:1174 |
+| test002 | `test002_direction_specs_default_to_wildcard` | TEST002: Test that missing 'in' or 'out' defaults to media: wildcard | src/urn/cap_urn.rs:1186 |
+| test003 | `test003_direction_matching` | TEST003: Test that direction specs must match exactly, different in/out types don't match, wildcard matches any | src/urn/cap_urn.rs:1211 |
+| test004 | `test004_unquoted_values_lowercased` | TEST004: Test that unquoted keys and values are normalized to lowercase | src/urn/cap_urn.rs:1256 |
+| test005 | `test005_quoted_values_preserve_case` | TEST005: Test that quoted values preserve case while unquoted are lowercased | src/urn/cap_urn.rs:1277 |
+| test006 | `test006_quoted_value_special_chars` | TEST006: Test that quoted values can contain special characters (semicolons, equals, spaces) | src/urn/cap_urn.rs:1296 |
+| test007 | `test007_quoted_value_escape_sequences` | TEST007: Test that escape sequences in quoted values (\" and \\) are parsed correctly | src/urn/cap_urn.rs:1315 |
+| test008 | `test008_mixed_quoted_unquoted` | TEST008: Test that mixed quoted and unquoted values in same URN parse correctly | src/urn/cap_urn.rs:1334 |
+| test009 | `test009_unterminated_quote_error` | TEST009: Test that unterminated quote produces UnterminatedQuote error | src/urn/cap_urn.rs:1342 |
+| test010 | `test010_invalid_escape_sequence_error` | TEST010: Test that invalid escape sequences (like \n, \x) produce InvalidEscapeSequence error | src/urn/cap_urn.rs:1352 |
+| test011 | `test011_serialization_smart_quoting` | TEST011: Test that serialization uses smart quoting (no quotes for simple lowercase, quotes for special chars/uppercase) | src/urn/cap_urn.rs:1369 |
+| test012 | `test012_round_trip_simple` | TEST012: Test that simple cap URN round-trips (parse -> serialize -> parse equals original) | src/urn/cap_urn.rs:1404 |
+| test013 | `test013_round_trip_quoted` | TEST013: Test that quoted values round-trip preserving case and spaces | src/urn/cap_urn.rs:1414 |
+| test014 | `test014_round_trip_escapes` | TEST014: Test that escape sequences round-trip correctly | src/urn/cap_urn.rs:1428 |
+| test015 | `test015_cap_prefix_required` | TEST015: Test that cap: prefix is required and case-insensitive | src/urn/cap_urn.rs:1442 |
+| test016 | `test016_trailing_semicolon_equivalence` | TEST016: Test that trailing semicolon is equivalent (same hash, same string, matches) | src/urn/cap_urn.rs:1465 |
+| test017 | `test017_tag_matching` | TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch | src/urn/cap_urn.rs:1497 |
+| test018 | `test018_matching_case_sensitive_values` | TEST018: Test that quoted values with different case do NOT match (case-sensitive) | src/urn/cap_urn.rs:1524 |
+| test019 | `test019_missing_tag_handling` | TEST019: Missing tag in instance causes rejection — pattern's tags are constraints | src/urn/cap_urn.rs:1538 |
+| test020 | `test020_specificity` | TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count) | src/urn/cap_urn.rs:1557 |
+| test021 | `test021_builder` | TEST021: Test builder creates cap URN with correct tags and direction specs | src/urn/cap_urn.rs:1577 |
+| test022 | `test022_builder_requires_direction` | TEST022: Test builder requires both in_spec and out_spec | src/urn/cap_urn.rs:1594 |
+| test023 | `test023_builder_preserves_case` | TEST023: Test builder lowercases keys but preserves value case | src/urn/cap_urn.rs:1619 |
+| test024 | `test024_directional_accepts` | TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy | src/urn/cap_urn.rs:1633 |
+| test025 | `test025_best_match` | TEST025: Test find_best_match returns most specific matching cap | src/urn/cap_urn.rs:1664 |
+| test026 | `test026_merge_and_subset` | TEST026: Test merge combines tags from both caps, subset keeps only specified tags | src/urn/cap_urn.rs:1680 |
+| test027 | `test027_wildcard_tag` | TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out | src/urn/cap_urn.rs:1704 |
+| test028 | `test028_empty_cap_urn_defaults_to_wildcard` | TEST028: Test empty cap URN defaults to media: wildcard | src/urn/cap_urn.rs:1720 |
+| test029 | `test029_minimal_cap_urn` | TEST029: Test minimal valid cap URN has just in and out, empty tags | src/urn/cap_urn.rs:1734 |
+| test030 | `test030_extended_character_support` | TEST030: Test extended characters (forward slashes, colons) in tag values | src/urn/cap_urn.rs:1748 |
+| test031 | `test031_wildcard_restrictions` | TEST031: Test wildcard rejected in keys but accepted in values | src/urn/cap_urn.rs:1761 |
+| test032 | `test032_duplicate_key_rejection` | TEST032: Test duplicate keys are rejected with DuplicateKey error | src/urn/cap_urn.rs:1772 |
+| test033 | `test033_numeric_key_restriction` | TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed | src/urn/cap_urn.rs:1782 |
+| test034 | `test034_empty_value_error` | TEST034: Test empty values are rejected | src/urn/cap_urn.rs:1796 |
+| test035 | `test035_has_tag_case_sensitive` | TEST035: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out | src/urn/cap_urn.rs:1803 |
+| test036 | `test036_with_tag_preserves_value` | TEST036: Test with_tag preserves value case | src/urn/cap_urn.rs:1824 |
+| test037 | `test037_with_tag_rejects_empty_value` | TEST037: Test with_tag rejects empty value | src/urn/cap_urn.rs:1837 |
+| test038 | `test038_semantic_equivalence` | TEST038: Test semantic equivalence of unquoted and quoted simple lowercase values | src/urn/cap_urn.rs:1850 |
+| test039 | `test039_get_tag_returns_direction_specs` | TEST039: Test get_tag returns direction specs (in/out) with case-insensitive lookup | src/urn/cap_urn.rs:1863 |
+| test040 | `test040_matching_semantics_test1_exact_match` | TEST040: Matching semantics - exact match succeeds | src/urn/cap_urn.rs:1891 |
+| test041 | `test041_matching_semantics_test2_cap_missing_tag` | TEST041: Matching semantics - cap missing tag matches (implicit wildcard) | src/urn/cap_urn.rs:1900 |
+| test042 | `test042_matching_semantics_test3_cap_has_extra_tag` | TEST042: Pattern rejects instance missing required tags | src/urn/cap_urn.rs:1912 |
+| test043 | `test043_matching_semantics_test4_request_has_wildcard` | TEST043: Matching semantics - request wildcard matches specific cap value | src/urn/cap_urn.rs:1929 |
+| test044 | `test044_matching_semantics_test5_cap_has_wildcard` | TEST044: Matching semantics - cap wildcard matches specific request value | src/urn/cap_urn.rs:1941 |
+| test045 | `test045_matching_semantics_test6_value_mismatch` | TEST045: Matching semantics - value mismatch does not match | src/urn/cap_urn.rs:1950 |
+| test046 | `test046_matching_semantics_test7_fallback_pattern` | TEST046: Matching semantics - fallback pattern (cap missing tag = implicit wildcard) | src/urn/cap_urn.rs:1962 |
+| test047 | `test047_matching_semantics_test7b_thumbnail_void_input` | TEST047: Matching semantics - thumbnail fallback with void input | src/urn/cap_urn.rs:1983 |
+| test048 | `test048_matching_semantics_test8_wildcard_direction_matches_anything` | TEST048: Matching semantics - wildcard direction matches anything | src/urn/cap_urn.rs:2004 |
+| test049 | `test049_matching_semantics_test9_cross_dimension_independence` | TEST049: Non-overlapping tags — neither direction accepts | src/urn/cap_urn.rs:2020 |
+| test050 | `test050_matching_semantics_test10_direction_mismatch` | TEST050: Matching semantics - direction mismatch prevents matching | src/urn/cap_urn.rs:2036 |
 | test051 | `test051_input_validation_success` | TEST051: Test input validation succeeds with valid positional argument | src/cap/validation.rs:1244 |
 | test052 | `test052_input_validation_missing_required` | TEST052: Test input validation fails with MissingRequiredArgument when required arg missing | src/cap/validation.rs:1272 |
 | test053 | `test053_input_validation_wrong_type` | TEST053: Test input validation fails with InvalidArgumentType when wrong type provided | src/cap/validation.rs:1306 |
 | test054 | `test054_xv5_inline_spec_redefinition_detected` | TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected | src/cap/validation.rs:1355 |
 | test055 | `test055_xv5_new_inline_spec_allowed` | TEST055: XV5 - Test new inline media spec (not in registry) is allowed | src/cap/validation.rs:1394 |
 | test056 | `test056_xv5_empty_media_specs_allowed` | TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation | src/cap/validation.rs:1429 |
-| test060 | `test060_wrong_prefix_fails` | TEST060: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix | src/urn/media_urn.rs:677 |
-| test061 | `test061_is_binary` | TEST061: Test is_binary returns true when textable tag is absent (binary = not textable) | src/urn/media_urn.rs:690 |
-| test062 | `test062_is_record` | TEST062: Test is_record returns true when record marker tag is present indicating key-value structure | src/urn/media_urn.rs:709 |
-| test063 | `test063_is_scalar` | TEST063: Test is_scalar returns true when list marker tag is absent (scalar is default) | src/urn/media_urn.rs:726 |
-| test064 | `test064_is_list` | TEST064: Test is_list returns true when list marker tag is present indicating ordered collection | src/urn/media_urn.rs:745 |
-| test065 | `test065_is_opaque` | TEST065: Test is_opaque returns true when record marker is absent (opaque is default) | src/urn/media_urn.rs:760 |
-| test066 | `test066_is_json` | TEST066: Test is_json returns true only when json marker tag is present for JSON representation | src/urn/media_urn.rs:778 |
-| test067 | `test067_is_text` | TEST067: Test is_text returns true only when textable marker tag is present | src/urn/media_urn.rs:791 |
-| test068 | `test068_is_void` | TEST068: Test is_void returns true when void flag or type=void tag is present | src/urn/media_urn.rs:804 |
-| test071 | `test071_to_string_roundtrip` | TEST071: Test to_string roundtrip ensures serialization and deserialization preserve URN structure | src/urn/media_urn.rs:811 |
-| test072 | `test072_constants_parse` | TEST072: Test all media URN constants parse successfully as valid media URNs | src/urn/media_urn.rs:821 |
-| test073 | `test073_extension_helpers` | TEST073: Test extension helper functions create media URNs with ext tag and correct format | src/urn/media_urn.rs:855 |
-| test074 | `test074_media_urn_matching` | TEST074: Test media URN conforms_to using tagged URN semantics with specific and generic requirements | src/urn/media_urn.rs:877 |
-| test075 | `test075_matching` | TEST075: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests | src/urn/media_urn.rs:903 |
-| test076 | `test076_specificity` | TEST076: Test specificity increases with more tags for ranking conformance | src/urn/media_urn.rs:919 |
-| test077 | `test077_serde_roundtrip` | TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly | src/urn/media_urn.rs:948 |
-| test078 | `test078_object_does_not_conform_to_string` | TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING | src/urn/media_urn.rs:964 |
+| test060 | `test060_wrong_prefix_fails` | TEST060: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix | src/urn/media_urn.rs:715 |
+| test061 | `test061_is_binary` | TEST061: Test is_binary returns true when textable tag is absent (binary = not textable) | src/urn/media_urn.rs:728 |
+| test062 | `test062_is_record` | TEST062: Test is_record returns true when record marker tag is present indicating key-value structure | src/urn/media_urn.rs:747 |
+| test063 | `test063_is_scalar` | TEST063: Test is_scalar returns true when list marker tag is absent (scalar is default) | src/urn/media_urn.rs:764 |
+| test064 | `test064_is_list` | TEST064: Test is_list returns true when list marker tag is present indicating ordered collection | src/urn/media_urn.rs:783 |
+| test065 | `test065_is_opaque` | TEST065: Test is_opaque returns true when record marker is absent (opaque is default) | src/urn/media_urn.rs:798 |
+| test066 | `test066_is_json` | TEST066: Test is_json returns true only when json marker tag is present for JSON representation | src/urn/media_urn.rs:816 |
+| test067 | `test067_is_text` | TEST067: Test is_text returns true only when textable marker tag is present | src/urn/media_urn.rs:829 |
+| test068 | `test068_is_void` | TEST068: Test is_void returns true when void flag or type=void tag is present | src/urn/media_urn.rs:842 |
+| test071 | `test071_to_string_roundtrip` | TEST071: Test to_string roundtrip ensures serialization and deserialization preserve URN structure | src/urn/media_urn.rs:849 |
+| test072 | `test072_constants_parse` | TEST072: Test all media URN constants parse successfully as valid media URNs | src/urn/media_urn.rs:859 |
+| test073 | `test073_extension_helpers` | TEST073: Test extension helper functions create media URNs with ext tag and correct format | src/urn/media_urn.rs:893 |
+| test074 | `test074_media_urn_matching` | TEST074: Test media URN conforms_to using tagged URN semantics with specific and generic requirements | src/urn/media_urn.rs:915 |
+| test075 | `test075_matching` | TEST075: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests | src/urn/media_urn.rs:941 |
+| test076 | `test076_specificity` | TEST076: Test specificity increases with more tags for ranking conformance | src/urn/media_urn.rs:957 |
+| test077 | `test077_serde_roundtrip` | TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly | src/urn/media_urn.rs:986 |
+| test078 | `test078_object_does_not_conform_to_string` | TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING | src/urn/media_urn.rs:1002 |
 | test088 | `test088_resolve_from_registry_str` | TEST088: Test resolving string media URN from registry returns correct media type and profile | src/media/spec.rs:674 |
 | test089 | `test089_resolve_from_registry_obj` | TEST089: Test resolving JSON media URN from registry returns JSON media type | src/media/spec.rs:686 |
 | test090 | `test090_resolve_from_registry_binary` | TEST090: Test resolving binary media URN returns octet-stream and is_binary true | src/media/spec.rs:697 |
@@ -276,9 +276,9 @@ This catalog lists all tests in the Rust codebase.
 | test293 | `test293_cartridge_runtime_handler_registration` | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN | src/bifaci/integration_tests.rs:21 |
 | test299 | `test299_empty_payload_roundtrip` | TEST299: Empty payload request/response roundtrip | src/bifaci/integration_tests.rs:1296 |
 | test300 | `test300_get_cartridge_by_id_channel_isolation` | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. | src/bifaci/cartridge_repo.rs:1618 |
-| test304 | `test304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | src/urn/media_urn.rs:984 |
-| test305 | `test305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | src/urn/media_urn.rs:1002 |
-| test306 | `test306_availability_and_path_output_distinct` | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs | src/urn/media_urn.rs:1016 |
+| test304 | `test304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | src/urn/media_urn.rs:1022 |
+| test305 | `test305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | src/urn/media_urn.rs:1040 |
+| test306 | `test306_availability_and_path_output_distinct` | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs | src/urn/media_urn.rs:1054 |
 | test307 | `test307_model_availability_urn` | TEST307: Test model_availability_urn builds valid cap URN with correct op and media specs | src/standard/caps.rs:991 |
 | test308 | `test308_model_path_urn` | TEST308: Test model_path_urn builds valid cap URN with correct op and media specs | src/standard/caps.rs:1007 |
 | test309 | `test309_model_availability_and_path_are_distinct` | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs | src/standard/caps.rs:1023 |
@@ -355,19 +355,19 @@ This catalog lists all tests in the Rust codebase.
 | test410 | `test410_master_receives_updated_relay_notify` | TEST410: Master receives updated RelayNotify (cap change callback via read_frame) | src/bifaci/relay.rs:712 |
 | test411 | `test411_socket_close_detection` | TEST411: Socket close detection (both directions) | src/bifaci/relay.rs:803 |
 | test412 | `test412_bidirectional_concurrent_flow` | TEST412: Bidirectional concurrent frame flow through relay | src/bifaci/relay.rs:844 |
-| test413 | `test413_register_cartridge_adds_to_cap_table` | TEST413: Register cartridge adds entries to cap_table | src/bifaci/host_runtime.rs:3298 |
-| test414 | `test414_capabilities_empty_initially` | TEST414: capabilities() returns empty JSON initially (no running cartridges) | src/bifaci/host_runtime.rs:3327 |
-| test415 | `test415_req_for_known_cap_triggers_spawn` | TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary) | src/bifaci/host_runtime.rs:3353 |
-| test416 | `test416_attach_cartridge_handshake_updates_capabilities` | TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities | src/bifaci/host_runtime.rs:3436 |
-| test417 | `test417_route_req_to_correct_cartridge` | TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges) | src/bifaci/host_runtime.rs:3491 |
-| test418 | `test418_route_continuation_frames_by_req_id` | TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ→cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge — even though no cap_urn is present on those frames. | src/bifaci/host_runtime.rs:3891 |
-| test419 | `test419_cartridge_heartbeat_handled_locally` | TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay) | src/bifaci/host_runtime.rs:3651 |
-| test420 | `test420_cartridge_frames_forwarded_to_relay` | TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through) | src/bifaci/host_runtime.rs:3726 |
-| test421 | `test421_cartridge_death_updates_capabilities` | TEST421: Cartridge death updates capability list (caps removed) | src/bifaci/host_runtime.rs:4053 |
-| test422 | `test422_cartridge_death_sends_err_for_pending_requests` | TEST422: Cartridge death sends ERR for all pending requests via relay | src/bifaci/host_runtime.rs:4147 |
-| test423 | `test423_multiple_cartridges_route_independently` | TEST423: Multiple cartridges registered with distinct caps route independently | src/bifaci/host_runtime.rs:4238 |
-| test424 | `test424_concurrent_requests_to_same_cartridge` | TEST424: Concurrent requests to the same cartridge are handled independently | src/bifaci/host_runtime.rs:4431 |
-| test425 | `test425_find_cartridge_for_cap_unknown` | TEST425: find_cartridge_for_cap returns None for unregistered cap | src/bifaci/host_runtime.rs:4591 |
+| test413 | `test413_register_cartridge_adds_to_cap_table` | TEST413: Register cartridge adds entries to cap_table. The cap_table stores canonical URN strings (alphabetical tag order, no unnecessary quotes around single-tag media URNs). The input forms below get canonicalized at parse-time and the table reads back as the canonical form. | src/bifaci/host_runtime.rs:3303 |
+| test414 | `test414_capabilities_empty_initially` | TEST414: capabilities() returns empty JSON initially (no running cartridges) | src/bifaci/host_runtime.rs:3332 |
+| test415 | `test415_req_for_known_cap_triggers_spawn` | TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary) | src/bifaci/host_runtime.rs:3358 |
+| test416 | `test416_attach_cartridge_handshake_updates_capabilities` | TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities | src/bifaci/host_runtime.rs:3441 |
+| test417 | `test417_route_req_to_correct_cartridge` | TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges) | src/bifaci/host_runtime.rs:3496 |
+| test418 | `test418_route_continuation_frames_by_req_id` | TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ→cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge — even though no cap_urn is present on those frames. | src/bifaci/host_runtime.rs:3896 |
+| test419 | `test419_cartridge_heartbeat_handled_locally` | TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay) | src/bifaci/host_runtime.rs:3656 |
+| test420 | `test420_cartridge_frames_forwarded_to_relay` | TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through) | src/bifaci/host_runtime.rs:3731 |
+| test421 | `test421_cartridge_death_updates_capabilities` | TEST421: Cartridge death updates capability list (caps removed) | src/bifaci/host_runtime.rs:4058 |
+| test422 | `test422_cartridge_death_sends_err_for_pending_requests` | TEST422: Cartridge death sends ERR for all pending requests via relay | src/bifaci/host_runtime.rs:4152 |
+| test423 | `test423_multiple_cartridges_route_independently` | TEST423: Multiple cartridges registered with distinct caps route independently | src/bifaci/host_runtime.rs:4243 |
+| test424 | `test424_concurrent_requests_to_same_cartridge` | TEST424: Concurrent requests to the same cartridge are handled independently | src/bifaci/host_runtime.rs:4436 |
+| test425 | `test425_find_cartridge_for_cap_unknown` | TEST425: find_cartridge_for_cap returns None for unregistered cap | src/bifaci/host_runtime.rs:4596 |
 | test426 | `test426_single_master_req_response` | TEST426: Single master REQ/response routing | src/bifaci/relay_switch.rs:3446 |
 | test427 | `test427_multi_master_cap_routing` | TEST427: Multi-master cap routing | src/bifaci/relay_switch.rs:3510 |
 | test428 | `test428_unknown_cap_returns_error` | TEST428: Unknown cap returns error | src/bifaci/relay_switch.rs:3623 |
@@ -376,12 +376,12 @@ This catalog lists all tests in the Rust codebase.
 | test431 | `test431_continuation_frame_routing` | TEST431: Continuation frame routing (CHUNK, END follow REQ) | src/bifaci/relay_switch.rs:3758 |
 | test432 | `test432_empty_masters_allowed` | TEST432: Empty masters list creates empty switch, add_master works | src/bifaci/relay_switch.rs:3842 |
 | test433 | `test433_capability_aggregation_deduplicates` | TEST433: Capability aggregation deduplicates caps | src/bifaci/relay_switch.rs:3860 |
-| test434 | `test434_limits_negotiation_minimum` | TEST434: Limits negotiation takes minimum | src/bifaci/relay_switch.rs:3909 |
-| test435 | `test435_urn_matching_exact_and_accepts` | TEST435: URN matching (exact vs accepts()) | src/bifaci/relay_switch.rs:3950 |
+| test434 | `test434_limits_negotiation_minimum` | TEST434: Limits negotiation takes minimum | src/bifaci/relay_switch.rs:3907 |
+| test435 | `test435_urn_matching_exact_and_accepts` | TEST435: URN matching (exact vs accepts()) | src/bifaci/relay_switch.rs:3948 |
 | test436 | `test436_compute_checksum` | TEST436: Verify FNV-1a checksum function produces consistent results | src/bifaci/frame.rs:1687 |
-| test437 | `test437_preferred_cap_routes_to_generic` | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates | src/bifaci/relay_switch.rs:4053 |
-| test438 | `test438_preferred_cap_falls_back_when_not_comparable` | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set | src/bifaci/relay_switch.rs:4109 |
-| test439 | `test439_generic_provider_can_dispatch_specific_request` | TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. | src/bifaci/relay_switch.rs:4147 |
+| test437 | `test437_preferred_cap_routes_to_generic` | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates | src/bifaci/relay_switch.rs:4051 |
+| test438 | `test438_preferred_cap_falls_back_when_not_comparable` | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set | src/bifaci/relay_switch.rs:4107 |
+| test439 | `test439_generic_provider_can_dispatch_specific_request` | TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. | src/bifaci/relay_switch.rs:4145 |
 | test440 | `test440_chunk_index_checksum_roundtrip` | TEST440: CHUNK frame with chunk_index and checksum roundtrips through encode/decode | src/bifaci/io.rs:1862 |
 | test441 | `test441_stream_end_chunk_count_roundtrip` | TEST441: STREAM_END frame with chunk_count roundtrips through encode/decode | src/bifaci/io.rs:1891 |
 | test442 | `test442_seq_assigner_monotonic_same_rid` | TEST442: SeqAssigner assigns seq 0,1,2,3 for consecutive frames with same RID | src/bifaci/frame.rs:1763 |
@@ -415,10 +415,10 @@ This catalog lists all tests in the Rust codebase.
 | test481 | `test481_verify_identity_succeeds` | TEST481: verify_identity succeeds with standard identity echo handler | src/bifaci/io.rs:2064 |
 | test482 | `test482_verify_identity_fails_on_err` | TEST482: verify_identity fails when cartridge returns ERR on identity call | src/bifaci/io.rs:2091 |
 | test483 | `test483_verify_identity_fails_on_close` | TEST483: verify_identity fails when connection closes before response | src/bifaci/io.rs:2131 |
-| test485 | `test485_attach_cartridge_identity_verification_succeeds` | TEST485: attach_cartridge completes identity verification with working cartridge | src/bifaci/host_runtime.rs:4613 |
-| test486 | `test486_attach_cartridge_identity_verification_fails` | TEST486: attach_cartridge rejects cartridge that fails identity verification | src/bifaci/host_runtime.rs:4656 |
-| test487 | `test487_relay_switch_identity_verification_succeeds` | TEST487: RelaySwitch construction verifies identity through relay chain | src/bifaci/relay_switch.rs:4189 |
-| test488 | `test488_relay_switch_identity_verification_fails` | TEST488: RelaySwitch construction fails when master's identity verification fails | src/bifaci/relay_switch.rs:4225 |
+| test485 | `test485_attach_cartridge_identity_verification_succeeds` | TEST485: attach_cartridge completes identity verification with working cartridge | src/bifaci/host_runtime.rs:4618 |
+| test486 | `test486_attach_cartridge_identity_verification_fails` | TEST486: attach_cartridge rejects cartridge that fails identity verification | src/bifaci/host_runtime.rs:4661 |
+| test487 | `test487_relay_switch_identity_verification_succeeds` | TEST487: RelaySwitch construction verifies identity through relay chain | src/bifaci/relay_switch.rs:4187 |
+| test488 | `test488_relay_switch_identity_verification_fails` | TEST488: RelaySwitch construction fails when master's identity verification fails | src/bifaci/relay_switch.rs:4223 |
 | test490 | `test490_identity_verification_multiple_cartridges` | TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed. | src/bifaci/integration_tests.rs:1497 |
 | test491 | `test491_chunk_requires_chunk_index_and_checksum` | TEST491: Frame::chunk constructor requires and sets chunk_index and checksum | src/bifaci/frame.rs:2242 |
 | test492 | `test492_stream_end_requires_chunk_count` | TEST492: Frame::stream_end constructor requires and sets chunk_count | src/bifaci/frame.rs:2264 |
@@ -475,26 +475,26 @@ This catalog lists all tests in the Rust codebase.
 | test543 | `test543_peer_call_arg_creates_stream` | TEST543: PeerCall::arg creates OutputStream with correct stream_id | src/bifaci/cartridge_runtime.rs:7857 |
 | test544 | `test544_peer_call_finish_sends_end` | TEST544: PeerCall::finish sends END frame | src/bifaci/cartridge_runtime.rs:7878 |
 | test545 | `test545_peer_call_finish_returns_response_stream` | TEST545: PeerCall::finish returns PeerResponse with data | src/bifaci/cartridge_runtime.rs:7906 |
-| test546 | `test546_is_image` | TEST546: is_image returns true only when image marker tag is present | src/urn/media_urn.rs:1032 |
-| test547 | `test547_is_audio` | TEST547: is_audio returns true only when audio marker tag is present | src/urn/media_urn.rs:1047 |
-| test548 | `test548_is_video` | TEST548: is_video returns true only when video marker tag is present | src/urn/media_urn.rs:1061 |
-| test549 | `test549_is_numeric` | TEST549: is_numeric returns true only when numeric marker tag is present | src/urn/media_urn.rs:1072 |
-| test550 | `test550_is_bool` | TEST550: is_bool returns true only when bool marker tag is present | src/urn/media_urn.rs:1089 |
-| test551 | `test551_is_file_path` | TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. | src/urn/media_urn.rs:1104 |
-| test555 | `test555_with_tag_and_without_tag` | TEST555: with_tag adds a tag and without_tag removes it | src/urn/media_urn.rs:1116 |
-| test556 | `test556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | src/urn/media_urn.rs:1133 |
-| test557 | `test557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | src/urn/media_urn.rs:1146 |
-| test558 | `test558_predicate_constant_consistency` | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates | src/urn/media_urn.rs:1159 |
-| test559 | `test559_without_tag` | TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys | src/urn/cap_urn.rs:2265 |
-| test560 | `test560_with_in_out_spec` | TEST560: with_in_spec and with_out_spec change direction specs | src/urn/cap_urn.rs:2289 |
-| test561 | `test561_in_out_media_urn` | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn | src/urn/cap_urn.rs:2311 |
-| test562 | `test562_canonical_option` | TEST562: canonical_option returns None for None input, canonical string for Some | src/urn/cap_urn.rs:2339 |
-| test563 | `test563_find_all_matches` | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity | src/urn/cap_urn.rs:2361 |
-| test564 | `test564_are_compatible` | TEST564: CapMatcher::are_compatible detects bidirectional overlap | src/urn/cap_urn.rs:2381 |
-| test565 | `test565_tags_to_string` | TEST565: tags_to_string returns only tags portion without prefix | src/urn/cap_urn.rs:2408 |
-| test566 | `test566_with_tag_ignores_in_out` | TEST566: with_tag silently ignores in/out keys | src/urn/cap_urn.rs:2419 |
-| test567 | `test567_str_variants` | TEST567: conforms_to_str and accepts_str work with string arguments | src/urn/cap_urn.rs:2445 |
-| test568 | `test568_dispatch_output_tag_order` | TEST568: is_dispatchable with different tag order in output spec | src/urn/cap_urn.rs:2468 |
+| test546 | `test546_is_image` | TEST546: is_image returns true only when image marker tag is present | src/urn/media_urn.rs:1070 |
+| test547 | `test547_is_audio` | TEST547: is_audio returns true only when audio marker tag is present | src/urn/media_urn.rs:1085 |
+| test548 | `test548_is_video` | TEST548: is_video returns true only when video marker tag is present | src/urn/media_urn.rs:1099 |
+| test549 | `test549_is_numeric` | TEST549: is_numeric returns true only when numeric marker tag is present | src/urn/media_urn.rs:1110 |
+| test550 | `test550_is_bool` | TEST550: is_bool returns true only when bool marker tag is present | src/urn/media_urn.rs:1127 |
+| test551 | `test551_is_file_path` | TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. | src/urn/media_urn.rs:1142 |
+| test555 | `test555_with_tag_and_without_tag` | TEST555: with_tag adds a tag and without_tag removes it | src/urn/media_urn.rs:1154 |
+| test556 | `test556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | src/urn/media_urn.rs:1171 |
+| test557 | `test557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | src/urn/media_urn.rs:1184 |
+| test558 | `test558_predicate_constant_consistency` | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates | src/urn/media_urn.rs:1197 |
+| test559 | `test559_without_tag` | TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys | src/urn/cap_urn.rs:2410 |
+| test560 | `test560_with_in_out_spec` | TEST560: with_in_spec and with_out_spec change direction specs | src/urn/cap_urn.rs:2434 |
+| test561 | `test561_in_out_media_urn` | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn | src/urn/cap_urn.rs:2456 |
+| test562 | `test562_canonical_option` | TEST562: canonical_option returns None for None input, canonical string for Some | src/urn/cap_urn.rs:2484 |
+| test563 | `test563_find_all_matches` | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity | src/urn/cap_urn.rs:2506 |
+| test564 | `test564_are_compatible` | TEST564: CapMatcher::are_compatible detects bidirectional overlap | src/urn/cap_urn.rs:2526 |
+| test565 | `test565_tags_to_string` | TEST565: tags_to_string returns only tags portion without prefix | src/urn/cap_urn.rs:2553 |
+| test566 | `test566_with_tag_ignores_in_out` | TEST566: with_tag silently ignores in/out keys | src/urn/cap_urn.rs:2564 |
+| test567 | `test567_str_variants` | TEST567: conforms_to_str and accepts_str work with string arguments | src/urn/cap_urn.rs:2590 |
+| test568 | `test568_dispatch_output_tag_order` | TEST568: is_dispatchable with different tag order in output spec | src/urn/cap_urn.rs:2613 |
 | test578 | `test578_rule1_duplicate_media_urns` | TEST578: RULE1 - duplicate media_urns rejected | src/cap/validation.rs:1470 |
 | test579 | `test579_rule2_empty_sources` | TEST579: RULE2 - empty sources rejected | src/cap/validation.rs:1491 |
 | test580 | `test580_rule3_different_stdin_urns` | TEST580: RULE3 - multiple stdin sources with different URNs rejected | src/cap/validation.rs:1503 |
@@ -555,21 +555,21 @@ This catalog lists all tests in the Rust codebase.
 | test636 | `test636_deserialize_cartridge_info_with_null_strings` | TEST636: CartridgeInfo with null version/description/author still deserializes (the null_as_empty_string deserializer is the only tolerated coercion — every other malformed input is a hard error). | src/bifaci/cartridge_repo.rs:1372 |
 | test637 | `test637_deserialize_full_registry_response` | TEST637: A full /api/cartridges-shaped response with two cartridges and nested cap_groups round-trips through the response wrapper. | src/bifaci/cartridge_repo.rs:1394 |
 | test638 | `test638_no_peer_router_rejects_all` | TEST638: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported | src/bifaci/router.rs:95 |
-| test639 | `test639_wildcard_001_empty_cap_defaults_to_media_wildcard` | TEST639: cap: (empty) defaults to in=media:;out=media: | src/urn/cap_urn.rs:2028 |
-| test640 | `test640_wildcard_002_in_only_defaults_out_to_media` | TEST640: cap:in defaults out to media: | src/urn/cap_urn.rs:2037 |
-| test641 | `test641_wildcard_003_out_only_defaults_in_to_media` | TEST641: cap:out defaults in to media: | src/urn/cap_urn.rs:2045 |
-| test642 | `test642_wildcard_004_in_out_no_values_become_media` | TEST642: cap:in;out both become media: | src/urn/cap_urn.rs:2053 |
-| test643 | `test643_wildcard_005_explicit_asterisk_becomes_media` | TEST643: cap:in=*;out=* becomes media: | src/urn/cap_urn.rs:2061 |
-| test644 | `test644_wildcard_006_specific_in_wildcard_out` | TEST644: cap:in=media:;out=* has specific in, wildcard out | src/urn/cap_urn.rs:2069 |
-| test645 | `test645_wildcard_007_wildcard_in_specific_out` | TEST645: cap:in=*;out=media:text has wildcard in, specific out | src/urn/cap_urn.rs:2077 |
-| test646 | `test646_wildcard_008_invalid_in_spec_fails` | TEST646: cap:in=foo fails (invalid media URN) | src/urn/cap_urn.rs:2086 |
-| test647 | `test647_wildcard_009_invalid_out_spec_fails` | TEST647: cap:in=media:;out=bar fails (invalid media URN) | src/urn/cap_urn.rs:2095 |
-| test648 | `test648_wildcard_010_wildcard_accepts_specific` | TEST648: Wildcard in/out match specific caps | src/urn/cap_urn.rs:2104 |
-| test649 | `test649_wildcard_011_specificity_scoring` | TEST649: Specificity - wildcard has 0, specific has tag count | src/urn/cap_urn.rs:2120 |
-| test650 | `test650_wildcard_012_preserve_other_tags` | TEST650: cap:in=media:;out=media:;test preserves other tags | src/urn/cap_urn.rs:2137 |
-| test651 | `test651_wildcard_013_identity_forms_equivalent` | TEST651: All identity forms produce the same CapUrn | src/urn/cap_urn.rs:2146 |
-| test652 | `test652_wildcard_014_cap_identity_constant_works` | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form | src/urn/cap_urn.rs:2189 |
-| test653 | `test653_wildcard_015_identity_routing_isolation` | TEST653: Identity (no tags) does not match specific requests via routing | src/urn/cap_urn.rs:2231 |
+| test639 | `test639_wildcard_001_empty_cap_defaults_to_media_wildcard` | TEST639: cap: (empty) defaults to in=media:;out=media: | src/urn/cap_urn.rs:2173 |
+| test640 | `test640_wildcard_002_in_only_defaults_out_to_media` | TEST640: cap:in defaults out to media: | src/urn/cap_urn.rs:2182 |
+| test641 | `test641_wildcard_003_out_only_defaults_in_to_media` | TEST641: cap:out defaults in to media: | src/urn/cap_urn.rs:2190 |
+| test642 | `test642_wildcard_004_in_out_no_values_become_media` | TEST642: cap:in;out both become media: | src/urn/cap_urn.rs:2198 |
+| test643 | `test643_wildcard_005_explicit_asterisk_becomes_media` | TEST643: cap:in=*;out=* becomes media: | src/urn/cap_urn.rs:2206 |
+| test644 | `test644_wildcard_006_specific_in_wildcard_out` | TEST644: cap:in=media:;out=* has specific in, wildcard out | src/urn/cap_urn.rs:2214 |
+| test645 | `test645_wildcard_007_wildcard_in_specific_out` | TEST645: cap:in=*;out=media:text has wildcard in, specific out | src/urn/cap_urn.rs:2222 |
+| test646 | `test646_wildcard_008_invalid_in_spec_fails` | TEST646: cap:in=foo fails (invalid media URN) | src/urn/cap_urn.rs:2231 |
+| test647 | `test647_wildcard_009_invalid_out_spec_fails` | TEST647: cap:in=media:;out=bar fails (invalid media URN) | src/urn/cap_urn.rs:2240 |
+| test648 | `test648_wildcard_010_wildcard_accepts_specific` | TEST648: Wildcard in/out match specific caps | src/urn/cap_urn.rs:2249 |
+| test649 | `test649_wildcard_011_specificity_scoring` | TEST649: Specificity - wildcard has 0, specific has tag count | src/urn/cap_urn.rs:2265 |
+| test650 | `test650_wildcard_012_preserve_other_tags` | TEST650: cap:in=media:;out=media:;test preserves other tags | src/urn/cap_urn.rs:2282 |
+| test651 | `test651_wildcard_013_identity_forms_equivalent` | TEST651: All identity forms produce the same CapUrn | src/urn/cap_urn.rs:2291 |
+| test652 | `test652_wildcard_014_cap_identity_constant_works` | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form | src/urn/cap_urn.rs:2334 |
+| test653 | `test653_wildcard_015_identity_routing_isolation` | TEST653: Identity (no tags) does not match specific requests via routing | src/urn/cap_urn.rs:2376 |
 | test654 | `test654_routes_req_to_handler` | TEST654: InProcessCartridgeHost routes REQ to matching handler and returns response | src/bifaci/in_process_host.rs:1001 |
 | test655 | `test655_identity_verification` | TEST655: InProcessCartridgeHost handles identity verification (echo nonce) | src/bifaci/in_process_host.rs:1091 |
 | test656 | `test656_no_handler_returns_err` | TEST656: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | src/bifaci/in_process_host.rs:1163 |
@@ -577,12 +577,12 @@ This catalog lists all tests in the Rust codebase.
 | test658 | `test658_heartbeat_response` | TEST658: InProcessCartridgeHost handles heartbeat by echoing same ID | src/bifaci/in_process_host.rs:1232 |
 | test659 | `test659_handler_error_returns_err_frame` | TEST659: InProcessCartridgeHost handler error returns ERR frame | src/bifaci/in_process_host.rs:1265 |
 | test660 | `test660_closest_specificity_routing` | TEST660: InProcessCartridgeHost closest-specificity routing prefers specific over identity | src/bifaci/in_process_host.rs:1338 |
-| test661 | `test661_cartridge_death_keeps_caps_advertised` | TEST661: Cartridge death keeps caps advertised for on-demand respawn. The cartridge's `cap_groups` survive process death, so the host can continue advertising the cartridge's caps and the relay can route a fresh REQ to it (which triggers an on-demand respawn). | src/bifaci/host_runtime.rs:4703 |
-| test662 | `test662_rebuild_capabilities_includes_non_running_cartridges` | TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet). | src/bifaci/host_runtime.rs:4746 |
-| test663 | `test663_hello_failed_cartridge_removed_from_capabilities` | TEST663: Cartridge with hello_failed is permanently removed from capabilities | src/bifaci/host_runtime.rs:4790 |
-| test664 | `test664_running_cartridge_uses_manifest_caps` | TEST664: Attached cartridge replaces pre-registration caps with manifest caps. The pre-attach `cap_groups` (from probe-time discovery) get superseded by the post-HELLO `cap_groups` from the actual handshake. | src/bifaci/host_runtime.rs:4844 |
-| test665 | `test665_cap_table_mixed_running_and_non_running` | TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view. | src/bifaci/host_runtime.rs:4913 |
-| test666 | `test666_preferred_cap_routing` | TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match | src/bifaci/relay_switch.rs:4768 |
+| test661 | `test661_cartridge_death_keeps_caps_advertised` | TEST661: Cartridge death keeps caps advertised for on-demand respawn. The cartridge's `cap_groups` survive process death, so the host can continue advertising the cartridge's caps and the relay can route a fresh REQ to it (which triggers an on-demand respawn). | src/bifaci/host_runtime.rs:4708 |
+| test662 | `test662_rebuild_capabilities_includes_non_running_cartridges` | TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet). | src/bifaci/host_runtime.rs:4757 |
+| test663 | `test663_hello_failed_cartridge_removed_from_capabilities` | TEST663: Cartridge with hello_failed is permanently removed from capabilities | src/bifaci/host_runtime.rs:4801 |
+| test664 | `test664_running_cartridge_uses_manifest_caps` | TEST664: Attached cartridge replaces pre-registration caps with manifest caps. The pre-attach `cap_groups` (from probe-time discovery) get superseded by the post-HELLO `cap_groups` from the actual handshake. | src/bifaci/host_runtime.rs:4855 |
+| test665 | `test665_cap_table_mixed_running_and_non_running` | TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view. | src/bifaci/host_runtime.rs:4924 |
+| test666 | `test666_preferred_cap_routing` | TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match | src/bifaci/relay_switch.rs:4766 |
 | test667 | `test667_verify_chunk_checksum_detects_corruption` | TEST667: verify_chunk_checksum detects corrupted payload | src/bifaci/frame.rs:3063 |
 | test668 | `test668_resolve_slot_with_populated_byte_slot_values` | TEST668: resolve_binding returns byte values when slot is populated with data | src/planner/argument_binding.rs:800 |
 | test669 | `test669_resolve_slot_falls_back_to_default` | TEST669: resolve_binding falls back to cap default value when slot has no data | src/planner/argument_binding.rs:836 |
@@ -718,22 +718,22 @@ This catalog lists all tests in the Rust codebase.
 | test820 | `test820_extract_json_path_with_boolean` | TEST820: Tests JSON path extraction correctly handles boolean values Verifies that true and false are extracted as proper boolean JSON values | src/planner/executor.rs:854 |
 | test821 | `test821_extract_json_path_with_nested_arrays` | TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access) Verifies that nested array structures like "matrix[1]" correctly extract inner arrays | src/planner/executor.rs:874 |
 | test822 | `test822_extract_json_path_invalid_array_index` | TEST822: Tests error handling for non-numeric array indices Verifies that invalid indices like "items[abc]" return a descriptive parse error | src/planner/executor.rs:889 |
-| test823 | `test823_dispatch_exact_match` | TEST823: is_dispatchable — exact match provider dispatches request | src/urn/cap_urn.rs:2494 |
-| test824 | `test824_dispatch_contravariant_input` | TEST824: is_dispatchable — provider with broader input handles specific request (contravariance) | src/urn/cap_urn.rs:2506 |
-| test825 | `test825_dispatch_request_unconstrained_input` | TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider media: on the request input axis means "unconstrained" — vacuously true | src/urn/cap_urn.rs:2519 |
-| test826 | `test826_dispatch_covariant_output` | TEST826: is_dispatchable — provider output must satisfy request output (covariance) | src/urn/cap_urn.rs:2534 |
-| test827 | `test827_dispatch_generic_output_fails` | TEST827: is_dispatchable — provider with generic output cannot satisfy specific request | src/urn/cap_urn.rs:2548 |
-| test828 | `test828_dispatch_wildcard_requires_tag_presence` | TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject | src/urn/cap_urn.rs:2562 |
-| test829 | `test829_dispatch_wildcard_with_tag_present` | TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept | src/urn/cap_urn.rs:2579 |
-| test830 | `test830_dispatch_provider_extra_tags` | TEST830: is_dispatchable — provider extra tags are refinement, always OK | src/urn/cap_urn.rs:2595 |
-| test831 | `test831_dispatch_cross_backend_mismatch` | TEST831: is_dispatchable — cross-backend mismatch prevented | src/urn/cap_urn.rs:2611 |
-| test832 | `test832_dispatch_asymmetric` | TEST832: is_dispatchable is NOT symmetric | src/urn/cap_urn.rs:2628 |
-| test833 | `test833_comparable_symmetric` | TEST833: is_comparable — both directions checked | src/urn/cap_urn.rs:2647 |
-| test834 | `test834_comparable_unrelated` | TEST834: is_comparable — unrelated caps are NOT comparable | src/urn/cap_urn.rs:2658 |
-| test835 | `test835_equivalent_identical` | TEST835: is_equivalent — identical caps | src/urn/cap_urn.rs:2671 |
-| test836 | `test836_equivalent_non_equivalent` | TEST836: is_equivalent — non-equivalent comparable caps | src/urn/cap_urn.rs:2682 |
-| test837 | `test837_dispatch_op_mismatch` | TEST837: is_dispatchable — op tag mismatch rejects | src/urn/cap_urn.rs:2693 |
-| test838 | `test838_dispatch_request_wildcard_output` | TEST838: is_dispatchable — request with wildcard output accepts any provider output | src/urn/cap_urn.rs:2705 |
+| test823 | `test823_dispatch_exact_match` | TEST823: is_dispatchable — exact match provider dispatches request | src/urn/cap_urn.rs:2639 |
+| test824 | `test824_dispatch_contravariant_input` | TEST824: is_dispatchable — provider with broader input handles specific request (contravariance) | src/urn/cap_urn.rs:2651 |
+| test825 | `test825_dispatch_request_unconstrained_input` | TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider media: on the request input axis means "unconstrained" — vacuously true | src/urn/cap_urn.rs:2664 |
+| test826 | `test826_dispatch_covariant_output` | TEST826: is_dispatchable — provider output must satisfy request output (covariance) | src/urn/cap_urn.rs:2679 |
+| test827 | `test827_dispatch_generic_output_fails` | TEST827: is_dispatchable — provider with generic output cannot satisfy specific request | src/urn/cap_urn.rs:2693 |
+| test828 | `test828_dispatch_wildcard_requires_tag_presence` | TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject | src/urn/cap_urn.rs:2707 |
+| test829 | `test829_dispatch_wildcard_with_tag_present` | TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept | src/urn/cap_urn.rs:2724 |
+| test830 | `test830_dispatch_provider_extra_tags` | TEST830: is_dispatchable — provider extra tags are refinement, always OK | src/urn/cap_urn.rs:2740 |
+| test831 | `test831_dispatch_cross_backend_mismatch` | TEST831: is_dispatchable — cross-backend mismatch prevented | src/urn/cap_urn.rs:2756 |
+| test832 | `test832_dispatch_asymmetric` | TEST832: is_dispatchable is NOT symmetric | src/urn/cap_urn.rs:2773 |
+| test833 | `test833_comparable_symmetric` | TEST833: is_comparable — both directions checked | src/urn/cap_urn.rs:2792 |
+| test834 | `test834_comparable_unrelated` | TEST834: is_comparable — unrelated caps are NOT comparable | src/urn/cap_urn.rs:2803 |
+| test835 | `test835_equivalent_identical` | TEST835: is_equivalent — identical caps | src/urn/cap_urn.rs:2816 |
+| test836 | `test836_equivalent_non_equivalent` | TEST836: is_equivalent — non-equivalent comparable caps | src/urn/cap_urn.rs:2827 |
+| test837 | `test837_dispatch_op_mismatch` | TEST837: is_dispatchable — op tag mismatch rejects | src/urn/cap_urn.rs:2838 |
+| test838 | `test838_dispatch_request_wildcard_output` | TEST838: is_dispatchable — request with wildcard output accepts any provider output | src/urn/cap_urn.rs:2850 |
 | test839 | `test839_peer_response_delivers_logs_before_stream_start` | TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive. Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads. | src/bifaci/cartridge_runtime.rs:7972 |
 | test840 | `test840_peer_response_collect_bytes_discards_logs` | TEST840: PeerResponse::collect_bytes discards LOG frames | src/bifaci/cartridge_runtime.rs:8083 |
 | test841 | `test841_peer_response_collect_value_discards_logs` | TEST841: PeerResponse::collect_value discards LOG frames | src/bifaci/cartridge_runtime.rs:8149 |
@@ -747,22 +747,22 @@ This catalog lists all tests in the Rust codebase.
 | test849 | `test849_relay_state_roundtrip` | TEST849: RelayState encode/decode roundtrip preserves resource payload | src/bifaci/io.rs:1768 |
 | test850 | `test850_all_format_conversion_paths_build_valid_urns` | TEST850: all_format_conversion_paths each entry builds a valid parseable CapUrn | src/standard/caps.rs:1194 |
 | test851 | `test851_format_conversion_urn_specs` | TEST851: format_conversion_urn in/out specs match the input constants | src/standard/caps.rs:1222 |
-| test852 | `test852_lub_identical` | TEST852: LUB of identical URNs returns the same URN | src/urn/media_urn.rs:1202 |
-| test853 | `test853_lub_no_common_tags` | TEST853: LUB of URNs with no common tags returns media: (universal) | src/urn/media_urn.rs:1210 |
-| test854 | `test854_lub_partial_overlap` | TEST854: LUB keeps common tags, drops differing ones | src/urn/media_urn.rs:1224 |
-| test855 | `test855_lub_list_vs_scalar` | TEST855: LUB of list and non-list drops list tag | src/urn/media_urn.rs:1238 |
-| test856 | `test856_lub_empty` | TEST856: LUB of empty input returns universal type | src/urn/media_urn.rs:1252 |
-| test857 | `test857_lub_single` | TEST857: LUB of single input returns that input | src/urn/media_urn.rs:1260 |
-| test858 | `test858_lub_three_inputs` | TEST858: LUB with three+ inputs narrows correctly | src/urn/media_urn.rs:1268 |
-| test859 | `test859_lub_valued_tags` | TEST859: LUB with valued tags (non-marker) that differ | src/urn/media_urn.rs:1283 |
+| test852 | `test852_lub_identical` | TEST852: LUB of identical URNs returns the same URN | src/urn/media_urn.rs:1240 |
+| test853 | `test853_lub_no_common_tags` | TEST853: LUB of URNs with no common tags returns media: (universal) | src/urn/media_urn.rs:1248 |
+| test854 | `test854_lub_partial_overlap` | TEST854: LUB keeps common tags, drops differing ones | src/urn/media_urn.rs:1262 |
+| test855 | `test855_lub_list_vs_scalar` | TEST855: LUB of list and non-list drops list tag | src/urn/media_urn.rs:1276 |
+| test856 | `test856_lub_empty` | TEST856: LUB of empty input returns universal type | src/urn/media_urn.rs:1290 |
+| test857 | `test857_lub_single` | TEST857: LUB of single input returns that input | src/urn/media_urn.rs:1298 |
+| test858 | `test858_lub_three_inputs` | TEST858: LUB with three+ inputs narrows correctly | src/urn/media_urn.rs:1306 |
+| test859 | `test859_lub_valued_tags` | TEST859: LUB with valued tags (non-marker) that differ | src/urn/media_urn.rs:1321 |
 | test860 | `test860_seq_assigner_same_rid_different_xids_independent` | TEST860: Same RID with different XIDs get independent seq counters | src/bifaci/frame.rs:1880 |
 | test880 | `test880_no_duplicates_with_unique_caps` | TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations | src/planner/plan_builder.rs:765 |
 | test886 | `test886_optional_non_io_arg_with_default_has_default` | TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults | src/planner/plan_builder.rs:1029 |
 | test887 | `test887_execute_with_file_input` | TEST887: Execute with file-path input | tests/orchestrator_integration.rs:455 |
 | test888 | `test888_execute_edge1_to_edge2_chain` | TEST888: Execute two-edge chain (test-edge1 -> test-edge2) | tests/orchestrator_integration.rs:405 |
 | test889 | `test889_execute_single_edge_dag` | TEST889: Execute single-edge DAG (test-edge1) | tests/orchestrator_integration.rs:354 |
-| test890 | `test890_direction_semantic_matching` | TEST890: Semantic direction matching - generic provider matches specific request | src/urn/cap_urn.rs:1913 |
-| test891 | `test891_direction_semantic_specificity` | TEST891: Semantic direction specificity - more media URN tags = higher specificity | src/urn/cap_urn.rs:1989 |
+| test890 | `test890_direction_semantic_matching` | TEST890: Semantic direction matching - generic provider matches specific request | src/urn/cap_urn.rs:2058 |
+| test891 | `test891_direction_semantic_specificity` | TEST891: Semantic direction specificity - more media URN tags = higher specificity | src/urn/cap_urn.rs:2134 |
 | test892 | `test892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaSpecDef | src/media/spec.rs:1143 |
 | test893 | `test893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | src/media/spec.rs:1166 |
 | test894 | `test894_multiple_extensions` | TEST894: Test multiple extensions in a media spec | src/media/spec.rs:1202 |
@@ -776,7 +776,7 @@ This catalog lists all tests in the Rust codebase.
 | test902 | `test902_compute_checksum_empty` | TEST902: Verify FNV-1a checksum handles empty data | src/bifaci/frame.rs:1709 |
 | test903 | `test903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | src/bifaci/frame.rs:1720 |
 | test904 | `test904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | src/bifaci/frame.rs:1745 |
-| test905 | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:4421 |
+| test905 | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:4419 |
 | test906 | `test906_full_path_identity_verification` | TEST906: Full path identity verification: engine → host (attach_cartridge) → cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests. | src/bifaci/integration_tests.rs:1351 |
 | test907 | `test907_offline_blocks_fetch` | TEST907: Offline flag blocks fetch_from_registry without making HTTP request | src/cap/registry.rs:684 |
 | test908 | `test908_cached_caps_accessible_when_offline` | TEST908: Cached caps remain accessible when offline | src/cap/registry.rs:709 |
@@ -843,8 +843,8 @@ This catalog lists all tests in the Rust codebase.
 | test974 | `test974_sequence_is_not_array` | TEST974: CBOR sequence is NOT a CBOR array — split_cbor_array rejects a sequence | src/orchestrator/cbor_util.rs:489 |
 | test975 | `test975_single_value_sequence` | TEST975: split_cbor_sequence works on data that is also a valid CBOR array (single top-level value) | src/orchestrator/cbor_util.rs:507 |
 | test977 | `test977_os_files_excluded_integration` | TEST977: OS files excluded in resolve_paths | src/input_resolver/resolver.rs:532 |
-| test987 | `test987_gc_secondary_pass_enforces_hard_cap` | / Contract #3 — the secondary hard-cap pass kicks in if the / table somehow exceeds `HARD_CAP` (extreme runaway). Without / it, a single GC at the soft watermark would not be enough / to recover headroom and the table could grow without bound / between bursts. | src/bifaci/host_runtime.rs:5469 |
-| test988 | `test988_gc_reduces_table_below_soft_watermark_in_one_pass` | / Contract #1 — the GC keeps the table strictly below the / hard cap. Seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame- / burst) and call the production GC entry point. The / post-state must be at most `SOFT_WATERMARK` entries / because the GC drops at least / `EVICTION_FRACTION × pre_state` entries in one pass and / the pre-state is below the hard cap (i.e. one pass is / enough; the secondary "hard cap" pass would only fire if / pre-state crossed the hard cap before insertion completed, / which production prevents by gc-ing on every insert). | src/bifaci/host_runtime.rs:5357 |
+| test987 | `test987_gc_secondary_pass_enforces_hard_cap` | / Contract #3 — the secondary hard-cap pass kicks in if the / table somehow exceeds `HARD_CAP` (extreme runaway). Without / it, a single GC at the soft watermark would not be enough / to recover headroom and the table could grow without bound / between bursts. | src/bifaci/host_runtime.rs:5480 |
+| test988 | `test988_gc_reduces_table_below_soft_watermark_in_one_pass` | / Contract #1 — the GC keeps the table strictly below the / hard cap. Seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame- / burst) and call the production GC entry point. The / post-state must be at most `SOFT_WATERMARK` entries / because the GC drops at least / `EVICTION_FRACTION × pre_state` entries in one pass and / the pre-state is below the hard cap (i.e. one pass is / enough; the secondary "hard cap" pass would only fire if / pre-state crossed the hard cap before insertion completed, / which production prevents by gc-ing on every insert). | src/bifaci/host_runtime.rs:5368 |
 | test989 | `test989_set_observer_none_clears_previous` | / Pins the observer-clearing contract: a setObserver(None) / after a previous registration must drop the strong ref so a / subsequent lifecycle moment doesn't fire into a torn-down / bridge. Matches the Swift `setObserver(nil)` test. | src/bifaci/host_runtime.rs:2926 |
 | test990 | `test990_observer_is_optional` | / Pins the optional-observer contract: a brand-new runtime with / no observer attached must close cleanly on an empty cartridge / list. A regression here would mean the observer-firing path / became non-optional and broke every call site that doesn't / register an observer (engine in-process runtime, in-process / host tests, integration tests). | src/bifaci/host_runtime.rs:2914 |
 | test991 | `test991_detects_duplicate_cap_urns` | TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn | src/planner/plan_builder.rs:799 |
@@ -855,7 +855,7 @@ This catalog lists all tests in the Rust codebase.
 | test996 | `test996_output_arg_auto_resolved` | TEST996: Tests output arguments are automatically resolved from previous cap's output Verifies that arguments matching the output spec are always resolved as FromPreviousOutput | src/planner/plan_builder.rs:944 |
 | test997 | `test997_file_path_type_fallback_first_cap` | TEST997: Tests MEDIA_FILE_PATH argument type resolves to input file for first cap Verifies that generic file-path arguments are bound to input file in the first cap | src/planner/plan_builder.rs:956 |
 | test998 | `test998_file_path_type_fallback_subsequent_cap` | TEST998: Tests MEDIA_FILE_PATH argument type resolves to previous output for subsequent caps Verifies that generic file-path arguments are bound to previous cap's output after the first cap | src/planner/plan_builder.rs:974 |
-| test999 | `test999_gc_evicts_oldest_entries_by_touch_sequence` | / Contract #2 — the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one — / the more dangerous bug because it silently drops / in-flight continuation frames. | src/bifaci/host_runtime.rs:5415 |
+| test999 | `test999_gc_evicts_oldest_entries_by_touch_sequence` | / Contract #2 — the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one — / the more dangerous bug because it silently drops / in-flight continuation frames. | src/bifaci/host_runtime.rs:5426 |
 | test1000 | `test1000_single_existing_file` | TEST1000: Single existing file | src/input_resolver/path_resolver.rs:263 |
 | test1001 | `test1001_nonexistent_file` | TEST1001: Single non-existent file | src/input_resolver/path_resolver.rs:275 |
 | test1002 | `test1002_empty_directory` | TEST1002: Empty directory | src/input_resolver/path_resolver.rs:282 |
@@ -1030,12 +1030,12 @@ This catalog lists all tests in the Rust codebase.
 | test1247 | `test1247_read_from_dir_succeeds_with_valid_cartridge` | TEST1247: Valid cartridge directories load successfully and resolve their entry point. | src/bifaci/cartridge_json.rs:735 |
 | test1248 | `test1248_hash_cartridge_directory_is_deterministic` | TEST1248: Cartridge directory hashes stay stable across metadata changes and change on content edits. | src/bifaci/cartridge_json.rs:906 |
 | test1249 | `test1249_hash_single_binary_matches_flat_layout` | TEST1249: A flat single-binary cartridge directory still produces a SHA-256 content hash. | src/bifaci/cartridge_json.rs:933 |
-| test1250 | `test1250_process_handle_snapshot_empty_initially` | TEST1250: Process snapshots start empty before any cartridges are attached or spawned. | src/bifaci/host_runtime.rs:4983 |
-| test1251 | `test1251_process_handle_snapshot_excludes_attached_cartridges` | TEST1251: Attached cartridges without child PIDs are excluded from process snapshots. | src/bifaci/host_runtime.rs:4995 |
-| test1252 | `test1252_process_handle_is_clone_and_send` | TEST1252: Cartridge process handles remain usable after clone-and-send across tasks. | src/bifaci/host_runtime.rs:5027 |
-| test1253 | `test1253_process_handle_kill_unknown_pid_is_noop` | TEST1253: Killing an unknown PID is accepted as an asynchronous no-op command. | src/bifaci/host_runtime.rs:5043 |
-| test1254 | `test1254_oom_kill_sends_err_with_oom_killed_code` | TEST1254: OOM shutdowns emit OOM_KILLED ERR frames for in-flight requests. | src/bifaci/host_runtime.rs:5060 |
-| test1255 | `test1255_app_exit_suppresses_err_frames` | TEST1255: App-exit shutdowns suppress ERR frames and close cleanly without noise. | src/bifaci/host_runtime.rs:5187 |
+| test1250 | `test1250_process_handle_snapshot_empty_initially` | TEST1250: Process snapshots start empty before any cartridges are attached or spawned. | src/bifaci/host_runtime.rs:4994 |
+| test1251 | `test1251_process_handle_snapshot_excludes_attached_cartridges` | TEST1251: Attached cartridges without child PIDs are excluded from process snapshots. | src/bifaci/host_runtime.rs:5006 |
+| test1252 | `test1252_process_handle_is_clone_and_send` | TEST1252: Cartridge process handles remain usable after clone-and-send across tasks. | src/bifaci/host_runtime.rs:5038 |
+| test1253 | `test1253_process_handle_kill_unknown_pid_is_noop` | TEST1253: Killing an unknown PID is accepted as an asynchronous no-op command. | src/bifaci/host_runtime.rs:5054 |
+| test1254 | `test1254_oom_kill_sends_err_with_oom_killed_code` | TEST1254: OOM shutdowns emit OOM_KILLED ERR frames for in-flight requests. | src/bifaci/host_runtime.rs:5071 |
+| test1255 | `test1255_app_exit_suppresses_err_frames` | TEST1255: App-exit shutdowns suppress ERR frames and close cleanly without noise. | src/bifaci/host_runtime.rs:5198 |
 | test1256 | `test1256_parse_simple_machine` | TEST1256: A single declared cap and one wiring parse into a two-node one-edge DAG. | src/orchestrator/parser.rs:305 |
 | test1257 | `test1257_parse_two_step_chain` | TEST1257: Two sequential wirings preserve the intermediate node media type. | src/orchestrator/parser.rs:344 |
 | test1258 | `test1258_parse_fan_out` | TEST1258: One source node can fan out into multiple caps and target nodes. | src/orchestrator/parser.rs:388 |
@@ -1051,7 +1051,7 @@ This catalog lists all tests in the Rust codebase.
 | test1268 | `test1268_structure_match_both_opaque` | TEST1268: Opaque outputs can feed opaque inputs without triggering structure conflicts. | src/orchestrator/parser.rs:739 |
 | test1269 | `test1269_parse_multiline_machine` | TEST1269: Multi-line machine notation parses successfully with the same semantics as inline notation. | src/orchestrator/parser.rs:774 |
 | test1270 | `test1270_get_own_memory_mb_returns_values` | TEST1270: Runtime memory inspection returns non-negative resident and virtual memory values. | src/bifaci/cartridge_runtime.rs:8450 |
-| test1271 | `test1271_media_adapter_selection_constant` | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags | src/urn/media_urn.rs:1297 |
+| test1271 | `test1271_media_adapter_selection_constant` | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags | src/urn/media_urn.rs:1335 |
 | test1272 | `test1272_adapter_cap_constant_parses` | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn | src/standard/caps.rs:1253 |
 | test1273 | `test1273_adapter_selection_urn_builder` | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs | src/standard/caps.rs:1264 |
 | test1274 | `test1274_adapter_selection_cap_builder` | TEST1274: adapter_selection_cap() builds a valid Cap with correct args and output | src/standard/caps.rs:1282 |
@@ -1092,22 +1092,28 @@ This catalog lists all tests in the Rust codebase.
 | test1511 | `test1511_read_from_dir_rejects_registry_in_dev_folder` | TEST1511: Three-place rule — a registry cartridge.json under the dev folder is rejected. Equivalent to a published cartridge being dropped into the dev tree; the dev tree is explicitly the only place a null `registry_url` is allowed, so a non-null one here means the layout is corrupted. | src/bifaci/cartridge_json.rs:846 |
 | test1512 | `test1512_read_from_dir_accepts_dev_in_dev_folder` | TEST1512: A dev cartridge.json under the dev folder is accepted. This is the only path that ends with a successful dev install; together with 1510/1511 it pins the rule that dev provenance and the dev folder are an inseparable pair. | src/bifaci/cartridge_json.rs:879 |
 | test1513 | `test1513_installed_from_optional_round_trip` | TEST1513: `installed_from` is opaque optional metadata. A cartridge.json that omits the field MUST parse cleanly with `installed_from == None`, and a CartridgeJson with `installed_from == None` MUST NOT emit the key on serialize. Pins the new contract that nothing in the host or engine branches on this field — it's audit/telemetry hint only and the absence-vs-Some distinction must round-trip. | src/bifaci/cartridge_json.rs:625 |
-| test1720 | `test1720_kind_serde_renames_match_proto_snake_case` | / TEST1720: Every variant serializes to the snake_case / string the proto and the Swift / Go / Python ports use. / Adding a new variant requires an entry here AND a matching / CARTRIDGE_ATTACHMENT_ERROR_FOO entry in cartridge.proto; / the test fails with a clear "expected X for Y" message / when the two sides drift. | src/bifaci/relay_switch.rs:5164 |
-| test1721 | `test1721_kind_decodes_wire_format_into_expected_variants` | / TEST1721: Wire-format JSON deserializes into the right / variant. This is the engine-receives-from-XPC path: the / machfab-mac side emits `{"kind":"bad_installation",...}` / and the engine must resolve it to `BadInstallation`. / Asserts every variant explicitly so a single-variant typo / in the rename map can't hide behind a passing healthy-case. | src/bifaci/relay_switch.rs:5199 |
-| test1722 | `test1722_unknown_kind_fails_to_decode` | / TEST1722: An unknown wire kind FAILS to decode rather than / silently coercing to a default variant. Older capdag binaries / that don't know `bad_installation` or `disabled` will see / those strings on the wire from a newer Swift side; rejecting / the unknown variant is the correct behaviour because silently / coercing it would hide the version-skew bug. The engine's / per-master JSON parse failure path is what surfaces this to / the operator (the master's manifest fails to parse and the / master is held unhealthy until the version is patched). | src/bifaci/relay_switch.rs:5355 |
-| test1730 | `test1730_lifecycle_serde_renames_match_proto_snake_case` | / TEST1730: Every `CartridgeLifecycle` variant serializes to / its proto snake_case name byte-for-byte. Adding a variant / requires an entry here AND a `CARTRIDGE_LIFECYCLE_FOO` / constant in `cartridge.proto`. Cross-language drift on this / enum makes lifecycle states silently invisible to one side / of the wire. | src/bifaci/relay_switch.rs:5231 |
-| test1731 | `test1731_lifecycle_default_is_discovered` | / TEST1731: `CartridgeLifecycle` defaults to `Discovered` / (the safe sentinel) — never `Operational`. Pins the / safe-default rule the doc explicitly calls out: a / freshly-constructed record without an explicit lifecycle / MUST NOT silently expose an un-inspected cartridge for / dispatch. | src/bifaci/relay_switch.rs:5257 |
-| test1732 | `test1732_installed_cartridge_record_lifecycle_defaults_when_missing` | / TEST1732: An `InstalledCartridgeRecord` deserialized from a / JSON payload that omits the `lifecycle` field defaults to / `Discovered` — never `Operational`. The wire-shape contract / covered by the safe-default rule. | src/bifaci/relay_switch.rs:5271 |
-| test1733 | `test1733_registry_url_scheme_validator` | / TEST1733: `validate_registry_url_scheme` accepts https / unconditionally, rejects non-https in production builds, / and accepts non-https in dev mode. Pins the deepest layer / of the HTTPS rule. | src/bifaci/relay_switch.rs:5299 |
+| test1720 | `test1720_kind_serde_renames_match_proto_snake_case` | / TEST1720: Every variant serializes to the snake_case / string the proto and the Swift / Go / Python ports use. / Adding a new variant requires an entry here AND a matching / CARTRIDGE_ATTACHMENT_ERROR_FOO entry in cartridge.proto; / the test fails with a clear "expected X for Y" message / when the two sides drift. | src/bifaci/relay_switch.rs:5162 |
+| test1721 | `test1721_kind_decodes_wire_format_into_expected_variants` | / TEST1721: Wire-format JSON deserializes into the right / variant. This is the engine-receives-from-XPC path: the / machfab-mac side emits `{"kind":"bad_installation",...}` / and the engine must resolve it to `BadInstallation`. / Asserts every variant explicitly so a single-variant typo / in the rename map can't hide behind a passing healthy-case. | src/bifaci/relay_switch.rs:5197 |
+| test1722 | `test1722_unknown_kind_fails_to_decode` | / TEST1722: An unknown wire kind FAILS to decode rather than / silently coercing to a default variant. Older capdag binaries / that don't know `bad_installation` or `disabled` will see / those strings on the wire from a newer Swift side; rejecting / the unknown variant is the correct behaviour because silently / coercing it would hide the version-skew bug. The engine's / per-master JSON parse failure path is what surfaces this to / the operator (the master's manifest fails to parse and the / master is held unhealthy until the version is patched). | src/bifaci/relay_switch.rs:5353 |
+| test1730 | `test1730_lifecycle_serde_renames_match_proto_snake_case` | / TEST1730: Every `CartridgeLifecycle` variant serializes to / its proto snake_case name byte-for-byte. Adding a variant / requires an entry here AND a `CARTRIDGE_LIFECYCLE_FOO` / constant in `cartridge.proto`. Cross-language drift on this / enum makes lifecycle states silently invisible to one side / of the wire. | src/bifaci/relay_switch.rs:5229 |
+| test1731 | `test1731_lifecycle_default_is_discovered` | / TEST1731: `CartridgeLifecycle` defaults to `Discovered` / (the safe sentinel) — never `Operational`. Pins the / safe-default rule the doc explicitly calls out: a / freshly-constructed record without an explicit lifecycle / MUST NOT silently expose an un-inspected cartridge for / dispatch. | src/bifaci/relay_switch.rs:5255 |
+| test1732 | `test1732_installed_cartridge_record_lifecycle_defaults_when_missing` | / TEST1732: An `InstalledCartridgeRecord` deserialized from a / JSON payload that omits the `lifecycle` field defaults to / `Discovered` — never `Operational`. The wire-shape contract / covered by the safe-default rule. | src/bifaci/relay_switch.rs:5269 |
+| test1733 | `test1733_registry_url_scheme_validator` | / TEST1733: `validate_registry_url_scheme` accepts https / unconditionally, rejects non-https in production builds, / and accepts non-https in dev mode. Pins the deepest layer / of the HTTPS rule. | src/bifaci/relay_switch.rs:5297 |
+| test1800 | `test1800_kind_identity_only_for_bare_cap` | TEST1800: Identity classifier — and only the bare cap: form qualifies. `cap:` is the fully generic morphism on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic. | src/urn/cap_urn.rs:2876 |
+| test1801 | `test1801_kind_source_when_input_is_void` | TEST1801: Source classifier — in=media:void, out non-void. The y dimension may carry any tags; void on the input alone is what matters. | src/urn/cap_urn.rs:2909 |
+| test1802 | `test1802_kind_sink_when_output_is_void` | TEST1802: Sink classifier — out=media:void, in non-void. | src/urn/cap_urn.rs:2926 |
+| test1803 | `test1803_kind_effect_when_both_sides_void` | TEST1803: Effect classifier — both sides void. Reads as `() → ()`. | src/urn/cap_urn.rs:2937 |
+| test1804 | `test1804_kind_transform_for_normal_data_processors` | TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps. | src/urn/cap_urn.rs:2952 |
+| test1805 | `test1805_kind_invariant_under_canonical_spellings` | TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. This pins the rule that kind is a property of the cap as a structured object, not of any particular spelling. | src/urn/cap_urn.rs:2971 |
 | | | | |
-| test489 ⚠ | `test489_add_master_dynamic` | TEST489: add_master dynamically connects new host to running switch | src/bifaci/relay_switch.rs:4592 |
-| test489 ⚠ | `test489_runtime_identity_probe_required_on_empty_to_nonempty_transition` | TEST489: When a master initially advertises empty caps (so `add_master` skips the identity probe) and later sends a RelayNotify update with non-empty caps, the relay must run an end-to-end identity probe before the new caps become routable. A master that fails to answer the runtime probe with the expected nonce echo must end up unhealthy with `last_error` populated, and its caps must NOT appear in the cap_table. This test guards the wire-protocol regression where the RelayNotify-update path published caps without re-verifying identity end-to-end. Removing the runtime probe re-introduces the hole; this test fails loudly when that happens. | src/bifaci/relay_switch.rs:4298 |
+| test489 ⚠ | `test489_add_master_dynamic` | TEST489: add_master dynamically connects new host to running switch | src/bifaci/relay_switch.rs:4590 |
+| test489 ⚠ | `test489_runtime_identity_probe_required_on_empty_to_nonempty_transition` | TEST489: When a master initially advertises empty caps (so `add_master` skips the identity probe) and later sends a RelayNotify update with non-empty caps, the relay must run an end-to-end identity probe before the new caps become routable. A master that fails to answer the runtime probe with the expected nonce echo must end up unhealthy with `last_error` populated, and its caps must NOT appear in the cap_table. This test guards the wire-protocol regression where the RelayNotify-update path published caps without re-verifying identity end-to-end. Removing the runtime probe re-introduces the hole; this test fails loudly when that happens. | src/bifaci/relay_switch.rs:4296 |
 | | | | |
-| unnumbered | `test_all_masters_ready_does_not_overshoot` |  | src/bifaci/relay_switch.rs:5123 |
-| unnumbered | `test_all_masters_ready_false_when_expected_count_unset` |  | src/bifaci/relay_switch.rs:5031 |
-| unnumbered | `test_all_masters_ready_false_when_partially_connected` |  | src/bifaci/relay_switch.rs:5048 |
-| unnumbered | `test_all_masters_ready_true_when_expectation_met` |  | src/bifaci/relay_switch.rs:5063 |
-| unnumbered | `test_all_masters_ready_true_when_masters_connected_but_capless` |  | src/bifaci/relay_switch.rs:5101 |
+| unnumbered | `test_all_masters_ready_does_not_overshoot` |  | src/bifaci/relay_switch.rs:5121 |
+| unnumbered | `test_all_masters_ready_false_when_expected_count_unset` |  | src/bifaci/relay_switch.rs:5029 |
+| unnumbered | `test_all_masters_ready_false_when_partially_connected` |  | src/bifaci/relay_switch.rs:5046 |
+| unnumbered | `test_all_masters_ready_true_when_expectation_met` |  | src/bifaci/relay_switch.rs:5061 |
+| unnumbered | `test_all_masters_ready_true_when_masters_connected_but_capless` |  | src/bifaci/relay_switch.rs:5099 |
 
 ---
 
@@ -1117,8 +1123,8 @@ The following test numbers are assigned to more than one function. Keep the firs
 
 ### test489 (2 occurrences)
 
-- `test489_add_master_dynamic` — src/bifaci/relay_switch.rs:4592
-- `test489_runtime_identity_probe_required_on_empty_to_nonempty_transition` — src/bifaci/relay_switch.rs:4298
+- `test489_add_master_dynamic` — src/bifaci/relay_switch.rs:4590
+- `test489_runtime_identity_probe_required_on_empty_to_nonempty_transition` — src/bifaci/relay_switch.rs:4296
 
 **Suggested free number(s):** test484
 
@@ -1128,17 +1134,17 @@ The following test numbers are assigned to more than one function. Keep the firs
 
 The following tests are cataloged but do not currently participate in numeric test indexing.
 
-- `test_all_masters_ready_does_not_overshoot` — src/bifaci/relay_switch.rs:5123
-- `test_all_masters_ready_false_when_expected_count_unset` — src/bifaci/relay_switch.rs:5031
-- `test_all_masters_ready_false_when_partially_connected` — src/bifaci/relay_switch.rs:5048
-- `test_all_masters_ready_true_when_expectation_met` — src/bifaci/relay_switch.rs:5063
-- `test_all_masters_ready_true_when_masters_connected_but_capless` — src/bifaci/relay_switch.rs:5101
+- `test_all_masters_ready_does_not_overshoot` — src/bifaci/relay_switch.rs:5121
+- `test_all_masters_ready_false_when_expected_count_unset` — src/bifaci/relay_switch.rs:5029
+- `test_all_masters_ready_false_when_partially_connected` — src/bifaci/relay_switch.rs:5046
+- `test_all_masters_ready_true_when_expectation_met` — src/bifaci/relay_switch.rs:5061
+- `test_all_masters_ready_true_when_masters_connected_but_capless` — src/bifaci/relay_switch.rs:5099
 
 ---
 
 *Generated from Rust source tree*
-*Total tests: 1089*
-*Total numbered tests: 1084*
+*Total tests: 1095*
+*Total numbered tests: 1090*
 *Total unnumbered tests: 5*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 0*

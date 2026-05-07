@@ -110,6 +110,64 @@ is_equivalent(media:pdf, media:pdf;bytes)     = false  # different specificity
 
 ---
 
+### 2.5 Per-Tag Truth Table
+
+The four predicates above all reduce to a single per-tag question:
+**does the instance value satisfy the pattern constraint for this
+key?** Each side of the comparison takes one of seven forms (the six
+canonical constraint forms from
+[03-TAGGED-URN-DOMAIN](./03-TAGGED-URN-DOMAIN.md), plus the implicit
+"missing" — no entry in the tag map).
+
+The seven forms:
+
+| Form         | Stored value | Reading                            |
+|--------------|--------------|------------------------------------|
+| missing      | (no entry)   | key omitted from the URN           |
+| `?x`         | `"?"`        | no constraint (explicit)           |
+| `x?=v`       | `"?=v"`      | absent OR (present and not v)      |
+| `x` (=`x=*`) | `"*"`        | present with any value             |
+| `x!=v`       | `"!=v"`      | present and not v                  |
+| `x=v`        | `"v"`        | present and exactly v              |
+| `!x`         | `"!"`        | absent (must-not-have)             |
+
+The full 7-row × 7-column cross-product (instance × pattern):
+
+| Inst ↓ \ Pat → | missing | `?x` | `x?=p`           | `x` (=`x=*`) | `x!=p`           | `x=p` (exact)   | `!x` |
+|----------------|:-------:|:----:|:----------------:|:------------:|:----------------:|:---------------:|:----:|
+| **missing**    | ✓       | ✓    | ✓                | ✗            | ✗                | ✗               | ✓    |
+| **`?x`**       | ✓       | ✓    | ✓                | ✓            | ✓                | ✓               | ✓    |
+| **`x?=v`**     | ✓       | ✓    | ✓                | ✗            | ✗                | ✗               | ✓    |
+| **`x` (=*)**   | ✓       | ✓    | ✓                | ✓            | ✓                | ✓               | ✗    |
+| **`x!=v`**     | ✓       | ✓    | ✓                | ✓            | ✓                | v ≠ p ? ✓ : ✗   | ✗    |
+| **`x=v`**      | ✓       | ✓    | v ≠ p ? ✓ : ✗    | ✓            | v ≠ p ? ✓ : ✗    | v == p ? ✓ : ✗  | ✗    |
+| **`!x`**       | ✓       | ✓    | ✓                | ✗            | ✗                | ✗               | ✓    |
+
+Reading rules:
+
+- A **pattern** says what an acceptable instance must look like at this key.
+- An **instance** says what's actually there at this key.
+- ✓ means the instance is acceptable to the pattern (this key doesn't disqualify the match).
+
+Per-form rules:
+
+- **Pattern missing or `?x`**: always ✓ (no constraint).
+- **Pattern `x` (=`x=*`)**: requires the instance to be a positive form (`x`, `x!=v`, `x=v`, or instance-side `?x` deferring to runtime). Absent / `?x=v` / `!x` fail.
+- **Pattern `x=v`**: requires the instance to have exactly v. Instance `x=v` matches; instance `x` defers to runtime; instance `x!=v` and `x?=v` fail (they explicitly forbid v).
+- **Pattern `x!=v`**: requires the instance to be present with some value other than v. Instance `x` defers; instance `x!=v` defers; instance `x=q` matches if q ≠ v.
+- **Pattern `x?=v`**: permissive negative — instance may be absent OR have a non-v value. Instance `x=q` matches if q ≠ v; instance `?x=v` matches.
+- **Pattern `!x`**: requires absence. Only instance forms missing, `?x`, `x?=v` (which permits absence), and `!x` itself satisfy.
+- **Instance `?x`**: always ✓ (instance defers entirely to pattern).
+- **Instance `x` (=`x=*`)**: defers value identity to runtime — accepts any pattern that allows *some* value to be present (`x`, `x!=v`, `x=v`, `?x`, `?x=v`, `!x` is the only failing pattern).
+
+This is the single truth that drives `accepts`, `conforms_to`,
+`is_comparable`, and `is_equivalent` across every implementation.
+Per-tag scoring for [specificity](./05-SPECIFICITY.md) is the
+companion ranking layer, applied after dispatch validity is
+established.
+
+---
+
 ## 3. Relationship Summary
 
 | Predicate | Definition | Symmetric? | Use Case |

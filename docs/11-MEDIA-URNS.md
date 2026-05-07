@@ -73,8 +73,60 @@ A cap with `in=media:void` does not consume data — it is driven
 entirely by its non-directional tags and any peer state. A cap with
 `out=media:void` produces no data; it exists for the side effect.
 Caps with `media:void` on both sides are pure side-effect commands
-(see [CapKind](/docs/06-cap-urn-structure#4-cap-kinds): Source,
+(see [CapKind](./06-CAP-URN-STRUCTURE.md#4-cap-kinds): Source,
 Sink, Effect).
+
+#### Atomicity
+
+`media:void` is **atomic**. The parser rejects any media URN that
+combines the `void` marker tag with any other tag:
+
+```
+media:void                ✓
+media:void;text           ✗  (parse error)
+media:void;pdf            ✗  (parse error)
+media:void;reason=warmup  ✗  (parse error)
+media:void;heartbeat      ✗  (parse error)
+```
+
+There is no lattice underneath the unit. Permitting refinements
+would manufacture a fake taxonomy of unit values
+(`media:void;warmup` vs `media:void;heartbeat` etc.) and dispatch
+semantics would silently fork: are these different units? different
+effects? different commands? Refusing the syntax forecloses the
+question.
+
+When a cap needs to express *why* or *how* it uses void, that
+information goes on the **cap URN's non-directional axis** (or in
+cap args), never as a refinement of the media URN:
+
+```
+✓ cap:in=media:void;out=media:void;warmup
+✓ cap:in=media:void;out=media:void;heartbeat
+✓ cap:in=media:void;out=media:image;generate;target=thumbnail
+
+✗ cap:in=media:void;reason=warmup;out=media:void
+✗ cap:in=media:void;text;out=media:textable
+```
+
+Each of the first three describes a distinct morphism (different
+operation tags). The last two try to pack the same distinction into
+the unit type itself; the parser rejects them at the media-URN
+layer before the cap URN ever forms.
+
+This rule is enforced at the deepest layer — every `MediaUrn`
+constructor and `from_string` parse path returns a parse error on
+violation:
+
+| Port      | Error                                |
+|-----------|--------------------------------------|
+| Rust      | `MediaUrnError::VoidNotAtomic`       |
+| Go        | `MediaUrnError{Code: ErrorMediaVoidNotAtomic}` |
+| Python    | `MediaUrnError("media:void is atomic …")` |
+| Swift/ObjC| `CSMediaUrnErrorVoidNotAtomic`       |
+| JS        | `MediaUrnError(VOID_NOT_ATOMIC, …)`  |
+
+Cross-language parity is pinned by `test1810`.
 
 ### 2.3 Top vs Unit at a Glance
 

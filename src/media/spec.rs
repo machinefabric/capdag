@@ -669,7 +669,10 @@ mod tests {
         specs
     }
 
-    // TEST088: Test resolving string media URN from registry returns correct media type and profile
+    // TEST088: Resolving an abstract value-type media URN from the
+    // registry returns its declared media_type. Abstract types
+    // (media:textable, etc.) describe data shapes and deliberately
+    // omit profile_uri — there is no schema to validate against.
     #[tokio::test]
     async fn test088_resolve_from_registry_str() {
         let registry = test_registry().await;
@@ -677,8 +680,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resolved.media_type, "text/plain");
-        // Registry provides the full spec including profile
-        assert!(resolved.profile_uri.is_some());
+        // Abstract value type — no profile_uri.
+        assert!(resolved.profile_uri.is_none(),
+            "abstract value type media:textable must not declare a profile_uri");
     }
 
     // TEST089: Test resolving JSON media URN from registry returns JSON media type

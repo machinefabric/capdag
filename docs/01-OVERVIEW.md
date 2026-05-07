@@ -129,7 +129,7 @@ This specification defines the semantic foundations, runtime protocol, execution
 | **Cartridge** | A standalone binary that provides one or more capabilities |
 | **Cap Kind** | A logical classification of a cap into one of *Identity*, *Source*, *Sink*, *Effect*, or *Transform*, derived from `(in, out, y)`. See [06-CAP-URN-STRUCTURE §4](./06-CAP-URN-STRUCTURE.md#4-cap-kinds). |
 | **Top type** | `media:` — the universal wildcard for media URNs. Every media URN conforms to it. A side typed `media:` reads as "any A." |
-| **Unit type** | `media:void` — the nullary value. A side typed `media:void` reads as "()": no meaningful data flows there. Distinct from the top type. |
+| **Unit type** | `media:void` — the nullary value. A side typed `media:void` reads as "()": no meaningful data flows there. Distinct from the top type. **Atomic**: refinements like `media:void;text` are parse errors. |
 
 ---
 

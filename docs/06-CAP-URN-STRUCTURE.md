@@ -317,24 +317,39 @@ signal that something upstream is broken.
 
 ## 7. Specificity
 
-Cap URN specificity is defined in [05-SPECIFICITY](./05-SPECIFICITY.md):
+Cap URN specificity is defined in
+[05-SPECIFICITY](./05-SPECIFICITY.md). All three axes are scored by
+the same six-form per-tag ladder (`?x`:0, `x?=v`:1, `x` (=`x=*`):2,
+`x!=v`:3, `x=v`:4, `!x`:5), but the axes are *weighted*:
 
 ```
-spec_C(i, o, y) = tags(i) + tags(o) + count(non-* y-tags)
+spec_C(c) = 10_000 * spec_U(c.out)
+          +    100 * spec_U(c.in)
+          +          spec_U(c.y)
 ```
 
-Examples by kind:
+The lexicographic priority `(out, in, y)` reflects routing intent:
+producing different things is the largest semantic difference between
+two caps; consuming different things is next; descriptive y-axis
+metadata is last. Two orders of magnitude separate each axis so
+per-axis sums up to ~99 stay in their own digit slot, making the
+integer both totally ordered and visually decodable (`40205` reads
+as out=4, in=2, y=5).
 
-| URN                                      | Kind      | Specificity |
-|------------------------------------------|-----------|-------------|
-| `cap:`                                   | Identity  | 0           |
-| `cap:extract`                            | Transform | 1           |
-| `cap:extract;in=media:pdf;out=media:textable` | Transform | 3        |
-| `cap:in=media:void;out=media:void;ping`  | Effect    | 3           |
+Examples by kind, showing per-axis sums `(out, in, y)` and the
+weighted total:
+
+| URN                                              | Kind      | (out, in, y) | spec_C |
+|--------------------------------------------------|-----------|:------------:|-------:|
+| `cap:`                                           | Identity  | (0, 0, 0)    |      0 |
+| `cap:extract`                                    | Effect    | (0, 0, 2)    |      2 |
+| `cap:extract;in=media:pdf;out=media:textable`    | Transform | (2, 2, 2)    |  20202 |
+| `cap:in=media:void;out=media:void;ping`          | Effect    | (2, 2, 2)    |  20202 |
+| `cap:extract;target=metadata`                    | Effect    | (0, 0, 6)    |      6 |
 
 Identity is uniquely at specificity 0 (top of the order). Adding any
-tag — directional or otherwise — moves a cap below identity in the
-specialization order.
+tag whose form scores above 0 — directional or otherwise — moves a
+cap below identity in the specialization order.
 
 ---
 

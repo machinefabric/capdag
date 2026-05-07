@@ -111,6 +111,13 @@ pub struct CapUrn {
     pub tags: BTreeMap<String, String>,
 }
 
+// Per-tag truth-table specificity scoring is owned by the
+// tagged_urn crate (the same scorer applies uniformly to media-URN
+// tags, cap-tag y-axis, and any other Tagged URN dimension). We
+// re-use the canonical implementation rather than duplicate it; any
+// drift here would be a wire-level inconsistency.
+use tagged_urn::score_tag_value;
+
 impl CapUrn {
     /// The required prefix for all cap URNs
     pub const PREFIX: &'static str = "cap";
@@ -546,28 +553,19 @@ impl CapUrn {
             }
         }
 
-        // Check all tags that the pattern (self) requires.
-        // The instance (request param) must satisfy every pattern constraint.
-        // Missing tag in instance → instance doesn't satisfy constraint → reject.
-        for (self_key, self_value) in &self.tags {
-            match request.tags.get(self_key) {
-                Some(req_value) => {
-                    if self_value == "*" {
-                        continue;
-                    }
-                    if req_value == "*" {
-                        continue;
-                    }
-                    if self_value != req_value {
-                        return false;
-                    }
-                }
-                None => {
-                    return false;
-                } // Instance missing a tag the pattern requires
+        // Y-axis: every tag's per-key match runs through the six-form
+        // truth table (TaggedUrn::values_match). Walk the union of
+        // all keys appearing on either side so missing-on-pattern
+        // and missing-on-instance cells both get evaluated.
+        let all_keys: std::collections::HashSet<&String> =
+            self.tags.keys().chain(request.tags.keys()).collect();
+        for key in all_keys {
+            let patt = self.tags.get(key).map(|s| s.as_str());
+            let inst = request.tags.get(key).map(|s| s.as_str());
+            if !TaggedUrn::values_match(inst, patt) {
+                return false;
             }
         }
-
         true
     }
 
@@ -720,64 +718,84 @@ impl CapUrn {
     /// - Wildcard (*) in request means any value acceptable
     /// - Wildcard (*) in provider means provider can handle any value
     fn cap_tags_dispatchable(&self, request: &CapUrn) -> bool {
-        // Every explicit request tag must be satisfied by provider
-        for (key, request_value) in &request.tags {
-            match self.tags.get(key) {
-                Some(provider_value) => {
-                    // Both have the tag - check compatibility
-                    if request_value == "*" {
-                        continue;
-                    } // request wildcard accepts anything
-                    if provider_value == "*" {
-                        continue;
-                    } // provider wildcard handles anything
-                    if request_value != provider_value {
-                        return false;
-                    } // value conflict
-                }
-                None => {
-                    // Provider missing a tag that request specifies.
-                    // Even wildcard (*) means "any value is fine" — the tag
-                    // must still be present.  Without this, a GGUF cartridge
-                    // (no `candle` tag) would match a registry cap that
-                    // requires `candle=*`, causing cross-backend mismatches.
-                    return false;
-                }
+        // Every per-key match runs through the six-form truth table
+        // (TaggedUrn::values_match). For dispatch, the request is the
+        // pattern (declares constraints the provider must satisfy)
+        // and the provider is the instance. Walk the union of keys
+        // so absent-on-provider cells against present-on-request
+        // patterns are evaluated correctly.
+        let all_keys: std::collections::HashSet<&String> =
+            self.tags.keys().chain(request.tags.keys()).collect();
+        for key in all_keys {
+            let patt = request.tags.get(key).map(|s| s.as_str());
+            let inst = self.tags.get(key).map(|s| s.as_str());
+            if !TaggedUrn::values_match(inst, patt) {
+                return false;
             }
         }
-        // Provider may have extra tags not in request - that's refinement, always OK
         true
     }
 
-    /// Calculate specificity score for cap matching
+    /// Calculate specificity score for cap matching.
     ///
-    /// More specific caps have higher scores and are preferred.
-    /// Direction specs contribute their MediaUrn tag count (more tags = more specific).
-    /// Other tags contribute 1 per non-wildcard value.
+    /// More specific caps have higher scores and are preferred. The
+    /// score is a **weighted sum** of the per-tag truth-table score
+    /// across the three axes (`out`, `in`, `y`), each axis scored as
+    /// a Tagged URN per [`tagged_urn::TaggedUrn::specificity`]:
+    ///
+    /// | Stored tag value | Form           | Score |
+    /// |------------------|----------------|------:|
+    /// | `"?"`            | `?x`           |     0 |
+    /// | starts with `?=` | `x?=v`         |     1 |
+    /// | `"*"`            | `x` (`x=*`)    |     2 |
+    /// | starts with `!=` | `x!=v`         |     3 |
+    /// | exact value      | `x=v`          |     4 |
+    /// | `"!"`            | `!x`           |     5 |
+    ///
+    /// Axis weighting:
+    ///
+    /// ```text
+    /// spec_C(c) = 10_000 * spec_U(c.out) + 100 * spec_U(c.in) + spec_U(c.y)
+    /// ```
+    ///
+    /// The lexicographic priority `(out, in, y)` reflects the
+    /// routing intent: producing different things is the largest
+    /// semantic difference between two caps; consuming different
+    /// things is next; descriptive y-axis metadata is last. Two
+    /// orders of magnitude separate each axis so per-axis scores up
+    /// to ~99 stay in their own digit slot, making the integer both
+    /// totally ordered and visually decodable (e.g. `40205` reads as
+    /// out=4, in=2, y=5).
+    ///
+    /// Panics if either direction spec is somehow not a valid media
+    /// URN — both fields are validated at construction time, so this
+    /// only fires on internally inconsistent state.
     pub fn specificity(&self) -> usize {
-        let mut count = 0;
-        // "media:" is the wildcard (contributes 0 to specificity)
-        if self.in_urn != "media:" {
-            let in_media = MediaUrn::from_string(&self.in_urn).unwrap_or_else(|e| {
-                panic!(
-                    "CU2: in_spec '{}' is not a valid MediaUrn: {}",
-                    self.in_urn, e
-                )
-            });
-            count += in_media.inner().tags.len();
-        }
-        if self.out_urn != "media:" {
-            let out_media = MediaUrn::from_string(&self.out_urn).unwrap_or_else(|e| {
-                panic!(
-                    "CU2: out_spec '{}' is not a valid MediaUrn: {}",
-                    self.out_urn, e
-                )
-            });
-            count += out_media.inner().tags.len();
-        }
-        // Count non-wildcard tags
-        count + self.tags.values().filter(|v| v.as_str() != "*").count()
+        let in_media = MediaUrn::from_string(&self.in_urn).unwrap_or_else(|e| {
+            panic!(
+                "CU2: in_spec '{}' is not a valid MediaUrn: {}",
+                self.in_urn, e
+            )
+        });
+        let out_media = MediaUrn::from_string(&self.out_urn).unwrap_or_else(|e| {
+            panic!(
+                "CU2: out_spec '{}' is not a valid MediaUrn: {}",
+                self.out_urn, e
+            )
+        });
+
+        let in_score = in_media.inner().specificity();
+        let out_score = out_media.inner().specificity();
+        let y_score: usize = self.tags.values().map(|v| score_tag_value(v)).sum();
+
+        Self::WEIGHT_OUT * out_score + Self::WEIGHT_IN * in_score + y_score
     }
+
+    /// Per-axis weights for cap-URN specificity. Two orders of
+    /// magnitude separate each axis to keep them in distinct digit
+    /// slots while still folding into a single comparable integer.
+    pub const WEIGHT_OUT: usize = 10_000;
+    pub const WEIGHT_IN: usize = 100;
 
     /// Check if this cap is more specific than another
     ///
@@ -1254,20 +1272,23 @@ mod tests {
     // TEST004: Test that unquoted keys and values are normalized to lowercase
     #[test]
     fn test004_unquoted_values_lowercased() {
-        // Unquoted values are normalized to lowercase
-        let cap = CapUrn::from_string(&test_urn("OP=Generate;EXT=PDF;Target=Thumbnail")).unwrap();
+        // Mixed-case keyed tags + a marker. Both keys and unquoted
+        // values are lowercased on parse.
+        let cap = CapUrn::from_string(&test_urn("Generate;EXT=PDF;Target=Thumbnail")).unwrap();
 
-        // Keys are always lowercase
         assert!(cap.has_marker_tag("generate"));
         assert_eq!(cap.get_tag("ext"), Some(&"pdf".to_string()));
         assert_eq!(cap.get_tag("target"), Some(&"thumbnail".to_string()));
 
-        // Key lookup is case-insensitive
-        assert_eq!(cap.get_tag("OP"), Some(&"generate".to_string()));
-        assert_eq!(cap.get_tag("Op"), Some(&"generate".to_string()));
+        // Key lookup is case-insensitive: uppercase variants of an
+        // existing key resolve to the same keyed tag.
+        assert_eq!(cap.get_tag("EXT"), Some(&"pdf".to_string()));
+        assert_eq!(cap.get_tag("Ext"), Some(&"pdf".to_string()));
 
-        // Both URNs parse to same lowercase values (same tags, same values)
-        let cap2 = CapUrn::from_string(&test_urn("generate;ext=pdf;target=thumbnail")).unwrap();
+        // Tag order in the source string does not affect canonical
+        // form — parsed URNs sort tags alphabetically before
+        // serializing.
+        let cap2 = CapUrn::from_string(&test_urn("target=thumbnail;ext=pdf;generate")).unwrap();
         assert_eq!(cap.to_string(), cap2.to_string());
         assert_eq!(cap, cap2);
     }
@@ -1552,24 +1573,37 @@ mod tests {
         assert!(!cap2.accepts(&request2));
     }
 
-    // TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count)
+    // TEST020: Specificity is the sum of per-tag truth-table scores
+    // across in/out/y. Marker tags (bare segments like `generate`) are
+    // must-have-any (score 2), exact `key=value` tags score 3,
+    // missing/`?` score 0, `!` scores 1.
+    //
+    // test_urn() builds "cap:in=media:void;out=media:record;<tags>"
+    // so the directional baseline is:
+    //   in:  media:void  -> {void=*}     -> 2
+    //   out: media:record -> {record=*}  -> 2
+    // Total directional baseline: 4.
     #[test]
     fn test020_specificity() {
-        // Direction specs contribute their MediaUrn tag count:
-        // MEDIA_VOID = "media:void" -> 1 tag (void)
-        // MEDIA_OBJECT = "media:record" -> 1 tag (record)
+        // test_urn() prepends in="media:void" (1 marker, score 2) and
+        // out="media:record" (1 marker, score 2). Cap-URN spec is
+        // 10_000 * spec_U(out) + 100 * spec_U(in) + spec_U(y).
         let cap1 = CapUrn::from_string(&test_urn("type=general")).unwrap();
         let cap2 = CapUrn::from_string(&test_urn("generate")).unwrap();
         let cap3 = CapUrn::from_string(&test_urn("op;ext=pdf")).unwrap();
 
-        assert_eq!(cap1.specificity(), 3); // void(1) + record(1) + type(1)
-        assert_eq!(cap2.specificity(), 3); // void(1) + record(1) + op(1)
-        assert_eq!(cap3.specificity(), 3); // void(1) + record(1) + ext(1) (wildcard op doesn't count)
+        // out=2, in=2, y=4 (type=general exact)
+        assert_eq!(cap1.specificity(), 10_000 * 2 + 100 * 2 + 4);
+        // out=2, in=2, y=2 (generate marker = must-have-any)
+        assert_eq!(cap2.specificity(), 10_000 * 2 + 100 * 2 + 2);
+        // out=2, in=2, y=2+4 (op marker, ext=pdf exact)
+        assert_eq!(cap3.specificity(), 10_000 * 2 + 100 * 2 + 6);
 
-        // Wildcard in direction doesn't count
+        // Wildcard in direction normalizes to media: (no tags, score 0).
         let cap4 =
             CapUrn::from_string(&format!("cap:in=*;out=\"{}\";test", MEDIA_OBJECT)).unwrap();
-        assert_eq!(cap4.specificity(), 2); // record(1) + op(1) (in wildcard doesn't count)
+        // out=2 (record=*), in=0 (media: empty), y=2 (test marker)
+        assert_eq!(cap4.specificity(), 10_000 * 2 + 100 * 0 + 2);
     }
 
     // TEST021: Test builder creates cap URN with correct tags and direction specs
@@ -1578,7 +1612,7 @@ mod tests {
         let cap = CapUrnBuilder::new()
             .in_spec(MEDIA_VOID)
             .out_spec(MEDIA_OBJECT)
-            .tag("op", "generate")
+            .marker("generate")
             .tag("target", "thumbnail")
             .tag("ext", "pdf")
             .build()
@@ -2129,11 +2163,12 @@ mod tests {
         );
     }
 
-    // TEST891: Semantic direction specificity - more media URN tags = higher specificity
+    // TEST891: Semantic direction specificity — more constraints in
+    // either axis means a higher score under the truth-table-driven
+    // sum. media: (top, no tags) scores 0; each marker tag scores 2;
+    // each exact tag scores 3.
     #[test]
     fn test891_direction_semantic_specificity() {
-        // media: has 0 tags (wildcard), media:pdf has 1 tag
-        // media:image;png;thumbnail has 3 tags
         let generic_cap = CapUrn::from_string(
             "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
         )
@@ -2143,10 +2178,18 @@ mod tests {
         )
         .unwrap();
 
-        // generic: wildcard(0) + image;png;thumbnail(3) + op(1) = 4
-        assert_eq!(generic_cap.specificity(), 4);
-        // specific: pdf(1) + image;png;thumbnail(3) + op(1) = 5
-        assert_eq!(specific_cap.specificity(), 5);
+        // generic:
+        //   out=media:image;png;thumbnail -> 2 + 2 + 2 = 6
+        //   in=media:                     -> 0
+        //   y: generate_thumbnail marker  -> 2
+        //   spec_C = 10_000*6 + 100*0 + 2 = 60002
+        assert_eq!(generic_cap.specificity(), 10_000 * 6 + 100 * 0 + 2);
+        // specific:
+        //   out=media:image;png;thumbnail -> 6
+        //   in=media:pdf                  -> 2
+        //   y: generate_thumbnail marker  -> 2
+        //   spec_C = 10_000*6 + 100*2 + 2 = 60202
+        assert_eq!(specific_cap.specificity(), 10_000 * 6 + 100 * 2 + 2);
 
         assert!(
             specific_cap.specificity() > generic_cap.specificity(),
@@ -3004,5 +3047,375 @@ mod tier_tests {
                 "{a} and {b} parse to the same cap and must classify identically"
             );
         }
+    }
+
+    // -------------------------------------------------------------------
+    // Truth-table specificity tests (test1820–test1824).
+    //
+    // Mirrored across every language port (Rust, Go, Python, Swift/ObjC,
+    // JS) under the SAME numbers. Specificity must be the truth-table
+    // sum across all three axes, with no axis-specific carve-out:
+    //
+    //   ? or missing      -> 0   (no constraint)
+    //   !                 -> 1   (must-not-have)
+    //   * (incl. marker)  -> 2   (must-have-any)
+    //   exact key=value   -> 3   (must-have-this-value)
+    //
+    // Each test exercises one row of the truth table on the y axis,
+    // alone, so a regression in any single form fails its dedicated
+    // test rather than being absorbed by a sibling. test1824 then
+    // composes all forms at once on a single cap.
+    // -------------------------------------------------------------------
+
+    // TEST1820: A `?`-valued cap-tag scores 0. Same as missing.
+    #[test]
+    fn test1820_specificity_question_is_zero() {
+        // Bare cap is the baseline (in/out top, no y).
+        let bare = CapUrn::from_string("cap:").unwrap();
+        assert_eq!(bare.specificity(), 0);
+
+        // Adding `?target` (canonical of `target=?`) does NOT change
+        // the score: explicit no-constraint contributes 0, exactly
+        // like a missing key.
+        let with_q = CapUrn::from_string("cap:?target").unwrap();
+        assert_eq!(
+            with_q.specificity(),
+            0,
+            "?x must score 0 (explicit no-constraint, same as missing)"
+        );
+    }
+
+    // TEST1821: A `!`-valued cap-tag scores 5 (top of negative chain).
+    #[test]
+    fn test1821_specificity_must_not_have_is_five() {
+        let cap = CapUrn::from_string("cap:!constrained").unwrap();
+        assert_eq!(
+            cap.specificity(),
+            5,
+            "!constrained (must-not-have) must score 5"
+        );
+    }
+
+    // TEST1822: A `*`-valued cap-tag (including bare markers) scores 2.
+    #[test]
+    fn test1822_specificity_must_have_any_is_two() {
+        // Bare segment.
+        let bare_marker = CapUrn::from_string("cap:extract").unwrap();
+        assert_eq!(
+            bare_marker.specificity(),
+            2,
+            "bare `extract` parses as extract=* (must-have-any) and scores 2"
+        );
+
+        // Explicit key=*.
+        let explicit_star = CapUrn::from_string("cap:extract=*").unwrap();
+        assert_eq!(
+            explicit_star.specificity(),
+            2,
+            "explicit key=* must score 2 (same as bare marker)"
+        );
+
+        // The two forms must agree byte-for-byte on score.
+        assert_eq!(
+            bare_marker.specificity(),
+            explicit_star.specificity(),
+            "bare marker and explicit key=* are the same form and must score identically"
+        );
+    }
+
+    // TEST1823: An exact-valued cap-tag scores 4.
+    #[test]
+    fn test1823_specificity_exact_value_is_four() {
+        let cap = CapUrn::from_string("cap:target=metadata").unwrap();
+        assert_eq!(
+            cap.specificity(),
+            4,
+            "target=metadata (exact value) must score 4"
+        );
+    }
+
+    // TEST1824: All six forms compose additively on a single cap.
+    // This pins the truth-table sum across the y axis as a whole.
+    #[test]
+    fn test1824_specificity_combined_y_axis() {
+        // y carries one of each form:
+        //   ?target          -> 0  (no constraint)
+        //   ver?=draft       -> 1  (absent OR not draft)
+        //   extract          -> 2  (bare marker, must-have-any)
+        //   stage!=alpha     -> 3  (present and not alpha)
+        //   target2=metadata -> 4  (exact)
+        //   !constrained     -> 5  (must-not-have)
+        // Total y score: 0+1+2+3+4+5 = 15.
+        // in=media:(0) + out=media:(0) + y(15) = 15.
+        let cap = CapUrn::from_string(
+            "cap:!constrained;?target;extract;stage!=alpha;target2=metadata;ver?=draft",
+        )
+        .unwrap();
+        assert_eq!(
+            cap.specificity(),
+            15,
+            "y combining all six forms (0+1+2+3+4+5) must sum to 15"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Six-form canonicalization tests (test1830–test1835).
+    //
+    // Mirrored across every language port (Rust, Go, Python,
+    // Swift/ObjC, JS) under the SAME numbers. Each test enumerates
+    // the authored aliases for one canonical form and verifies that
+    // ALL of them parse to the same canonical serialization.
+    // -----------------------------------------------------------------
+
+    // TEST1830: ?x ≡ x? ≡ x=? all canonicalize to ?x.
+    #[test]
+    fn test1830_canonicalize_no_constraint() {
+        let canonical = "cap:?x";
+        for input in ["cap:?x", "cap:x?", "cap:x=?"] {
+            let cap = CapUrn::from_string(input).unwrap();
+            assert_eq!(
+                cap.to_string(),
+                canonical,
+                "input '{}' must canonicalize to '{}'",
+                input,
+                canonical
+            );
+        }
+    }
+
+    // TEST1831: ?x=v and x?=v both canonicalize to x?=v. The third
+    // hypothetical form `x=?v` is NOT recognized as a qualifier — a
+    // value starting with `?` is just an exact value beginning with
+    // a `?` character.
+    #[test]
+    fn test1831_canonicalize_absent_or_not_value() {
+        let canonical = "cap:x?=foo";
+        for input in ["cap:?x=foo", "cap:x?=foo"] {
+            let cap = CapUrn::from_string(input).unwrap();
+            assert_eq!(
+                cap.to_string(),
+                canonical,
+                "input '{}' must canonicalize to '{}'",
+                input,
+                canonical
+            );
+        }
+
+        // `x=?foo` is a plain exact tag whose value is the string
+        // `?foo` — NOT a canonicalization alias.
+        let exact = CapUrn::from_string("cap:x=?foo").unwrap();
+        assert_eq!(exact.to_string(), "cap:x=?foo");
+        assert_eq!(exact.get_tag("x"), Some(&"?foo".to_string()));
+    }
+
+    // TEST1832: x ≡ x=* both canonicalize to bare x.
+    #[test]
+    fn test1832_canonicalize_must_have_any() {
+        let canonical = "cap:x";
+        for input in ["cap:x", "cap:x=*"] {
+            let cap = CapUrn::from_string(input).unwrap();
+            assert_eq!(
+                cap.to_string(),
+                canonical,
+                "input '{}' must canonicalize to '{}'",
+                input,
+                canonical
+            );
+        }
+    }
+
+    // TEST1833: !x=v and x!=v both canonicalize to x!=v. The third
+    // hypothetical form `x=!v` is NOT recognized as a qualifier — a
+    // value starting with `!` is just an exact value beginning with
+    // a `!` character.
+    #[test]
+    fn test1833_canonicalize_present_not_value() {
+        let canonical = "cap:x!=foo";
+        for input in ["cap:!x=foo", "cap:x!=foo"] {
+            let cap = CapUrn::from_string(input).unwrap();
+            assert_eq!(
+                cap.to_string(),
+                canonical,
+                "input '{}' must canonicalize to '{}'",
+                input,
+                canonical
+            );
+        }
+
+        // `x=!foo` is a plain exact tag whose value is the string
+        // `!foo` — NOT a canonicalization alias.
+        let exact = CapUrn::from_string("cap:x=!foo").unwrap();
+        assert_eq!(exact.to_string(), "cap:x=!foo");
+        assert_eq!(exact.get_tag("x"), Some(&"!foo".to_string()));
+    }
+
+    // TEST1834: x=v stays as x=v (the lone exact-value form).
+    #[test]
+    fn test1834_canonicalize_exact_value() {
+        let cap = CapUrn::from_string("cap:x=foo").unwrap();
+        assert_eq!(cap.to_string(), "cap:x=foo");
+    }
+
+    // TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x.
+    #[test]
+    fn test1835_canonicalize_must_not_have() {
+        let canonical = "cap:!x";
+        for input in ["cap:!x", "cap:x!", "cap:x=!"] {
+            let cap = CapUrn::from_string(input).unwrap();
+            assert_eq!(
+                cap.to_string(),
+                canonical,
+                "input '{}' must canonicalize to '{}'",
+                input,
+                canonical
+            );
+        }
+    }
+
+    // TEST1842: Full 6×6 truth table — every cell must match the
+    // matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the
+    // host for a single-key URN (key `x`), pairing every instance form
+    // with every pattern form.
+    #[test]
+    fn test1842_truth_table_full_cross_product() {
+        // Forms keyed by the URN string used for the single-key URN.
+        // "" represents "missing" (no entry for x).
+        let forms = [
+            "",          // missing
+            "?x",        // no-constraint
+            "x?=v",      // absent-or-not-v
+            "x",         // must-have-any
+            "x!=v",      // present-not-v
+            "x=v",       // exact v
+            "!x",        // must-not-have
+        ];
+
+        // Expected matrix: rows are instances, columns are patterns.
+        // Read from 04-PREDICATES.md §2.5.
+        // Rows below correspond to forms: missing, ?x, x?=v, x,
+        // x!=v, x=v, !x — same order as `forms` above. Block-comment
+        // labels are spaced so a leading `!` is not interpreted as
+        // an inner doc comment.
+        let expected: [[bool; 7]; 7] = [
+            //          miss   ?x    x?=v   x      x!=v   x=v    !x
+            /* miss */ [true,  true, true,  false, false, false, true ],
+            /* ?x   */ [true,  true, true,  true,  true,  true,  true ],
+            /* x?=v */ [true,  true, true,  false, false, false, true ],
+            /* x    */ [true,  true, true,  true,  true,  true,  false],
+            /* x!=v */ [true,  true, true,  true,  true,  false, false],
+            /* x=v  */ [true,  true, false, true,  false, true,  false],
+            /* !x   */ [true,  true, true,  false, false, false, true ],
+        ];
+
+        for (i, inst_form) in forms.iter().enumerate() {
+            for (j, patt_form) in forms.iter().enumerate() {
+                let inst_str = if inst_form.is_empty() {
+                    "cap:".to_string()
+                } else {
+                    format!("cap:{}", inst_form)
+                };
+                let patt_str = if patt_form.is_empty() {
+                    "cap:".to_string()
+                } else {
+                    format!("cap:{}", patt_form)
+                };
+                let inst = CapUrn::from_string(&inst_str).unwrap();
+                let patt = CapUrn::from_string(&patt_str).unwrap();
+                let actual = patt.accepts(&inst);
+                assert_eq!(
+                    actual,
+                    expected[i][j],
+                    "truth-table cell (inst={}, patt={}) expected {} got {}",
+                    inst_form,
+                    patt_form,
+                    expected[i][j],
+                    actual
+                );
+            }
+        }
+    }
+
+    // TEST1843: Invalid combinations of qualifiers must be rejected
+    // by the parser. These are hard parse errors, not silently
+    // accepted shorthands.
+    #[test]
+    fn test1843_reject_invalid_combinations() {
+        // Each input must fail to parse.
+        let invalid = [
+            "cap:?x?=v",   // prefix and infix ? together
+            "cap:!x!=v",   // prefix and infix ! together
+            "cap:?!x",     // mixing ? and ! prefixes
+            "cap:!?x",     // mixing ! and ? prefixes
+            "cap:?x=*",    // ? qualifier with * sigil value
+            "cap:!x=*",    // ! qualifier with * sigil value
+            "cap:?x=?",    // ? qualifier with ? sigil value
+            "cap:?x=!",    // ? qualifier with ! sigil value
+            "cap:!x=?",    // ! qualifier with ? sigil value
+            "cap:!x=!",    // ! qualifier with ! sigil value
+            "cap:?",       // bare ? with no key
+            "cap:!",       // bare ! with no key
+        ];
+        for input in invalid {
+            let result = CapUrn::from_string(input);
+            assert!(
+                result.is_err(),
+                "input '{}' must be rejected by the parser",
+                input
+            );
+        }
+    }
+
+    // TEST1844: Cap-URN axis weighting is lexicographic. A cap with
+    // greater out-axis specificity always outranks one with greater
+    // in-axis specificity, regardless of y-axis.
+    #[test]
+    fn test1844_axis_weighting_out_dominates() {
+        // out=4 (record;textable), in=0 (media:), y=0
+        let big_out = CapUrn::from_string("cap:in=media:;out=\"media:record;textable\"")
+            .unwrap();
+        // out=2 (record), in=2 (pdf), y=15 (loaded y axis)
+        let big_in_and_y = CapUrn::from_string(
+            "cap:in=media:pdf;out=media:record;!constrained;?target;extract;stage!=alpha;target2=metadata;ver?=draft",
+        )
+        .unwrap();
+        assert!(
+            big_out.specificity() > big_in_and_y.specificity(),
+            "out-axis difference must dominate combined in+y differences"
+        );
+    }
+
+    // TEST1845: With equal out-axis, in-axis dominates over y-axis.
+    #[test]
+    fn test1845_axis_weighting_in_dominates_y() {
+        // out=2 (record), in=2 (pdf), y=0
+        let big_in = CapUrn::from_string("cap:in=media:pdf;out=media:record").unwrap();
+        // out=2 (record), in=0 (media:), y=15 (loaded y axis)
+        let big_y = CapUrn::from_string(
+            "cap:in=media:;out=media:record;!constrained;?target;extract;stage!=alpha;target2=metadata;ver?=draft",
+        )
+        .unwrap();
+        assert!(
+            big_in.specificity() > big_y.specificity(),
+            "in-axis difference must dominate y-axis"
+        );
+    }
+
+    // TEST1846: Specificity composes uniformly across all three axes.
+    // For a fully-loaded cap with one of each form per axis, the
+    // total reads as out_score, in_score, y_score in distinct digit
+    // slots.
+    #[test]
+    fn test1846_axis_weighting_decoded_layout() {
+        // Construct a cap where every axis has a controlled score.
+        //
+        // out=media:a;b;c;d (4 markers, score 4*2 = 8)
+        // in =media:a;b (2 markers, score 4)
+        // y  = one marker (score 2)
+        let cap = CapUrn::from_string(
+            "cap:in=\"media:a;b\";out=\"media:a;b;c;d\";extract",
+        )
+        .unwrap();
+        // 10000*8 + 100*4 + 2 = 80402
+        assert_eq!(cap.specificity(), 10_000 * 8 + 100 * 4 + 2);
     }
 }

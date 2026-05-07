@@ -181,7 +181,9 @@ A directional spec set to `media:` is unconstrained on that axis: it
 matches every more specific media URN. In type-theoretic terms, a
 side typed `media:` is the **top type** — read as "any A."
 
-**Unit (`media:void`).** A leaf carrying the marker tag `void`:
+**Unit (`media:void`).** A leaf carrying the marker tag `void`, and
+**atomic** — the parser rejects any combination of `void` with
+another tag:
 
 ```
 media:void ∈ MediaUrn,    media:void ⪯ media:,    ¬(m ⪯ media:void) for any concrete m
@@ -191,6 +193,16 @@ A directional spec set to `media:void` is the **unit type** — read
 as "()." It is *not* the top, *not* "invalid," *not* "absent." It is
 a distinct first-class type whose meaning is "no payload flows on
 this side."
+
+The atomicity rule is structural: there is no lattice underneath the
+unit. `media:void;warmup`, `media:void;heartbeat`,
+`media:void;reason=foo` are **parse errors**, not refinements.
+Distinctions about *why* or *how* a void slot is used belong on the
+cap URN's non-directional `y` axis or in cap args, never on the
+media URN itself. This forecloses an entire family of dispatch
+ambiguity (different unit values? different effects? different
+commands?) by refusing the syntax that would express them. See
+[11-MEDIA-URNS §2.2](./11-MEDIA-URNS.md#22-mediavoid--the-unit-type).
 
 The dispatch relation treats `media:void` exactly like any other
 media URN. The fact that it admits a logical reading as the unit
@@ -230,16 +242,35 @@ spec_C : C → ℕ
 By:
 
 ```
-spec_C(i, o, y) = media_tags(i) + media_tags(o) + count_non_wildcard(y)
+spec_C(i, o, y) = 10_000 * spec_U(o)
+                +    100 * spec_U(i)
+                +          spec_U(y)
 ```
 
-Where:
-- `media_tags(x)` = number of tags in media URN x (0 if x = identity "media:")
-- `count_non_wildcard(y)` = number of y-tags with non-`*` values
+All three axes go through the **same** Tagged URN specificity
+function `spec_U` for the *per-axis* sum. Where the axes differ is
+in their **weight** in the cap-URN total: two orders of magnitude
+separate `out` from `in` from `y`, giving a single integer with
+lexicographic priority `(out, in, y)`. This reflects routing
+intent — producing different things is the largest semantic
+difference between two caps; consuming different things is next;
+y-axis metadata is least.
 
-This differs from a naive `spec_U(i) + spec_U(o) + spec_U(y)` because direction specs are Media URNs (counted by tag presence) while y-tags use binary wildcard/non-wildcard distinction.
+Per-tag scoring (the same six-form ladder applied uniformly across
+every axis):
 
-This is a derived scalar used only for ranking among already valid candidates. See [03-SPECIFICITY](./05-SPECIFICITY.md) for full details.
+| Form         | Stored value | Score | Reading                            |
+|--------------|--------------|------:|------------------------------------|
+| missing/`?x` | (none)/`"?"` |     0 | no constraint                      |
+| `x?=v`       | `"?=v"`      |     1 | absent OR (present and not v)      |
+| `x` (=`x=*`) | `"*"`        |     2 | present with any value             |
+| `x!=v`       | `"!=v"`      |     3 | present and not v                  |
+| `x=v`        | `"v"`        |     4 | present and exactly v              |
+| `!x`         | `"!"`        |     5 | absent (must-not-have)             |
+
+This is a derived scalar used only for ranking among already valid
+candidates. See [05-SPECIFICITY](./05-SPECIFICITY.md) for full
+details and worked examples.
 
 ---
 

@@ -985,26 +985,22 @@ mod tests {
         let (registry, _temp_dir) = registry_with_temp_cache().await;
         registry.install_standard_specs_sync().unwrap();
 
-        // All media URNs used as cap outputs (from capfab/src/caps/*.toml out= fields).
-        // If you add a new cap, add its output URN here.
+        // Concrete file-format cap output media URNs — those that
+        // produce user-facing files on disk and so MUST have
+        // extensions for save_cap_output / FinderImportService.
+        // Abstract value types (media:textable, media:model-spec,
+        // media:image-description, media:transcription, media:decision,
+        // media:llm-*, media:model-dim, etc.) deliberately have no
+        // extensions: they describe data shapes, not file types, and
+        // are not saved directly to disk.
         let cap_output_urns = [
-            "media:textable",
             "media:embedding-vector;textable;record",
-            "media:image-description;textable",
-            "media:transcription;textable;record",
-            "media:decision;json;record;textable",
-            "media:llm-text-stream;ndjson",
-            "media:generated-text;textable;record",
-            "media:llm-vocab-response;json;record",
-            "media:llm-model-info;json;record",
-            "media:model-dim;integer;textable;numeric",
             "media:model-availability;textable;record",
             "media:model-contents;textable;record",
             "media:model-list;textable;record",
             "media:model-path;textable;record",
             "media:model-status;textable;record",
             "media:download-result;textable;record",
-            "media:json;textable;record",
         ];
 
         let mut missing = Vec::new();
@@ -1036,11 +1032,13 @@ mod tests {
         let (registry, _temp_dir) = registry_with_temp_cache().await;
         registry.install_standard_specs_sync().unwrap();
 
-        // Media URNs used as cap inputs (from capfab/src/caps/*.toml in= fields)
-        // that represent user-facing file types. Excludes model-spec variants
-        // (internal engine types) and abstract types.
+        // Concrete file-format cap input media URNs — those that
+        // represent file types a user can right-click on and so must
+        // map to at least one extension. Abstract value types
+        // (media:textable, media:model-spec, media:llm-generation-request,
+        // etc.) are excluded: they describe data shapes, not file
+        // types, and so deliberately have no extensions.
         let cap_input_urns = [
-            "media:textable",
             "media:txt;textable",
             "media:md;textable",
             "media:rst;textable",
@@ -1049,9 +1047,7 @@ mod tests {
             "media:audio;wav;speech",
             "media:log;textable",
             "media:json;json-schema;textable;record",
-            "media:llm-generation-request;json;record",
             "media:model-repo;textable;record",
-            "media:model-spec;textable",
         ];
 
         let mut missing = Vec::new();
@@ -1083,17 +1079,17 @@ mod tests {
         let (registry, _temp_dir) = registry_with_temp_cache().await;
         registry.install_standard_specs_sync().unwrap();
 
+        // Concrete file-format URNs whose extension is fixed by their
+        // TOML spec. Abstract value types (media:textable,
+        // media:image-description, media:transcription,
+        // media:decision, media:generated-text, media:llm-*,
+        // media:model-dim) are excluded: their TOMLs deliberately
+        // omit `extensions` because they describe data shapes, not
+        // file types.
         let expected = [
-            ("media:textable", "txt"),
             ("media:embedding-vector;textable;record", "json"),
-            ("media:image-description;textable", "txt"),
-            ("media:transcription;textable;record", "json"),
-            ("media:decision;json;record;textable", "json"),
             ("media:llm-text-stream;ndjson", "ndjson"),
-            ("media:generated-text;textable;record", "json"),
-            ("media:llm-model-info;json;record", "json"),
             ("media:download-result;textable;record", "json"),
-            ("media:model-dim;integer;textable;numeric", "txt"),
         ];
 
         for (urn, expected_ext) in &expected {

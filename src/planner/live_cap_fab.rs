@@ -2430,10 +2430,21 @@ mod tests {
     fn test1292_bfs_iddfs_roundtrip_consistency() {
         let mut graph = LiveCapFab::new();
 
-        // Build a small graph: A→B, B→C, C→A
+        // Build a small graph: A→B, B→C, C→A. Use concrete media
+        // URNs that the test then declares as bookends so they are
+        // valid transmute sources/targets — `get_reachable_targets`
+        // filters its results down to bookend nodes only (the
+        // production wiring populates this via the live media
+        // registry; tests do it explicitly via `set_bookends`).
         graph.add_cap(&make_test_cap("media:a", "media:b", "a_to_b", "A to B"));
         graph.add_cap(&make_test_cap("media:b", "media:c", "b_to_c", "B to C"));
         graph.add_cap(&make_test_cap("media:c", "media:a", "c_to_a", "C to A"));
+
+        let bookends: HashSet<MediaUrn> = ["media:a", "media:b", "media:c"]
+            .iter()
+            .map(|s| MediaUrn::from_string(s).unwrap())
+            .collect();
+        graph.set_bookends(&bookends);
 
         let source = MediaUrn::from_string("media:a").unwrap();
 
