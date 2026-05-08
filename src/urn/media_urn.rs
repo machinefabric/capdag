@@ -283,6 +283,10 @@ pub const MEDIA_EMBEDDING_VECTOR: &str = "media:embedding-vector;record;textable
 pub const MEDIA_LLM_INFERENCE_OUTPUT: &str = "media:generated-text;record;textable";
 /// Media URN for vision inference output - textable, scalar by default
 pub const MEDIA_IMAGE_DESCRIPTION: &str = "media:image-description;textable";
+/// Media URN for OCR output — verbatim text extracted from an image, scalar by default.
+/// Distinct from `MEDIA_IMAGE_DESCRIPTION` (which is a generated caption / answer about
+/// the image) — `extracted-text` carries text that is *present* in the image.
+pub const MEDIA_EXTRACTED_TEXT: &str = "media:extracted-text;textable";
 /// Media URN for transcription output - has record marker
 pub const MEDIA_TRANSCRIPTION_OUTPUT: &str = "media:record;textable;transcription";
 /// Media URN for decision output — JSON object with identifier and boolean value
