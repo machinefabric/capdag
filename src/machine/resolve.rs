@@ -12,7 +12,7 @@
 //! anchored by the input root URNs and output leaf URNs of the
 //! strand.
 //!
-//! Resolution requires `&CapRegistry` access to look up each
+//! Resolution requires `&FabricRegistry` access to look up each
 //! cap's full argument list (`cap.args`) so the matching
 //! algorithm has the per-arg media URN identities to match
 //! against.
@@ -49,7 +49,7 @@
 
 use std::collections::HashMap;
 
-use crate::cap::registry::CapRegistry;
+use crate::cap::registry::FabricRegistry;
 use crate::planner::{Strand, StrandStepType};
 use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::MediaUrn;
@@ -107,7 +107,7 @@ pub struct PreInternedWiring {
 /// transition. `Collect` is elided.
 pub fn resolve_strand(
     strand: &Strand,
-    registry: &CapRegistry,
+    registry: &FabricRegistry,
     strand_index: usize,
 ) -> Result<MachineStrand, MachineAbstractionError> {
     let mut nodes: Vec<MediaUrn> = Vec::new();
@@ -216,7 +216,7 @@ pub fn resolve_strand(
 pub fn resolve_pre_interned(
     nodes: Vec<MediaUrn>,
     wirings: &[PreInternedWiring],
-    registry: &CapRegistry,
+    registry: &FabricRegistry,
     strand_index: usize,
 ) -> Result<MachineStrand, MachineAbstractionError> {
     if wirings.is_empty() {

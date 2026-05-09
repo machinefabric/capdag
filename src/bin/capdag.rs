@@ -4,7 +4,7 @@
 
 use capdag::machine::parse_machine_with_node_names;
 use capdag::orchestrator::{execute_dag, parse_machine_to_cap_dag, NodeData};
-use capdag::{CapProgressFn, CapRegistry, CartridgeChannel};
+use capdag::{CapProgressFn, FabricRegistry, CartridgeChannel};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -69,7 +69,7 @@ fn expand_dev_binary_path(path: &str) -> Vec<PathBuf> {
 /// resolver computes the input anchors as part of the resolved
 /// `MachineStrand`; we just translate the NodeIds back to the
 /// names the user wrote.
-fn find_input_nodes(notation: &str, registry: &CapRegistry) -> Vec<String> {
+fn find_input_nodes(notation: &str, registry: &FabricRegistry) -> Vec<String> {
     let (machine, strand_node_names) = match parse_machine_with_node_names(notation, registry) {
         Ok(pair) => pair,
         Err(e) => {
@@ -279,21 +279,14 @@ async fn main() {
         }
     };
 
-    // Create CapDag registry
-    let registry = match CapRegistry::new().await {
+    // Create the unified FabricRegistry. Holds cap definitions and
+    // media specs together; consumed by both `parse_machine_to_cap_dag`
+    // (for resolution) and `execute_dag` (for runtime cap lookup and
+    // adapter dispatch).
+    let registry = match FabricRegistry::new().await {
         Ok(reg) => Arc::new(reg),
         Err(e) => {
-            eprintln!("Error creating CapDag registry: {}", e);
-            process::exit(1);
-        }
-    };
-
-    // Create media URN registry (required by execute_dag for input
-    // resolution and adapter dispatch).
-    let media_registry = match capdag::MediaUrnRegistry::new().await {
-        Ok(r) => Arc::new(r),
-        Err(e) => {
-            eprintln!("Error creating MediaUrnRegistry: {}", e);
+            eprintln!("Error creating FabricRegistry: {}", e);
             process::exit(1);
         }
     };
@@ -455,7 +448,6 @@ async fn main() {
             initial_is_sequence,
             dev_binaries.clone(),
             registry.clone(),
-            media_registry.clone(),
             Some(&progress),
             &node_values,
         )

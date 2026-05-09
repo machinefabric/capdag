@@ -49,7 +49,7 @@ pub enum ParseOrchestrationError {
 
     /// Registry error
     #[error("Registry error: {0}")]
-    RegistryError(String),
+    FabricRegistryError(String),
 
     /// Structure mismatch between connected nodes (record vs opaque)
     #[error(
@@ -164,11 +164,11 @@ fn mermaid_escape(s: &str) -> String {
 // Cap Registry Trait
 // =============================================================================
 
-// `CapRegistryTrait` is gone. The orchestrator parser used it
-// only to indirect over the concrete `CapRegistry` for testing,
+// `FabricRegistryTrait` is gone. The orchestrator parser used it
+// only to indirect over the concrete `FabricRegistry` for testing,
 // but under the new resolver regime `Machine::from_string`
-// itself takes `&CapRegistry` to compute source-to-arg
-// matching. Tests use `CapRegistry::new_for_test()` +
+// itself takes `&FabricRegistry` to compute source-to-arg
+// matching. Tests use `FabricRegistry::new_for_test()` +
 // `add_caps_to_cache(...)` instead of a hand-built mock.
 
 #[cfg(test)]

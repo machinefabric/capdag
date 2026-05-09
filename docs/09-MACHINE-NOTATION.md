@@ -149,7 +149,7 @@ The matching is a **minimum-cost bipartite assignment with a uniqueness check** 
 
 The result is a `Vec<EdgeAssignmentBinding>` of `(cap_arg_media_urn, source_node)` pairs, where `cap_arg_media_urn` is the **slot identity** (the arg's outer `media_urn`, for RULE1-based identification), sorted by `cap_arg_media_urn` for canonical comparison.
 
-Resolution requires the cap registry to look up each cap's `args` list. All `Machine` constructors (`from_strand`, `from_strands`, `from_string`) take `&CapRegistry`.
+Resolution requires the cap registry to look up each cap's `args` list. All `Machine` constructors (`from_strand`, `from_strands`, `from_string`) take `&FabricRegistry`.
 
 ---
 

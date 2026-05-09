@@ -9,11 +9,11 @@
 //!
 //! ## Resolution
 //!
-//! To resolve a media URN to its full spec, use `resolve_media_urn` with a `MediaUrnRegistry`.
+//! To resolve a media URN to its full spec, use `resolve_media_urn` with a `FabricRegistry`.
 //! The resolution order is:
 //! 1. Cap's local media_specs (cap-specific overrides)
-//! 2. Registry's local cache (bundled standard specs)
-//! 3. Online registry fetch (with graceful degradation if unreachable)
+//! 2. Registry's in-memory + disk cache
+//! 3. Online registry fetch (blocked by the registry's offline flag if set)
 //!
 //! ## Example
 //!

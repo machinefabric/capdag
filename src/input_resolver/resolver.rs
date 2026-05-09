@@ -16,7 +16,7 @@ use crate::input_resolver::path_resolver;
 use crate::input_resolver::{
     ContentStructure, InputItem, InputResolverError, ResolvedFile, ResolvedInputSet,
 };
-use crate::media::registry::MediaUrnRegistry;
+use crate::media::registry::FabricRegistry;
 use crate::urn::media_urn::MediaUrn;
 
 /// Discriminate candidate media URNs by validation rules in their specs.
@@ -34,7 +34,7 @@ use crate::urn::media_urn::MediaUrn;
 pub fn discriminate_candidates_by_validation(
     content: &[u8],
     candidate_urns: &[String],
-    media_registry: &MediaUrnRegistry,
+    fabric_registry: &FabricRegistry,
     baseline_urn: &str,
 ) -> Vec<String> {
     let content_str = std::str::from_utf8(content).ok();
@@ -50,7 +50,7 @@ pub fn discriminate_candidates_by_validation(
     candidate_urns
         .iter()
         .filter(|urn| {
-            let spec = match media_registry.get_cached_spec(urn) {
+            let spec = match fabric_registry.get_cached_media_spec(urn) {
                 Some(spec) => spec,
                 None => return true, // No spec in cache → cannot eliminate
             };
@@ -173,29 +173,26 @@ pub fn detect_file(path: &Path) -> Result<ResolvedFile, InputResolverError> {
     detect_file_by_extension(path)
 }
 
-/// Detect media type for a file using extension and a custom MediaUrnRegistry.
-pub fn detect_file_with_media_registry(
+/// Detect media type for a file using extension and a custom FabricRegistry.
+pub fn detect_file_with_fabric_registry(
     path: &Path,
-    media_registry: Arc<MediaUrnRegistry>,
+    fabric_registry: Arc<FabricRegistry>,
 ) -> Result<ResolvedFile, InputResolverError> {
-    detect_file_by_extension_with_registry(path, &media_registry)
+    detect_file_by_extension_with_registry(path, &fabric_registry)
 }
 
 /// Extension-based detection using the global bundled registry.
 fn detect_file_by_extension(path: &Path) -> Result<ResolvedFile, InputResolverError> {
     use std::sync::OnceLock;
-    static REGISTRY: OnceLock<MediaUrnRegistry> = OnceLock::new();
-    let registry = REGISTRY.get_or_init(|| {
-        MediaUrnRegistry::new_for_test(std::env::temp_dir().join("capdag_media_registry"))
-            .expect("Failed to create MediaUrnRegistry")
-    });
+    static REGISTRY: OnceLock<FabricRegistry> = OnceLock::new();
+    let registry = REGISTRY.get_or_init(FabricRegistry::new_for_test);
     detect_file_by_extension_with_registry(path, registry)
 }
 
-/// Extension-based detection using a specific MediaUrnRegistry.
+/// Extension-based detection using a specific FabricRegistry.
 fn detect_file_by_extension_with_registry(
     path: &Path,
-    media_registry: &MediaUrnRegistry,
+    fabric_registry: &FabricRegistry,
 ) -> Result<ResolvedFile, InputResolverError> {
     let metadata = fs::metadata(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -220,7 +217,7 @@ fn detect_file_by_extension_with_registry(
 
     let (media_urn, content_structure) = match ext {
         Some(ref ext_str) => {
-            match media_registry.media_urns_for_extension(ext_str) {
+            match fabric_registry.media_urns_for_extension(ext_str) {
                 Ok(urns) if !urns.is_empty() => {
                     // Parse and pick the most specific candidate
                     let mut best_urn: Option<(MediaUrn, String)> = None;
@@ -469,10 +466,9 @@ mod tests {
         path
     }
 
-    fn create_test_media_registry() -> (Arc<MediaUrnRegistry>, TempDir) {
+    fn create_test_fabric_registry() -> (Arc<FabricRegistry>, TempDir) {
         let temp_dir = TempDir::new().unwrap();
-        let cache_dir = temp_dir.path().to_path_buf();
-        let registry = MediaUrnRegistry::new_for_test(cache_dir).unwrap();
+        let registry = FabricRegistry::new_for_test();
         (Arc::new(registry), temp_dir)
     }
 
@@ -557,14 +553,14 @@ mod tests {
 
     // Discrimination Tests (kept — they test validation logic, not adapter detection)
 
-    fn txt_extension_urns(registry: &MediaUrnRegistry) -> Vec<String> {
+    fn txt_extension_urns(registry: &FabricRegistry) -> Vec<String> {
         registry.media_urns_for_extension("txt").unwrap()
     }
 
     // TEST1235: Plain text without model-spec syntax eliminates model-spec TXT candidates.
     #[test]
     fn test1235_disc_1_plain_text_eliminates_model_specs() {
-        let (registry, _temp) = create_test_media_registry();
+        let (registry, _temp) = create_test_fabric_registry();
         let all_txt_urns = txt_extension_urns(&registry);
 
         let content = b"Hello world\nThis is a plain text file\nNo colons here";
@@ -591,7 +587,7 @@ mod tests {
     // filtered out.
     #[test]
     fn test1236_disc_2_model_spec_validation_pattern_filters_content() {
-        let (registry, _temp) = create_test_media_registry();
+        let (registry, _temp) = create_test_fabric_registry();
         let candidates = vec!["media:model-spec;textable".to_string()];
 
         // Spec-shaped content survives the regex filter.
@@ -624,7 +620,7 @@ mod tests {
     // TEST1237: Empty candidates → empty result
     #[test]
     fn test1237_disc_5_empty_candidates() {
-        let (registry, _temp) = create_test_media_registry();
+        let (registry, _temp) = create_test_fabric_registry();
         let survivors =
             discriminate_candidates_by_validation(b"anything", &[], &registry, "media:");
         assert!(survivors.is_empty());
@@ -633,7 +629,7 @@ mod tests {
     // TEST1238: Unknown URN survives discrimination
     #[test]
     fn test1238_disc_6_unknown_urn_survives() {
-        let (registry, _temp) = create_test_media_registry();
+        let (registry, _temp) = create_test_fabric_registry();
         let candidates = vec!["media:nonexistent;fake".to_string()];
         let survivors =
             discriminate_candidates_by_validation(b"anything", &candidates, &registry, "media:");
@@ -687,8 +683,8 @@ mod tests {
         let dir = create_test_dir();
         let path = create_file(&dir, "data.json", br#"{"key":"value"}"#);
 
-        let (media_registry, _temp) = create_test_media_registry();
-        let mut adapter_registry = MediaAdapterRegistry::new(media_registry);
+        let (fabric_registry, _temp) = create_test_fabric_registry();
+        let mut adapter_registry = MediaAdapterRegistry::new(fabric_registry);
         adapter_registry
             .register_cap_group("test-group", &["media:json".to_string()], "test-cartridge")
             .unwrap();
@@ -719,8 +715,8 @@ mod tests {
         let dir = create_test_dir();
         let path = create_file(&dir, "data.json", br#"{"key": "value"}"#);
 
-        let (media_registry, _temp) = create_test_media_registry();
-        let adapter_registry = MediaAdapterRegistry::new(media_registry);
+        let (fabric_registry, _temp) = create_test_fabric_registry();
+        let adapter_registry = MediaAdapterRegistry::new(fabric_registry);
         let invoker = MockInvoker { response: None };
 
         let result = detect_file_confirmed(&path, &adapter_registry, &invoker).await;
@@ -742,8 +738,8 @@ mod tests {
         let dir = create_test_dir();
         let path = create_file(&dir, "data.json", br#"{"key": "value"}"#);
 
-        let (media_registry, _temp) = create_test_media_registry();
-        let mut adapter_registry = MediaAdapterRegistry::new(media_registry);
+        let (fabric_registry, _temp) = create_test_fabric_registry();
+        let mut adapter_registry = MediaAdapterRegistry::new(fabric_registry);
 
         // Register an adapter for media:json
         adapter_registry
@@ -776,8 +772,8 @@ mod tests {
         let dir = create_test_dir();
         let path = create_file(&dir, "data.json", br#"not json"#);
 
-        let (media_registry, _temp) = create_test_media_registry();
-        let mut adapter_registry = MediaAdapterRegistry::new(media_registry);
+        let (fabric_registry, _temp) = create_test_fabric_registry();
+        let mut adapter_registry = MediaAdapterRegistry::new(fabric_registry);
 
         adapter_registry
             .register_cap_group(

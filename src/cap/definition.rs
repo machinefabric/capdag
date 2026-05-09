@@ -6,24 +6,15 @@
 //!
 //! ## Cap Definition Format
 //!
-//! Caps use media URNs in `media_urn` fields that reference either:
-//! - Standard media specs from the registry (e.g., "media:string")
-//! - Inline media specs defined in the `media_specs` array
+//! Caps use media URNs in `media_urn` fields. Every media URN is looked up
+//! through the unified `FabricRegistry` — there is no inline media spec
+//! storage on a cap.
 //!
 //! Example:
 //!
 //! ```json
 //! {
 //!   "urn": "cap:in=\"media:string\";conversation;out=\"media:my-output;json;record\"",
-//!   "media_specs": [
-//!     {
-//!       "urn": "media:my-output;json;record",
-//!       "media_type": "application/json",
-//!       "title": "My Output",
-//!       "profile_uri": "https://example.com/schema",
-//!       "schema": { "type": "object", ... }
-//!     }
-//!   ],
 //!   "args": [
 //!     { "media_urn": "media:string", "required": true, "sources": [{"cli_flag": "--input"}] }
 //!   ],
@@ -31,7 +22,6 @@
 //! }
 //! ```
 
-use crate::media::spec::{resolve_media_urn, MediaSpecDef, MediaSpecError, ResolvedMediaSpec};
 use crate::urn::cap_urn::CapUrn;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
@@ -184,95 +174,6 @@ impl CapArg {
         &self.media_urn
     }
 
-    /// Resolve this argument's media spec
-    ///
-    /// Resolution order:
-    /// 1. Cap's local media_specs (cap-specific overrides)
-    /// 2. Registry's local cache (bundled standard specs)
-    /// 3. Online registry fetch (with graceful degradation)
-    ///
-    /// # Arguments
-    /// * `media_specs` - Optional media_specs map from the cap definition
-    /// * `registry` - The media URN registry
-    ///
-    /// # Errors
-    /// Returns `MediaSpecError::UnresolvableMediaUrn` if the media URN cannot be resolved.
-    pub async fn resolve(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<ResolvedMediaSpec, MediaSpecError> {
-        resolve_media_urn(&self.media_urn, media_specs, registry).await
-    }
-
-    /// Check if argument is binary based on resolved media spec
-    pub async fn is_binary(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<bool, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.is_binary())
-    }
-
-    /// Check if argument is JSON based on resolved media spec
-    /// Note: This checks for explicit JSON format marker only.
-    pub async fn is_json(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<bool, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.is_json())
-    }
-
-    /// Check if argument is structured (map or list) based on resolved media spec
-    /// Structured data can be serialized as JSON when transmitted as text.
-    pub async fn is_structured(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<bool, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.is_structured())
-    }
-
-    /// Get the media type from resolved spec
-    pub async fn media_type(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<String, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.media_type)
-    }
-
-    /// Get the profile URI from resolved spec
-    pub async fn profile_uri(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<Option<String>, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.profile_uri)
-    }
-
-    /// Get the schema from resolved spec (if any)
-    pub async fn schema(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<Option<serde_json::Value>, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.schema)
-    }
-
     /// Get metadata JSON
     pub fn get_metadata(&self) -> Option<&serde_json::Value> {
         self.metadata.as_ref()
@@ -292,8 +193,7 @@ impl CapArg {
 /// Output definition
 ///
 /// The `media_urn` field contains a media URN (e.g., "media:object") that
-/// references a definition in the cap's `media_specs` table or a built-in primitive.
-/// Any output schema should be defined in the media_specs entry, not inline here.
+/// the unified `FabricRegistry` resolves on demand.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CapOutput {
     /// Media URN referencing a media spec definition
@@ -316,7 +216,7 @@ impl CapOutput {
     /// Create a new output definition with media URN
     ///
     /// # Arguments
-    /// * `media_urn` - Media URN referencing a media_specs entry (e.g., "media:object")
+    /// * `media_urn` - Media URN resolved through the FabricRegistry (e.g., "media:object")
     /// * `description` - Human-readable description of the output
     pub fn new(media_urn: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
@@ -345,95 +245,6 @@ impl CapOutput {
     /// Get the media URN
     pub fn get_media_urn(&self) -> &str {
         &self.media_urn
-    }
-
-    /// Resolve this output's media spec
-    ///
-    /// Resolution order:
-    /// 1. Cap's local media_specs (cap-specific overrides)
-    /// 2. Registry's local cache (bundled standard specs)
-    /// 3. Online registry fetch (with graceful degradation)
-    ///
-    /// # Arguments
-    /// * `media_specs` - Optional media_specs map from the cap definition
-    /// * `registry` - The media URN registry
-    ///
-    /// # Errors
-    /// Returns `MediaSpecError::UnresolvableMediaUrn` if the media URN cannot be resolved.
-    pub async fn resolve(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<ResolvedMediaSpec, MediaSpecError> {
-        resolve_media_urn(&self.media_urn, media_specs, registry).await
-    }
-
-    /// Check if output is binary based on resolved media spec
-    pub async fn is_binary(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<bool, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.is_binary())
-    }
-
-    /// Check if output is JSON based on resolved media spec
-    /// Note: This checks for explicit JSON format marker only.
-    pub async fn is_json(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<bool, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.is_json())
-    }
-
-    /// Check if output is structured (map or list) based on resolved media spec
-    /// Structured data can be serialized as JSON when transmitted as text.
-    pub async fn is_structured(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<bool, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.is_structured())
-    }
-
-    /// Get the media type from resolved spec
-    pub async fn media_type(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<String, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.media_type)
-    }
-
-    /// Get the profile URI from resolved spec
-    pub async fn profile_uri(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<Option<String>, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.profile_uri)
-    }
-
-    /// Get the schema from resolved spec (if any)
-    pub async fn schema(
-        &self,
-        media_specs: Option<&[MediaSpecDef]>,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<Option<serde_json::Value>, MediaSpecError> {
-        self.resolve(media_specs, registry)
-            .await
-            .map(|ms| ms.schema)
     }
 
     /// Get metadata JSON
@@ -476,9 +287,8 @@ impl RegisteredBy {
 ///
 /// A cap definition includes:
 /// - URN with tags (including `op`, `in`, `out` which use media URNs)
-/// - `media_specs` array of inline media spec definitions
-/// - Arguments with media URN references
-/// - Output with media URN reference
+/// - Arguments with media URN references (resolved through `FabricRegistry`)
+/// - Output with media URN reference (resolved through `FabricRegistry`)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cap {
     /// Formal cap URN with hierarchical naming
@@ -506,11 +316,6 @@ pub struct Cap {
 
     /// Command string for CLI execution
     pub command: String,
-
-    /// Inline media spec definitions array
-    /// Each spec has its own URN. Arguments and output reference these by URN.
-    /// Duplicate URNs are not allowed.
-    pub media_specs: Vec<MediaSpecDef>,
 
     /// Cap arguments
     pub args: Vec<CapArg>,
@@ -565,10 +370,6 @@ impl Serialize for Cap {
             state.serialize_field("metadata", &self.metadata)?;
         }
 
-        if !self.media_specs.is_empty() {
-            state.serialize_field("media_specs", &self.media_specs)?;
-        }
-
         if !self.args.is_empty() {
             state.serialize_field("args", &self.args)?;
         }
@@ -603,7 +404,7 @@ impl<'de> Deserialize<'de> for Cap {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        struct CapRegistry {
+        struct CapWire {
             urn: serde_json::Value,
             title: String,
             cap_description: Option<String>,
@@ -611,8 +412,6 @@ impl<'de> Deserialize<'de> for Cap {
             #[serde(default)]
             metadata: HashMap<String, String>,
             command: String,
-            #[serde(default)]
-            media_specs: Vec<MediaSpecDef>,
             #[serde(default)]
             args: Vec<CapArg>,
             output: Option<CapOutput>,
@@ -624,10 +423,10 @@ impl<'de> Deserialize<'de> for Cap {
             default_model_spec: Option<String>,
         }
 
-        let registry_cap = CapRegistry::deserialize(deserializer)?;
+        let wire = CapWire::deserialize(deserializer)?;
 
         // URN must be a string in canonical format
-        let urn = match registry_cap.urn {
+        let urn = match wire.urn {
             serde_json::Value::String(urn_str) => {
                 CapUrn::from_string(&urn_str).map_err(serde::de::Error::custom)?
             },
@@ -636,18 +435,17 @@ impl<'de> Deserialize<'de> for Cap {
 
         Ok(Cap {
             urn,
-            title: registry_cap.title,
-            cap_description: registry_cap.cap_description,
-            documentation: registry_cap.documentation,
-            metadata: registry_cap.metadata,
-            command: registry_cap.command,
-            media_specs: registry_cap.media_specs,
-            args: registry_cap.args,
-            output: registry_cap.output,
-            metadata_json: registry_cap.metadata_json,
-            registered_by: registry_cap.registered_by,
-            supported_model_types: registry_cap.supported_model_types,
-            default_model_spec: registry_cap.default_model_spec,
+            title: wire.title,
+            cap_description: wire.cap_description,
+            documentation: wire.documentation,
+            metadata: wire.metadata,
+            command: wire.command,
+            args: wire.args,
+            output: wire.output,
+            metadata_json: wire.metadata_json,
+            registered_by: wire.registered_by,
+            supported_model_types: wire.supported_model_types,
+            default_model_spec: wire.default_model_spec,
         })
     }
 }
@@ -662,7 +460,6 @@ impl Cap {
             documentation: None,
             metadata: HashMap::new(),
             command,
-            media_specs: Vec::new(),
             args: Vec::new(),
             output: None,
             metadata_json: None,
@@ -686,7 +483,6 @@ impl Cap {
             documentation: None,
             metadata: HashMap::new(),
             command,
-            media_specs: Vec::new(),
             args: Vec::new(),
             output: None,
             metadata_json: None,
@@ -710,7 +506,6 @@ impl Cap {
             documentation: None,
             metadata,
             command,
-            media_specs: Vec::new(),
             args: Vec::new(),
             output: None,
             metadata_json: None,
@@ -735,7 +530,6 @@ impl Cap {
             documentation: None,
             metadata,
             command,
-            media_specs: Vec::new(),
             args: Vec::new(),
             output: None,
             metadata_json: None,
@@ -754,7 +548,6 @@ impl Cap {
             documentation: None,
             metadata: HashMap::new(),
             command,
-            media_specs: Vec::new(),
             args,
             output: None,
             metadata_json: None,
@@ -771,7 +564,6 @@ impl Cap {
         description: Option<String>,
         metadata: HashMap<String, String>,
         command: String,
-        media_specs: Vec<MediaSpecDef>,
         args: Vec<CapArg>,
         output: Option<CapOutput>,
         metadata_json: Option<serde_json::Value>,
@@ -783,7 +575,6 @@ impl Cap {
             documentation: None,
             metadata,
             command,
-            media_specs,
             args,
             output,
             metadata_json,
@@ -823,30 +614,6 @@ impl Cap {
     /// Check if this cap accepts stdin
     pub fn accepts_stdin(&self) -> bool {
         self.get_stdin_media_urn().is_some()
-    }
-
-    /// Get the media_specs array
-    pub fn get_media_specs(&self) -> &[MediaSpecDef] {
-        &self.media_specs
-    }
-
-    /// Set media_specs
-    pub fn set_media_specs(&mut self, media_specs: Vec<MediaSpecDef>) {
-        self.media_specs = media_specs;
-    }
-
-    /// Add a media spec definition
-    pub fn add_media_spec(&mut self, def: MediaSpecDef) {
-        self.media_specs.push(def);
-    }
-
-    /// Resolve a media URN using this cap's media_specs and the registry
-    pub async fn resolve_media_urn(
-        &self,
-        media_urn: &str,
-        registry: &crate::media::registry::MediaUrnRegistry,
-    ) -> Result<ResolvedMediaSpec, MediaSpecError> {
-        resolve_media_urn(media_urn, Some(&self.media_specs), registry).await
     }
 
     /// Check if this cap (provider) can dispatch the given request.
@@ -1354,7 +1121,6 @@ mod tests {
             Some("Description".to_string()),
             metadata,
             "full-cmd".to_string(),
-            Vec::new(),
             args,
             Some(output),
             Some(json_meta.clone()),

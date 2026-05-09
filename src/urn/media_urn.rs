@@ -75,10 +75,10 @@ pub const MEDIA_AUDIO: &str = "media:wav;audio";
 /// Media URN for video data (mp4, webm, mov, etc.)
 pub const MEDIA_VIDEO: &str = "media:video";
 
-// Image container formats. URN strings here match the declared spec URNs
-// in capdag/standard/media/<name>.json. Tagged-URN normalization makes the
+// Image container formats. URN strings here match the canonical media-spec
+// URNs published to the registry. Tagged-URN normalization makes the
 // declared and normalized forms equivalent under the parser, but matching
-// the spec form exactly avoids surprising any code that prints URNs.
+// the canonical form exactly avoids surprising any code that prints URNs.
 pub const MEDIA_JPEG: &str = "media:jpeg;image";
 pub const MEDIA_GIF: &str = "media:gif;image";
 pub const MEDIA_BMP: &str = "media:bmp;image";
@@ -182,6 +182,12 @@ pub const MEDIA_MODEL_SPEC_GGUF_VISION: &str = "media:model-spec;gguf;textable;v
 pub const MEDIA_MODEL_SPEC_GGUF_LLM: &str = "media:model-spec;gguf;textable;llm";
 /// GGUF embeddings model spec (e.g. nomic-embed)
 pub const MEDIA_MODEL_SPEC_GGUF_EMBEDDINGS: &str = "media:model-spec;gguf;textable;embeddings";
+/// GGUF OCR model spec (e.g. GLM-OCR). Distinct from `MEDIA_MODEL_SPEC_GGUF_VISION`
+/// — both are multimodal GGUF files with a text-model + mmproj pair, but the
+/// `model-task` axis distinguishes them: `vision` covers describe-image and
+/// generic VLM use, `ocr` is reserved for models specifically trained to
+/// transcribe text *contained in* an image.
+pub const MEDIA_MODEL_SPEC_GGUF_OCR: &str = "media:model-spec;gguf;ocr;textable";
 
 // Backend-narrowed model-spec supertypes. Each backend cartridge's
 // adapter handler returns the URN for its backend so the engine's
@@ -295,6 +301,36 @@ pub const MEDIA_DECISION: &str = "media:decision;json;record;textable";
 /// Media URN for adapter selection output — JSON object with media_urns array
 /// Returned by cartridge content-inspection adapters to identify file media types
 pub const MEDIA_ADAPTER_SELECTION: &str = "media:adapter-selection;json;record";
+
+/// Media URN for a canonical cap URN string.
+///
+/// Carried as data when a cap takes "the URN of some other cap" as input —
+/// e.g. the input to `cap:lookup-cap;fabric`. The string value MUST be the
+/// canonical (alphabetically normalised) serialisation produced by the
+/// `CapUrn` parser; consumers re-parse it through `CapUrn::from_string`
+/// before any comparison or dispatch decision.
+pub const MEDIA_CAP_URN: &str = "media:cap-urn;textable";
+
+/// Media URN for a canonical media URN string.
+///
+/// Carried as data when a cap takes "the URN of some media spec" as input —
+/// e.g. the input to `cap:lookup-media-spec;fabric`. The string value MUST
+/// be the canonical (alphabetically normalised) serialisation produced by
+/// the `MediaUrn` parser; consumers re-parse it through
+/// `MediaUrn::from_string` before any comparison or dispatch decision.
+pub const MEDIA_MEDIA_URN: &str = "media:media-urn;textable";
+
+/// Media URN for the full flattened cap definition published by the registry.
+///
+/// JSON record returned by `cap:lookup-cap;fabric`. Shape mirrors the
+/// `flattenCapability` output in the fabric build pipeline.
+pub const MEDIA_CAP_DEFINITION: &str = "media:cap-definition;json;record;textable";
+
+/// Media URN for the full media spec definition published by the registry.
+///
+/// JSON record returned by `cap:lookup-media-spec;fabric`. Shape mirrors
+/// the media spec emitter output in the fabric build pipeline.
+pub const MEDIA_MEDIA_SPEC_DEFINITION: &str = "media:media-spec-definition;json;record;textable";
 
 // =============================================================================
 // MEDIA URN TYPE

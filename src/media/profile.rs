@@ -2,7 +2,6 @@
 //!
 //! Registry for JSON Schema profiles. Downloads and caches schemas from profile URLs
 //! for validating data against media spec type definitions.
-//! Embeds default schemas for standard types (string, integer, number, boolean, object, arrays).
 //! Uses a two-level cache: disk-based cached schemas and in-memory compiled schemas.
 
 use jsonschema::JSONSchema;
@@ -16,106 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::standard::media::{
-    PROFILE_BOOL, PROFILE_BOOL_ARRAY, PROFILE_INT, PROFILE_NUM, PROFILE_NUM_ARRAY, PROFILE_OBJ,
-    PROFILE_OBJ_ARRAY, PROFILE_STR, PROFILE_STR_ARRAY,
-};
-
 const CACHE_DURATION_HOURS: u64 = 24 * 7; // Cache for 1 week
-
-/// Embedded default schemas
-mod embedded_schemas {
-    pub const STR_SCHEMA: &str = r#"{
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://capdag.com/schema/str",
-        "title": "String",
-        "description": "A JSON string value",
-        "type": "string"
-    }"#;
-
-    pub const INT_SCHEMA: &str = r#"{
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://capdag.com/schema/int",
-        "title": "Integer",
-        "description": "A JSON integer value",
-        "type": "integer"
-    }"#;
-
-    pub const NUM_SCHEMA: &str = r#"{
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://capdag.com/schema/num",
-        "title": "Number",
-        "description": "A JSON number value (integer or floating point)",
-        "type": "number"
-    }"#;
-
-    pub const BOOL_SCHEMA: &str = r#"{
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://capdag.com/schema/bool",
-        "title": "Boolean",
-        "description": "A JSON boolean value (true or false)",
-        "type": "boolean"
-    }"#;
-
-    pub const OBJ_SCHEMA: &str = r#"{
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://capdag.com/schema/obj",
-        "title": "Object",
-        "description": "A JSON object value",
-        "type": "object"
-    }"#;
-
-    pub const STR_ARRAY_SCHEMA: &str = r#"{
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://capdag.com/schema/str-array",
-        "title": "String Array",
-        "description": "A JSON array of string values",
-        "type": "array",
-        "items": { "type": "string" }
-    }"#;
-
-    pub const NUM_ARRAY_SCHEMA: &str = r#"{
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://capdag.com/schema/num-array",
-        "title": "Number Array",
-        "description": "A JSON array of number values",
-        "type": "array",
-        "items": { "type": "number" }
-    }"#;
-
-    pub const BOOL_ARRAY_SCHEMA: &str = r#"{
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://capdag.com/schema/bool-array",
-        "title": "Boolean Array",
-        "description": "A JSON array of boolean values",
-        "type": "array",
-        "items": { "type": "boolean" }
-    }"#;
-
-    pub const OBJ_ARRAY_SCHEMA: &str = r#"{
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://capdag.com/schema/obj-array",
-        "title": "Object Array",
-        "description": "A JSON array of object values",
-        "type": "array",
-        "items": { "type": "object" }
-    }"#;
-
-    /// Get all embedded schemas as (profile_url, schema_json) pairs
-    pub fn all() -> Vec<(&'static str, &'static str)> {
-        vec![
-            (super::PROFILE_STR, STR_SCHEMA),
-            (super::PROFILE_INT, INT_SCHEMA),
-            (super::PROFILE_NUM, NUM_SCHEMA),
-            (super::PROFILE_BOOL, BOOL_SCHEMA),
-            (super::PROFILE_OBJ, OBJ_SCHEMA),
-            (super::PROFILE_STR_ARRAY, STR_ARRAY_SCHEMA),
-            (super::PROFILE_NUM_ARRAY, NUM_ARRAY_SCHEMA),
-            (super::PROFILE_BOOL_ARRAY, BOOL_ARRAY_SCHEMA),
-            (super::PROFILE_OBJ_ARRAY, OBJ_ARRAY_SCHEMA),
-        ]
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CacheEntry {
@@ -183,80 +83,12 @@ impl ProfileSchemaRegistry {
         let compiled_schemas_map = Self::load_all_cached_schemas(&cache_dir)?;
         let compiled_schemas = Arc::new(Mutex::new(compiled_schemas_map));
 
-        let registry = Self {
+        Ok(Self {
             client,
             cache_dir,
             compiled_schemas,
             offline_flag: Arc::new(AtomicBool::new(false)),
-        };
-
-        // Install bundled standard schemas to cache if they don't exist
-        registry.install_standard_schemas().await?;
-
-        Ok(registry)
-    }
-
-    /// Install bundled standard schemas to cache directory if they don't exist
-    async fn install_standard_schemas(&self) -> Result<(), ProfileSchemaError> {
-        for (profile_url, schema_json_str) in embedded_schemas::all() {
-            let cache_file = self.cache_file_path(profile_url);
-
-            if !cache_file.exists() {
-                let schema_json: JsonValue =
-                    serde_json::from_str(schema_json_str).map_err(|e| {
-                        ProfileSchemaError::ParseError(format!(
-                            "Failed to parse embedded schema for {}: {}",
-                            profile_url, e
-                        ))
-                    })?;
-
-                // Compile to verify it's valid
-                let compiled = JSONSchema::compile(&schema_json).map_err(|e| {
-                    ProfileSchemaError::InvalidSchema(format!(
-                        "Failed to compile embedded schema for {}: {}",
-                        profile_url, e
-                    ))
-                })?;
-
-                // Create cache entry
-                let cache_entry = CacheEntry {
-                    schema_json: schema_json.clone(),
-                    profile_url: profile_url.to_string(),
-                    cached_at: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs(),
-                    ttl_hours: CACHE_DURATION_HOURS,
-                };
-
-                let cache_content = serde_json::to_string_pretty(&cache_entry).map_err(|e| {
-                    ProfileSchemaError::CacheError(format!(
-                        "Failed to serialize schema for {}: {}",
-                        profile_url, e
-                    ))
-                })?;
-
-                fs::write(&cache_file, cache_content).map_err(|e| {
-                    ProfileSchemaError::CacheError(format!(
-                        "Failed to write schema to cache for {}: {}",
-                        profile_url, e
-                    ))
-                })?;
-
-                // Add to in-memory cache
-                if let Ok(mut schemas) = self.compiled_schemas.lock() {
-                    schemas.insert(
-                        profile_url.to_string(),
-                        Arc::new(CompiledSchema {
-                            compiled,
-                            source: schema_json,
-                        }),
-                    );
-                }
-            }
-        }
-
-        Ok(())
+        })
     }
 
     /// Set the offline flag. When true, all schema fetches are blocked.
@@ -485,7 +317,7 @@ impl ProfileSchemaRegistry {
         }
     }
 
-    /// Check if a profile URL exists in cache (either embedded or downloaded)
+    /// Check if a profile URL exists in the in-memory cache.
     pub fn schema_exists(&self, profile_url: &str) -> bool {
         let schemas = match self.compiled_schemas.lock() {
             Ok(s) => s,
@@ -501,6 +333,58 @@ impl ProfileSchemaRegistry {
             Err(_) => return vec![],
         };
         schemas.keys().cloned().collect()
+    }
+
+    /// Insert a schema directly into the in-memory and disk caches without
+    /// fetching it over HTTP. Intended for tests and local seeding only — production
+    /// callers should rely on the on-demand fetch path.
+    pub fn insert_schema(
+        &self,
+        profile_url: &str,
+        schema_json: JsonValue,
+    ) -> Result<(), ProfileSchemaError> {
+        let compiled = JSONSchema::compile(&schema_json).map_err(|e| {
+            ProfileSchemaError::InvalidSchema(format!(
+                "Failed to compile schema for {}: {}",
+                profile_url, e
+            ))
+        })?;
+
+        // Persist to disk cache so subsequent process starts pick it up.
+        let cache_file = self.cache_file_path(profile_url);
+        let cache_entry = CacheEntry {
+            schema_json: schema_json.clone(),
+            profile_url: profile_url.to_string(),
+            cached_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            ttl_hours: CACHE_DURATION_HOURS,
+        };
+        let cache_content = serde_json::to_string_pretty(&cache_entry).map_err(|e| {
+            ProfileSchemaError::CacheError(format!(
+                "Failed to serialize schema for {}: {}",
+                profile_url, e
+            ))
+        })?;
+        fs::write(&cache_file, cache_content).map_err(|e| {
+            ProfileSchemaError::CacheError(format!(
+                "Failed to write schema cache for {}: {}",
+                profile_url, e
+            ))
+        })?;
+
+        let mut schemas = self.compiled_schemas.lock().map_err(|e| {
+            ProfileSchemaError::CacheError(format!("Failed to lock cache: {}", e))
+        })?;
+        schemas.insert(
+            profile_url.to_string(),
+            Arc::new(CompiledSchema {
+                compiled,
+                source: schema_json,
+            }),
+        );
+        Ok(())
     }
 
     /// Clear all caches (memory and disk)
@@ -526,12 +410,6 @@ impl ProfileSchemaRegistry {
         Ok(())
     }
 
-    /// Check if a profile URL is one of the embedded defaults
-    pub fn is_embedded_profile(profile_url: &str) -> bool {
-        embedded_schemas::all()
-            .iter()
-            .any(|(url, _)| *url == profile_url)
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -558,11 +436,75 @@ pub enum ProfileSchemaError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::standard::media::{
+        PROFILE_BOOL, PROFILE_BOOL_ARRAY, PROFILE_INT, PROFILE_NUM, PROFILE_NUM_ARRAY, PROFILE_OBJ,
+        PROFILE_OBJ_ARRAY, PROFILE_STR, PROFILE_STR_ARRAY,
+    };
     use serde_json::json;
     use tempfile::TempDir;
 
-    /// Create a registry with an isolated temporary cache directory
+    /// Construct a JSON Schema body for one of the well-known scalar/array
+    /// profile types. Tests use this to seed the registry without HTTP because
+    /// the registry no longer ships embedded schema bodies — production callers
+    /// fetch on demand.
+    fn schema_body(profile_url: &str) -> JsonValue {
+        let (json_type, items) = match profile_url {
+            PROFILE_STR => ("string", None),
+            PROFILE_INT => ("integer", None),
+            PROFILE_NUM => ("number", None),
+            PROFILE_BOOL => ("boolean", None),
+            PROFILE_OBJ => ("object", None),
+            PROFILE_STR_ARRAY => ("array", Some("string")),
+            PROFILE_NUM_ARRAY => ("array", Some("number")),
+            PROFILE_BOOL_ARRAY => ("array", Some("boolean")),
+            PROFILE_OBJ_ARRAY => ("array", Some("object")),
+            other => panic!("schema_body: unknown profile URL '{}'", other),
+        };
+        let mut schema = json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": profile_url,
+            "type": json_type,
+        });
+        if let Some(item_type) = items {
+            schema["items"] = json!({"type": item_type});
+        }
+        schema
+    }
+
+    fn seed_standard_schemas(registry: &ProfileSchemaRegistry) {
+        for url in [
+            PROFILE_STR,
+            PROFILE_INT,
+            PROFILE_NUM,
+            PROFILE_BOOL,
+            PROFILE_OBJ,
+            PROFILE_STR_ARRAY,
+            PROFILE_NUM_ARRAY,
+            PROFILE_BOOL_ARRAY,
+            PROFILE_OBJ_ARRAY,
+        ] {
+            registry
+                .insert_schema(url, schema_body(url))
+                .unwrap_or_else(|e| panic!("seed {}: {}", url, e));
+        }
+    }
+
+    /// Create a registry with an isolated temporary cache directory and the
+    /// well-known scalar/array profile schemas seeded into the cache. Tests
+    /// that exercise validation against those profiles use this to bypass the
+    /// network fetch path.
     async fn create_test_registry() -> (ProfileSchemaRegistry, TempDir) {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let registry = ProfileSchemaRegistry::new_with_cache_dir(temp_dir.path().to_path_buf())
+            .await
+            .expect("Failed to create registry");
+        seed_standard_schemas(&registry);
+        (registry, temp_dir)
+    }
+
+    /// Create a fresh, unseeded registry — no schemas, no network.
+    /// Used by tests that assert the post-construction cache state.
+    async fn create_empty_test_registry() -> (ProfileSchemaRegistry, TempDir) {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let registry = ProfileSchemaRegistry::new_with_cache_dir(temp_dir.path().to_path_buf())
             .await
@@ -573,25 +515,23 @@ mod tests {
     // TEST618: Verify profile schema registry creation succeeds with temp cache
     #[tokio::test]
     async fn test618_registry_creation() {
-        let (registry, _temp_dir) = create_test_registry().await;
+        let (registry, _temp_dir) = create_empty_test_registry().await;
         assert!(registry.cache_dir.exists());
     }
 
-    // TEST619: Verify all 9 embedded standard schemas are loaded on creation
+    // TEST619: A freshly constructed registry has an empty cache. The well-known
+    // profile schemas are no longer bundled in the binary; callers must either
+    // fetch them on demand or seed via insert_schema.
     #[tokio::test]
-    async fn test619_embedded_schemas_loaded() {
-        let (registry, _temp_dir) = create_test_registry().await;
+    async fn test619_fresh_registry_cache_is_empty() {
+        let (registry, _temp_dir) = create_empty_test_registry().await;
 
-        // Check that embedded schemas are available
-        assert!(registry.schema_exists(PROFILE_STR));
-        assert!(registry.schema_exists(PROFILE_INT));
-        assert!(registry.schema_exists(PROFILE_NUM));
-        assert!(registry.schema_exists(PROFILE_BOOL));
-        assert!(registry.schema_exists(PROFILE_OBJ));
-        assert!(registry.schema_exists(PROFILE_STR_ARRAY));
-        assert!(registry.schema_exists(PROFILE_NUM_ARRAY));
-        assert!(registry.schema_exists(PROFILE_BOOL_ARRAY));
-        assert!(registry.schema_exists(PROFILE_OBJ_ARRAY));
+        assert!(
+            registry.get_cached_profiles().is_empty(),
+            "Fresh registry must have no cached schemas; nothing is bundled into the binary"
+        );
+        assert!(!registry.schema_exists(PROFILE_STR));
+        assert!(!registry.schema_exists(PROFILE_OBJ_ARRAY));
     }
 
     // TEST620: Verify string schema validates strings and rejects non-strings
@@ -715,55 +655,52 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    // TEST627: Verify is_embedded_profile recognizes standard and rejects custom URLs
-    #[test]
-    fn test627_is_embedded_profile() {
-        assert!(ProfileSchemaRegistry::is_embedded_profile(PROFILE_STR));
-        assert!(ProfileSchemaRegistry::is_embedded_profile(PROFILE_INT));
-        assert!(!ProfileSchemaRegistry::is_embedded_profile(
-            "https://example.com/custom"
-        ));
+    // TEST611: insert_schema is the production seam for non-HTTP schema injection.
+    // It must persist to the in-memory cache so subsequent schema_exists/validate
+    // calls succeed without network access.
+    #[tokio::test]
+    async fn test611_insert_schema_populates_cache() {
+        let (registry, _temp_dir) = create_empty_test_registry().await;
+        assert!(!registry.schema_exists(PROFILE_STR));
+
+        registry
+            .insert_schema(PROFILE_STR, schema_body(PROFILE_STR))
+            .expect("insert_schema must succeed for a valid JSON Schema");
+
+        assert!(
+            registry.schema_exists(PROFILE_STR),
+            "After insert_schema the URL must be cached"
+        );
+        // The seeded schema must actually validate values, not silently pass.
+        assert!(registry.validate_cached(PROFILE_STR, &json!("ok")).is_ok());
+        assert!(
+            registry.validate_cached(PROFILE_STR, &json!(7)).is_err(),
+            "Number must not validate against the string schema"
+        );
     }
 
-    // TEST611: is_embedded_profile recognizes all 9 embedded profiles and rejects non-embedded
-    #[test]
-    fn test611_is_embedded_profile_comprehensive() {
-        let embedded = [
-            PROFILE_STR,
-            PROFILE_INT,
-            PROFILE_NUM,
-            PROFILE_BOOL,
-            PROFILE_OBJ,
-            PROFILE_STR_ARRAY,
-            PROFILE_NUM_ARRAY,
-            PROFILE_BOOL_ARRAY,
-            PROFILE_OBJ_ARRAY,
-        ];
-
-        for url in &embedded {
-            assert!(
-                ProfileSchemaRegistry::is_embedded_profile(url),
-                "'{}' should be recognized as embedded",
-                url
-            );
-        }
-
-        // Non-embedded profiles
-        assert!(!ProfileSchemaRegistry::is_embedded_profile(
-            "https://capdag.com/schema/custom"
-        ));
-        assert!(!ProfileSchemaRegistry::is_embedded_profile(""));
-        assert!(!ProfileSchemaRegistry::is_embedded_profile(
-            "https://example.com/schema/str"
-        ));
+    // TEST627: insert_schema rejects malformed JSON Schemas instead of caching them.
+    // A registry that silently accepted invalid schemas would hide compilation
+    // problems until the first validation call.
+    #[tokio::test]
+    async fn test627_insert_schema_rejects_invalid_schema() {
+        let (registry, _temp_dir) = create_empty_test_registry().await;
+        // `type` of 99 is not a valid JSON Schema type — compile must fail.
+        let bad = json!({"$schema": "https://json-schema.org/draft/2020-12/schema", "type": 99});
+        let result = registry.insert_schema("https://capdag.com/schema/bad", bad);
+        assert!(result.is_err(), "Invalid schema must not be cached");
+        assert!(
+            !registry.schema_exists("https://capdag.com/schema/bad"),
+            "Failed insert must not leave the URL in the cache"
+        );
     }
 
-    // TEST612: clear_cache empties all in-memory schemas
+    // TEST612: clear_cache empties the in-memory cache for seeded schemas.
     #[tokio::test]
     async fn test612_clear_cache() {
         let (registry, _temp_dir) = create_test_registry().await;
 
-        // Standard schemas should be loaded
+        // Seeded schemas should be loaded
         assert!(registry.schema_exists(PROFILE_STR));
         assert!(!registry.get_cached_profiles().is_empty());
 

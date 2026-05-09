@@ -13,7 +13,7 @@ use capdag::cap::definition::{ArgSource, CapArg, CapOutput};
 use capdag::orchestrator::{
     execute_dag, parse_machine_to_cap_dag, NodeData, ParseOrchestrationError,
 };
-use capdag::{Cap, CapRegistry, CapUrn};
+use capdag::{Cap, FabricRegistry, CapUrn};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -25,7 +25,7 @@ use tempfile::TempDir;
 // =============================================================================
 // Test Cap Registry for testcartridge Caps
 //
-// Builds a `CapRegistry::new_for_test()` populated with the
+// Builds a `FabricRegistry::new_for_test()` populated with the
 // testcartridge caps. Each cap declares one stdin arg matching
 // its `in=` spec so the resolver's source-to-cap-arg matching
 // can succeed. Used by both `parse_machine_to_cap_dag` (for
@@ -48,7 +48,6 @@ fn build_testcartridge_cap(urn_str: &str) -> Cap {
         documentation: None,
         metadata: HashMap::new(),
         command: "testcartridge".to_string(),
-        media_specs: vec![],
         args: vec![CapArg::new(
             in_spec.clone(),
             true,
@@ -247,12 +246,17 @@ fn all_scalar(inputs: &HashMap<String, NodeData>) -> HashMap<String, bool> {
     inputs.keys().map(|k| (k.clone(), false)).collect()
 }
 
-/// Create an `Arc<CapRegistry>` with all testcartridge caps.
+/// Create an `Arc<FabricRegistry>` with all testcartridge caps.
 /// Used by both `parse_machine_to_cap_dag` (which needs the
 /// resolver's `args` lists) and `execute_dag` (which looks up
 /// the full cap definition at runtime).
-fn create_test_cap_registry() -> Arc<CapRegistry> {
-    let registry = CapRegistry::new_for_test();
+/// Build a single unified `FabricRegistry` pre-loaded with the
+/// testcartridge synthetic caps the orchestrator integration tests
+/// depend on. The merged registry holds caps and media specs together,
+/// so callers pass the same Arc to anything that previously took two
+/// separate registries.
+fn create_test_fabric_registry() -> Arc<FabricRegistry> {
+    let registry = FabricRegistry::new_for_test();
     let caps = vec![
         build_testcartridge_cap(
             r#"cap:in="media:node1;textable";test-edge1;out="media:node2;textable""#,
@@ -290,32 +294,6 @@ fn create_test_cap_registry() -> Arc<CapRegistry> {
     Arc::new(registry)
 }
 
-/// Create an empty MediaUrnRegistry backed by a fresh temp cache dir.
-///
-/// `execute_dag` requires a `MediaUrnRegistry` for input resolution
-/// and adapter dispatch. The orchestrator integration tests in this
-/// file all use the testcartridge `media:nodeN;textable` synthetic
-/// types, none of which need real media spec lookup, so an empty
-/// registry is correct here. We use a unique temp dir per call so
-/// concurrent test execution doesn't collide on the cache directory.
-fn create_test_media_registry() -> Arc<capdag::MediaUrnRegistry> {
-    let temp_dir = std::env::temp_dir()
-        .join("capdag-media-test-cache")
-        .join(format!(
-            "{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-    std::fs::create_dir_all(&temp_dir).expect("create media registry temp dir");
-    Arc::new(
-        capdag::MediaUrnRegistry::new_for_test(temp_dir)
-            .expect("MediaUrnRegistry::new_for_test"),
-    )
-}
-
 // =============================================================================
 // Phase 1: Basic macino Functionality with testcartridge
 // =============================================================================
@@ -323,7 +301,7 @@ fn create_test_media_registry() -> Arc<capdag::MediaUrnRegistry> {
 // TEST919: Parse simple machine notation graph with test-edge1
 #[tokio::test]
 async fn test919_parse_simple_testcartridge_graph() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
 
     let route = r#"
 [test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
@@ -347,7 +325,7 @@ async fn test919_parse_simple_testcartridge_graph() {
 // TEST889: Execute single-edge DAG (test-edge1)
 #[tokio::test]
 async fn test889_execute_single_edge_dag() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
@@ -364,7 +342,7 @@ async fn test889_execute_single_edge_dag() {
     initial_inputs.insert("input".to_string(), NodeData::Text("TEST".to_string()));
 
     // Execute DAG
-    let cap_registry = create_test_cap_registry();
+    let fabric_registry = create_test_fabric_registry();
     let initial_is_sequence = all_scalar(&initial_inputs);
     let result = execute_dag(
         &graph,
@@ -374,8 +352,7 @@ async fn test889_execute_single_edge_dag() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        cap_registry,
-        create_test_media_registry(),
+        fabric_registry,
         None,
         &std::collections::HashMap::new(),
     )
@@ -398,7 +375,7 @@ async fn test889_execute_single_edge_dag() {
 // TEST888: Execute two-edge chain (test-edge1 -> test-edge2)
 #[tokio::test]
 async fn test888_execute_edge1_to_edge2_chain() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
@@ -415,7 +392,7 @@ async fn test888_execute_edge1_to_edge2_chain() {
     let mut initial_inputs = HashMap::new();
     initial_inputs.insert("A".to_string(), NodeData::Text("CHAIN".to_string()));
 
-    let cap_registry = create_test_cap_registry();
+    let fabric_registry = create_test_fabric_registry();
     let initial_is_sequence = all_scalar(&initial_inputs);
     let outputs = execute_dag(
         &graph,
@@ -425,8 +402,7 @@ async fn test888_execute_edge1_to_edge2_chain() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        cap_registry,
-        create_test_media_registry(),
+        fabric_registry,
         None,
         &std::collections::HashMap::new(),
     )
@@ -448,7 +424,7 @@ async fn test888_execute_edge1_to_edge2_chain() {
 // TEST887: Execute with file-path input
 #[tokio::test]
 async fn test887_execute_with_file_input() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
     let (temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
@@ -476,8 +452,7 @@ async fn test887_execute_with_file_input() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        create_test_cap_registry(),
-        create_test_media_registry(),
+        create_test_fabric_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -498,7 +473,7 @@ async fn test887_execute_with_file_input() {
 // TEST952: Execute large payload (test-large cap)
 #[tokio::test]
 async fn test952_execute_large_payload() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
@@ -523,8 +498,7 @@ async fn test952_execute_large_payload() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        create_test_cap_registry(),
-        create_test_media_registry(),
+        create_test_fabric_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -549,7 +523,7 @@ async fn test952_execute_large_payload() {
 // TEST951: Multi-input DAG (fan-in pattern)
 #[tokio::test]
 async fn test951_fan_in_pattern() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     // Two parallel paths that merge
@@ -579,8 +553,7 @@ async fn test951_fan_in_pattern() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        create_test_cap_registry(),
-        create_test_media_registry(),
+        create_test_fabric_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -604,7 +577,7 @@ async fn test951_fan_in_pattern() {
 // TEST950: Validate that cycles are rejected
 #[tokio::test]
 async fn test950_reject_cycles() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
 
     // Create a self-loop using identity cap
     let route = r#"
@@ -630,7 +603,7 @@ async fn test950_reject_cycles() {
 // user-written name, not the media URN.
 #[tokio::test]
 async fn test943_same_media_different_names_is_not_a_cycle() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
 
     let route = r#"
 [identity cap:in="media:node1;textable";identity;out="media:node1;textable"]
@@ -647,7 +620,7 @@ async fn test943_same_media_different_names_is_not_a_cycle() {
 // TEST949: Empty machine notation (no edges)
 #[tokio::test]
 async fn test949_empty_graph() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
 
     let route = "";
 
@@ -665,7 +638,7 @@ async fn test949_empty_graph() {
 // TEST948: Invalid cap URN in machine notation
 #[tokio::test]
 async fn test948_invalid_cap_urn() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
 
     let route = concat!(r#"[bad cap:INVALID]"#, "[A -> bad -> B]");
 
@@ -676,7 +649,7 @@ async fn test948_invalid_cap_urn() {
 // TEST947: Cap not found in registry
 #[tokio::test]
 async fn test947_cap_not_found() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
 
     let route = r#"
 [nonexistent cap:in="media:unknown";nonexistent;out="media:unknown"]
@@ -703,7 +676,7 @@ async fn test947_cap_not_found() {
 // "hello" -> "[PREPEND]hello" -> "[PREPEND]hello[APPEND]" -> "[PREPEND]HELLO[APPEND]" -> "]DNEPPA[OLLEH]DNEPERP["
 #[tokio::test]
 async fn test946_four_machine() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
@@ -733,8 +706,7 @@ async fn test946_four_machine() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        create_test_cap_registry(),
-        create_test_media_registry(),
+        create_test_fabric_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -761,7 +733,7 @@ async fn test946_four_machine() {
 // adds <<...>> wrapping around the reversed string
 #[tokio::test]
 async fn test945_five_machine() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
@@ -793,8 +765,7 @@ async fn test945_five_machine() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        create_test_cap_registry(),
-        create_test_media_registry(),
+        create_test_fabric_registry(),
         None,
         &std::collections::HashMap::new(),
     )
@@ -819,7 +790,7 @@ async fn test945_five_machine() {
 // Completes the round trip: unwrap markers + lowercase
 #[tokio::test]
 async fn test944_six_machine() {
-    let registry = create_test_cap_registry();
+    let registry = create_test_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
@@ -853,8 +824,7 @@ async fn test944_six_machine() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        create_test_cap_registry(),
-        create_test_media_registry(),
+        create_test_fabric_registry(),
         None,
         &std::collections::HashMap::new(),
     )

@@ -68,7 +68,7 @@ use std::collections::HashMap;
 use pest::Parser;
 use pest_derive::Parser;
 
-use crate::cap::registry::CapRegistry;
+use crate::cap::registry::FabricRegistry;
 use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::MediaUrn;
 
@@ -111,7 +111,7 @@ pub type StrandNodeNames = HashMap<String, NodeId>;
 /// may fail; the combined error type is `MachineParseError`.
 /// The cap registry is required by the resolver to look up
 /// each cap's `args` list and run source-to-arg matching.
-pub fn parse_machine(input: &str, registry: &CapRegistry) -> Result<Machine, MachineParseError> {
+pub fn parse_machine(input: &str, registry: &FabricRegistry) -> Result<Machine, MachineParseError> {
     let (machine, _names) = parse_machine_with_node_names(input, registry)?;
     Ok(machine)
 }
@@ -127,7 +127,7 @@ pub fn parse_machine(input: &str, registry: &CapRegistry) -> Result<Machine, Mac
 /// input-node finder).
 pub fn parse_machine_with_node_names(
     input: &str,
-    registry: &CapRegistry,
+    registry: &FabricRegistry,
 ) -> Result<(Machine, Vec<StrandNodeNames>), MachineParseError> {
     let input = input.trim();
     if input.is_empty() {
@@ -406,7 +406,7 @@ impl Machine {
     /// Combined lexical / grammatical / resolution parse. The
     /// cap registry is required to resolve each cap's argument
     /// structure during anchor realization.
-    pub fn from_string(input: &str, registry: &CapRegistry) -> Result<Self, MachineParseError> {
+    pub fn from_string(input: &str, registry: &FabricRegistry) -> Result<Self, MachineParseError> {
         parse_machine(input, registry)
     }
 }
@@ -519,11 +519,11 @@ impl UnionFind {
 #[cfg(test)]
 mod tests {
     use super::parse_machine;
-    use crate::cap::registry::CapRegistry;
+    use crate::cap::registry::FabricRegistry;
     use crate::machine::error::{MachineAbstractionError, MachineParseError, MachineSyntaxError};
     use crate::machine::test_fixtures::{build_cap, registry_with};
 
-    fn pdf_extract_embed_registry() -> CapRegistry {
+    fn pdf_extract_embed_registry() -> FabricRegistry {
         let extract = build_cap(
             "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
             "extract",

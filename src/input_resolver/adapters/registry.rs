@@ -7,7 +7,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::media::registry::MediaUrnRegistry;
+use crate::media::registry::FabricRegistry;
 use crate::urn::media_urn::MediaUrn;
 
 /// Error returned when cap group registration fails due to adapter ambiguity
@@ -63,7 +63,7 @@ pub struct MediaAdapterRegistry {
     registered_adapters: Vec<RegisteredAdapter>,
 
     /// Reference to the media URN registry for extension lookups
-    media_registry: Arc<MediaUrnRegistry>,
+    fabric_registry: Arc<FabricRegistry>,
 }
 
 impl std::fmt::Debug for MediaAdapterRegistry {
@@ -75,19 +75,19 @@ impl std::fmt::Debug for MediaAdapterRegistry {
 }
 
 impl MediaAdapterRegistry {
-    /// Create a new empty registry with the given MediaUrnRegistry.
+    /// Create a new empty registry with the given FabricRegistry.
     /// No adapters are registered by default — cartridges register them
     /// via `register_cap_group()`.
-    pub fn new(media_registry: Arc<MediaUrnRegistry>) -> Self {
+    pub fn new(fabric_registry: Arc<FabricRegistry>) -> Self {
         MediaAdapterRegistry {
             registered_adapters: Vec::new(),
-            media_registry,
+            fabric_registry,
         }
     }
 
     /// Get the media URN registry
-    pub fn media_registry(&self) -> &MediaUrnRegistry {
-        &self.media_registry
+    pub fn fabric_registry(&self) -> &FabricRegistry {
+        &self.fabric_registry
     }
 
     /// Register a cap group's adapter URNs.
@@ -176,12 +176,12 @@ impl MediaAdapterRegistry {
 
     /// Find adapters that can handle candidate URNs for a given file extension.
     ///
-    /// 1. Queries MediaUrnRegistry for candidate URNs via extension
+    /// 1. Queries FabricRegistry for candidate URNs via extension
     /// 2. For each candidate, finds registered adapters where the candidate
     ///    `conforms_to` the registered adapter URN
     /// 3. Returns `(cartridge_id, adapter_media_urn)` pairs
     pub fn find_adapters_for_extension(&self, ext: &str) -> Vec<(String, MediaUrn)> {
-        let candidate_strings = match self.media_registry.media_urns_for_extension(ext) {
+        let candidate_strings = match self.fabric_registry.media_urns_for_extension(ext) {
             Ok(urns) if !urns.is_empty() => urns,
             _ => return Vec::new(),
         };
@@ -215,7 +215,7 @@ impl MediaAdapterRegistry {
     /// Quick check for UI queries — returns true if any registered adapter
     /// handles candidate URNs for this extension.
     pub fn has_adapter_for_extension(&self, ext: &str) -> bool {
-        let candidate_strings = match self.media_registry.media_urns_for_extension(ext) {
+        let candidate_strings = match self.fabric_registry.media_urns_for_extension(ext) {
             Ok(urns) if !urns.is_empty() => urns,
             _ => return false,
         };
@@ -238,18 +238,17 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn create_test_registry() -> (Arc<MediaUrnRegistry>, TempDir) {
+    fn create_test_registry() -> (Arc<FabricRegistry>, TempDir) {
         let temp_dir = TempDir::new().unwrap();
-        let cache_dir = temp_dir.path().to_path_buf();
-        let registry = MediaUrnRegistry::new_for_test(cache_dir).unwrap();
+        let registry = FabricRegistry::new_for_test();
         (Arc::new(registry), temp_dir)
     }
 
     // TEST1276: Registration of a cap group with non-conflicting adapters succeeds
     #[test]
     fn test1276_register_non_conflicting() {
-        let (media_registry, _temp) = create_test_registry();
-        let mut registry = MediaAdapterRegistry::new(media_registry);
+        let (fabric_registry, _temp) = create_test_registry();
+        let mut registry = MediaAdapterRegistry::new(fabric_registry);
 
         let result = registry.register_cap_group(
             "text-formats",
@@ -266,8 +265,8 @@ mod tests {
     // TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected
     #[test]
     fn test1277_reject_conforming_overlap() {
-        let (media_registry, _temp) = create_test_registry();
-        let mut registry = MediaAdapterRegistry::new(media_registry);
+        let (fabric_registry, _temp) = create_test_registry();
+        let mut registry = MediaAdapterRegistry::new(fabric_registry);
 
         // Register group A with media:json
         registry
@@ -290,8 +289,8 @@ mod tests {
     // TEST1278: Registration rejects the entire group — no partial registration
     #[test]
     fn test1278_reject_entire_group() {
-        let (media_registry, _temp) = create_test_registry();
-        let mut registry = MediaAdapterRegistry::new(media_registry);
+        let (fabric_registry, _temp) = create_test_registry();
+        let mut registry = MediaAdapterRegistry::new(fabric_registry);
 
         // Register an adapter for media:json
         registry
@@ -321,8 +320,8 @@ mod tests {
     // TEST1279: Intra-group conflict (two adapters within same group overlap) is rejected
     #[test]
     fn test1279_intra_group_conflict() {
-        let (media_registry, _temp) = create_test_registry();
-        let mut registry = MediaAdapterRegistry::new(media_registry);
+        let (fabric_registry, _temp) = create_test_registry();
+        let mut registry = MediaAdapterRegistry::new(fabric_registry);
 
         let result = registry.register_cap_group(
             "bad-group",
@@ -339,8 +338,8 @@ mod tests {
     // TEST1280: find_adapters_for_extension returns correct cartridge IDs
     #[test]
     fn test1280_find_adapters_for_extension() {
-        let (media_registry, _temp) = create_test_registry();
-        let mut registry = MediaAdapterRegistry::new(media_registry);
+        let (fabric_registry, _temp) = create_test_registry();
+        let mut registry = MediaAdapterRegistry::new(fabric_registry);
 
         // Register adapter for media:json (which should match .json extension candidates)
         registry
@@ -360,8 +359,8 @@ mod tests {
     // TEST1281: has_adapter_for_extension returns false for unregistered extension
     #[test]
     fn test1281_no_adapter_for_unknown() {
-        let (media_registry, _temp) = create_test_registry();
-        let registry = MediaAdapterRegistry::new(media_registry);
+        let (fabric_registry, _temp) = create_test_registry();
+        let registry = MediaAdapterRegistry::new(fabric_registry);
 
         assert!(
             !registry.has_adapter_for_extension("xyz_unknown"),

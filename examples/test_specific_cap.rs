@@ -1,11 +1,11 @@
-use capdag::CapRegistry;
+use capdag::FabricRegistry;
 use tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing specific problematic cap...");
 
-    let registry = CapRegistry::new().await?;
+    let registry = FabricRegistry::new().await?;
 
     // Test the exact cap that was failing
     let problematic_urn = "cap:bitlogic;language=en;constrained";

@@ -1,7 +1,7 @@
 //! Shared test fixtures for `machine/` unit tests.
 //!
 //! Provides helpers for building `Cap` definitions, `Strand`s, and
-//! a populated `CapRegistry` so test code in `resolve.rs`,
+//! a populated `FabricRegistry` so test code in `resolve.rs`,
 //! `parser.rs`, `serializer.rs`, and `graph.rs` doesn't have to
 //! repeat the boilerplate. Every helper here is registered as
 //! `pub(crate)` and only compiled under `#[cfg(test)]`.
@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use crate::cap::definition::{ArgSource, Cap, CapArg, CapOutput};
-use crate::cap::registry::CapRegistry;
+use crate::cap::registry::FabricRegistry;
 use crate::planner::{Strand, StrandStep, StrandStepType};
 use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::MediaUrn;
@@ -64,7 +64,6 @@ pub(crate) fn build_cap_with_slot_stdin_pairs(
         documentation: None,
         metadata: HashMap::new(),
         command: format!("test-fixture://{title}"),
-        media_specs: Vec::new(),
         args: arg_values,
         output: Some(CapOutput::new(
             output_media_urn.to_string(),
@@ -78,31 +77,21 @@ pub(crate) fn build_cap_with_slot_stdin_pairs(
     }
 }
 
-/// Build a `CapRegistry` pre-populated with the supplied caps.
-pub(crate) fn registry_with(caps: Vec<Cap>) -> CapRegistry {
-    let registry = CapRegistry::new_for_test();
+/// Build a unified `FabricRegistry` pre-populated with the supplied caps.
+pub(crate) fn registry_with(caps: Vec<Cap>) -> FabricRegistry {
+    let registry = FabricRegistry::new_for_test();
     registry.add_caps_to_cache(caps);
     registry
 }
 
-/// Build a `MediaUrnRegistry` pre-populated with minimal test specs
-/// covering the supplied URN strings. Each spec gets a synthetic
-/// title of the form `"Title for <urn>"` — enough to let the
-/// render-payload serializer find a cached entry without depending
-/// on the bundled standard media specs.
-pub(crate) fn media_registry_with_titles(urns: &[&str]) -> crate::media::registry::MediaUrnRegistry {
-    use crate::media::registry::{MediaUrnRegistry, StoredMediaSpec};
-    let tmp = std::env::temp_dir().join(format!(
-        "capdag-test-media-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    let registry = MediaUrnRegistry::new_for_test(tmp).expect("media registry for test");
+/// Seed the supplied registry with minimal test specs covering each
+/// URN string. Each spec gets a synthetic title of the form
+/// `"Title for <urn>"` — enough to let the render-payload serializer
+/// find a cached entry without depending on the online registry.
+pub(crate) fn seed_media_titles(registry: &FabricRegistry, urns: &[&str]) {
+    use crate::StoredMediaSpec;
     for urn in urns {
-        registry.insert_cached_spec_for_test(StoredMediaSpec {
+        registry.insert_cached_media_spec_for_test(StoredMediaSpec {
             urn: urn.to_string(),
             media_type: "application/octet-stream".to_string(),
             title: format!("Title for {urn}"),
@@ -115,7 +104,6 @@ pub(crate) fn media_registry_with_titles(urns: &[&str]) -> crate::media::registr
             extensions: Vec::new(),
         });
     }
-    registry
 }
 
 /// Convenience: parse a media URN string. Panics on parse

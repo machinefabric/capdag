@@ -15,7 +15,7 @@
 //!   ForEach plans into sub-plans before conversion (see MachinePlan::extract_*)
 
 use super::types::{ParseOrchestrationError, ResolvedEdge, ResolvedGraph};
-use crate::cap::registry::CapRegistry;
+use crate::cap::registry::FabricRegistry;
 use crate::planner::{ExecutionNodeType, MachinePlan};
 use std::collections::HashMap;
 
@@ -32,7 +32,7 @@ use std::collections::HashMap;
 /// A ResolvedGraph suitable for execute_dag, or an error if conversion fails
 pub async fn plan_to_resolved_graph(
     plan: &MachinePlan,
-    registry: &CapRegistry,
+    registry: &FabricRegistry,
 ) -> Result<ResolvedGraph, ParseOrchestrationError> {
     let mut nodes: HashMap<String, String> = HashMap::new();
     let mut resolved_edges: Vec<ResolvedEdge> = Vec::new();
@@ -189,20 +189,20 @@ pub async fn plan_to_resolved_graph(
 mod tests {
     use super::*;
     use crate::cap::definition::{ArgSource, Cap, CapArg, CapOutput};
-    use crate::cap::registry::CapRegistry;
+    use crate::cap::registry::FabricRegistry;
     use crate::planner::{
         ExecutionNodeType, InputCardinality, MachineNode, MachinePlan, MachinePlanEdge,
     };
     use crate::urn::cap_urn::CapUrn;
 
-    /// Build a `CapRegistry::new_for_test()` populated with the
+    /// Build a `FabricRegistry::new_for_test()` populated with the
     /// supplied cap URNs. plan_converter doesn't exercise the
     /// resolver's source-to-arg matching (it walks plan nodes
     /// directly), so each cap gets a single stdin arg matching
     /// its in= spec to keep cap definitions consistent with
     /// the rest of the system.
-    fn build_test_registry(cap_urns: &[&str]) -> CapRegistry {
-        let registry = CapRegistry::new_for_test();
+    fn build_test_registry(cap_urns: &[&str]) -> FabricRegistry {
+        let registry = FabricRegistry::new_for_test();
         let mut caps = Vec::new();
         for urn in cap_urns {
             let cap_urn = CapUrn::from_string(urn).unwrap();
@@ -215,7 +215,6 @@ mod tests {
                 documentation: None,
                 metadata: HashMap::new(),
                 command: "test".to_string(),
-                media_specs: vec![],
                 args: vec![CapArg::new(
                     in_spec.clone(),
                     true,

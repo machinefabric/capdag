@@ -65,7 +65,7 @@
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::cap::registry::CapRegistry;
+use crate::cap::registry::FabricRegistry;
 use crate::planner::Strand;
 use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::MediaUrn;
@@ -427,7 +427,7 @@ impl Machine {
     /// minimum-cost bipartite matching.
     pub fn from_strand(
         strand: &Strand,
-        registry: &CapRegistry,
+        registry: &FabricRegistry,
     ) -> Result<Self, MachineAbstractionError> {
         let resolved = resolve::resolve_strand(strand, registry, 0)?;
         Ok(Self::from_resolved_strands(vec![resolved]))
@@ -444,7 +444,7 @@ impl Machine {
     /// across wirings.
     pub fn from_strands(
         strands: &[Strand],
-        registry: &CapRegistry,
+        registry: &FabricRegistry,
     ) -> Result<Self, MachineAbstractionError> {
         if strands.is_empty() {
             return Err(MachineAbstractionError::NoCapabilitySteps);

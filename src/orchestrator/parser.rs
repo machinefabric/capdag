@@ -10,7 +10,7 @@
 //! edge-centric `ResolvedGraph` shape that the executor consumes.
 
 use super::types::{ParseOrchestrationError, ResolvedEdge, ResolvedGraph};
-use crate::cap::registry::CapRegistry;
+use crate::cap::registry::FabricRegistry;
 use crate::machine::{parse_machine_with_node_names, MachineParseError, NodeId, StrandNodeNames};
 use crate::{InputStructure, MediaUrn};
 use std::collections::HashMap;
@@ -76,7 +76,7 @@ fn check_structure_compatibility(
 /// Returns `ParseOrchestrationError` for any validation failure.
 pub async fn parse_machine_to_cap_dag(
     notation: &str,
-    registry: &CapRegistry,
+    registry: &FabricRegistry,
 ) -> Result<ResolvedGraph, ParseOrchestrationError> {
     // Phase 1: Parse + resolve. The resolver does the
     // syntactic parse, the source-to-cap-arg matching, the
@@ -246,17 +246,17 @@ fn lookup_node_name(
 mod tests {
     use super::*;
     use crate::cap::definition::{ArgSource, Cap, CapArg, CapOutput};
-    use crate::cap::registry::CapRegistry;
+    use crate::cap::registry::FabricRegistry;
     use crate::urn::cap_urn::CapUrn;
     use std::collections::HashMap;
 
-    /// Build a `CapRegistry::new_for_test()` populated with the
+    /// Build a `FabricRegistry::new_for_test()` populated with the
     /// supplied `(cap_urn, args, out_media_urn)` triples. Each
     /// arg gets a stdin source so the resolver's source-to-arg
     /// matching can find it. The first arg is the primary
     /// (data-flow) input; additional args become fan-in slots.
-    fn build_test_registry(caps: &[(&str, &[&str], &str)]) -> CapRegistry {
-        let registry = CapRegistry::new_for_test();
+    fn build_test_registry(caps: &[(&str, &[&str], &str)]) -> FabricRegistry {
+        let registry = FabricRegistry::new_for_test();
         let mut cap_values = Vec::new();
         for (cap_urn_str, args, out_media_urn) in caps {
             let cap_urn = CapUrn::from_string(cap_urn_str)
@@ -280,7 +280,6 @@ mod tests {
                 documentation: None,
                 metadata: HashMap::new(),
                 command: "test".to_string(),
-                media_specs: vec![],
                 args: arg_values,
                 output: Some(CapOutput::new(
                     out_media_urn.to_string(),

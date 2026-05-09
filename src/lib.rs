@@ -30,6 +30,7 @@
 
 pub mod bifaci;
 pub mod cap;
+pub mod fabric;
 pub mod input_resolver;
 pub mod machine;
 pub mod media;
@@ -45,7 +46,6 @@ pub use urn::media_urn::*;
 // Cap definitions
 pub use cap::caller::{CapArgumentValue, CapResult, StdinSource};
 pub use cap::definition::*;
-pub use cap::registry::*;
 pub use cap::response::*;
 pub use cap::schema_validation::{
     FileSchemaResolver, SchemaResolver, SchemaValidationError,
@@ -55,8 +55,12 @@ pub use cap::validation::*;
 
 // Media types
 pub use media::profile::{ProfileSchemaError, ProfileSchemaRegistry};
-pub use media::registry::{MediaRegistryError, MediaUrnRegistry, StoredMediaSpec};
 pub use media::spec::*;
+
+// Unified fabric registry — caps + media specs in one type
+pub use fabric::registry::{
+    FabricRegistry, FabricRegistryError, RegistryConfig, StoredMediaSpec,
+};
 
 // Standard caps and media
 pub use standard::*;
@@ -202,7 +206,7 @@ pub use orchestrator::{
 
 // InputResolver — unified input resolution with media detection
 pub use input_resolver::{
-    detect_file, detect_file_confirmed, detect_file_with_media_registry,
+    detect_file, detect_file_confirmed, detect_file_with_fabric_registry,
     discriminate_candidates_by_validation, resolve_input, resolve_inputs,
     resolve_inputs_confirmed, resolve_paths, AdapterResult, CartridgeAdapterInvoker,
     ContentStructure, InputItem, InputResolverError, MediaAdapterRegistry,

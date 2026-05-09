@@ -29,7 +29,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-use crate::cap::registry::CapRegistry;
+use crate::cap::registry::FabricRegistry;
 use crate::planner::cardinality::InputCardinality;
 use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::MediaUrn;
@@ -297,7 +297,7 @@ impl Strand {
     /// if the resolved data-flow graph contains a cycle.
     pub fn knit(
         &self,
-        registry: &crate::cap::registry::CapRegistry,
+        registry: &crate::cap::registry::FabricRegistry,
     ) -> Result<crate::machine::Machine, crate::machine::MachineAbstractionError> {
         crate::machine::Machine::from_strand(self, registry)
     }
@@ -310,7 +310,7 @@ impl Strand {
     /// builds the `Machine` and then serializes it.
     pub fn to_machine_notation(
         &self,
-        registry: &crate::cap::registry::CapRegistry,
+        registry: &crate::cap::registry::FabricRegistry,
     ) -> Result<String, crate::machine::MachineAbstractionError> {
         self.knit(registry)?.to_machine_notation()
     }
@@ -413,7 +413,7 @@ impl LiveCapFab {
     pub async fn sync_from_cap_urns(
         &mut self,
         cap_urns: &[String],
-        registry: &Arc<CapRegistry>,
+        registry: &Arc<FabricRegistry>,
         bookend_urns: &HashSet<MediaUrn>,
     ) {
         self.clear();
@@ -460,13 +460,27 @@ impl LiveCapFab {
             // it would match a wildcard registry cap (e.g. in=media:) before reaching
             // the specific one (e.g. in=media:txt;textable), since .find() returns the
             // first match.
-            let matching_cap = all_caps
+            let matching_cap_owned = all_caps
                 .iter()
-                .find(|registry_cap| cap_urn.is_equivalent(&registry_cap.urn));
+                .find(|registry_cap| cap_urn.is_equivalent(&registry_cap.urn))
+                .cloned();
 
-            match matching_cap {
+            let resolved_cap = match matching_cap_owned {
+                Some(cap) => Some(cap),
+                None => {
+                    // The registry's snapshot didn't contain this cap. Ask
+                    // `get_cached_cap` for it — that triggers the registry's
+                    // 500 ms sync-fetch path (and enqueues for background
+                    // fetch on miss), so a cap published in the catalogue
+                    // but not yet in cache gets pulled in on demand instead
+                    // of being silently dropped from the graph.
+                    registry.get_cached_cap(&cap_urn_str)
+                }
+            };
+
+            match resolved_cap {
                 Some(cap) => {
-                    self.add_cap(cap);
+                    self.add_cap(&cap);
                     matched_count += 1;
                 }
                 None => {
@@ -475,10 +489,10 @@ impl LiveCapFab {
                         cap_urn = %cap_urn,
                         cap_urn_raw = cap_urn_str,
                         "[LiveCapFab] REJECTED: cartridge reported cap URN has no equivalent \
-                        in the registry. Every cap a cartridge provides must have a matching \
-                        registry definition. Either the cartridge is advertising an unknown \
-                        capability or the registry is missing a cap definition for this URN. \
-                        This cap will NOT be added to the graph."
+                         in the registry. Every cap a cartridge provides must have a matching \
+                         registry definition. Either the cartridge is advertising an unknown \
+                         capability or the registry is missing a cap definition for this URN. \
+                         This cap will NOT be added to the graph."
                     );
                 }
             }
@@ -1234,7 +1248,6 @@ mod tests {
             documentation: None,
             metadata: Default::default(),
             command: "test".to_string(),
-            media_specs: vec![],
             output: None,
             args: vec![],
             metadata_json: None,
@@ -1268,7 +1281,6 @@ mod tests {
             documentation: None,
             metadata: Default::default(),
             command: "test".to_string(),
-            media_specs: vec![],
             output: Some(CapOutput::new(out_spec.to_string(), title.to_string())),
             args: vec![CapArg::new(
                 in_spec.to_string(),
@@ -1797,11 +1809,11 @@ mod tests {
     // TEST791: Tests sync_from_cap_urns actually adds edges
     #[tokio::test]
     async fn test791_sync_from_cap_urns_adds_edges() {
-        use crate::CapRegistry;
+        use crate::FabricRegistry;
         use std::sync::Arc;
 
         // Create a registry with test caps
-        let registry = CapRegistry::new_for_test();
+        let registry = FabricRegistry::new_for_test();
         let disbind = make_test_cap("media:pdf", "media:page;textable", "disbind", "Disbind PDF");
         let choose = make_test_cap(
             "media:textable",
@@ -2232,10 +2244,10 @@ mod tests {
     // resolver. Smoke test the registry-threaded API end-to-end.
     #[test]
     fn test1119_strand_knit_with_registry_returns_single_strand_machine() {
-        use crate::cap::registry::CapRegistry;
+        use crate::cap::registry::FabricRegistry;
 
         let cap = make_test_cap_with_arg("media:pdf", "media:txt;textable", "extract", "Extract");
-        let registry = CapRegistry::new_for_test();
+        let registry = FabricRegistry::new_for_test();
         registry.add_caps_to_cache(vec![cap]);
 
         let cap_urn =
@@ -2278,10 +2290,10 @@ mod tests {
     // resolution to succeed.
     #[test]
     fn test1120_strand_knit_unknown_cap_fails_hard() {
-        use crate::cap::registry::CapRegistry;
+        use crate::cap::registry::FabricRegistry;
         use crate::machine::MachineAbstractionError;
 
-        let registry = CapRegistry::new_for_test();
+        let registry = FabricRegistry::new_for_test();
         // Note: no caps added to the registry.
 
         let cap_urn =

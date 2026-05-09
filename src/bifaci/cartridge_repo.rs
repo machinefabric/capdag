@@ -282,7 +282,7 @@ pub struct CartridgeBuild {
 /// A cartridge version's data (v5.0 schema).
 /// Each version has one or more platform-specific builds.
 ///
-/// `notes_url` is the absolute R2 URL of the version's release-notes
+/// `notes_url` is the absolute URL of the version's release-notes
 /// Markdown file, when one was uploaded at publish time. Optional —
 /// cartridges historically did not ship per-version notes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,7 +298,7 @@ pub struct CartridgeVersionData {
     pub notes_url: Option<String>,
 }
 
-/// Distribution file info (package). `url` is the absolute R2 URL of
+/// Distribution file info (package). `url` is the absolute URL of
 /// the package — every consumer downloads from that URL directly.
 /// There is no derived URL pattern any more.
 #[derive(Debug, Clone, Serialize, Deserialize)]
