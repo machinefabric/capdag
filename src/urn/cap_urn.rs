@@ -1513,6 +1513,44 @@ mod tests {
         assert!(cap2.accepts(&cap1));
     }
 
+    // TEST939: The canonical form drops `in=media:` and `out=media:`
+    // segments. Every spelling of "the same cap with wildcard in/out"
+    // collapses to one byte-identical canonical string. This is the
+    // contract that makes registry lookups work: the cap-publisher
+    // hashes `<canonical-urn>` to compute the cache key, and every
+    // language port (Rust, Go, Python, JS, ObjC) must agree on the
+    // canonical form for cross-language lookups to land on the same
+    // key. A regression that emitted the wildcard segments would
+    // silently move the published cap to a different SHA-256 bucket,
+    // 404'ing every reader that hashes the canonical form.
+    #[test]
+    fn test939_cap_urn_canonical_form_drops_wildcard_in_out() {
+        let canonical = "cap:decimate-sequence";
+        let variants = [
+            "cap:decimate-sequence",
+            "cap:decimate-sequence;in=media:;out=media:",
+            "cap:in=media:;out=media:;decimate-sequence",
+            "cap:in=media:;decimate-sequence;out=media:",
+        ];
+        for v in variants {
+            let parsed = CapUrn::from_string(v).expect("variant must parse");
+            assert_eq!(
+                parsed.to_string(),
+                canonical,
+                "input {:?} canonicalized to {:?}, expected {:?} — wildcard \
+                 in/out segments must be elided so the registry SHA-256 key \
+                 is stable across input spellings",
+                v,
+                parsed.to_string(),
+                canonical
+            );
+        }
+        // Bare-identity round-trip: a cap with no tags and wildcard
+        // in/out must canonicalize to literally `cap:`.
+        let identity = CapUrn::from_string("cap:in=media:;out=media:").expect("identity must parse");
+        assert_eq!(identity.to_string(), "cap:");
+    }
+
     // TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch
     #[test]
     fn test017_tag_matching() {
