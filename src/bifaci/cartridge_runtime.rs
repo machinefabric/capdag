@@ -586,7 +586,33 @@ pub struct OutputStream {
     closed: AtomicBool,
 }
 
+/// `FrameSender` that drops every frame. Used by `OutputStream::discarding`
+/// to construct an output that swallows logs and emit calls — handy for
+/// unit tests of cap-handler logic that don't care about the wire output.
+struct DiscardingFrameSender;
+
+impl FrameSender for DiscardingFrameSender {
+    fn send(&self, _frame: &Frame) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+}
+
 impl OutputStream {
+    /// Build an `OutputStream` whose every frame is silently dropped.
+    /// Intended for tests that exercise handler logic without
+    /// inspecting emitted frames; never use in production code where
+    /// the operator actually wants to see logs and outputs.
+    pub fn discarding() -> Self {
+        Self::new(
+            Arc::new(DiscardingFrameSender),
+            "test".to_string(),
+            "*".to_string(),
+            MessageId::new_uuid(),
+            None,
+            Limits::default().max_chunk,
+        )
+    }
+
     fn new(
         sender: Arc<dyn FrameSender>,
         stream_id: String,

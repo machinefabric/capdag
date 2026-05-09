@@ -502,6 +502,7 @@ impl FabricRegistry {
         Ok(cached_specs.values().cloned().collect())
     }
 
+
     /// Synchronous media-spec lookup that warms its own cache.
     pub fn get_cached_media_spec(&self, urn: &str) -> Option<StoredMediaSpec> {
         let normalized = normalize_media_urn(urn);

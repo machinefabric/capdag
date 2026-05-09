@@ -175,19 +175,33 @@ pub const MEDIA_MODEL_SPEC_LLM: &str = "media:model-spec;textable;llm";
 // Each inference cap declares the variant matching its backend and purpose,
 // so slot values can target a specific cartridge+task without ambiguity.
 
-// GGUF backend
-/// GGUF vision model spec (e.g. moondream2)
-pub const MEDIA_MODEL_SPEC_GGUF_VISION: &str = "media:model-spec;gguf;textable;vision";
-/// GGUF LLM model spec (e.g. Mistral-7B)
-pub const MEDIA_MODEL_SPEC_GGUF_LLM: &str = "media:model-spec;gguf;textable;llm";
-/// GGUF embeddings model spec (e.g. nomic-embed)
-pub const MEDIA_MODEL_SPEC_GGUF_EMBEDDINGS: &str = "media:model-spec;gguf;textable;embeddings";
-/// GGUF OCR model spec (e.g. GLM-OCR). Distinct from `MEDIA_MODEL_SPEC_GGUF_VISION`
-/// — both are multimodal GGUF files with a text-model + mmproj pair, but the
-/// `model-task` axis distinguishes them: `vision` covers describe-image and
-/// generic VLM use, `ocr` is reserved for models specifically trained to
-/// transcribe text *contained in* an image.
-pub const MEDIA_MODEL_SPEC_GGUF_OCR: &str = "media:model-spec;gguf;ocr;textable";
+// GGUF backend.
+//
+// GGUF is a self-contained format — every `.gguf` file embeds the
+// tokenizer state. The ggufcartridge loader has no code path for
+// any other tokenizer shape, so `tokenizer-embedded-gguf` is a
+// physical requirement and is part of every GGUF cap's URN.
+// Family / chat-template / quantisation are loader-adaptive and
+// therefore NOT in the URN; the cartridge gets them from the
+// `download-model` response's refined record at runtime.
+//
+/// GGUF vision model spec (moondream2, Gemma 3-vision, …).
+pub const MEDIA_MODEL_SPEC_GGUF_VISION: &str =
+    "media:model-spec;gguf;textable;vision;tokenizer-embedded-gguf";
+/// GGUF LLM model spec (Qwen, Mistral, Llama, …).
+pub const MEDIA_MODEL_SPEC_GGUF_LLM: &str =
+    "media:model-spec;gguf;textable;llm;tokenizer-embedded-gguf";
+/// GGUF embeddings model spec (nomic-embed, embeddinggemma, …).
+pub const MEDIA_MODEL_SPEC_GGUF_EMBEDDINGS: &str =
+    "media:model-spec;gguf;textable;embeddings;tokenizer-embedded-gguf";
+/// GGUF OCR model spec (e.g. GLM-OCR). Distinct from
+/// `MEDIA_MODEL_SPEC_GGUF_VISION` — both are multimodal GGUF
+/// files with a text-model + mmproj pair, but the `model-task`
+/// axis distinguishes them: `vision` covers describe-image and
+/// generic VLM use, `ocr` is reserved for models specifically
+/// trained to transcribe text *contained in* an image.
+pub const MEDIA_MODEL_SPEC_GGUF_OCR: &str =
+    "media:model-spec;gguf;ocr;textable;tokenizer-embedded-gguf";
 
 // Backend-narrowed model-spec supertypes. Each backend cartridge's
 // adapter handler returns the URN for its backend so the engine's
@@ -208,19 +222,42 @@ pub const MEDIA_MODEL_SPEC_MLX_LLM: &str = "media:model-spec;mlx;textable;llm";
 /// MLX embeddings model spec (e.g. all-MiniLM-L6-v2)
 pub const MEDIA_MODEL_SPEC_MLX_EMBEDDINGS: &str = "media:model-spec;mlx;textable;embeddings";
 
-// Candle backend
-/// Candle vision model spec (e.g. BLIP)
-pub const MEDIA_MODEL_SPEC_CANDLE_VISION: &str = "media:model-spec;candle;textable;vision";
-/// Candle text embeddings model spec (e.g. BERT)
-pub const MEDIA_MODEL_SPEC_CANDLE_EMBEDDINGS: &str = "media:model-spec;candle;textable;embeddings";
-/// Candle image embeddings model spec (e.g. CLIP)
+// Candle backend.
+//
+// Each constant is the broadest model-spec URN the candle cartridge
+// can physically support for that cap — i.e. it carries every dim
+// the loader REQUIRES and nothing else. Dims the loader can adapt
+// to (family, quantisation, chat-template, …) are not in the URN;
+// the cartridge learns them at runtime from the `download-model`
+// response's refined record.
+//
+// The cap TOML's cap-arg `media_urn`, the cap `in =` (when the
+// model-spec is the cap's input), and the cartridge manifest's
+// `add_arg(media_urn=…)` / `in_spec(…)` all read these constants
+// and thus stay in sync by construction.
+//
+/// Candle vision model spec (BLIP). Loader requires safetensors
+/// weights and a unified `tokenizer.json`.
+pub const MEDIA_MODEL_SPEC_CANDLE_VISION: &str =
+    "media:model-spec;candle;textable;vision;repo-safetensors;tokenizer-unified";
+/// Candle text-embeddings model spec (BERT). Same physical
+/// requirements as `MEDIA_MODEL_SPEC_CANDLE_VISION`.
+pub const MEDIA_MODEL_SPEC_CANDLE_EMBEDDINGS: &str =
+    "media:model-spec;candle;textable;embeddings;repo-safetensors;tokenizer-unified";
+/// Candle image-embeddings model spec (CLIP). Loader has fallbacks
+/// on both axes — `pytorch_model.bin` for repo-format and
+/// `bpe-pair` for tokenizer-shape — so neither can be tightened
+/// without rejecting models the loader can physically handle.
 pub const MEDIA_MODEL_SPEC_CANDLE_IMAGE_EMBEDDINGS: &str =
     "media:model-spec;candle;image-embeddings;textable";
-/// Candle LLM model spec (e.g. Mistral-7B safetensors)
-pub const MEDIA_MODEL_SPEC_CANDLE_LLM: &str = "media:model-spec;candle;textable;llm";
-/// Candle transcription model spec (e.g. Whisper)
+/// Candle LLM model spec (Mistral, Llama, Qwen, …). Loader requires
+/// safetensors weights and a unified `tokenizer.json`.
+pub const MEDIA_MODEL_SPEC_CANDLE_LLM: &str =
+    "media:model-spec;candle;textable;llm;repo-safetensors;tokenizer-unified";
+/// Candle transcription model spec (Whisper). Same physical
+/// requirements as the LLM/vision/embeddings variants.
 pub const MEDIA_MODEL_SPEC_CANDLE_TRANSCRIPTION: &str =
-    "media:model-spec;candle;textable;transcription";
+    "media:model-spec;candle;textable;transcription;repo-safetensors;tokenizer-unified";
 /// Media URN for model repository (input for list-models) - has record marker
 pub const MEDIA_MODEL_REPO: &str = "media:model-repo;record;textable";
 
