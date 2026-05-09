@@ -1,4 +1,4 @@
-use capdag::CapRegistry;
+use capdag::FabricRegistry;
 use tokio;
 
 #[tokio::main]
@@ -6,7 +6,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing registry cap parsing...");
 
     // Create a registry client
-    let registry = CapRegistry::new().await?;
+    let registry = FabricRegistry::new().await?;
 
     // Test with the problematic cap URN
     let cap_urn = "cap:bitlogic;language=en;constrained";

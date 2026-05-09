@@ -18,7 +18,7 @@ use super::cardinality::InputCardinality;
 use super::live_cap_fab::Strand;
 use super::plan::{ExecutionNodeType, MachineNode, MachinePlan, MachinePlanEdge};
 use super::PlannerError;
-use crate::{Cap, CapRegistry, MediaUrn, MediaUrnRegistry, MediaValidation};
+use crate::{Cap, FabricRegistry, MediaUrn, MediaValidation};
 
 type PlannerResult<T> = Result<T, PlannerError>;
 
@@ -27,19 +27,14 @@ type PlannerResult<T> = Result<T, PlannerError>;
 /// NOTE: Path finding methods have been moved to `LiveCapFab`.
 /// This builder handles plan construction from pre-computed paths.
 pub struct MachinePlanBuilder {
-    /// Cap registry for looking up cap definitions
-    cap_registry: Arc<CapRegistry>,
-    /// Media URN registry for resolving media specs
-    media_registry: Arc<MediaUrnRegistry>,
+    /// Unified cap + media-spec registry.
+    fabric_registry: Arc<FabricRegistry>,
 }
 
 impl MachinePlanBuilder {
-    /// Create a new plan builder with the given registries.
-    pub fn new(cap_registry: Arc<CapRegistry>, media_registry: Arc<MediaUrnRegistry>) -> Self {
-        Self {
-            cap_registry,
-            media_registry,
-        }
+    /// Create a new plan builder backed by the unified `FabricRegistry`.
+    pub fn new(fabric_registry: Arc<FabricRegistry>) -> Self {
+        Self { fabric_registry }
     }
 
     /// Find the file-path argument in a cap by checking the media URN type.
@@ -101,10 +96,10 @@ impl MachinePlanBuilder {
         let mut plan = MachinePlan::new(name);
 
         let caps = self
-            .cap_registry
+            .fabric_registry
             .get_cached_caps()
             .await
-            .map_err(|e| PlannerError::RegistryError(format!("Failed to get caps: {}", e)))?;
+            .map_err(|e| PlannerError::FabricRegistryError(format!("Failed to get caps: {}", e)))?;
 
         // Build a map from cap_urn string to (file-path arg name, stdin-chainable)
         // Only for Cap steps (not cardinality transitions)
@@ -551,10 +546,10 @@ impl MachinePlanBuilder {
         path: &Strand,
     ) -> PlannerResult<PathArgumentRequirements> {
         let caps = self
-            .cap_registry
+            .fabric_registry
             .get_cached_caps()
             .await
-            .map_err(|e| PlannerError::RegistryError(format!("Failed to get caps: {}", e)))?;
+            .map_err(|e| PlannerError::FabricRegistryError(format!("Failed to get caps: {}", e)))?;
 
         let mut step_requirements = Vec::new();
         // Track cap step index for determining first cap (affects file_path resolution)
@@ -591,11 +586,12 @@ impl MachinePlanBuilder {
                     &arg.default_value,
                 );
 
-                // Resolve validation from media spec
+                // Resolve validation from media spec via the registry. There
+                // is no inline `cap.media_specs` override anymore — every
+                // media URN is resolved through the same path.
                 let resolved_spec = crate::media::spec::resolve_media_urn(
                     &arg.media_urn,
-                    Some(&cap.media_specs),
-                    &self.media_registry,
+                    &self.fabric_registry,
                 )
                 .await
                 .ok();
@@ -893,20 +889,11 @@ mod tests {
     // ==========================================================================
 
     fn create_test_plan_builder() -> MachinePlanBuilder {
-        let cap_registry = CapRegistry::new_for_test();
-        let media_registry = MediaUrnRegistry::new_for_test(
-            std::env::temp_dir().join(format!("capdag_test_{}", uuid::Uuid::new_v4())),
-        )
-        .expect("Failed to create test media registry");
-        MachinePlanBuilder::new(Arc::new(cap_registry), Arc::new(media_registry))
+        MachinePlanBuilder::new(Arc::new(FabricRegistry::new_for_test()))
     }
 
-    fn create_test_plan_builder_with_registry(cap_registry: CapRegistry) -> MachinePlanBuilder {
-        let media_registry = MediaUrnRegistry::new_for_test(
-            std::env::temp_dir().join(format!("capdag_test_{}", uuid::Uuid::new_v4())),
-        )
-        .expect("Failed to create test media registry");
-        MachinePlanBuilder::new(Arc::new(cap_registry), Arc::new(media_registry))
+    fn create_test_plan_builder_with_registry(registry: FabricRegistry) -> MachinePlanBuilder {
+        MachinePlanBuilder::new(Arc::new(registry))
     }
 
     // TEST994: Tests first cap's input argument is automatically resolved from input file

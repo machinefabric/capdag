@@ -86,8 +86,6 @@ pub enum ValidationError {
         media_urn: String,
         location: String,
     },
-    /// XV5: Inline media spec redefines an existing registry spec
-    InlineMediaSpecRedefinesRegistry { cap_urn: String, media_urn: String },
 }
 
 impl fmt::Display for ValidationError {
@@ -207,34 +205,27 @@ impl fmt::Display for ValidationError {
                     cap_urn, media_urn, location
                 )
             }
-            ValidationError::InlineMediaSpecRedefinesRegistry { cap_urn, media_urn } => {
-                write!(
-                    f,
-                    "XV5: Cap '{}' inline media spec '{}' redefines existing registry spec",
-                    cap_urn, media_urn
-                )
-            }
         }
     }
 }
 
 impl std::error::Error for ValidationError {}
 
-/// Input argument validator using ProfileSchemaRegistry and MediaUrnRegistry
+/// Input argument validator using ProfileSchemaRegistry and FabricRegistry
 pub struct InputValidator {
     schema_registry: Arc<ProfileSchemaRegistry>,
-    media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+    fabric_registry: Arc<crate::FabricRegistry>,
 }
 
 impl InputValidator {
     /// Create a new InputValidator with the given registries
     pub fn new(
         schema_registry: Arc<ProfileSchemaRegistry>,
-        media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+        fabric_registry: Arc<crate::FabricRegistry>,
     ) -> Self {
         Self {
             schema_registry,
-            media_registry,
+            fabric_registry,
         }
     }
 
@@ -387,11 +378,12 @@ impl InputValidator {
     ) -> Result<ResolvedMediaSpec, ValidationError> {
         let cap_urn = cap.urn_string();
 
-        // Resolve the spec ID from the argument definition
+        // Resolve the spec ID from the argument definition. Caps no
+        // longer carry inline media specs; the registry is the only source.
+        let _ = cap;
         let resolved = resolve_media_urn(
             &arg_def.media_urn,
-            Some(cap.get_media_specs()),
-            &self.media_registry,
+            &self.fabric_registry,
         )
         .await
         .map_err(|e| ValidationError::InvalidMediaSpec {
@@ -607,21 +599,21 @@ impl InputValidator {
     }
 }
 
-/// Output validator using ProfileSchemaRegistry and MediaUrnRegistry
+/// Output validator using ProfileSchemaRegistry and FabricRegistry
 pub struct OutputValidator {
     schema_registry: Arc<ProfileSchemaRegistry>,
-    media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+    fabric_registry: Arc<crate::FabricRegistry>,
 }
 
 impl OutputValidator {
     /// Create a new OutputValidator with the given registries
     pub fn new(
         schema_registry: Arc<ProfileSchemaRegistry>,
-        media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+        fabric_registry: Arc<crate::FabricRegistry>,
     ) -> Self {
         Self {
             schema_registry,
-            media_registry,
+            fabric_registry,
         }
     }
 
@@ -656,11 +648,12 @@ impl OutputValidator {
     ) -> Result<ResolvedMediaSpec, ValidationError> {
         let cap_urn = cap.urn_string();
 
-        // Resolve the spec ID from the output definition
+        // Resolve the spec ID from the output definition. Caps no longer
+        // carry inline media specs; the registry is the only source.
+        let _ = cap;
         let resolved = resolve_media_urn(
             &output_def.media_urn,
-            Some(cap.get_media_specs()),
-            &self.media_registry,
+            &self.fabric_registry,
         )
         .await
         .map_err(|e| ValidationError::InvalidMediaSpec {
@@ -845,7 +838,7 @@ impl CapValidator {
     /// Validate a cap definition itself
     pub async fn validate_cap(
         cap: &Cap,
-        registry: &crate::media::registry::MediaUrnRegistry,
+        registry: &crate::media::registry::FabricRegistry,
     ) -> Result<(), ValidationError> {
         let cap_urn = cap.urn_string();
         let args = cap.get_args();
@@ -901,9 +894,10 @@ impl CapValidator {
             }
         }
 
-        // Validate that all media_spec IDs can be resolved
+        // Validate that all media URN references can be resolved through
+        // the registry. Caps no longer carry inline media specs.
         for arg in args {
-            resolve_media_urn(&arg.media_urn, Some(cap.get_media_specs()), registry)
+            resolve_media_urn(&arg.media_urn, registry)
                 .await
                 .map_err(|e| ValidationError::InvalidMediaSpec {
                     cap_urn: cap_urn.clone(),
@@ -913,7 +907,7 @@ impl CapValidator {
         }
 
         if let Some(output) = cap.get_output() {
-            resolve_media_urn(&output.media_urn, Some(cap.get_media_specs()), registry)
+            resolve_media_urn(&output.media_urn, registry)
                 .await
                 .map_err(|e| ValidationError::InvalidMediaSpec {
                     cap_urn: cap_urn.clone(),
@@ -1163,7 +1157,7 @@ impl SchemaValidator {
         cap_urn: &str,
         arguments: &[serde_json::Value],
         schema_registry: Arc<ProfileSchemaRegistry>,
-        media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+        fabric_registry: Arc<crate::FabricRegistry>,
     ) -> Result<(), ValidationError> {
         let cap = self
             .get_cap(cap_urn)
@@ -1171,7 +1165,7 @@ impl SchemaValidator {
                 cap_urn: cap_urn.to_string(),
             })?;
 
-        let validator = InputValidator::new(schema_registry, media_registry);
+        let validator = InputValidator::new(schema_registry, fabric_registry);
         validator
             .validate_positional_arguments(cap, arguments)
             .await
@@ -1183,7 +1177,7 @@ impl SchemaValidator {
         cap_urn: &str,
         output: &serde_json::Value,
         schema_registry: Arc<ProfileSchemaRegistry>,
-        media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+        fabric_registry: Arc<crate::FabricRegistry>,
     ) -> Result<(), ValidationError> {
         let cap = self
             .get_cap(cap_urn)
@@ -1191,7 +1185,7 @@ impl SchemaValidator {
                 cap_urn: cap_urn.to_string(),
             })?;
 
-        let validator = OutputValidator::new(schema_registry, media_registry);
+        let validator = OutputValidator::new(schema_registry, fabric_registry);
         validator.validate_output(cap, output).await
     }
 
@@ -1199,9 +1193,9 @@ impl SchemaValidator {
     pub async fn validate_cap_schema(
         &self,
         cap: &Cap,
-        media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+        fabric_registry: Arc<crate::FabricRegistry>,
     ) -> Result<(), ValidationError> {
-        CapValidator::validate_cap(cap, &media_registry).await
+        CapValidator::validate_cap(cap, &fabric_registry).await
     }
 }
 
@@ -1214,7 +1208,7 @@ impl Default for SchemaValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::media::registry::MediaUrnRegistry;
+    use crate::media::registry::FabricRegistry;
     use crate::standard::media::{MEDIA_INTEGER, MEDIA_STRING};
     use crate::CapUrn;
     use serde_json::json;
@@ -1225,25 +1219,25 @@ mod tests {
     }
 
     // Helper to create test registries
-    async fn test_registries() -> (Arc<ProfileSchemaRegistry>, Arc<MediaUrnRegistry>) {
+    async fn test_registries() -> (Arc<ProfileSchemaRegistry>, Arc<FabricRegistry>) {
         let schema_registry = Arc::new(
             ProfileSchemaRegistry::new()
                 .await
                 .expect("Failed to create schema registry"),
         );
-        let media_registry = Arc::new(
-            MediaUrnRegistry::new()
+        let fabric_registry = Arc::new(
+            FabricRegistry::new()
                 .await
                 .expect("Failed to create media registry"),
         );
-        (schema_registry, media_registry)
+        (schema_registry, fabric_registry)
     }
 
     // TEST051: Test input validation succeeds with valid positional argument
     #[tokio::test]
     async fn test051_input_validation_success() {
-        let (schema_registry, media_registry) = test_registries().await;
-        let validator = InputValidator::new(schema_registry, media_registry);
+        let (schema_registry, fabric_registry) = test_registries().await;
+        let validator = InputValidator::new(schema_registry, fabric_registry);
 
         let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
         let mut cap = Cap::new(
@@ -1270,8 +1264,8 @@ mod tests {
     // TEST052: Test input validation fails with MissingRequiredArgument when required arg missing
     #[tokio::test]
     async fn test052_input_validation_missing_required() {
-        let (schema_registry, media_registry) = test_registries().await;
-        let validator = InputValidator::new(schema_registry, media_registry);
+        let (schema_registry, fabric_registry) = test_registries().await;
+        let validator = InputValidator::new(schema_registry, fabric_registry);
 
         let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
         let mut cap = Cap::new(
@@ -1304,8 +1298,8 @@ mod tests {
     // TEST053: Test input validation fails with InvalidArgumentType when wrong type provided
     #[tokio::test]
     async fn test053_input_validation_wrong_type() {
-        let (schema_registry, media_registry) = test_registries().await;
-        let validator = InputValidator::new(schema_registry, media_registry);
+        let (schema_registry, fabric_registry) = test_registries().await;
+        let validator = InputValidator::new(schema_registry, Arc::clone(&fabric_registry));
 
         let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
         let mut cap = Cap::new(
@@ -1314,8 +1308,9 @@ mod tests {
             "test-command".to_string(),
         );
 
-        // Add local schema to media_specs so validation doesn't depend on network
-        let integer_spec = crate::media::spec::MediaSpecDef {
+        // Seed the registry with the schema-bearing media spec; caps no
+        // longer carry inline media specs.
+        fabric_registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: MEDIA_INTEGER.to_string(),
             media_type: "text/plain".to_string(),
             title: "Integer".to_string(),
@@ -1326,8 +1321,7 @@ mod tests {
             validation: None,
             metadata: None,
             extensions: Vec::new(),
-        };
-        cap.set_media_specs(vec![integer_spec]);
+        });
 
         let arg = CapArg::new(
             MEDIA_INTEGER,
@@ -1350,96 +1344,11 @@ mod tests {
         }
     }
 
-    // TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected
-    #[tokio::test]
-    async fn test054_xv5_inline_spec_redefinition_detected() {
-        // Create a cap that tries to redefine a standard media spec (MEDIA_STRING)
-        let (_schema_registry, media_registry) = test_registries().await;
-
-        let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
-        let mut cap = Cap::new(
-            urn,
-            "Test Capability".to_string(),
-            "test-command".to_string(),
-        );
-
-        // Try to redefine MEDIA_STRING which exists in the registry
-        let string_spec = crate::media::spec::MediaSpecDef {
-            urn: MEDIA_STRING.to_string(),
-            media_type: "text/plain".to_string(),
-            title: "My Custom String".to_string(),
-            profile_uri: Some("https://example.com/my-string".to_string()),
-            schema: None,
-            description: Some("Trying to redefine string".to_string()),
-            documentation: None,
-            validation: None,
-            metadata: None,
-            extensions: Vec::new(),
-        };
-        cap.set_media_specs(vec![string_spec]);
-
-        let result = validate_no_inline_media_spec_redefinition(&cap, &media_registry).await;
-
-        // Should fail because MEDIA_STRING is already in the registry
-        assert!(result.is_err());
-        if let Err(ValidationError::InlineMediaSpecRedefinesRegistry { media_urn, .. }) = result {
-            assert_eq!(media_urn, MEDIA_STRING);
-        } else {
-            panic!("Expected InlineMediaSpecRedefinesRegistry error");
-        }
-    }
-
-    // TEST055: XV5 - Test new inline media spec (not in registry) is allowed
-    #[tokio::test]
-    async fn test055_xv5_new_inline_spec_allowed() {
-        // Create a cap with a new media spec that doesn't exist in the registry
-        let (_schema_registry, media_registry) = test_registries().await;
-
-        let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
-        let mut cap = Cap::new(
-            urn,
-            "Test Capability".to_string(),
-            "test-command".to_string(),
-        );
-
-        // Define a completely new media spec that doesn't exist in registry
-        let custom_spec = crate::media::spec::MediaSpecDef {
-            // Use a URN that definitely doesn't exist in the standard registry
-            urn: "media:my-unique-custom-type-xyz123".to_string(),
-            media_type: "application/json".to_string(),
-            title: "My Custom Output".to_string(),
-            profile_uri: Some("https://example.com/my-custom-output".to_string()),
-            schema: Some(json!({"type": "object"})),
-            description: Some("A custom output type".to_string()),
-            documentation: None,
-            validation: None,
-            metadata: None,
-            extensions: Vec::new(),
-        };
-        cap.set_media_specs(vec![custom_spec]);
-
-        let result = validate_no_inline_media_spec_redefinition(&cap, &media_registry).await;
-
-        // Should succeed because the spec doesn't exist in the registry
-        assert!(result.is_ok());
-    }
-
-    // TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation
-    #[tokio::test]
-    async fn test056_xv5_empty_media_specs_allowed() {
-        // A cap without inline media_specs should pass XV5 validation
-        let (_schema_registry, media_registry) = test_registries().await;
-
-        let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
-        let cap = Cap::new(
-            urn,
-            "Test Capability".to_string(),
-            "test-command".to_string(),
-        );
-
-        let result = validate_no_inline_media_spec_redefinition(&cap, &media_registry).await;
-        assert!(result.is_ok());
-    }
+    // TEST054 / TEST055 / TEST056 (XV5: inline media spec redefinition)
+    // were deleted along with `cap.media_specs`. Caps no longer carry
+    // inline media specs, so the conditions those tests checked for can
+    // no longer be expressed in the type system. The single source of
+    // truth for media specs is now the registry.
 
     // =========================================================================
     // validate_cap_args RULE tests (TEST578-TEST590)
@@ -1839,9 +1748,9 @@ mod tests {
 
 /// Validate cap arguments against canonical definition
 pub async fn validate_cap_arguments(
-    registry: &crate::cap::registry::CapRegistry,
+    registry: &crate::cap::registry::FabricRegistry,
     schema_registry: Arc<ProfileSchemaRegistry>,
-    media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+    fabric_registry: Arc<crate::FabricRegistry>,
     cap_urn: &str,
     arguments: &[Value],
 ) -> Result<(), ValidationError> {
@@ -1852,7 +1761,7 @@ pub async fn validate_cap_arguments(
             .map_err(|_| ValidationError::UnknownCap {
                 cap_urn: cap_urn.to_string(),
             })?;
-    let validator = InputValidator::new(schema_registry, media_registry);
+    let validator = InputValidator::new(schema_registry, fabric_registry);
     validator
         .validate_positional_arguments(&canonical_cap, arguments)
         .await
@@ -1860,9 +1769,9 @@ pub async fn validate_cap_arguments(
 
 /// Validate cap output against canonical definition
 pub async fn validate_cap_output(
-    registry: &crate::cap::registry::CapRegistry,
+    registry: &crate::cap::registry::FabricRegistry,
     schema_registry: Arc<ProfileSchemaRegistry>,
-    media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+    fabric_registry: Arc<crate::FabricRegistry>,
     cap_urn: &str,
     output: &Value,
 ) -> Result<(), ValidationError> {
@@ -1873,13 +1782,13 @@ pub async fn validate_cap_output(
             .map_err(|_| ValidationError::UnknownCap {
                 cap_urn: cap_urn.to_string(),
             })?;
-    let validator = OutputValidator::new(schema_registry, media_registry);
+    let validator = OutputValidator::new(schema_registry, fabric_registry);
     validator.validate_output(&canonical_cap, output).await
 }
 
 /// Validate that a local cap matches its canonical definition
 pub async fn validate_cap_canonical(
-    registry: &crate::cap::registry::CapRegistry,
+    registry: &crate::cap::registry::FabricRegistry,
     cap: &Cap,
 ) -> Result<(), ValidationError> {
     registry
@@ -1901,11 +1810,11 @@ pub async fn validate_cap_canonical(
 ///
 /// Resolution order:
 /// 1. Cap's local media_specs table (cap-specific overrides)
-/// 2. Registry's local cache (bundled standard specs)
-/// 3. Online registry fetch (with graceful degradation if unreachable)
+/// 2. Registry's in-memory + disk cache
+/// 3. Online registry fetch (blocked by the registry's offline flag if set)
 pub async fn validate_media_urn_references(
     cap: &Cap,
-    registry: &crate::media::registry::MediaUrnRegistry,
+    registry: &crate::media::registry::FabricRegistry,
 ) -> Result<(), ValidationError> {
     let cap_urn = cap.urn_string();
 
@@ -1939,7 +1848,7 @@ pub async fn validate_media_urn_references(
     // Validate each media URN using the single resolution path
     for (location, media_urn) in urns_to_check {
         if let Err(_) =
-            crate::media::spec::resolve_media_urn(&media_urn, Some(cap.get_media_specs()), registry)
+            crate::media::spec::resolve_media_urn(&media_urn, registry)
                 .await
         {
             return Err(ValidationError::UnresolvableMediaUrn {
@@ -1947,85 +1856,6 @@ pub async fn validate_media_urn_references(
                 media_urn,
                 location: location.to_string(),
             });
-        }
-    }
-
-    Ok(())
-}
-
-/// XV5: Validate that inline media_specs don't redefine existing registry specs.
-///
-/// Behavior:
-/// - With network access: strictly enforced - fail if any inline spec exists in registry
-/// - Without network access: check against cached/bundled specs only.
-///   If conflict found with cached specs: fail.
-///   If no conflict with cached but registry unreachable: log warning, allow operation.
-///
-/// Resolution order for checking:
-/// 1. Registry's in-memory cache (fast)
-/// 2. Registry's disk cache (bundled standard specs)
-/// 3. Online registry fetch (if reachable)
-pub async fn validate_no_inline_media_spec_redefinition(
-    cap: &Cap,
-    registry: &crate::media::registry::MediaUrnRegistry,
-) -> Result<(), ValidationError> {
-    use crate::media::registry::MediaRegistryError;
-
-    let cap_urn = cap.urn_string();
-    let inline_specs = cap.get_media_specs();
-
-    if inline_specs.is_empty() {
-        return Ok(());
-    }
-
-    for spec in inline_specs {
-        let media_urn = &spec.urn;
-        // Check if this media URN exists in the registry (without using cap's local specs)
-        match registry.get_media_spec(media_urn).await {
-            Ok(_) => {
-                // Found in registry - this is a redefinition, which is an error
-                return Err(ValidationError::InlineMediaSpecRedefinesRegistry {
-                    cap_urn: cap_urn.clone(),
-                    media_urn: media_urn.clone(),
-                });
-            }
-            Err(MediaRegistryError::NotFound(_)) => {
-                // Not found in registry (cache + online) - this is fine, it's a new spec
-                continue;
-            }
-            Err(MediaRegistryError::HttpError(e)) => {
-                // Network error - check if we can verify against cached/bundled specs
-                if let Some(_) = registry.get_cached_spec(media_urn) {
-                    // Found in cache - this is a redefinition, fail hard
-                    return Err(ValidationError::InlineMediaSpecRedefinesRegistry {
-                        cap_urn: cap_urn.clone(),
-                        media_urn: media_urn.clone(),
-                    });
-                }
-
-                // Not found in cache, and online registry unreachable
-                // Log warning and allow operation (graceful degradation)
-                tracing::warn!(
-                    "XV5: Could not verify inline spec '{}' against online registry ({}). Allowing operation in offline mode.",
-                    media_urn, e
-                );
-                continue;
-            }
-            Err(e) => {
-                // Other errors (cache error, parse error) - treat as unable to verify
-                if let Some(_) = registry.get_cached_spec(media_urn) {
-                    return Err(ValidationError::InlineMediaSpecRedefinesRegistry {
-                        cap_urn: cap_urn.clone(),
-                        media_urn: media_urn.clone(),
-                    });
-                }
-
-                tracing::warn!(
-                    "XV5: Could not verify inline spec '{}' against registry ({}). Allowing operation.",
-                    media_urn, e
-                );
-                continue;
-            }
         }
     }
 

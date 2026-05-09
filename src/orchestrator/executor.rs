@@ -20,7 +20,7 @@
 
 use super::types::{ResolvedEdge, ResolvedGraph};
 use crate::{
-    handshake, CapManifest, CapRegistry, CapUrn, CartridgeHostRuntime, CartridgeRepo, Frame,
+    handshake, CapManifest, FabricRegistry, CapUrn, CartridgeHostRuntime, CartridgeRepo, Frame,
     FrameReader, FrameWriter, Limits, RelayNotifyCapabilitiesPayload,
     RelaySlave, RelaySwitch, DEFAULT_MAX_CHUNK,
 };
@@ -165,7 +165,7 @@ pub enum ExecutionError {
     HostError(String),
 
     #[error("Registry error: {0}")]
-    RegistryError(String),
+    FabricRegistryError(String),
 
     #[error(
         "Activity timeout for cap {cap_urn}: no activity for {idle_secs}s (limit: {limit_secs}s)"
@@ -729,7 +729,7 @@ impl CartridgeManager {
 
         let package = &build.package;
 
-        // The v5 manifest carries the absolute R2 URL on the package itself.
+        // The v5 manifest carries the absolute URL on the package itself.
         // No URL derivation: if the manifest's URL is wrong, we want to fail
         // hard against the URL the publisher actually committed to.
         let download_url = package.url.as_str();
@@ -866,15 +866,13 @@ impl ExecutionContext {
     /// The RelaySwitch starts with no masters. Use `add_master()` or
     /// `add_cartridge_host()` to add masters before executing caps.
     ///
-    /// Requires a CapRegistry and MediaUrnRegistry for the RelaySwitch to
-    /// use when building the LiveCapFab for path finding queries. The
-    /// MediaUrnRegistry is read at every LiveCapFab sync to compute the
-    /// bookend-eligible URN set.
+    /// Requires a `FabricRegistry` for the RelaySwitch to use when building
+    /// the LiveCapFab for path finding queries. The registry is read at
+    /// every LiveCapFab sync to compute the bookend-eligible URN set.
     pub async fn new(
-        cap_registry: Arc<CapRegistry>,
-        media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+        fabric_registry: Arc<FabricRegistry>,
     ) -> Result<Self, ExecutionError> {
-        let switch = RelaySwitch::new(vec![], cap_registry, media_registry)
+        let switch = RelaySwitch::new(vec![], fabric_registry)
             .await
             .map_err(|e| ExecutionError::HostError(format!("RelaySwitch init: {}", e)))?;
 
@@ -1491,8 +1489,7 @@ pub async fn execute_dag(
     initial_inputs: HashMap<String, NodeData>,
     initial_is_sequence: HashMap<String, bool>,
     dev_binaries: Vec<PathBuf>,
-    cap_registry: Arc<CapRegistry>,
-    media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+    fabric_registry: Arc<FabricRegistry>,
     progress_fn: Option<&CapProgressFn>,
     node_values: &HashMap<String, HashMap<String, serde_json::Value>>,
 ) -> Result<HashMap<String, NodeData>, ExecutionError> {
@@ -1505,7 +1502,7 @@ pub async fn execute_dag(
     let cartridges = cartridge_manager.resolve_cartridges(&cap_urns).await?;
 
     // 2. Create execution context and add cartridge host as master
-    let mut ctx = ExecutionContext::new(cap_registry, media_registry).await?;
+    let mut ctx = ExecutionContext::new(fabric_registry).await?;
     ctx.add_cartridge_host(cartridges).await?;
 
     // 3. Resolve initial inputs to raw bytes and set on nodes.

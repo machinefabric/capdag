@@ -1,4 +1,4 @@
-use capdag::{validate_cap_canonical, Cap, CapRegistry, CapUrn};
+use capdag::{validate_cap_canonical, Cap, FabricRegistry, CapUrn};
 use tokio;
 
 #[tokio::main]
@@ -6,7 +6,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("CapDag Registry Example");
 
     // Create a registry client
-    let registry = CapRegistry::new().await?;
+    let registry = FabricRegistry::new().await?;
 
     // Get a canonical cap definition from registry
     let cap_urn = "cap:extract;target=metadata";

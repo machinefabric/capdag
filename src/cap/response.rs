@@ -156,10 +156,8 @@ impl ResponseWrapper {
     pub async fn validate_against_cap(
         &self,
         cap: &Cap,
-        registry: &crate::media::registry::MediaUrnRegistry,
+        registry: &crate::media::registry::FabricRegistry,
     ) -> Result<(), ValidationError> {
-        let media_specs = cap.get_media_specs();
-
         // Convert response to JSON value for validation
         let _json_value = match self.content_type {
             ResponseContentType::Json => {
@@ -188,14 +186,17 @@ impl ResponseWrapper {
             ResponseContentType::Binary => {
                 // Binary outputs can't be validated as JSON, validate the response type instead
                 if let Some(output_def) = cap.get_output() {
-                    let is_binary = output_def
-                        .is_binary(Some(media_specs), registry)
-                        .await
-                        .map_err(|e| ValidationError::InvalidMediaSpec {
-                            cap_urn: cap.urn_string(),
-                            field_name: "output".to_string(),
-                            error: e.to_string(),
-                        })?;
+                    let resolved = crate::media::spec::resolve_media_urn(
+                        &output_def.media_urn,
+                        registry,
+                    )
+                    .await
+                    .map_err(|e| ValidationError::InvalidMediaSpec {
+                        cap_urn: cap.urn_string(),
+                        field_name: "output".to_string(),
+                        error: e.to_string(),
+                    })?;
+                    let is_binary = resolved.is_binary();
                     if !is_binary {
                         return Err(ValidationError::InvalidOutputType {
                             cap_urn: cap.urn_string(),
@@ -233,7 +234,7 @@ impl ResponseWrapper {
     pub async fn matches_output_type(
         &self,
         cap: &Cap,
-        registry: &crate::media::registry::MediaUrnRegistry,
+        registry: &crate::media::registry::FabricRegistry,
     ) -> Result<bool, crate::media::spec::MediaSpecError> {
         let output_def = cap.get_output().ok_or_else(|| {
             crate::media::spec::MediaSpecError::UnresolvableMediaUrn(
@@ -241,11 +242,13 @@ impl ResponseWrapper {
             )
         })?;
 
-        let media_specs = cap.get_media_specs();
-        let is_output_binary = output_def.is_binary(Some(media_specs), registry).await?;
-        let is_output_structured = output_def
-            .is_structured(Some(media_specs), registry)
-            .await?;
+        let resolved = crate::media::spec::resolve_media_urn(
+            &output_def.media_urn,
+            registry,
+        )
+        .await?;
+        let is_output_binary = resolved.is_binary();
+        let is_output_structured = resolved.is_structured();
 
         Ok(match &self.content_type {
             // JSON response matches structured outputs (map/list)

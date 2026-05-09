@@ -522,72 +522,38 @@ impl ResolvedMediaSpec {
 ///
 /// Resolution order:
 /// 1. Cap's local `media_specs` array (HIGHEST - cap-specific definitions)
-/// 2. Registry's local cache (bundled standard specs)
-/// 3. Online registry fetch (with graceful degradation if unreachable)
+/// 2. Registry's in-memory + disk cache
+/// 3. Online registry fetch (blocked by the registry's offline flag if set)
 /// 4. If none resolve → Error
 ///
 /// # Arguments
 /// * `media_urn` - The media URN to resolve (e.g., "media:textable")
-/// * `media_specs` - Optional media_specs array from the cap definition
-/// * `registry` - The MediaUrnRegistry for cache and remote lookups
+/// * `registry` - The FabricRegistry for cache and remote lookups
 ///
 /// # Errors
-/// Returns `MediaSpecError::UnresolvableMediaUrn` if the media URN cannot be resolved
-/// from any source.
+/// Returns `MediaSpecError::UnresolvableMediaUrn` if the media URN cannot be resolved.
 pub async fn resolve_media_urn(
     media_urn: &str,
-    media_specs: Option<&[MediaSpecDef]>,
-    registry: &crate::media::registry::MediaUrnRegistry,
+    registry: &crate::media::registry::FabricRegistry,
 ) -> Result<ResolvedMediaSpec, MediaSpecError> {
-    // 1. First, try cap's local media_specs (highest priority - cap-specific definitions)
-    if let Some(specs) = media_specs {
-        if let Some(def) = specs.iter().find(|s| s.urn == media_urn) {
-            return Ok(ResolvedMediaSpec {
-                media_urn: def.urn.clone(),
-                media_type: def.media_type.clone(),
-                profile_uri: def.profile_uri.clone(),
-                schema: def.schema.clone(),
-                title: Some(def.title.clone()),
-                description: def.description.clone(),
-                documentation: def.documentation.clone(),
-                validation: def.validation.clone(),
-                metadata: def.metadata.clone(),
-                extensions: def.extensions.clone(),
-            });
-        }
-    }
-
-    // 2. Try registry (checks local cache first, then online with graceful degradation)
     match registry.get_media_spec(media_urn).await {
-        Ok(stored_spec) => {
-            return Ok(ResolvedMediaSpec {
-                media_urn: media_urn.to_string(),
-                media_type: stored_spec.media_type,
-                profile_uri: stored_spec.profile_uri,
-                schema: stored_spec.schema,
-                title: Some(stored_spec.title),
-                description: stored_spec.description,
-                documentation: stored_spec.documentation,
-                validation: stored_spec.validation,
-                metadata: stored_spec.metadata,
-                extensions: stored_spec.extensions,
-            });
-        }
-        Err(e) => {
-            // Registry lookup failed (not in cache, online unreachable or not found)
-            // Log and continue to error
-            tracing::warn!(
-                "Media URN '{}' not found in registry: {} - ensure it's defined in capfab/src/media/",
-                media_urn, e
-            );
-        }
+        Ok(stored_spec) => Ok(ResolvedMediaSpec {
+            media_urn: media_urn.to_string(),
+            media_type: stored_spec.media_type,
+            profile_uri: stored_spec.profile_uri,
+            schema: stored_spec.schema,
+            title: Some(stored_spec.title),
+            description: stored_spec.description,
+            documentation: stored_spec.documentation,
+            validation: stored_spec.validation,
+            metadata: stored_spec.metadata,
+            extensions: stored_spec.extensions,
+        }),
+        Err(e) => Err(MediaSpecError::UnresolvableMediaUrn(format!(
+            "cannot resolve media URN '{}' via registry: {}",
+            media_urn, e
+        ))),
     }
-
-    // Fail - not found in any source
-    Err(MediaSpecError::UnresolvableMediaUrn(format!(
-        "cannot resolve media URN '{}' - not found in cap's media_specs or registry",
-        media_urn
-    )))
 }
 
 /// Validate that media_specs array has no duplicate URNs.
@@ -657,55 +623,26 @@ mod tests {
     // Media URN resolution tests
     // -------------------------------------------------------------------------
 
-    // Helper to create a test registry
-    async fn test_registry() -> crate::media::registry::MediaUrnRegistry {
-        crate::media::registry::MediaUrnRegistry::new()
+    // Helper to create a test registry. Test specs are seeded directly
+    // through the registry's `insert_cached_media_spec_for_test` helper —
+    // there is no longer any cap-local media_specs override path.
+    async fn test_registry() -> crate::media::registry::FabricRegistry {
+        crate::media::registry::FabricRegistry::new()
             .await
             .expect("Failed to create test registry")
     }
 
-    // Helper to create media specs vec for tests
-    fn create_media_specs(specs: Vec<MediaSpecDef>) -> Vec<MediaSpecDef> {
-        specs
-    }
-
-    // TEST088: Resolving an abstract value-type media URN from the
-    // registry returns its declared media_type. Abstract types
-    // (media:textable, etc.) describe data shapes and deliberately
-    // omit profile_uri — there is no schema to validate against.
+    // TEST088: Resolving a media URN seeded into the registry returns
+    // the seeded spec verbatim. A regression in the registry-resolution
+    // path would surface as a `None`-shaped result here, since there is
+    // no local-override fallback to mask it.
     #[tokio::test]
-    async fn test088_resolve_from_registry_str() {
+    async fn test088_resolve_seeded_spec() {
         let registry = test_registry().await;
-        let resolved = resolve_media_urn("media:textable", None, &registry)
-            .await
-            .unwrap();
-        assert_eq!(resolved.media_type, "text/plain");
-        // Abstract value type — no profile_uri.
-        assert!(resolved.profile_uri.is_none(),
-            "abstract value type media:textable must not declare a profile_uri");
-    }
-
-    // TEST089: Test resolving JSON media URN from registry returns JSON media type
-    #[tokio::test]
-    async fn test089_resolve_from_registry_obj() {
-        let registry = test_registry().await;
-        // Use MEDIA_JSON which is json;record;textable
-        let resolved = resolve_media_urn(crate::MEDIA_JSON, None, &registry)
-            .await
-            .unwrap();
-        assert_eq!(resolved.media_type, "application/json");
-    }
-
-    // TEST090: Test resolving binary media URN returns octet-stream and is_binary true
-    #[tokio::test]
-    async fn test090_resolve_from_registry_binary() {
-        let registry = test_registry().await;
-        // media: (wildcard binary) is provided via local media_specs since the registry
-        // stores specs under specific URNs, not the wildcard
-        let media_specs = create_media_specs(vec![MediaSpecDef {
-            urn: "media:".to_string(),
-            media_type: "application/octet-stream".to_string(),
-            title: "Binary".to_string(),
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
+            urn: "media:textable".to_string(),
+            media_type: "text/plain".to_string(),
+            title: "Textable".to_string(),
             profile_uri: None,
             schema: None,
             description: None,
@@ -713,55 +650,25 @@ mod tests {
             validation: None,
             metadata: None,
             extensions: Vec::new(),
-        }]);
-        let resolved = resolve_media_urn("media:", Some(&media_specs), &registry)
+        });
+        let resolved = resolve_media_urn("media:textable", &registry)
             .await
             .unwrap();
-        assert_eq!(resolved.media_type, "application/octet-stream");
-        assert!(resolved.is_binary());
+        assert_eq!(resolved.media_type, "text/plain");
+        assert!(resolved.profile_uri.is_none());
     }
 
-    // TEST091: Test resolving custom media URN from local media_specs takes precedence over registry
+    // TEST089: A seeded record-shaped media spec carries its schema and
+    // profile_uri intact through resolution. Catches a regression that
+    // dropped optional fields when copying into ResolvedMediaSpec.
     #[tokio::test]
-    async fn test091_resolve_custom_media_spec() {
-        let registry = test_registry().await;
-        let media_specs = create_media_specs(vec![MediaSpecDef {
-            urn: "media:custom-spec;json".to_string(),
-            media_type: "application/json".to_string(),
-            title: "Custom Spec".to_string(),
-            profile_uri: Some("https://example.com/schema".to_string()),
-            schema: None,
-            description: None,
-            documentation: None,
-            validation: None,
-            metadata: None,
-            extensions: Vec::new(),
-        }]);
-
-        // Local media_specs takes precedence over registry
-        let resolved = resolve_media_urn("media:custom-spec;json", Some(&media_specs), &registry)
-            .await
-            .unwrap();
-        assert_eq!(resolved.media_urn, "media:custom-spec;json");
-        assert_eq!(resolved.media_type, "application/json");
-        assert_eq!(
-            resolved.profile_uri,
-            Some("https://example.com/schema".to_string())
-        );
-        assert!(resolved.schema.is_none());
-    }
-
-    // TEST092: Test resolving custom record media spec with schema from local media_specs
-    #[tokio::test]
-    async fn test092_resolve_custom_with_schema() {
+    async fn test089_resolve_seeded_record_spec() {
         let registry = test_registry().await;
         let schema = serde_json::json!({
             "type": "object",
-            "properties": {
-                "name": { "type": "string" }
-            }
+            "properties": { "name": { "type": "string" } }
         });
-        let media_specs = create_media_specs(vec![MediaSpecDef {
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: "media:json;output-spec;record".to_string(),
             media_type: "application/json".to_string(),
             title: "Output Spec".to_string(),
@@ -772,16 +679,10 @@ mod tests {
             validation: None,
             metadata: None,
             extensions: Vec::new(),
-        }]);
-
-        let resolved = resolve_media_urn(
-            "media:json;output-spec;record",
-            Some(&media_specs),
-            &registry,
-        )
-        .await
-        .unwrap();
-        assert_eq!(resolved.media_urn, "media:json;output-spec;record");
+        });
+        let resolved = resolve_media_urn("media:json;output-spec;record", &registry)
+            .await
+            .unwrap();
         assert_eq!(resolved.media_type, "application/json");
         assert_eq!(
             resolved.profile_uri,
@@ -790,52 +691,29 @@ mod tests {
         assert_eq!(resolved.schema, Some(schema));
     }
 
-    // TEST093: Test resolving unknown media URN fails with UnresolvableMediaUrn error
+    // TEST093: Resolving a URN that is neither in the registry cache nor
+    // available online fails hard. A regression that made the fail path
+    // silently return a stub `ResolvedMediaSpec` would surface here as a
+    // missing error.
     #[tokio::test]
     async fn test093_resolve_unresolvable_fails_hard() {
         let registry = test_registry().await;
-        // URN not in local media_specs and not in registry
+        registry.set_offline(true);
         let result = resolve_media_urn(
             "media:completely-unknown-urn-not-in-registry",
-            None,
             &registry,
         )
         .await;
-        assert!(result.is_err());
+        assert!(result.is_err(), "unknown URN must produce an error");
         if let Err(MediaSpecError::UnresolvableMediaUrn(msg)) = result {
-            assert!(msg.contains("media:completely-unknown-urn-not-in-registry"));
+            assert!(
+                msg.contains("media:completely-unknown-urn-not-in-registry"),
+                "error must name the failing URN; got: {}",
+                msg
+            );
         } else {
-            panic!("Expected UnresolvableMediaUrn error");
+            panic!("expected UnresolvableMediaUrn error");
         }
-    }
-
-    // TEST094: Test local media_specs definition overrides registry definition for same URN
-    #[tokio::test]
-    async fn test094_local_overrides_registry() {
-        let registry = test_registry().await;
-        // Custom definition in media_specs takes precedence over registry
-        let media_specs = create_media_specs(vec![MediaSpecDef {
-            urn: "media:textable".to_string(),
-            media_type: "application/json".to_string(), // Override: normally text/plain
-            title: "Custom String".to_string(),
-            profile_uri: Some("https://custom.example.com/str".to_string()),
-            schema: None,
-            description: None,
-            documentation: None,
-            validation: None,
-            metadata: None,
-            extensions: Vec::new(),
-        }]);
-
-        let resolved = resolve_media_urn("media:textable", Some(&media_specs), &registry)
-            .await
-            .unwrap();
-        // Custom definition used, not registry
-        assert_eq!(resolved.media_type, "application/json");
-        assert_eq!(
-            resolved.profile_uri,
-            Some("https://custom.example.com/str".to_string())
-        );
     }
 
     // -------------------------------------------------------------------------
@@ -1043,7 +921,7 @@ mod tests {
     #[tokio::test]
     async fn test105_metadata_propagation() {
         let registry = test_registry().await;
-        let media_specs = create_media_specs(vec![MediaSpecDef {
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: "media:custom-setting".to_string(),
             media_type: "text/plain".to_string(),
             title: "Custom Setting".to_string(),
@@ -1057,9 +935,9 @@ mod tests {
                 "ui_type": "SETTING_UI_TYPE_CHECKBOX"
             })),
             extensions: Vec::new(),
-        }]);
+        });
 
-        let resolved = resolve_media_urn("media:custom-setting", Some(&media_specs), &registry)
+        let resolved = resolve_media_urn("media:custom-setting", &registry)
             .await
             .unwrap();
         assert!(resolved.metadata.is_some());
@@ -1072,7 +950,7 @@ mod tests {
     #[tokio::test]
     async fn test106_metadata_with_validation() {
         let registry = test_registry().await;
-        let media_specs = create_media_specs(vec![MediaSpecDef {
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: "media:bounded-number;numeric".to_string(),
             media_type: "text/plain".to_string(),
             title: "Bounded Number".to_string(),
@@ -1093,11 +971,10 @@ mod tests {
                 "ui_type": "SETTING_UI_TYPE_SLIDER"
             })),
             extensions: Vec::new(),
-        }]);
+        });
 
         let resolved = resolve_media_urn(
             "media:bounded-number;numeric",
-            Some(&media_specs),
             &registry,
         )
         .await
@@ -1123,7 +1000,7 @@ mod tests {
     #[tokio::test]
     async fn test107_extensions_propagation() {
         let registry = test_registry().await;
-        let media_specs = create_media_specs(vec![MediaSpecDef {
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: "media:custom-pdf".to_string(),
             media_type: "application/pdf".to_string(),
             title: "PDF Document".to_string(),
@@ -1134,9 +1011,9 @@ mod tests {
             validation: None,
             metadata: None,
             extensions: vec!["pdf".to_string()],
-        }]);
+        });
 
-        let resolved = resolve_media_urn("media:custom-pdf", Some(&media_specs), &registry)
+        let resolved = resolve_media_urn("media:custom-pdf", &registry)
             .await
             .unwrap();
         assert_eq!(resolved.extensions, vec!["pdf".to_string()]);
@@ -1169,7 +1046,7 @@ mod tests {
     #[tokio::test]
     async fn test893_extensions_with_metadata_and_validation() {
         let registry = test_registry().await;
-        let media_specs = create_media_specs(vec![MediaSpecDef {
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: "media:custom-output;json".to_string(),
             media_type: "application/json".to_string(),
             title: "Custom Output".to_string(),
@@ -1189,9 +1066,9 @@ mod tests {
                 "category": "output"
             })),
             extensions: vec!["json".to_string()],
-        }]);
+        });
 
-        let resolved = resolve_media_urn("media:custom-output;json", Some(&media_specs), &registry)
+        let resolved = resolve_media_urn("media:custom-output;json", &registry)
             .await
             .unwrap();
 
@@ -1205,7 +1082,7 @@ mod tests {
     #[tokio::test]
     async fn test894_multiple_extensions() {
         let registry = test_registry().await;
-        let media_specs = create_media_specs(vec![MediaSpecDef {
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: "media:image;jpeg".to_string(),
             media_type: "image/jpeg".to_string(),
             title: "JPEG Image".to_string(),
@@ -1216,9 +1093,9 @@ mod tests {
             validation: None,
             metadata: None,
             extensions: vec!["jpg".to_string(), "jpeg".to_string()],
-        }]);
+        });
 
-        let resolved = resolve_media_urn("media:image;jpeg", Some(&media_specs), &registry)
+        let resolved = resolve_media_urn("media:image;jpeg", &registry)
             .await
             .unwrap();
         assert_eq!(
@@ -1238,7 +1115,7 @@ mod tests {
     async fn test1131_media_documentation_propagates_through_resolve() {
         let registry = test_registry().await;
         let body = "## Markdown body\n\nWith `code` and a [link](https://example.com).";
-        let media_specs = create_media_specs(vec![MediaSpecDef {
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: "media:doc-test;textable".to_string(),
             media_type: "text/plain".to_string(),
             title: "Documented".to_string(),
@@ -1249,9 +1126,9 @@ mod tests {
             validation: None,
             metadata: None,
             extensions: Vec::new(),
-        }]);
+        });
 
-        let resolved = resolve_media_urn("media:doc-test;textable", Some(&media_specs), &registry)
+        let resolved = resolve_media_urn("media:doc-test;textable", &registry)
             .await
             .unwrap();
         assert_eq!(

@@ -7,6 +7,8 @@
 use crate::urn::media_urn::{
     MEDIA_AVAILABILITY_OUTPUT,
     MEDIA_BOOLEAN,
+    MEDIA_CAP_DEFINITION,
+    MEDIA_CAP_URN,
     MEDIA_CONTENTS_OUTPUT,
     MEDIA_CSV,
     MEDIA_DECISION,
@@ -22,6 +24,8 @@ use crate::urn::media_urn::{
     MEDIA_JSON_SCHEMA,
     // Format conversion types (JSON, YAML, CSV variants)
     MEDIA_JSON_VALUE,
+    MEDIA_MEDIA_SPEC_DEFINITION,
+    MEDIA_MEDIA_URN,
     MEDIA_LIST_OUTPUT,
     MEDIA_LLM_INFERENCE_OUTPUT,
     MEDIA_LOG,
@@ -53,7 +57,7 @@ use crate::urn::media_urn::{
     MEDIA_YAML_RECORD,
     MEDIA_YAML_VALUE,
 };
-use crate::{Cap, CapOutput, CapRegistry, CapUrn, CapUrnBuilder, RegistryError};
+use crate::{Cap, CapOutput, FabricRegistry, CapUrn, CapUrnBuilder, FabricRegistryError};
 use std::sync::Arc;
 
 // =============================================================================
@@ -75,6 +79,97 @@ pub const CAP_DISCARD: &str = "cap:in=media:;out=media:void";
 /// this with a handler that returns `{"media_urns": [...]}`.
 pub const CAP_ADAPTER_SELECTION: &str =
     "cap:in=\"media:\";out=\"media:adapter-selection;json;record\"";
+
+/// Cap that resolves a canonical cap URN to its full flattened cap definition
+/// by fetching the registry-published entry. Implemented by the engine-bundled
+/// `netaccesscartridge`. Sandboxed cartridges peer-invoke this when they need
+/// to read a cap's `default_value` or any other registry-only field.
+pub const CAP_LOOKUP_CAP_FABRIC: &str =
+    "cap:in=\"media:cap-urn;textable\";fabric;lookup-cap;out=\"media:cap-definition;json;record;textable\"";
+
+/// Cap that resolves a canonical media URN to its full media spec definition
+/// by fetching the registry-published entry. Implemented by the engine-bundled
+/// `netaccesscartridge`. Sandboxed cartridges peer-invoke this when they need
+/// to read a media spec's title, MIME type, profile URI, or any other
+/// registry-only field.
+pub const CAP_LOOKUP_MEDIA_SPEC_FABRIC: &str =
+    "cap:in=\"media:media-urn;textable\";fabric;lookup-media-spec;out=\"media:media-spec-definition;json;record;textable\"";
+
+/// Parse and return the canonical `cap:lookup-cap;fabric` `CapUrn`.
+pub fn lookup_cap_fabric_urn() -> CapUrn {
+    CapUrn::from_string(CAP_LOOKUP_CAP_FABRIC)
+        .unwrap_or_else(|e| panic!("BUG: CAP_LOOKUP_CAP_FABRIC constant is invalid: {}", e))
+}
+
+/// Parse and return the canonical `cap:lookup-media-spec;fabric` `CapUrn`.
+pub fn lookup_media_spec_fabric_urn() -> CapUrn {
+    CapUrn::from_string(CAP_LOOKUP_MEDIA_SPEC_FABRIC)
+        .unwrap_or_else(|e| panic!("BUG: CAP_LOOKUP_MEDIA_SPEC_FABRIC constant is invalid: {}", e))
+}
+
+/// Construct the canonical `cap:lookup-cap;fabric` `Cap` definition.
+///
+/// Mirrors the `fabric/caps/lookup-cap-fabric.toml` source-of-truth so that
+/// the cartridge can declare it in its manifest without duplicating the wire
+/// shape across two places.
+pub fn lookup_cap_fabric_cap() -> Cap {
+    let urn = lookup_cap_fabric_urn();
+    let mut cap = Cap::with_description(
+        urn,
+        "Look Up Cap Definition (Fabric)".to_string(),
+        "lookup_cap".to_string(),
+        "Resolve a canonical cap URN to its full registry-published cap definition by \
+         fetching from the public fabric registry."
+            .to_string(),
+    );
+    cap.args.push(crate::cap::definition::CapArg::with_description(
+        MEDIA_CAP_URN,
+        true,
+        vec![
+            crate::cap::definition::ArgSource::Stdin {
+                stdin: MEDIA_CAP_URN.to_string(),
+            },
+            crate::cap::definition::ArgSource::Position { position: 0 },
+        ],
+        "Canonical cap URN to look up.".to_string(),
+    ));
+    cap.set_output(crate::cap::definition::CapOutput::new(
+        MEDIA_CAP_DEFINITION,
+        "Full flattened cap definition as published in the registry.",
+    ));
+    cap
+}
+
+/// Construct the canonical `cap:lookup-media-spec;fabric` `Cap` definition.
+///
+/// Mirrors `fabric/caps/lookup-media-spec-fabric.toml`.
+pub fn lookup_media_spec_fabric_cap() -> Cap {
+    let urn = lookup_media_spec_fabric_urn();
+    let mut cap = Cap::with_description(
+        urn,
+        "Look Up Media Spec Definition (Fabric)".to_string(),
+        "lookup_media_spec".to_string(),
+        "Resolve a canonical media URN to its full registry-published media spec \
+         definition by fetching from the public fabric registry."
+            .to_string(),
+    );
+    cap.args.push(crate::cap::definition::CapArg::with_description(
+        MEDIA_MEDIA_URN,
+        true,
+        vec![
+            crate::cap::definition::ArgSource::Stdin {
+                stdin: MEDIA_MEDIA_URN.to_string(),
+            },
+            crate::cap::definition::ArgSource::Position { position: 0 },
+        ],
+        "Canonical media URN to look up.".to_string(),
+    ));
+    cap.set_output(crate::cap::definition::CapOutput::new(
+        MEDIA_MEDIA_SPEC_DEFINITION,
+        "Full media spec definition as published in the registry.",
+    ));
+    cap
+}
 
 /// Parse and return the canonical identity `CapUrn` from `CAP_IDENTITY`.
 pub fn identity_urn() -> CapUrn {
@@ -764,43 +859,43 @@ pub fn all_format_conversion_paths() -> Vec<FormatConversionPath> {
 // -----------------------------------------------------------------------------
 
 /// Get generic text-generation cap from registry.
-pub async fn llm_generate_text_cap(registry: Arc<CapRegistry>) -> Result<Cap, RegistryError> {
+pub async fn llm_generate_text_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
     let urn = llm_generate_text_urn();
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get multiplechoice cap from registry with language
 pub async fn llm_multiplechoice(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     lang_code: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = llm_multiplechoice_urn(lang_code);
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get codegeneration cap from registry with language
 pub async fn llm_codegeneration(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     lang_code: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = llm_codegeneration_urn(lang_code);
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get creative cap from registry with language
 pub async fn llm_creative(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     lang_code: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = llm_creative_urn(lang_code);
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get summarization cap from registry with language
 pub async fn llm_summarization(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     lang_code: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = llm_summarization_urn(lang_code);
     registry.get_cap(&urn.to_string()).await
 }
@@ -810,21 +905,21 @@ pub async fn llm_summarization(
 // -----------------------------------------------------------------------------
 
 /// Get embeddings-dimensions cap from registry
-pub async fn embeddings_dimensions_cap(registry: Arc<CapRegistry>) -> Result<Cap, RegistryError> {
+pub async fn embeddings_dimensions_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
     let urn = embeddings_dimensions_urn();
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get text embeddings-generation cap from registry
-pub async fn embeddings_generation_cap(registry: Arc<CapRegistry>) -> Result<Cap, RegistryError> {
+pub async fn embeddings_generation_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
     let urn = embeddings_generation_urn();
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get image embeddings-generation cap from registry
 pub async fn image_embeddings_generation_cap(
-    registry: Arc<CapRegistry>,
-) -> Result<Cap, RegistryError> {
+    registry: Arc<FabricRegistry>,
+) -> Result<Cap, FabricRegistryError> {
     let urn = image_embeddings_generation_urn();
     registry.get_cap(&urn.to_string()).await
 }
@@ -834,37 +929,37 @@ pub async fn image_embeddings_generation_cap(
 // -----------------------------------------------------------------------------
 
 /// Get model download cap from registry
-pub async fn model_download_cap(registry: Arc<CapRegistry>) -> Result<Cap, RegistryError> {
+pub async fn model_download_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
     let urn = model_download_urn();
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get model list cap from registry
-pub async fn model_list_cap(registry: Arc<CapRegistry>) -> Result<Cap, RegistryError> {
+pub async fn model_list_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
     let urn = model_list_urn();
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get model status cap from registry
-pub async fn model_status_cap(registry: Arc<CapRegistry>) -> Result<Cap, RegistryError> {
+pub async fn model_status_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
     let urn = model_status_urn();
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get model contents cap from registry
-pub async fn model_contents_cap(registry: Arc<CapRegistry>) -> Result<Cap, RegistryError> {
+pub async fn model_contents_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
     let urn = model_contents_urn();
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get model availability cap from registry
-pub async fn model_availability_cap(registry: Arc<CapRegistry>) -> Result<Cap, RegistryError> {
+pub async fn model_availability_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
     let urn = model_availability_urn();
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get model path cap from registry
-pub async fn model_path_cap(registry: Arc<CapRegistry>) -> Result<Cap, RegistryError> {
+pub async fn model_path_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
     let urn = model_path_urn();
     registry.get_cap(&urn.to_string()).await
 }
@@ -875,18 +970,18 @@ pub async fn model_path_cap(registry: Arc<CapRegistry>) -> Result<Cap, RegistryE
 
 /// Get page-image rendering cap from registry.
 pub async fn render_page_image_cap(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     input_media: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = render_page_image_urn(input_media);
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get disbind cap from registry
 pub async fn disbind_cap(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     input_media: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = disbind_urn(input_media);
     registry.get_cap(&urn.to_string()).await
 }
@@ -897,27 +992,27 @@ pub async fn disbind_cap(
 
 /// Get generate-json cap from registry
 pub async fn generate_json_cap(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     lang_code: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = generate_json_urn(lang_code);
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get make-decision cap from registry
 pub async fn make_decision_cap(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     lang_code: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = make_decision_urn(lang_code);
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get make-multiple-decisions cap from registry
 pub async fn make_multiple_decisions_cap(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     lang_code: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = make_multiple_decisions_urn(lang_code);
     registry.get_cap(&urn.to_string()).await
 }
@@ -928,10 +1023,10 @@ pub async fn make_multiple_decisions_cap(
 
 /// Get a single coercion cap from registry
 pub async fn coercion_cap(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     source_type: &str,
     target_type: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = coercion_urn(source_type, target_type);
     registry.get_cap(&urn.to_string()).await
 }
@@ -940,8 +1035,8 @@ pub async fn coercion_cap(
 /// Returns a vector of (source_type, target_type, Cap) tuples
 /// Fails if any coercion cap is missing from the registry
 pub async fn all_coercion_caps(
-    registry: Arc<CapRegistry>,
-) -> Result<Vec<(&'static str, &'static str, Cap)>, RegistryError> {
+    registry: Arc<FabricRegistry>,
+) -> Result<Vec<(&'static str, &'static str, Cap)>, FabricRegistryError> {
     let mut caps = Vec::new();
     for (source_type, target_type) in all_coercion_paths() {
         let cap = coercion_cap(registry.clone(), source_type, target_type).await?;
@@ -956,10 +1051,10 @@ pub async fn all_coercion_caps(
 
 /// Get a single format conversion cap from the registry
 pub async fn format_conversion_cap(
-    registry: Arc<CapRegistry>,
+    registry: Arc<FabricRegistry>,
     in_media: &str,
     out_media: &str,
-) -> Result<Cap, RegistryError> {
+) -> Result<Cap, FabricRegistryError> {
     let urn = format_conversion_urn(in_media, out_media);
     registry.get_cap(&urn.to_string()).await
 }
@@ -968,8 +1063,8 @@ pub async fn format_conversion_cap(
 /// Returns a vector of (in_media, out_media, Cap) tuples
 /// Fails if any conversion cap is missing from the registry
 pub async fn all_format_conversion_caps(
-    registry: Arc<CapRegistry>,
-) -> Result<Vec<(&'static str, &'static str, Cap)>, RegistryError> {
+    registry: Arc<FabricRegistry>,
+) -> Result<Vec<(&'static str, &'static str, Cap)>, FabricRegistryError> {
     let mut caps = Vec::new();
     for path in all_format_conversion_paths() {
         let cap = format_conversion_cap(registry.clone(), path.in_media, path.out_media).await?;

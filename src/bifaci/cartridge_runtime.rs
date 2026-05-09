@@ -280,6 +280,32 @@ impl PeerResponse {
         self.rx.recv().await
     }
 
+    /// Construct a `PeerResponse` from a fixed byte payload, for use by
+    /// stubbed peer invokers in tests. Yields exactly one `Data(Text)`
+    /// item carrying `bytes` interpreted as UTF-8, then closes.
+    ///
+    /// Production code MUST NOT call this — real peer responses are built
+    /// internally by the runtime as frames arrive over the wire. The
+    /// `#[doc(hidden)]` tag keeps this off rustdoc; the `pub` is needed
+    /// because it's invoked from peer-cartridge test crates.
+    #[doc(hidden)]
+    pub fn synthetic_text(bytes: Vec<u8>) -> Self {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        // UTF-8 may fail for arbitrary bytes; tests that hand us non-UTF-8
+        // would deserve a panic from the test harness, so unwrap is
+        // appropriate — non-UTF-8 in a JSON payload is a malformed test.
+        let text = String::from_utf8(bytes)
+            .expect("PeerResponse::synthetic_text: payload must be valid UTF-8");
+        let _ = tx.send(PeerResponseItem::Data(
+            Ok(ciborium::Value::Text(text)),
+            None,
+        ));
+        // Dropping `tx` here closes the channel so `recv()` returns None
+        // after the single data item.
+        drop(tx);
+        Self { rx }
+    }
+
     /// Collect all data chunks into a single byte vector, discarding LOG frames and metadata.
     ///
     /// WARNING: Only call this if you know the stream is finite.

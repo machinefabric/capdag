@@ -8,14 +8,14 @@
 //!
 //! ```ignore
 //! use capdag::orchestrator::parse_machine_to_cap_dag;
-//! use capdag::CapRegistry;
+//! use capdag::FabricRegistry;
 //!
 //! let route = r#"
 //!     [extract cap:in="media:pdf;bytes";extract;out="media:txt;textable"]
 //!     [A -> extract -> B]
 //! "#;
 //!
-//! let registry = CapRegistry::new().await?;
+//! let registry = FabricRegistry::new().await?;
 //! let graph = parse_machine_to_cap_dag(route, &registry).await?;
 //! ```
 

@@ -76,7 +76,7 @@ pub enum PlannerError {
     #[error("Not found: {0}")]
     NotFound(String),
     #[error("Registry error: {0}")]
-    RegistryError(String),
+    FabricRegistryError(String),
     #[error("Execution error: {0}")]
     ExecutionError(String),
     #[error("Invalid path: {0}")]

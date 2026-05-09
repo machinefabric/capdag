@@ -3,7 +3,7 @@
 //! Provides comprehensive validation of JSON data against JSON Schema Draft-07.
 //! Schemas are located in the `media_specs` table of the cap definition or in the registry.
 
-use crate::media::registry::MediaUrnRegistry;
+use crate::media::registry::FabricRegistry;
 use crate::media::spec::resolve_media_urn;
 use crate::{Cap, CapArg, CapOutput};
 use jsonschema::JSONSchema;
@@ -55,7 +55,7 @@ impl SchemaValidator {
         &mut self,
         cap: &Cap,
         arguments: &[JsonValue],
-        registry: &MediaUrnRegistry,
+        registry: &FabricRegistry,
     ) -> Result<(), SchemaValidationError> {
         let args = cap.get_args();
 
@@ -77,7 +77,7 @@ impl SchemaValidator {
         // Validate positional arguments
         for (arg_def, position) in positional_args {
             if let Some(arg_value) = arguments.get(position) {
-                self.validate_argument_with_cap(cap, arg_def, arg_value, registry)
+                self.validate_argument(arg_def, arg_value, registry)
                     .await?;
             }
         }
@@ -85,16 +85,14 @@ impl SchemaValidator {
         Ok(())
     }
 
-    /// Validate a single argument against its schema from media_specs or registry
-    pub async fn validate_argument_with_cap(
+    /// Validate a single argument against its schema resolved through the registry.
+    pub async fn validate_argument(
         &mut self,
-        cap: &Cap,
         arg_def: &CapArg,
         value: &JsonValue,
-        registry: &MediaUrnRegistry,
+        registry: &FabricRegistry,
     ) -> Result<(), SchemaValidationError> {
-        // Resolve the spec ID to get the schema
-        let resolved = resolve_media_urn(&arg_def.media_urn, Some(cap.get_media_specs()), registry)
+        let resolved = resolve_media_urn(&arg_def.media_urn, registry)
             .await
             .map_err(|e| SchemaValidationError::MediaUrnNotResolved {
                 media_urn: arg_def.media_urn.clone(),
@@ -110,17 +108,15 @@ impl SchemaValidator {
         self.validate_value_against_schema(&arg_def.media_urn, value, &schema)
     }
 
-    /// Validate output against its schema from media_specs or registry
-    pub async fn validate_output_with_cap(
+    /// Validate output against its schema resolved through the registry.
+    pub async fn validate_output(
         &mut self,
-        cap: &Cap,
         output_def: &CapOutput,
         value: &JsonValue,
-        registry: &MediaUrnRegistry,
+        registry: &FabricRegistry,
     ) -> Result<(), SchemaValidationError> {
-        // Resolve the spec ID to get the schema
         let resolved =
-            resolve_media_urn(&output_def.media_urn, Some(cap.get_media_specs()), registry)
+            resolve_media_urn(&output_def.media_urn, registry)
                 .await
                 .map_err(|e| SchemaValidationError::MediaUrnNotResolved {
                     media_urn: output_def.media_urn.clone(),
@@ -219,7 +215,6 @@ impl SchemaResolver for FileSchemaResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::media::spec::MediaSpecDef;
     use crate::standard::media::MEDIA_STRING;
     use crate::{ArgSource, CapArg, CapUrn};
     use serde_json::json;
@@ -230,8 +225,8 @@ mod tests {
     }
 
     // Helper to create a test registry
-    async fn test_registry() -> MediaUrnRegistry {
-        MediaUrnRegistry::new()
+    async fn test_registry() -> FabricRegistry {
+        FabricRegistry::new()
             .await
             .expect("Failed to create test registry")
     }
@@ -251,10 +246,9 @@ mod tests {
             "required": ["name"]
         });
 
-        // Create cap with media_specs containing the schema
-        let urn = CapUrn::from_string(&test_urn("type=test;validate")).unwrap();
-        let mut cap = Cap::new(urn, "Test".to_string(), "test".to_string());
-        cap.add_media_spec(MediaSpecDef {
+        // Seed the registry with the schema-bearing media spec; caps no
+        // longer carry inline media specs.
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: "my:user-data.v1".to_string(),
             media_type: "application/json".to_string(),
             title: "User Data".to_string(),
@@ -275,7 +269,7 @@ mod tests {
 
         let valid_value = json!({"name": "John", "age": 30});
         assert!(validator
-            .validate_argument_with_cap(&cap, &arg, &valid_value, &registry)
+            .validate_argument(&arg, &valid_value, &registry)
             .await
             .is_ok());
     }
@@ -294,10 +288,9 @@ mod tests {
             "required": ["name"]
         });
 
-        // Create cap with media_specs containing the schema
-        let urn = CapUrn::from_string(&test_urn("type=test;validate")).unwrap();
-        let mut cap = Cap::new(urn, "Test".to_string(), "test".to_string());
-        cap.add_media_spec(MediaSpecDef {
+        // Seed the registry with the schema-bearing media spec; caps no
+        // longer carry inline media specs.
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: "my:user-data.v1".to_string(),
             media_type: "application/json".to_string(),
             title: "User Data".to_string(),
@@ -318,7 +311,7 @@ mod tests {
 
         let invalid_value = json!({"age": 30}); // Missing required "name"
         assert!(validator
-            .validate_argument_with_cap(&cap, &arg, &invalid_value, &registry)
+            .validate_argument(&arg, &invalid_value, &registry)
             .await
             .is_err());
     }
@@ -338,10 +331,9 @@ mod tests {
             "required": ["result"]
         });
 
-        // Create cap with media_specs containing the schema
-        let urn = CapUrn::from_string(&test_urn("type=test;validate")).unwrap();
-        let mut cap = Cap::new(urn, "Test".to_string(), "test".to_string());
-        cap.add_media_spec(MediaSpecDef {
+        // Seed the registry with the schema-bearing media spec; caps no
+        // longer carry inline media specs.
+        registry.insert_cached_media_spec_for_test(crate::StoredMediaSpec {
             urn: "my:query-result.v1".to_string(),
             media_type: "application/json".to_string(),
             title: "Query Result".to_string(),
@@ -358,7 +350,7 @@ mod tests {
 
         let valid_value = json!({"result": "success", "timestamp": "2023-01-01T00:00:00Z"});
         assert!(validator
-            .validate_output_with_cap(&cap, &output, &valid_value, &registry)
+            .validate_output(&output, &valid_value, &registry)
             .await
             .is_ok());
     }
@@ -368,10 +360,6 @@ mod tests {
     async fn test166_skip_validation_without_schema() {
         let registry = test_registry().await;
         let mut validator = SchemaValidator::new();
-
-        // Create cap - using built-in spec ID which has no local schema
-        let urn = CapUrn::from_string(&test_urn("type=test;validate")).unwrap();
-        let cap = Cap::new(urn, "Test".to_string(), "test".to_string());
 
         // Argument using built-in spec ID (should resolve from registry, no schema)
         let arg = CapArg::new(
@@ -383,7 +371,7 @@ mod tests {
         let value = json!("any string value");
         // Should succeed - MEDIA_STRING resolves from registry and has no schema
         assert!(validator
-            .validate_argument_with_cap(&cap, &arg, &value, &registry)
+            .validate_argument(&arg, &value, &registry)
             .await
             .is_ok());
     }
@@ -394,9 +382,6 @@ mod tests {
         let registry = test_registry().await;
         let mut validator = SchemaValidator::new();
 
-        let urn = CapUrn::from_string(&test_urn("type=test;validate")).unwrap();
-        let cap = Cap::new(urn, "Test".to_string(), "test".to_string());
-
         // Argument with unknown media URN - not in media_specs and not in registry
         let arg = CapArg::new(
             "media:completely-unknown-urn-that-does-not-exist",
@@ -406,7 +391,7 @@ mod tests {
 
         let value = json!("test");
         let result = validator
-            .validate_argument_with_cap(&cap, &arg, &value, &registry)
+            .validate_argument(&arg, &value, &registry)
             .await;
         assert!(result.is_err());
 

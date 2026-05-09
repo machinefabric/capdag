@@ -980,7 +980,6 @@ mod tests {
             command: String::new(),
             args: Vec::new(),
             output: None,
-            media_specs: Vec::new(),
             metadata_json: None,
             registered_by: None,
             supported_model_types: Vec::new(),

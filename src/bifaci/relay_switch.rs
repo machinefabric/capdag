@@ -55,7 +55,7 @@
 
 use crate::bifaci::frame::{FlowKey, Frame, FrameType, Limits, MessageId, SeqAssigner};
 use crate::bifaci::io::{identity_nonce, CborError, FrameReader, FrameWriter};
-use crate::cap::registry::CapRegistry;
+use crate::cap::registry::FabricRegistry;
 use crate::planner::live_cap_fab::{LiveCapFab, ReachableTargetInfo, Strand};
 use crate::urn::media_urn::MediaUrn;
 use std::collections::{HashMap, HashSet};
@@ -557,13 +557,12 @@ pub struct RelaySwitch {
     rid_to_xid: RwLock<HashMap<MessageId, MessageId>>,
     /// Precomputed capability graph for path finding and reachability queries
     live_cap_fab: RwLock<LiveCapFab>,
-    /// Cap registry for looking up Cap definitions
-    cap_registry: Arc<CapRegistry>,
-    /// Media registry — read at every LiveCapFab sync to compute the
+    /// Unified registry. Used for cap-definition lookups while building
+    /// the LiveCapFab and read at every sync to compute the
     /// bookend-eligible URN set (URNs whose stored spec has at least one
-    /// file extension). Never consulted during traversal/lookup; the
-    /// computed set is cached inside LiveCapFab.
-    media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+    /// file extension). The bookend set is cached inside LiveCapFab and
+    /// no traversal hits the registry.
+    fabric_registry: Arc<FabricRegistry>,
     /// Number of masters this engine intends to register at startup.
     /// `all_masters_ready` only returns true once `masters.len() >=
     /// expected_master_count` AND every connected master is ready —
@@ -620,17 +619,16 @@ impl std::fmt::Debug for RelaySwitch {
 // =============================================================================
 
 impl RelaySwitch {
-    /// Create a new RelaySwitch with the given socket streams and cap registry.
+    /// Create a new RelaySwitch with the given socket streams and unified registry.
     ///
     /// Each UnixStream is split into read/write halves internally.
     /// Performs handshake with all masters and builds initial capability table.
     ///
-    /// The cap_registry is used to look up Cap definitions for building the
-    /// LiveCapFab for path finding and reachability queries.
+    /// The fabric registry is used to look up Cap definitions for building
+    /// the LiveCapFab and to compute the bookend-eligible media URN set.
     pub async fn new(
         sockets: Vec<UnixStream>,
-        cap_registry: Arc<CapRegistry>,
-        media_registry: Arc<crate::media::registry::MediaUrnRegistry>,
+        fabric_registry: Arc<FabricRegistry>,
     ) -> Result<Self, RelaySwitchError> {
         let mut masters = Vec::new();
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
@@ -904,8 +902,7 @@ impl RelaySwitch {
             xid_counter,
             rid_to_xid: RwLock::new(HashMap::new()),
             live_cap_fab: RwLock::new(LiveCapFab::new()),
-            cap_registry,
-            media_registry,
+            fabric_registry,
             // Default 0 — readiness predicate returns false until
             // the engine calls `set_expected_master_count` after
             // it knows how many masters it intends to register.
@@ -1151,9 +1148,9 @@ impl RelaySwitch {
         )
     }
 
-    /// Get the cap registry used by this switch.
-    pub fn cap_registry(&self) -> &Arc<CapRegistry> {
-        &self.cap_registry
+    /// Get the unified fabric registry used by this switch.
+    pub fn fabric_registry(&self) -> &Arc<FabricRegistry> {
+        &self.fabric_registry
     }
 
     /// Get health status of all masters.
@@ -3172,11 +3169,11 @@ impl RelaySwitch {
             // never call into the registry. New media specs registered
             // between syncs become bookends only after the next sync —
             // which is also when their owning caps appear in the graph.
-            let bookend_urns = self.media_registry.bookend_urns();
+            let bookend_urns = self.fabric_registry.bookend_urns();
 
             let mut graph = self.live_cap_fab.write().await;
             graph
-                .sync_from_cap_urns(&all_caps, &self.cap_registry, &bookend_urns)
+                .sync_from_cap_urns(&all_caps, &self.fabric_registry, &bookend_urns)
                 .await;
         }
     }
@@ -3283,22 +3280,11 @@ mod tests {
     use crate::standard::caps::CAP_IDENTITY;
     use tokio::net::UnixStream;
 
-    /// Create a test CapRegistry for use in tests.
-    fn test_cap_registry() -> Arc<CapRegistry> {
-        Arc::new(CapRegistry::new_for_test())
-    }
-
-    /// Create an empty test MediaUrnRegistry for use in tests. Tests that
-    /// need bookend-eligible URNs should populate via
-    /// `insert_cached_spec_for_test` after construction.
-    fn test_media_registry() -> Arc<crate::media::registry::MediaUrnRegistry> {
-        let dir = tempfile::tempdir()
-            .expect("tempdir for test MediaUrnRegistry")
-            .into_path();
-        Arc::new(
-            crate::media::registry::MediaUrnRegistry::new_for_test(dir)
-                .expect("MediaUrnRegistry::new_for_test"),
-        )
+    /// Create a test FabricRegistry for use in tests. Tests that need
+    /// bookend-eligible URNs should populate via
+    /// `insert_cached_media_spec_for_test` after construction.
+    fn test_fabric_registry() -> Arc<FabricRegistry> {
+        Arc::new(FabricRegistry::new_for_test())
     }
 
     /// Helper: send RelayNotify with given caps/limits, then handle identity verification.
@@ -3439,7 +3425,7 @@ mod tests {
         });
 
         // Constructor reads RelayNotify + verifies identity for both masters
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_fabric_registry())
             .await
             .unwrap();
 
@@ -3510,7 +3496,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
             .await
             .unwrap();
 
@@ -3599,7 +3585,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_fabric_registry())
             .await
             .unwrap();
 
@@ -3659,7 +3645,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
             .await
             .unwrap();
 
@@ -3743,7 +3729,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_fabric_registry())
             .await
             .unwrap();
 
@@ -3821,7 +3807,7 @@ mod tests {
             });
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
             .await
             .unwrap();
 
@@ -3867,7 +3853,7 @@ mod tests {
     // TEST432: Empty masters list creates empty switch, add_master works
     #[tokio::test]
     async fn test432_empty_masters_allowed() {
-        let switch = RelaySwitch::new(vec![], test_cap_registry(), test_media_registry()).await.unwrap();
+        let switch = RelaySwitch::new(vec![], test_fabric_registry()).await.unwrap();
 
         // Empty switch has no caps
         let caps: Vec<String> = serde_json::from_slice(&switch.capabilities().await).unwrap();
@@ -3912,7 +3898,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_fabric_registry())
             .await
             .unwrap();
 
@@ -3961,7 +3947,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_fabric_registry())
             .await
             .unwrap();
 
@@ -4006,7 +3992,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
             .await
             .unwrap();
 
@@ -4102,7 +4088,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock0, engine_sock1], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock0, engine_sock1], test_fabric_registry())
             .await
             .unwrap();
 
@@ -4146,7 +4132,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
             .await
             .unwrap();
 
@@ -4183,7 +4169,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
             .await
             .unwrap();
 
@@ -4226,7 +4212,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
             .await
             .unwrap();
 
@@ -4294,7 +4280,7 @@ mod tests {
             writer.write(&err).await.unwrap();
         });
 
-        let result = RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry()).await;
+        let result = RelaySwitch::new(vec![engine_sock], test_fabric_registry()).await;
         assert!(
             result.is_err(),
             "construction must fail when identity verification fails"
@@ -4402,7 +4388,7 @@ mod tests {
         });
 
         let switch = Arc::new(
-            RelaySwitch::new(vec![engine_sock], test_cap_registry(), test_media_registry())
+            RelaySwitch::new(vec![engine_sock], test_fabric_registry())
                 .await
                 .expect("RelaySwitch construction must succeed for empty-cap initial notify"),
         );
@@ -4487,7 +4473,6 @@ mod tests {
             command: String::new(),
             args: Vec::new(),
             output: None,
-            media_specs: Vec::new(),
             metadata_json: None,
             registered_by: None,
             supported_model_types: Vec::new(),
@@ -4521,7 +4506,7 @@ mod tests {
             slave.run(socket_reader, socket_writer, None).await.unwrap();
         });
 
-        let switch = RelaySwitch::new(vec![switch_sock], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![switch_sock], test_fabric_registry())
             .await
             .unwrap();
 
@@ -4691,7 +4676,6 @@ mod tests {
                     command: String::new(),
                     args: Vec::new(),
                     output: None,
-                    media_specs: Vec::new(),
                     metadata_json: None,
                     registered_by: None,
                     supported_model_types: Vec::new(),
@@ -4702,7 +4686,7 @@ mod tests {
         );
 
         let (switch_sock_a, ht_a, st_a) = wire_host(host_a).await;
-        let switch = RelaySwitch::new(vec![switch_sock_a], test_cap_registry(), test_media_registry())
+        let switch = RelaySwitch::new(vec![switch_sock_a], test_fabric_registry())
             .await
             .unwrap();
         assert_eq!(switch.masters.read().await.len(), 1);
@@ -4722,7 +4706,6 @@ mod tests {
                     command: String::new(),
                     args: Vec::new(),
                     output: None,
-                    media_specs: Vec::new(),
                     metadata_json: None,
                     registered_by: None,
                     supported_model_types: Vec::new(),
@@ -4866,7 +4849,6 @@ mod tests {
                     command: String::new(),
                     args: Vec::new(),
                     output: None,
-                    media_specs: Vec::new(),
                     metadata_json: None,
                     registered_by: None,
                     supported_model_types: Vec::new(),
@@ -4891,7 +4873,6 @@ mod tests {
                     command: String::new(),
                     args: Vec::new(),
                     output: None,
-                    media_specs: Vec::new(),
                     metadata_json: None,
                     registered_by: None,
                     supported_model_types: Vec::new(),
@@ -4906,8 +4887,7 @@ mod tests {
 
         let switch = RelaySwitch::new(
             vec![switch_sock_exact, switch_sock_extra],
-            test_cap_registry(),
-            test_media_registry(),
+            test_fabric_registry(),
         )
         .await
         .unwrap();
@@ -5046,7 +5026,7 @@ mod tests {
             });
         }
         Arc::new(
-            RelaySwitch::new(engine_socks, test_cap_registry(), test_media_registry())
+            RelaySwitch::new(engine_socks, test_fabric_registry())
                 .await
                 .unwrap(),
         )
@@ -5116,7 +5096,7 @@ mod tests {
             });
         }
         Arc::new(
-            RelaySwitch::new(engine_socks, test_cap_registry(), test_media_registry())
+            RelaySwitch::new(engine_socks, test_fabric_registry())
                 .await
                 .unwrap(),
         )
