@@ -266,11 +266,28 @@ impl<'a> ArgumentResolutionContext<'a> {
     }
 }
 
-/// Convert a serde_json::Value to raw bytes.
+/// Convert a `serde_json::Value` to the raw bytes the receiving
+/// cartridge will see on its arg stream.
+///
+/// The wire contract for an arg stream is "bytes of the typed
+/// media URN" — for a `media:textable` arg, plain UTF-8 text. A
+/// scalar JSON value (string / number / bool / null) is encoded
+/// as its lexical wire form, matching exactly what the same value
+/// typed at a CLI flag would produce. Composite values (object,
+/// array) ARE JSON on the wire by design and pass through
+/// `serde_json::to_vec`. Mirrors the dispatch in
+/// `bifaci::cartridge_runtime::extract_arg_value`.
 fn json_value_to_bytes(value: &serde_json::Value) -> Vec<u8> {
     match value {
         serde_json::Value::String(s) => s.as_bytes().to_vec(),
-        other => serde_json::to_vec(other).unwrap_or_default(),
+        serde_json::Value::Bool(b) => {
+            if *b { b"true".to_vec() } else { b"false".to_vec() }
+        }
+        serde_json::Value::Number(n) => n.to_string().into_bytes(),
+        serde_json::Value::Null => Vec::new(),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            serde_json::to_vec(value).unwrap_or_default()
+        }
     }
 }
 

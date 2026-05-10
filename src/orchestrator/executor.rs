@@ -931,14 +931,22 @@ impl ExecutionContext {
 
     /// Add a master connection from an externally managed socket.
     ///
+    /// `id` is the stable identity of the cardinality slot — see
+    /// [`crate::bifaci::RelaySwitch::add_master`] for the contract
+    /// (reattach on reconnect, cardinality enforcement).
+    ///
     /// The caller is responsible for the lifecycle of the connected endpoint
     /// (e.g., an InProcessCartridgeHost or external cartridge connection).
     ///
     /// Returns the master index on success.
-    pub async fn add_master(&mut self, socket: UnixStream) -> Result<usize, ExecutionError> {
+    pub async fn add_master(
+        &mut self,
+        id: impl Into<String>,
+        socket: UnixStream,
+    ) -> Result<usize, ExecutionError> {
         let idx = self
             .switch
-            .add_master(socket)
+            .add_master(id, socket)
             .await
             .map_err(|e| ExecutionError::HostError(format!("add_master: {}", e)))?;
 
@@ -1097,9 +1105,26 @@ impl ExecutionContext {
         });
 
         // --- Add to switch ---
+        //
+        // Synthesise a stable per-host id from the cartridges this
+        // host wraps. Each call to `add_cartridge_host` creates a
+        // new orchestrator-owned slot; the id distinguishes one
+        // host's slot from another in logs / telemetry. For
+        // single-cartridge hosts the id is the cartridge binary's
+        // path; for multi-cartridge hosts it's the joined sorted
+        // path list. Same input → same id, so a reconnect under
+        // the same set of cartridges reattaches in place.
+        let host_id: String = {
+            let mut paths: Vec<String> = cartridges
+                .iter()
+                .map(|(path, _, _)| path.display().to_string())
+                .collect();
+            paths.sort();
+            format!("cartridge-host:{}", paths.join("|"))
+        };
         let master_idx = self
             .switch
-            .add_master(switch_sock)
+            .add_master(host_id, switch_sock)
             .await
             .map_err(|e| ExecutionError::HostError(format!("add_master: {}", e)))?;
 

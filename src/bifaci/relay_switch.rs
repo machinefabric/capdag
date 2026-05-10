@@ -477,9 +477,25 @@ impl RelayNotifyCapabilitiesPayload {
 /// Connection to a single RelayMaster with its socket I/O.
 /// Interior mutability: writer and seq_assigner are behind Mutex.
 struct MasterConnection {
-    /// Writer for frames to slave (Mutex for concurrent access)
+    /// Stable identity of this master across (re)connections.
+    ///
+    /// Each cardinality slot the engine wires up at startup gets a
+    /// caller-chosen id (e.g. `"in-process"`, `"bundled-providers"`,
+    /// `"xpc-service"`). When a master dies and the host
+    /// reconnects, [`RelaySwitch::add_master`] reattaches the new
+    /// socket to the existing slot whose id matches — the slot
+    /// index never changes for the lifetime of the engine.
+    /// Re-adding the same id while the slot is still healthy is a
+    /// caller bug and is rejected.
+    ///
+    /// `id` itself never changes after the slot is created, so it
+    /// is held as plain `String` (no interior lock needed).
+    id: String,
+    /// Writer for frames to slave (Mutex for concurrent access).
+    /// Replaced wholesale on reattach.
     socket_writer: Mutex<FrameWriter<BufWriter<OwnedWriteHalf>>>,
-    /// Seq assigner for frames written to this master (Mutex for concurrent access)
+    /// Seq assigner for frames written to this master.
+    /// Reset on reattach (sequence numbering restarts per session).
     seq_assigner: Mutex<SeqAssigner>,
     /// Latest manifest from RelayNotify
     manifest: RwLock<Vec<u8>>,
@@ -491,10 +507,17 @@ struct MasterConnection {
     installed_cartridges: RwLock<Vec<InstalledCartridgeRecord>>,
     /// Connection health status
     healthy: AtomicBool,
-    /// Reader task handle
-    reader_handle: Option<tokio::task::JoinHandle<()>>,
-    /// Time when this master was connected
-    connected_at: Instant,
+    /// Reader task handle. `Mutex<Option<…>>` so reattach can swap
+    /// it under a `read()` lock on the masters Vec — keeping the
+    /// hot dispatch path unblocked during a registration. The
+    /// previous handle is aborted defensively when replaced.
+    reader_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Time when this master was connected. Reset on reattach.
+    /// Held in a Mutex so reattach can update under a `read()`
+    /// lock on the masters Vec. Uses `std::sync::Mutex` (not
+    /// Tokio) because all touches are non-await: a brief lock to
+    /// read or write an `Instant`.
+    connected_at: std::sync::Mutex<Instant>,
     /// Last error message (if unhealthy)
     last_error: RwLock<Option<String>>,
 }
@@ -570,10 +593,21 @@ pub struct RelaySwitch {
     /// only the internal master has finished registering and the
     /// external-providers master is still spawning cartridges.
     ///
-    /// Both editions expect 2:
-    ///   - internal master (engine's in-process providers)
-    ///   - external master (engine-spawned external providers in
-    ///     MAS, or the XPC-service-backed master in WEBSITE).
+    /// Counts the cardinality slots the engine wires up at startup:
+    ///   - MAS edition (2 slots):
+    ///     * `MASTER_ID_INTERNAL` — engine's in-process providers
+    ///     * `MASTER_ID_EXTERNAL` — engine-spawned external providers
+    ///       (every cartridge ships embedded as an external provider
+    ///       in MAS; there is no XPC-service slot)
+    ///   - Website edition (3 slots):
+    ///     * `MASTER_ID_INTERNAL`
+    ///     * `MASTER_ID_EXTERNAL`
+    ///     * `MASTER_ID_XPC_SERVICE` — the host XPC service
+    ///       managing installed cartridges
+    ///
+    /// Reattach via [`add_master`]'s id-keyed lookup keeps the slot
+    /// COUNT stable across reconnects — a dead slot is reattached
+    /// in place, never accumulating zombies.
     ///
     /// Set once via `set_expected_master_count` shortly after
     /// construction (RelaySwitch ctor doesn't take it because the
@@ -604,6 +638,14 @@ pub struct RelaySwitch {
     /// `Mutex<Option<…>>` so the pump can `take` it exactly once;
     /// re-call attempts are caller-error.
     pending_identity_probes_rx: std::sync::Mutex<Option<mpsc::UnboundedReceiver<usize>>>,
+    /// Serialises [`RelaySwitch::add_master`] so concurrent
+    /// registrations (in particular the steady-state Mac-app
+    /// reconnect path racing engine startup) cannot pick the same
+    /// `master_idx` for two different slots, and so the
+    /// "find existing slot by id" lookup observes a stable
+    /// `masters` Vec across the registration's network I/O.
+    /// Tokio Mutex because the held region awaits on socket I/O.
+    add_master_lock: tokio::sync::Mutex<()>,
 }
 
 impl std::fmt::Debug for RelaySwitch {
@@ -626,10 +668,38 @@ impl RelaySwitch {
     ///
     /// The fabric registry is used to look up Cap definitions for building
     /// the LiveCapFab and to compute the bookend-eligible media URN set.
+    /// Construct a RelaySwitch from a list of `(id, socket)` pairs,
+    /// one per cardinality slot the engine wires up at startup.
+    ///
+    /// Each id is the stable identity of its slot — used by
+    /// [`add_master`] on subsequent reconnects to find the slot
+    /// to reattach to. Ids must be unique within the list; a
+    /// duplicate is a wiring bug and surfaces as a hard error
+    /// rather than letting the second slot silently shadow the
+    /// first in routing.
     pub async fn new(
-        sockets: Vec<UnixStream>,
+        sockets: Vec<(String, UnixStream)>,
         fabric_registry: Arc<FabricRegistry>,
     ) -> Result<Self, RelaySwitchError> {
+        // Reject duplicate ids up front. Without this, two slots
+        // would be created with the same id; the first reconnect
+        // would reattach to whichever slot is found first by the
+        // linear scan in `add_master`, leaving the other slot
+        // stuck unhealthy forever — the exact bug class we are
+        // closing.
+        {
+            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            for (id, _) in &sockets {
+                if !seen.insert(id.as_str()) {
+                    return Err(RelaySwitchError::Protocol(format!(
+                        "RelaySwitch::new: duplicate master id '{}' in cardinality list — \
+                         each slot must have a unique stable id",
+                        id
+                    )));
+                }
+            }
+        }
+
         let mut masters = Vec::new();
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
         let xid_counter = AtomicU64::new(0);
@@ -637,8 +707,12 @@ impl RelaySwitch {
         // Phase 1: For each master, read RelayNotify and verify identity.
         // Reader tasks are spawned only after verification succeeds.
         let mut pending_readers: Vec<(usize, FrameReader<BufReader<OwnedReadHalf>>)> = Vec::new();
+        // Carry ids alongside the index so we can stamp each slot
+        // when we push it.
+        let mut slot_ids: Vec<String> = Vec::with_capacity(sockets.len());
 
-        for (master_idx, socket) in sockets.into_iter().enumerate() {
+        for (master_idx, (id, socket)) in sockets.into_iter().enumerate() {
+            slot_ids.push(id);
             let (read_half, write_half) = socket.into_split();
             let mut socket_reader = FrameReader::new(BufReader::new(read_half));
             let mut socket_writer = FrameWriter::new(BufWriter::new(write_half));
@@ -831,6 +905,7 @@ impl RelaySwitch {
             pending_readers.push((master_idx, socket_reader));
 
             masters.push(MasterConnection {
+                id: slot_ids[master_idx].clone(),
                 socket_writer: Mutex::new(socket_writer),
                 seq_assigner: Mutex::new(seq_assigner),
                 manifest: RwLock::new(caps_payload),
@@ -838,8 +913,8 @@ impl RelaySwitch {
                 caps: RwLock::new(caps),
                 installed_cartridges: RwLock::new(payload.installed_cartridges),
                 healthy: AtomicBool::new(true),
-                reader_handle: None, // Spawned in phase 2
-                connected_at: Instant::now(),
+                reader_handle: Mutex::new(None), // Spawned in phase 2
+                connected_at: std::sync::Mutex::new(Instant::now()),
                 last_error: RwLock::new(None),
             });
         }
@@ -880,7 +955,10 @@ impl RelaySwitch {
                     }
                 }
             });
-            masters[master_idx].reader_handle = Some(reader_handle);
+            // `reader_handle` is `Mutex<Option<…>>`; lock briefly
+            // to install the freshly-spawned task. No `await` is
+            // crossed while the inner Mutex is held.
+            *masters[master_idx].reader_handle.lock().await = Some(reader_handle);
         }
 
         let (aggregate_installed_cartridges_tx, _) = tokio::sync::watch::channel(Vec::new());
@@ -914,6 +992,7 @@ impl RelaySwitch {
             background_pump_handle: std::sync::Mutex::new(Vec::new()),
             pending_identity_probes_tx: probes_tx,
             pending_identity_probes_rx: std::sync::Mutex::new(Some(probes_rx)),
+            add_master_lock: tokio::sync::Mutex::new(()),
         };
 
         // Build routing tables from already-populated caps
@@ -1166,7 +1245,12 @@ impl RelaySwitch {
         for (idx, master) in masters.iter().enumerate() {
             let healthy = master.healthy.load(Ordering::SeqCst);
             let cap_count = master.caps.read().await.len();
-            let connected_seconds = master.connected_at.elapsed().as_secs();
+            let connected_seconds = master
+                .connected_at
+                .lock()
+                .expect("connected_at mutex poisoned")
+                .elapsed()
+                .as_secs();
             let last_error = master.last_error.read().await.clone();
             result.push(MasterHealthStatus {
                 index: idx,
@@ -1755,8 +1839,77 @@ impl RelaySwitch {
     /// spawns a reader task, and returns the master index.
     ///
     /// This is used for dynamically connecting new hosts (e.g., Mac client connecting via gRPC).
-    pub async fn add_master(&self, socket: UnixStream) -> Result<usize, RelaySwitchError> {
-        let master_idx = self.masters.read().await.len();
+    pub async fn add_master(
+        &self,
+        id: impl Into<String>,
+        socket: UnixStream,
+    ) -> Result<usize, RelaySwitchError> {
+        let id: String = id.into();
+
+        // Serialise add_master across the whole RelaySwitch.
+        //
+        // `master_idx` is the routing key for both `request_routing`
+        // and `cap_table`. It MUST be decided once and stay stable
+        // for the slot's lifetime. Concurrent `add_master` calls
+        // would race on `self.masters.len()` — two appenders could
+        // both decide they are slot N. The fix is to take a
+        // dedicated mutex for the duration of the call, so an
+        // append's index choice (or a reattach's id-lookup) cannot
+        // be undermined by another in-flight registration.
+        //
+        // The mutex covers I/O too (RelayNotify read + identity
+        // probe) on purpose: those steps need to see a stable view
+        // of `self.masters` for the reattach branch, and the lock
+        // is per-RelaySwitch so contention is bounded by the
+        // (small) number of cardinality slots.
+        let _add_master_guard = self.add_master_lock.lock().await;
+
+        // Each engine cardinality slot is wired up with a
+        // caller-chosen stable id (`"in-process"`,
+        // `"bundled-providers"`, `"xpc-service"` for the website
+        // edition). When the host backing a slot dies and
+        // reconnects, the new socket reattaches to the SAME slot
+        // index — preserving the request_routing / cap_table /
+        // origin_map entries that were keyed by index.
+        //
+        // - Existing slot with same id, currently UNHEALTHY → reattach
+        //   in place at that index.
+        // - Existing slot with same id, currently HEALTHY → caller
+        //   bug; the same master must not be added twice. Surface it
+        //   loudly so the wiring mistake is fixed instead of silently
+        //   growing zombie slots.
+        // - No existing slot with that id → append a fresh slot at
+        //   `masters.len()`. The index is committed atomically at
+        //   the bottom of the function once the I/O has succeeded.
+        let existing_slot: Option<usize> = {
+            let masters = self.masters.read().await;
+            let mut found = None;
+            for (idx, master) in masters.iter().enumerate() {
+                if master.id == id {
+                    if master.healthy.load(Ordering::SeqCst) {
+                        return Err(RelaySwitchError::Protocol(format!(
+                            "add_master: id '{}' is already attached to a healthy slot at index {} — \
+                             cardinality violation (each id may only be attached once at a time)",
+                            id, idx
+                        )));
+                    }
+                    found = Some(idx);
+                    break;
+                }
+            }
+            found
+        };
+
+        // Final slot index. For the append case this is the current
+        // length under the add_master mutex (no concurrent appender
+        // can intervene); for the reattach case it is the existing
+        // slot index. The reader closure below captures this by
+        // value so per-frame routing always carries the right index.
+        let master_idx = match existing_slot {
+            Some(idx) => idx,
+            None => self.masters.read().await.len(),
+        };
+
         let (read_half, write_half) = socket.into_split();
         let mut socket_reader = FrameReader::new(BufReader::new(read_half));
         let mut socket_writer = FrameWriter::new(BufWriter::new(write_half));
@@ -2037,18 +2190,96 @@ impl RelaySwitch {
 
         let cap_count = caps.len();
         let healthy_at_register = identity_failure.is_none();
-        self.masters.write().await.push(MasterConnection {
-            socket_writer: Mutex::new(socket_writer),
-            seq_assigner: Mutex::new(seq_assigner),
-            manifest: RwLock::new(caps_payload),
-            limits: RwLock::new(limits),
-            caps: RwLock::new(caps),
-            installed_cartridges: RwLock::new(payload.installed_cartridges),
-            healthy: AtomicBool::new(healthy_at_register),
-            reader_handle: Some(reader_handle),
-            connected_at: Instant::now(),
-            last_error: RwLock::new(identity_failure.clone()),
-        });
+
+        // Commit the connection state into the slot.
+        //
+        // Append branch: push a brand-new MasterConnection at the
+        // index reserved earlier. Under the add_master mutex this
+        // is race-free — `master_idx` equals `masters.len()` at
+        // the moment of push, so the index the reader closure
+        // captured matches the slot it ends up in.
+        //
+        // Reattach branch: overwrite the existing dead slot's
+        // fields in place. The slot index, the id, and the routing
+        // entries keyed by either are preserved. The previous
+        // reader handle is aborted defensively — by the time
+        // reattach happens the old reader has already exited on
+        // EOF, but abort is idempotent and rules out any race with
+        // a still-running zombie task that happens to have
+        // outlived the socket close.
+        match existing_slot {
+            None => {
+                // Append branch. Take the Vec write lock briefly to
+                // push a fully-constructed `MasterConnection`. The
+                // captured `master_idx` MUST equal the new length;
+                // if not, a concurrent appender bypassed
+                // `add_master_lock`, which is a protocol violation
+                // we surface loudly. The hot dispatch path's
+                // `masters.read()` is blocked only for the duration
+                // of the push.
+                let mut masters = self.masters.write().await;
+                if masters.len() != master_idx {
+                    return Err(RelaySwitchError::Protocol(format!(
+                        "add_master: append-index race for id '{}': reserved {} but masters.len() is now {} \
+                         (a concurrent caller bypassed add_master_lock — this is a protocol violation)",
+                        id, master_idx, masters.len()
+                    )));
+                }
+                masters.push(MasterConnection {
+                    id: id.clone(),
+                    socket_writer: Mutex::new(socket_writer),
+                    seq_assigner: Mutex::new(seq_assigner),
+                    manifest: RwLock::new(caps_payload),
+                    limits: RwLock::new(limits),
+                    caps: RwLock::new(caps),
+                    installed_cartridges: RwLock::new(payload.installed_cartridges),
+                    healthy: AtomicBool::new(healthy_at_register),
+                    reader_handle: Mutex::new(Some(reader_handle)),
+                    connected_at: std::sync::Mutex::new(Instant::now()),
+                    last_error: RwLock::new(identity_failure.clone()),
+                });
+            }
+            Some(slot_idx) => {
+                // Reattach branch. Take only a read lock on the Vec
+                // (the slot's index doesn't change; only its
+                // interior fields do, and every field is interior-
+                // mutable). The hot dispatch path can keep dispatching
+                // throughout. The previous reader handle is aborted
+                // defensively — by the time reattach runs the dead
+                // master's reader has already exited on EOF, but
+                // abort is idempotent and rules out any race with a
+                // still-running zombie task that happens to have
+                // outlived the socket close.
+                let masters = self.masters.read().await;
+                let slot: &MasterConnection = &masters[slot_idx];
+                if slot.id != id {
+                    return Err(RelaySwitchError::Protocol(format!(
+                        "add_master: reattach-id mismatch at index {}: expected '{}' but found '{}' \
+                         (masters Vec was reordered concurrently — this is a protocol violation)",
+                        slot_idx, id, slot.id
+                    )));
+                }
+                *slot.socket_writer.lock().await = socket_writer;
+                *slot.seq_assigner.lock().await = seq_assigner;
+                *slot.manifest.write().await = caps_payload;
+                *slot.limits.write().await = limits;
+                *slot.caps.write().await = caps;
+                *slot.installed_cartridges.write().await = payload.installed_cartridges;
+                slot.healthy.store(healthy_at_register, Ordering::SeqCst);
+                *slot.last_error.write().await = identity_failure.clone();
+                {
+                    let mut handle_slot = slot.reader_handle.lock().await;
+                    if let Some(prev) = handle_slot.take() {
+                        prev.abort();
+                    }
+                    *handle_slot = Some(reader_handle);
+                }
+                *slot
+                    .connected_at
+                    .lock()
+                    .expect("connected_at mutex poisoned") = Instant::now();
+            }
+        }
 
         // Rebuild tables
         self.rebuild_cap_table().await;
@@ -2059,6 +2290,7 @@ impl RelaySwitch {
             info!(
                 master_idx = master_idx,
                 cap_count = cap_count,
+                appending = existing_slot.is_none(),
                 "[RelaySwitch] Master connected successfully"
             );
         } else {
@@ -2914,7 +3146,12 @@ impl RelaySwitch {
             let master = &masters[master_idx];
             let was_healthy = master.healthy.load(Ordering::SeqCst);
             let cap_count = master.caps.read().await.len();
-            let connected_seconds = master.connected_at.elapsed().as_secs();
+            let connected_seconds = master
+                .connected_at
+                .lock()
+                .expect("connected_at mutex poisoned")
+                .elapsed()
+                .as_secs();
             (was_healthy, cap_count, connected_seconds)
         };
 
@@ -3295,6 +3532,20 @@ mod tests {
         Arc::new(FabricRegistry::new_for_test())
     }
 
+    /// Wrap a single test socket in the `(id, socket)` shape that
+    /// `RelaySwitch::new` now requires. Tests that don't care about
+    /// reattach semantics use this helper to keep the call sites
+    /// terse; the synthesised ids are positional (`"test-master-N"`)
+    /// so each test's slot count drives unique-id generation
+    /// without collision.
+    fn wrap_with_test_ids(sockets: Vec<UnixStream>) -> Vec<(String, UnixStream)> {
+        sockets
+            .into_iter()
+            .enumerate()
+            .map(|(i, s)| (format!("test-master-{}", i), s))
+            .collect()
+    }
+
     /// Helper: send RelayNotify with given caps/limits, then handle identity verification.
     /// Returns (FrameReader, FrameWriter) ready for further communication.
     ///
@@ -3433,7 +3684,7 @@ mod tests {
         });
 
         // Constructor reads RelayNotify + verifies identity for both masters
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock1, engine_sock2]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -3504,7 +3755,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -3593,7 +3844,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock1, engine_sock2]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -3653,7 +3904,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -3737,7 +3988,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock1, engine_sock2]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -3815,7 +4066,7 @@ mod tests {
             });
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -3861,7 +4112,7 @@ mod tests {
     // TEST432: Empty masters list creates empty switch, add_master works
     #[tokio::test]
     async fn test432_empty_masters_allowed() {
-        let switch = RelaySwitch::new(vec![], test_fabric_registry()).await.unwrap();
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![]), test_fabric_registry()).await.unwrap();
 
         // Empty switch has no caps
         let caps: Vec<String> = serde_json::from_slice(&switch.capabilities().await).unwrap();
@@ -3906,7 +4157,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock1, engine_sock2]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -3955,7 +4206,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock1, engine_sock2], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock1, engine_sock2]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -4000,7 +4251,7 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -4096,7 +4347,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock0, engine_sock1], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock0, engine_sock1]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -4140,7 +4391,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -4177,7 +4428,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -4220,7 +4471,7 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(vec![engine_sock], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -4288,7 +4539,7 @@ mod tests {
             writer.write(&err).await.unwrap();
         });
 
-        let result = RelaySwitch::new(vec![engine_sock], test_fabric_registry()).await;
+        let result = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry()).await;
         assert!(
             result.is_err(),
             "construction must fail when identity verification fails"
@@ -4396,7 +4647,7 @@ mod tests {
         });
 
         let switch = Arc::new(
-            RelaySwitch::new(vec![engine_sock], test_fabric_registry())
+            RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
                 .await
                 .expect("RelaySwitch construction must succeed for empty-cap initial notify"),
         );
@@ -4514,7 +4765,7 @@ mod tests {
             slave.run(socket_reader, socket_writer, None).await.unwrap();
         });
 
-        let switch = RelaySwitch::new(vec![switch_sock], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![switch_sock]), test_fabric_registry())
             .await
             .unwrap();
 
@@ -4694,7 +4945,7 @@ mod tests {
         );
 
         let (switch_sock_a, ht_a, st_a) = wire_host(host_a).await;
-        let switch = RelaySwitch::new(vec![switch_sock_a], test_fabric_registry())
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![switch_sock_a]), test_fabric_registry())
             .await
             .unwrap();
         assert_eq!(switch.masters.read().await.len(), 1);
@@ -4724,7 +4975,10 @@ mod tests {
         );
 
         let (switch_sock_b, ht_b, st_b) = wire_host(host_b).await;
-        let idx = switch.add_master(switch_sock_b).await.unwrap();
+        // Use a distinct id so this test exercises the append branch
+        // of `add_master` (the constructor already filled `test-master-0`
+        // via `wrap_with_test_ids`; this is a fresh slot at index 1).
+        let idx = switch.add_master("test-master-1", switch_sock_b).await.unwrap();
         assert_eq!(idx, 1);
         assert_eq!(switch.masters.read().await.len(), 2);
 
@@ -4777,6 +5031,214 @@ mod tests {
         drop(ht_a);
         drop(st_b);
         drop(ht_b);
+    }
+
+    // ============================================================
+    // Reattach-by-id tests for the cardinality-stable slot model.
+    //
+    // The core regression these guard against: when a master dies
+    // and the host reconnects, the new socket MUST attach to the
+    // same slot index that the dead master held — preserving any
+    // routing state keyed by index (cap_table, request_routing,
+    // origin_map). The engine has at most a handful of cardinality
+    // slots (3 in the website edition: in-process, bundled
+    // providers, XPC-service); accumulating zombie slots on each
+    // reconnect was the bug class that left "Master 0 unhealthy"
+    // permanently in the engine logs while masters 3, 4, 5, …
+    // appeared as fresh slots holding the actual reconnected
+    // gguf cartridge caps.
+
+    /// Reattach-by-id keeps the slot index stable.
+    ///
+    /// After a master at slot index 0 dies, a new socket added with
+    /// the same id MUST be placed into slot 0 (not appended at index 1).
+    /// Without this, request_routing entries keyed by `master_idx=0`
+    /// would dangle pointing at a permanently-unhealthy zombie slot
+    /// while the live caps came back at slot 1 — exactly the
+    /// observed bug.
+    #[tokio::test]
+    async fn test_reattach_by_id_preserves_slot_index() {
+        // Phase 1: build a switch with one slot at id "xpc-service",
+        // serviced by a freestanding `slave_notify_with_identity`
+        // task. We don't use the full `InProcessCartridgeHost` /
+        // `RelaySlave` plumbing here because reattach correctness
+        // is a pure RelaySwitch property — the slave just needs to
+        // satisfy the handshake.
+        let initial_caps = serde_json::json!([
+            "cap:in=media:;out=media:",
+            "cap:in=\"media:void\";trivial;out=\"media:void\"",
+        ]);
+        let (engine_sock_1, slave_sock_1) = UnixStream::pair().unwrap();
+        let _slave_task_1 = tokio::spawn({
+            let initial_caps = initial_caps.clone();
+            async move {
+                let _kept_open =
+                    slave_notify_with_identity(slave_sock_1, &initial_caps, &Limits::default())
+                        .await;
+                // Hold the (reader, writer) pair open until the
+                // engine marks the slot dead — at which point we
+                // drop and the socket closes. The test marks the
+                // slot dead via `handle_master_death` directly so
+                // this task doesn't actually need to do anything
+                // after the handshake.
+                std::future::pending::<()>().await;
+            }
+        });
+        let switch = Arc::new(
+            RelaySwitch::new(
+                vec![("xpc-service".to_string(), engine_sock_1)],
+                test_fabric_registry(),
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(switch.masters.read().await.len(), 1);
+        assert_eq!(switch.masters.read().await[0].id, "xpc-service");
+        assert!(
+            switch.masters.read().await[0]
+                .healthy
+                .load(Ordering::SeqCst)
+        );
+
+        // Phase 2: simulate master death. handle_master_death is
+        // the same code path the frame pump invokes on EOF — using
+        // it directly keeps the test focused on the reattach
+        // contract. The slot stays in `masters` (size unchanged)
+        // but its `healthy` flag flips to false.
+        switch.handle_master_death(0).await.unwrap();
+        assert!(
+            !switch.masters.read().await[0].healthy.load(Ordering::SeqCst),
+            "slot 0 must be unhealthy after handle_master_death"
+        );
+        assert_eq!(
+            switch.masters.read().await.len(),
+            1,
+            "handle_master_death must NOT remove the slot — reattach depends on it staying in place"
+        );
+
+        // Phase 3: reconnect with the SAME id. The new socket
+        // should reattach to slot 0, not append a new slot.
+        let (engine_sock_2, slave_sock_2) = UnixStream::pair().unwrap();
+        let _slave_task_2 = tokio::spawn({
+            let initial_caps = initial_caps.clone();
+            async move {
+                let _kept_open =
+                    slave_notify_with_identity(slave_sock_2, &initial_caps, &Limits::default())
+                        .await;
+                std::future::pending::<()>().await;
+            }
+        });
+
+        let new_idx = switch
+            .add_master("xpc-service", engine_sock_2)
+            .await
+            .expect("reattach should succeed");
+        assert_eq!(
+            new_idx, 0,
+            "reattach MUST return the same slot index (0), not append a new slot"
+        );
+        assert_eq!(
+            switch.masters.read().await.len(),
+            1,
+            "reattach MUST NOT grow the slot count — that was the zombie-slot bug"
+        );
+        assert!(
+            switch.masters.read().await[0].healthy.load(Ordering::SeqCst),
+            "slot must be healthy after reattach"
+        );
+        assert_eq!(
+            switch.masters.read().await[0].id,
+            "xpc-service",
+            "slot id MUST be preserved across reattach"
+        );
+
+        drop(switch);
+    }
+
+    /// Adding a master with an id that matches an already-HEALTHY
+    /// slot is a wiring bug — the same master must not be
+    /// registered twice. The switch surfaces this as a hard
+    /// `Protocol` error rather than silently producing a duplicate
+    /// slot.
+    #[tokio::test]
+    async fn test_add_master_with_duplicate_healthy_id_errors() {
+        let initial_caps = serde_json::json!([
+            "cap:in=media:;out=media:",
+            "cap:in=\"media:void\";trivial;out=\"media:void\"",
+        ]);
+        let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
+        let _slave_task = tokio::spawn({
+            let initial_caps = initial_caps.clone();
+            async move {
+                let _kept_open =
+                    slave_notify_with_identity(slave_sock, &initial_caps, &Limits::default())
+                        .await;
+                std::future::pending::<()>().await;
+            }
+        });
+        let switch = Arc::new(
+            RelaySwitch::new(
+                vec![("xpc-service".to_string(), engine_sock)],
+                test_fabric_registry(),
+            )
+            .await
+            .unwrap(),
+        );
+        assert!(
+            switch.masters.read().await[0].healthy.load(Ordering::SeqCst),
+            "slot 0 must be healthy after construction"
+        );
+
+        // Try to add a second master with the same id while the
+        // existing slot is still healthy. add_master should error
+        // BEFORE doing any I/O — there is no need to wire a real
+        // slave on the dummy socket; the dispatcher rejects the
+        // call at the cardinality check.
+        let (_dummy_a, dummy_b) = UnixStream::pair().unwrap();
+        let err = switch
+            .add_master("xpc-service", dummy_b)
+            .await
+            .expect_err("re-adding a healthy id must error");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("already attached to a healthy slot"),
+            "error message should name the cardinality violation: {}",
+            msg
+        );
+        assert_eq!(
+            switch.masters.read().await.len(),
+            1,
+            "no slot should be created when the duplicate-id check fires"
+        );
+
+        drop(switch);
+    }
+
+    /// `RelaySwitch::new` rejects duplicate ids in its cardinality
+    /// list. Without this guard the first reconnect would
+    /// reattach to whichever slot is found first by the linear
+    /// scan, leaving the other slot stuck unhealthy forever.
+    #[tokio::test]
+    async fn test_relay_switch_new_rejects_duplicate_ids() {
+        let (sock_a, _sock_a_other) = UnixStream::pair().unwrap();
+        let (sock_b, _sock_b_other) = UnixStream::pair().unwrap();
+
+        let result = RelaySwitch::new(
+            vec![
+                ("dup-id".to_string(), sock_a),
+                ("dup-id".to_string(), sock_b),
+            ],
+            test_fabric_registry(),
+        )
+        .await;
+
+        let err = result.expect_err("duplicate ids must be rejected");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("duplicate master id 'dup-id'"),
+            "error should name the duplicate id: {}",
+            msg
+        );
     }
 
     // TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match
@@ -4894,7 +5356,7 @@ mod tests {
         let (switch_sock_extra, ht_extra, st_extra) = wire_host(host_extra).await;
 
         let switch = RelaySwitch::new(
-            vec![switch_sock_exact, switch_sock_extra],
+            wrap_with_test_ids(vec![switch_sock_exact, switch_sock_extra]),
             test_fabric_registry(),
         )
         .await
@@ -5034,7 +5496,7 @@ mod tests {
             });
         }
         Arc::new(
-            RelaySwitch::new(engine_socks, test_fabric_registry())
+            RelaySwitch::new(wrap_with_test_ids(engine_socks), test_fabric_registry())
                 .await
                 .unwrap(),
         )
@@ -5104,7 +5566,7 @@ mod tests {
             });
         }
         Arc::new(
-            RelaySwitch::new(engine_socks, test_fabric_registry())
+            RelaySwitch::new(wrap_with_test_ids(engine_socks), test_fabric_registry())
                 .await
                 .unwrap(),
         )

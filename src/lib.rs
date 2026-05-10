@@ -67,7 +67,8 @@ pub use standard::*;
 
 // Bifaci protocol — frames, I/O, runtimes
 pub use bifaci::cartridge_runtime::{
-    find_stream, find_stream_meta, find_stream_str, require_stream, require_stream_str,
+    find_stream, find_stream_conforming, find_stream_meta, find_stream_str,
+    find_stream_str_conforming, require_stream, require_stream_str,
     AdapterSelectionOp, CapacityHandle, CartridgeRuntime, CliStreamEmitter, DiscardOp,
     FrameSender, IdentityOp, InputPackage, InputStream, NoPeerInvoker, OpFactory,
     OutputStream, PeerCall, PeerInvoker, PeerResponse, PeerResponseItem, ProgressSender,
