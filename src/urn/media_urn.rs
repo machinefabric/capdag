@@ -105,7 +105,14 @@ pub const MEDIA_MKV: &str = "media:mkv;video";
 /// Media URN for audio input containing speech for transcription (Whisper)
 pub const MEDIA_AUDIO_SPEECH: &str = "media:audio;wav;speech";
 /// Media URN for extracted page text
-pub const MEDIA_TEXTABLE_PAGE: &str = "media:textable;page";
+/// Media URN for a single page of finalised plain text extracted from a
+/// multi-page document (e.g. `cap:disbind-pdf`'s output, one item per page).
+///
+/// The composite URN carries `role=page` (the per-page sequence marker),
+/// `plain-text` (the finalised-text marker that opts into
+/// `cap:save-as-txt`'s persistence path), and `file-type=txt` (binds the
+/// URN to the `.txt` extension at the registry).
+pub const MEDIA_TEXTABLE_PAGE: &str = "media:page;plain-text;textable;txt";
 
 // Document types (PRIMARY naming - type IS the format)
 /// Media URN for PDF documents
@@ -322,14 +329,27 @@ pub const MEDIA_AVAILABILITY_OUTPUT: &str = "media:model-availability;record;tex
 pub const MEDIA_PATH_OUTPUT: &str = "media:model-path;record;textable";
 /// Media URN for embedding vector output - has record marker
 pub const MEDIA_EMBEDDING_VECTOR: &str = "media:embedding-vector;record;textable";
-/// Media URN for LLM inference output - has record marker
-pub const MEDIA_LLM_INFERENCE_OUTPUT: &str = "media:generated-text;record;textable";
-/// Media URN for vision inference output - textable, scalar by default
-pub const MEDIA_IMAGE_DESCRIPTION: &str = "media:image-description;textable";
+/// Media URN for vision inference output — a concrete textable terminal.
+///
+/// The composite URN carries `image-description` (the vision-specific marker
+/// so downstream tools can still match captions specifically), `plain-text`
+/// (the finalised-text marker that opts into `cap:save-as-txt`'s persistence
+/// path), and `file-type=txt` (binds the URN to the `.txt` extension at the
+/// registry).
+pub const MEDIA_IMAGE_DESCRIPTION: &str = "media:image-description;plain-text;textable;txt";
 /// Media URN for OCR output — verbatim text extracted from an image, scalar by default.
 /// Distinct from `MEDIA_IMAGE_DESCRIPTION` (which is a generated caption / answer about
 /// the image) — `extracted-text` carries text that is *present* in the image.
-pub const MEDIA_EXTRACTED_TEXT: &str = "media:extracted-text;textable";
+///
+/// The composite URN carries `extracted-text` (the OCR-specific marker), `plain-text`
+/// (the finalised-text marker that opts into `cap:save-as-txt`'s persistence path),
+/// and `file-type=txt` (binds the URN to the `.txt` extension at the registry).
+pub const MEDIA_EXTRACTED_TEXT: &str = "media:extracted-text;plain-text;textable;txt";
+/// Media URN for finalised plain text — the canonical input/output of `cap:save-as-txt`.
+/// Producers of user-facing prose (LLM text-generation, OCR's extracted text,
+/// summarisation) declare this URN as their `out` so the planner restricts the
+/// `.txt` persistence path to those caps. See `fabric/media/plain-text.toml`.
+pub const MEDIA_PLAIN_TEXT: &str = "media:plain-text;textable;txt";
 /// Media URN for transcription output - has record marker
 pub const MEDIA_TRANSCRIPTION_OUTPUT: &str = "media:record;textable;transcription";
 /// Media URN for decision output — JSON object with identifier and boolean value

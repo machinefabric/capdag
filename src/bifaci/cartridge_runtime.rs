@@ -432,6 +432,41 @@ pub fn find_stream_str(
     find_stream(streams, media_urn).and_then(|b| String::from_utf8(b.to_vec()).ok())
 }
 
+/// Find a stream whose URN *conforms to* `pattern`. Use this when the
+/// cap-arg URN declared in the cap TOML is a richer refinement of the
+/// bare functional pattern the handler thinks about (e.g. cap TOML
+/// declares `media:max-tokens;inference;limit;user;task;textable;numeric`,
+/// the handler thinks `media:max-tokens;textable;numeric`). Equality
+/// matching via [`find_stream`] silently misses the rich form,
+/// the unmatched stream falls through to the textable catch-all
+/// downstream and overwrites the prompt body — that's the
+/// gibberish-output bug class.
+pub fn find_stream_conforming<'a>(
+    streams: &'a [(String, Vec<u8>, Option<StreamMeta>)],
+    pattern: &str,
+) -> Option<&'a [u8]> {
+    let p = match crate::MediaUrn::from_string(pattern) {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
+    streams.iter().find_map(|(urn_str, bytes, _meta)| {
+        let urn = crate::MediaUrn::from_string(urn_str).ok()?;
+        if urn.conforms_to(&p).unwrap_or(false) {
+            Some(bytes.as_slice())
+        } else {
+            None
+        }
+    })
+}
+
+/// Like `find_stream_conforming` but returns a UTF-8 string.
+pub fn find_stream_str_conforming(
+    streams: &[(String, Vec<u8>, Option<StreamMeta>)],
+    pattern: &str,
+) -> Option<String> {
+    find_stream_conforming(streams, pattern).and_then(|b| String::from_utf8(b.to_vec()).ok())
+}
+
 /// Find the stream-level metadata (from STREAM_START) for a stream by media URN.
 pub fn find_stream_meta<'a>(
     streams: &'a [(String, Vec<u8>, Option<StreamMeta>)],
@@ -3477,10 +3512,51 @@ impl CartridgeRuntime {
             }
         }
 
-        // Try default value
+        // Try default value.
+        //
+        // The wire contract for an arg stream is "bytes of the typed
+        // media URN". For a `media:textable`-shaped arg that's plain
+        // UTF-8 text — NOT a JSON-encoded form. A naive
+        // `serde_json::to_vec(default)` would corrupt every string
+        // default by wrapping it in `"…"`: a `default_value =
+        // serde_json::json!("hf:foo")` would arrive at the handler
+        // as the eight bytes `"hf:foo"` (with quotes), which the
+        // handler's `String::from_utf8` would surface as a literal
+        // quoted string — and downstream parsers (model-spec,
+        // system-prompt, etc.) would silently choke on the
+        // quotation.
+        //
+        // The right behaviour is to encode each scalar JSON value
+        // as its lexical wire form, matching exactly what the same
+        // value typed at the CLI flag would produce:
+        //
+        // - `Value::String(s)` ⇒ `s.as_bytes()` — the raw text, no
+        //   quoting. The CLI equivalent `--flag value` produces
+        //   `b"value"`, so this default must too.
+        // - `Value::Number(n)` ⇒ the lexical decimal (`"512"`,
+        //   `"0.7"`). `serde_json::to_vec` happens to produce the
+        //   same bytes for numbers because JSON-numbers and
+        //   decimal-text coincide; we route through `to_string()`
+        //   anyway so the contract is explicit.
+        // - `Value::Bool(b)` ⇒ `"true"` / `"false"`.
+        // - `Value::Null` ⇒ `""` (empty bytes). A null default is
+        //   identical in semantics to "no default supplied".
+        // - `Value::Array(_)` / `Value::Object(_)` ⇒ JSON-encoded
+        //   bytes via `serde_json::to_vec`. Composite defaults are
+        //   the case where the wire form genuinely IS JSON — a cap
+        //   that declares an array default expects to receive that
+        //   array as JSON on its arg stream.
         if let Some(default) = &arg_def.default_value {
-            let bytes =
-                serde_json::to_vec(default).map_err(|e| RuntimeError::Serialize(e.to_string()))?;
+            let bytes: Vec<u8> = match default {
+                serde_json::Value::String(s) => s.as_bytes().to_vec(),
+                serde_json::Value::Number(n) => n.to_string().into_bytes(),
+                serde_json::Value::Bool(b) => {
+                    if *b { b"true".to_vec() } else { b"false".to_vec() }
+                }
+                serde_json::Value::Null => Vec::new(),
+                serde_json::Value::Array(_) | serde_json::Value::Object(_) => serde_json::to_vec(default)
+                    .map_err(|e| RuntimeError::Serialize(e.to_string()))?,
+            };
             return Ok((Some(bytes), false));
         }
 

@@ -27,7 +27,6 @@ use crate::urn::media_urn::{
     MEDIA_MEDIA_SPEC_DEFINITION,
     MEDIA_MEDIA_URN,
     MEDIA_LIST_OUTPUT,
-    MEDIA_LLM_INFERENCE_OUTPUT,
     MEDIA_LOG,
     // Text format types
     MEDIA_MD,
@@ -342,54 +341,6 @@ pub fn llm_generate_text_urn() -> CapUrn {
         .out_spec(MEDIA_STRING)
         .build()
         .expect("Failed to build generate_text cap URN")
-}
-
-/// Build URN for multiplechoice capability
-pub fn llm_multiplechoice_urn(lang_code: &str) -> CapUrn {
-    CapUrnBuilder::new()
-        .marker("multiplechoice")
-        .marker("constrained")
-        .tag("language", lang_code)
-        .in_spec(MEDIA_STRING)
-        .out_spec(MEDIA_LLM_INFERENCE_OUTPUT)
-        .build()
-        .expect("Failed to build multiplechoice cap URN")
-}
-
-/// Build URN for codegeneration capability
-pub fn llm_codegeneration_urn(lang_code: &str) -> CapUrn {
-    CapUrnBuilder::new()
-        .marker("codegeneration")
-        .marker("constrained")
-        .tag("language", lang_code)
-        .in_spec(MEDIA_STRING)
-        .out_spec(MEDIA_LLM_INFERENCE_OUTPUT)
-        .build()
-        .expect("Failed to build codegeneration cap URN")
-}
-
-/// Build URN for creative capability
-pub fn llm_creative_urn(lang_code: &str) -> CapUrn {
-    CapUrnBuilder::new()
-        .marker("creative")
-        .marker("constrained")
-        .tag("language", lang_code)
-        .in_spec(MEDIA_STRING)
-        .out_spec(MEDIA_LLM_INFERENCE_OUTPUT)
-        .build()
-        .expect("Failed to build creative cap URN")
-}
-
-/// Build URN for summarization capability
-pub fn llm_summarization_urn(lang_code: &str) -> CapUrn {
-    CapUrnBuilder::new()
-        .marker("summarization")
-        .marker("constrained")
-        .tag("language", lang_code)
-        .in_spec(MEDIA_STRING)
-        .out_spec(MEDIA_LLM_INFERENCE_OUTPUT)
-        .build()
-        .expect("Failed to build summarization cap URN")
 }
 
 // -----------------------------------------------------------------------------
@@ -864,42 +815,6 @@ pub async fn llm_generate_text_cap(registry: Arc<FabricRegistry>) -> Result<Cap,
     registry.get_cap(&urn.to_string()).await
 }
 
-/// Get multiplechoice cap from registry with language
-pub async fn llm_multiplechoice(
-    registry: Arc<FabricRegistry>,
-    lang_code: &str,
-) -> Result<Cap, FabricRegistryError> {
-    let urn = llm_multiplechoice_urn(lang_code);
-    registry.get_cap(&urn.to_string()).await
-}
-
-/// Get codegeneration cap from registry with language
-pub async fn llm_codegeneration(
-    registry: Arc<FabricRegistry>,
-    lang_code: &str,
-) -> Result<Cap, FabricRegistryError> {
-    let urn = llm_codegeneration_urn(lang_code);
-    registry.get_cap(&urn.to_string()).await
-}
-
-/// Get creative cap from registry with language
-pub async fn llm_creative(
-    registry: Arc<FabricRegistry>,
-    lang_code: &str,
-) -> Result<Cap, FabricRegistryError> {
-    let urn = llm_creative_urn(lang_code);
-    registry.get_cap(&urn.to_string()).await
-}
-
-/// Get summarization cap from registry with language
-pub async fn llm_summarization(
-    registry: Arc<FabricRegistry>,
-    lang_code: &str,
-) -> Result<Cap, FabricRegistryError> {
-    let urn = llm_summarization_urn(lang_code);
-    registry.get_cap(&urn.to_string()).await
-}
-
 // -----------------------------------------------------------------------------
 // EMBEDDING CAPABILITIES
 // -----------------------------------------------------------------------------
@@ -1078,7 +993,7 @@ mod tests {
     use super::*;
     use crate::standard::media::MEDIA_STRING;
     use crate::urn::media_urn::{
-        MEDIA_AVAILABILITY_OUTPUT, MEDIA_LLM_INFERENCE_OUTPUT, MEDIA_MODEL_SPEC, MEDIA_PATH_OUTPUT,
+        MEDIA_AVAILABILITY_OUTPUT, MEDIA_MODEL_SPEC, MEDIA_PATH_OUTPUT,
     };
 
     // TEST307: Test model_availability_urn builds valid cap URN with correct op and media specs
