@@ -2289,7 +2289,6 @@ impl RelaySwitch {
         if healthy_at_register {
             info!(
                 master_idx = master_idx,
-                master_id = %id,
                 cap_count = cap_count,
                 appending = existing_slot.is_none(),
                 "[RelaySwitch] Master connected successfully"
@@ -2297,7 +2296,6 @@ impl RelaySwitch {
         } else {
             tracing::error!(
                 master_idx = master_idx,
-                master_id = %id,
                 cap_count = cap_count,
                 error = %identity_failure.as_deref().unwrap_or(""),
                 "[RelaySwitch] Master registered as UNHEALTHY (identity probe failed) — installed_cartridges remain in inventory but the master is not in the routing table"
@@ -3373,43 +3371,6 @@ impl RelaySwitch {
                 previous_caps = old_caps.len(),
                 "[RelaySwitch] Capabilities changed"
             );
-
-            // Log per-master breakdown
-            for (idx, master_id, healthy, caps) in &caps_by_master {
-                let status = if *healthy { "healthy" } else { "unhealthy" };
-                info!(
-                    master_idx = idx,
-                    master_id = master_id,
-                    status = status,
-                    cap_count = caps.len(),
-                    "[RelaySwitch] Master {} ({}) caps: {} ({})",
-                    idx,
-                    master_id,
-                    caps.len(),
-                    status
-                );
-                // Log sample of caps (first 5) for debugging
-                for (i, cap) in caps.iter().take(5).enumerate() {
-                    info!(
-                        master_idx = idx,
-                        master_id = master_id,
-                        cap_idx = i,
-                        cap_urn = cap.as_str(),
-                        "[RelaySwitch]   cap[{}]: {}",
-                        i,
-                        cap
-                    );
-                }
-                if caps.len() > 5 {
-                    info!(
-                        master_idx = idx,
-                        master_id = master_id,
-                        remaining = caps.len() - 5,
-                        "[RelaySwitch]   ... and {} more caps",
-                        caps.len() - 5
-                    );
-                }
-            }
 
             // Rebuild the LiveCapFab with the new set of available caps.
             //
