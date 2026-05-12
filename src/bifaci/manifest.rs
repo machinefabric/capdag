@@ -199,6 +199,32 @@ impl CapManifest {
     }
 }
 
+/// Compile-time validation for `MFR_REGISTRY_URL`.
+///
+/// Valid states:
+/// - `None`   => dev build; registry identity is absent and the build
+///               must use the on-disk `dev/` slot.
+/// - `Some(s)` where `s` is non-empty => published-registry build.
+///
+/// Invalid state:
+/// - `Some("")` => caller exported the variable with an empty value.
+///   This is neither a dev build nor a valid registry identity, and it
+///   must fail hard at compile time so the build cannot silently hash the
+///   empty string into a fake registry slug.
+pub const fn registry_url_from_build_env(raw: Option<&'static str>) -> Option<&'static str> {
+    match raw {
+        None => None,
+        Some(url) => {
+            if url.len() == 0 {
+                panic!(
+                    "MFR_REGISTRY_URL must be unset for dev builds or set to a non-empty registry URL for published builds; empty string is invalid"
+                );
+            }
+            Some(url)
+        }
+    }
+}
+
 /// Trait for components to provide metadata about themselves
 pub trait ComponentMetadata {
     /// Get component manifest

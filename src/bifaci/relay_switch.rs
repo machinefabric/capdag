@@ -2289,6 +2289,7 @@ impl RelaySwitch {
         if healthy_at_register {
             info!(
                 master_idx = master_idx,
+                master_id = %id,
                 cap_count = cap_count,
                 appending = existing_slot.is_none(),
                 "[RelaySwitch] Master connected successfully"
@@ -2296,6 +2297,7 @@ impl RelaySwitch {
         } else {
             tracing::error!(
                 master_idx = master_idx,
+                master_id = %id,
                 cap_count = cap_count,
                 error = %identity_failure.as_deref().unwrap_or(""),
                 "[RelaySwitch] Master registered as UNHEALTHY (identity probe failed) — installed_cartridges remain in inventory but the master is not in the routing table"
@@ -3284,7 +3286,7 @@ impl RelaySwitch {
     /// Logs changes if the capability set differs from the previous state.
     async fn rebuild_capabilities(&self) {
         // Collect caps per master for detailed logging
-        let mut caps_by_master: Vec<(usize, bool, Vec<String>)> = Vec::new();
+        let mut caps_by_master: Vec<(usize, String, bool, Vec<String>)> = Vec::new();
         let mut installed_cartridges_by_master: Vec<(bool, Vec<InstalledCartridgeRecord>)> =
             Vec::new();
         let masters = self.masters.read().await;
@@ -3292,14 +3294,14 @@ impl RelaySwitch {
             let healthy = master.healthy.load(Ordering::SeqCst);
             let caps = master.caps.read().await.clone();
             let installed_cartridges = master.installed_cartridges.read().await.clone();
-            caps_by_master.push((idx, healthy, caps));
+            caps_by_master.push((idx, master.id.clone(), healthy, caps));
             installed_cartridges_by_master.push((healthy, installed_cartridges));
         }
         drop(masters);
 
         // Collect all caps from healthy masters
         let mut all_caps: Vec<String> = Vec::new();
-        for (_, healthy, caps) in &caps_by_master {
+        for (_, _, healthy, caps) in &caps_by_master {
             if *healthy {
                 all_caps.extend(caps.iter().cloned());
             }
@@ -3373,14 +3375,16 @@ impl RelaySwitch {
             );
 
             // Log per-master breakdown
-            for (idx, healthy, caps) in &caps_by_master {
+            for (idx, master_id, healthy, caps) in &caps_by_master {
                 let status = if *healthy { "healthy" } else { "unhealthy" };
                 info!(
                     master_idx = idx,
+                    master_id = master_id,
                     status = status,
                     cap_count = caps.len(),
-                    "[RelaySwitch] Master {} caps: {} ({})",
+                    "[RelaySwitch] Master {} ({}) caps: {} ({})",
                     idx,
+                    master_id,
                     caps.len(),
                     status
                 );
@@ -3388,6 +3392,7 @@ impl RelaySwitch {
                 for (i, cap) in caps.iter().take(5).enumerate() {
                     info!(
                         master_idx = idx,
+                        master_id = master_id,
                         cap_idx = i,
                         cap_urn = cap.as_str(),
                         "[RelaySwitch]   cap[{}]: {}",
@@ -3398,6 +3403,7 @@ impl RelaySwitch {
                 if caps.len() > 5 {
                     info!(
                         master_idx = idx,
+                        master_id = master_id,
                         remaining = caps.len() - 5,
                         "[RelaySwitch]   ... and {} more caps",
                         caps.len() - 5

@@ -81,14 +81,14 @@ pub const CAP_ADAPTER_SELECTION: &str =
 
 /// Cap that resolves a canonical cap URN to its full flattened cap definition
 /// by fetching the registry-published entry. Implemented by the engine-bundled
-/// `netaccesscartridge`. Sandboxed cartridges peer-invoke this when they need
+/// `fetchcartridge`. Sandboxed cartridges peer-invoke this when they need
 /// to read a cap's `default_value` or any other registry-only field.
 pub const CAP_LOOKUP_CAP_FABRIC: &str =
     "cap:in=\"media:cap-urn;textable\";fabric;lookup-cap;out=\"media:cap-definition;json;record;textable\"";
 
 /// Cap that resolves a canonical media URN to its full media spec definition
 /// by fetching the registry-published entry. Implemented by the engine-bundled
-/// `netaccesscartridge`. Sandboxed cartridges peer-invoke this when they need
+/// `fetchcartridge`. Sandboxed cartridges peer-invoke this when they need
 /// to read a media spec's title, MIME type, profile URI, or any other
 /// registry-only field.
 pub const CAP_LOOKUP_MEDIA_SPEC_FABRIC: &str =
