@@ -940,8 +940,11 @@ mod tests {
                 ArgSource::Position { position: 0 },
             ],
             arg_description: Some("The name argument".to_string()),
-            default_value: None,
-            metadata: None,
+            default_value: Some(serde_json::json!(400)),
+            metadata: Some(serde_json::json!({
+                "kind": "example",
+                "flags": [true, false]
+            })),
         };
 
         let serialized = serde_json::to_string(&arg).unwrap();
@@ -949,6 +952,8 @@ mod tests {
         assert!(serialized.contains("\"required\":true"));
         assert!(serialized.contains("\"cli_flag\":\"--name\""));
         assert!(serialized.contains("\"position\":0"));
+        assert!(serialized.contains("\"default_value\":400"));
+        assert!(serialized.contains("\"metadata\":{\"kind\":\"example\",\"flags\":[true,false]}"));
 
         let deserialized: CapArg = serde_json::from_str(&serialized).unwrap();
         assert_eq!(arg, deserialized);
@@ -1141,7 +1146,10 @@ mod tests {
     // TEST597: CapArg::with_full_definition stores all fields including optional ones
     #[test]
     fn test597_cap_arg_with_full_definition() {
-        let default_val = serde_json::json!("default_text");
+        let default_val = serde_json::json!({
+            "chunk_size": 400,
+            "timestamps": false
+        });
         let meta = serde_json::json!({"hint": "enter name"});
 
         let arg = CapArg::with_full_definition(
