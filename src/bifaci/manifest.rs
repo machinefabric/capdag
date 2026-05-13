@@ -413,6 +413,28 @@ mod tests {
             true,
             vec![ArgSource::Stdin { stdin: "media:pdf".to_string() }],
         ));
+        cap.add_arg(CapArg::with_full_definition(
+            "media:chunk-size;textable;numeric",
+            false,
+            false,
+            vec![ArgSource::CliFlag {
+                cli_flag: "--chunk-size".to_string(),
+            }],
+            Some("Chunk size".to_string()),
+            Some(serde_json::json!(400)),
+            Some(serde_json::json!({"unit": "words"})),
+        ));
+        cap.add_arg(CapArg::with_full_definition(
+            "media:timestamps;textable;bool",
+            false,
+            false,
+            vec![ArgSource::CliFlag {
+                cli_flag: "--timestamps".to_string(),
+            }],
+            Some("Include timestamps".to_string()),
+            Some(serde_json::json!(false)),
+            None,
+        ));
 
         let manifest = CapManifest::new(
             "TestComponent".to_string(),
@@ -428,10 +450,16 @@ mod tests {
         assert!(json.contains("\"name\":\"TestComponent\""));
         assert!(json.contains("\"author\":\"Test Author\""));
         assert!(json.contains("\"cap_groups\""));
+        assert!(json.contains("\"default_value\":400"));
+        assert!(json.contains("\"default_value\":false"));
 
         let deserialized: CapManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.name, manifest.name);
         assert_eq!(deserialized.all_caps().len(), manifest.all_caps().len());
+        let decoded_cap = &deserialized.all_caps()[0];
+        assert_eq!(decoded_cap.args[1].default_value, Some(serde_json::json!(400)));
+        assert_eq!(decoded_cap.args[1].metadata, Some(serde_json::json!({"unit": "words"})));
+        assert_eq!(decoded_cap.args[2].default_value, Some(serde_json::json!(false)));
     }
 
     // TEST151: Missing required fields fail
