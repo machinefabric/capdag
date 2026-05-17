@@ -827,6 +827,25 @@ impl LiveCapFab {
         max_depth: usize,
         max_paths: usize,
     ) -> Vec<Strand> {
+        self.find_paths_to_exact_target_with_step_title_query(
+            source,
+            target,
+            is_sequence,
+            max_depth,
+            max_paths,
+            None,
+        )
+    }
+
+    pub fn find_paths_to_exact_target_with_step_title_query(
+        &self,
+        source: &MediaUrn,
+        target: &MediaUrn,
+        is_sequence: bool,
+        max_depth: usize,
+        max_paths: usize,
+        step_title_query: Option<&str>,
+    ) -> Vec<Strand> {
         // Fast-fail: if no registered node is equivalent to the target, there
         // is no path to find. Without this, IDDFS exhaustively explores the
         // whole reachable graph (up to the 100_000-node abort) before giving
@@ -861,6 +880,7 @@ impl LiveCapFab {
                 target,
                 source,
                 is_sequence,
+                step_title_query,
                 &mut current_path,
                 &mut visited,
                 &mut all_paths,
@@ -908,6 +928,32 @@ impl LiveCapFab {
     where
         F: FnMut(PathFindingEvent),
     {
+        self.find_paths_streaming_with_step_title_query(
+            source,
+            target,
+            is_sequence,
+            max_depth,
+            max_paths,
+            None,
+            cancelled,
+            on_event,
+        )
+    }
+
+    pub fn find_paths_streaming_with_step_title_query<F>(
+        &self,
+        source: &MediaUrn,
+        target: &MediaUrn,
+        is_sequence: bool,
+        max_depth: usize,
+        max_paths: usize,
+        step_title_query: Option<&str>,
+        cancelled: &std::sync::atomic::AtomicBool,
+        mut on_event: F,
+    ) -> Vec<Strand>
+    where
+        F: FnMut(PathFindingEvent),
+    {
         // Same fast-fail as find_paths_to_exact_target: if no registered node
         // is equivalent to the target, don't run IDDFS.
         let target_is_registered = self
@@ -939,6 +985,7 @@ impl LiveCapFab {
                 target,
                 source,
                 is_sequence,
+                step_title_query,
                 &mut current_path,
                 &mut visited,
                 &mut all_paths,
@@ -992,6 +1039,7 @@ impl LiveCapFab {
         target: &MediaUrn,
         current: &MediaUrn,
         is_sequence: bool,
+        step_title_query: Option<&str>,
         current_path: &mut Vec<StrandStep>,
         visited: &mut HashSet<(MediaUrn, bool)>,
         all_paths: &mut Vec<Strand>,
@@ -1027,14 +1075,17 @@ impl LiveCapFab {
                         .collect::<Vec<_>>()
                         .join(" → ");
 
-                    all_paths.push(Strand {
+                    let path = Strand {
                         steps: current_path.clone(),
                         source_spec: source.clone(),
                         target_spec: target.clone(),
                         total_steps: current_path.len() as i32,
                         cap_step_count,
                         description,
-                    });
+                    };
+                    if Self::path_matches_step_title_query(&path, step_title_query) {
+                        all_paths.push(path);
+                    }
                 }
             }
             // For round-trip paths (source==target), don't return early —
@@ -1094,6 +1145,7 @@ impl LiveCapFab {
                     target,
                     &edge.to_spec,
                     next_is_seq,
+                    step_title_query,
                     current_path,
                     visited,
                     all_paths,
@@ -1108,6 +1160,20 @@ impl LiveCapFab {
         }
 
         visited.remove(&visit_key);
+    }
+
+    fn path_matches_step_title_query(path: &Strand, step_title_query: Option<&str>) -> bool {
+        let Some(step_title_query) = step_title_query
+            .map(str::trim)
+            .filter(|query| !query.is_empty())
+        else {
+            return true;
+        };
+
+        let needle = step_title_query.to_lowercase();
+        path.steps
+            .iter()
+            .any(|step| step.title().to_lowercase().contains(&needle))
     }
 
     /// Compare two paths for deterministic ordering.
@@ -2505,6 +2571,98 @@ mod tests {
         assert!(
             paths.is_empty(),
             "No round-trip should exist when there's no return edge. Got {} paths.",
+            paths.len()
+        );
+    }
+
+    #[test]
+    fn test1294_step_title_query_filters_paths_server_side() {
+        let mut graph = LiveCapFab::new();
+
+        graph.add_cap(&make_test_cap("media:a", "media:b", "a_to_b", "Resize"));
+        graph.add_cap(&make_test_cap("media:b", "media:c", "b_to_c", "Export"));
+        graph.add_cap(&make_test_cap("media:a", "media:d", "a_to_d", "Decimate"));
+        graph.add_cap(&make_test_cap("media:d", "media:c", "d_to_c", "Export"));
+
+        let source = MediaUrn::from_string("media:a").unwrap();
+        let target = MediaUrn::from_string("media:c").unwrap();
+
+        let paths = graph.find_paths_to_exact_target_with_step_title_query(
+            &source,
+            &target,
+            false,
+            5,
+            10,
+            Some("decimate"),
+        );
+
+        assert_eq!(
+            paths.len(),
+            1,
+            "Only the path containing a step title matching 'decimate' should be returned. Got {} paths.",
+            paths.len()
+        );
+        assert!(
+            paths[0]
+                .steps
+                .iter()
+                .any(|step| step.title().contains("Decimate")),
+            "Filtered result must include the matching step title. Got: {:?}",
+            paths[0]
+                .steps
+                .iter()
+                .map(|step| step.title())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test1295_step_title_query_constrains_streaming_progress_counts() {
+        let mut graph = LiveCapFab::new();
+
+        graph.add_cap(&make_test_cap("media:a", "media:b", "a_to_b", "Resize"));
+        graph.add_cap(&make_test_cap("media:b", "media:c", "b_to_c", "Export"));
+        graph.add_cap(&make_test_cap("media:a", "media:d", "a_to_d", "Decimate"));
+        graph.add_cap(&make_test_cap("media:d", "media:c", "d_to_c", "Export"));
+
+        let source = MediaUrn::from_string("media:a").unwrap();
+        let target = MediaUrn::from_string("media:c").unwrap();
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        let mut max_paths_found = 0usize;
+        let mut emitted_paths = Vec::new();
+
+        let paths = graph.find_paths_streaming_with_step_title_query(
+            &source,
+            &target,
+            false,
+            5,
+            10,
+            Some("decimate"),
+            &cancelled,
+            |event| match event {
+                PathFindingEvent::DepthComplete { paths_found, .. } => {
+                    max_paths_found = max_paths_found.max(paths_found);
+                }
+                PathFindingEvent::PathFound(path) => emitted_paths.push(path),
+                PathFindingEvent::Complete { .. } => {}
+            },
+        );
+
+        assert_eq!(
+            max_paths_found, 1,
+            "Streaming progress must count only paths matching the query. Got {}.",
+            max_paths_found
+        );
+        assert_eq!(
+            emitted_paths.len(),
+            1,
+            "Streaming path events must emit only matching paths. Got {}.",
+            emitted_paths.len()
+        );
+        assert_eq!(
+            paths.len(),
+            1,
+            "Final streaming result must contain only matching paths. Got {}.",
             paths.len()
         );
     }

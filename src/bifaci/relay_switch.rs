@@ -1197,8 +1197,35 @@ impl RelaySwitch {
         max_depth: usize,
         max_paths: usize,
     ) -> Vec<Strand> {
+        self.find_paths_to_exact_target_with_step_title_query(
+            source,
+            target,
+            is_sequence,
+            max_depth,
+            max_paths,
+            None,
+        )
+        .await
+    }
+
+    pub async fn find_paths_to_exact_target_with_step_title_query(
+        &self,
+        source: &MediaUrn,
+        target: &MediaUrn,
+        is_sequence: bool,
+        max_depth: usize,
+        max_paths: usize,
+        step_title_query: Option<&str>,
+    ) -> Vec<Strand> {
         let graph = self.live_cap_fab.read().await;
-        graph.find_paths_to_exact_target(source, target, is_sequence, max_depth, max_paths)
+        graph.find_paths_to_exact_target_with_step_title_query(
+            source,
+            target,
+            is_sequence,
+            max_depth,
+            max_paths,
+            step_title_query,
+        )
     }
 
     /// Find paths with streaming progress callback.
@@ -1215,13 +1242,41 @@ impl RelaySwitch {
     where
         F: FnMut(crate::planner::PathFindingEvent),
     {
-        let graph = self.live_cap_fab.read().await;
-        graph.find_paths_streaming(
+        self.find_paths_streaming_with_step_title_query(
             source,
             target,
             is_sequence,
             max_depth,
             max_paths,
+            None,
+            cancelled,
+            on_event,
+        )
+        .await
+    }
+
+    pub async fn find_paths_streaming_with_step_title_query<F>(
+        &self,
+        source: &MediaUrn,
+        target: &MediaUrn,
+        is_sequence: bool,
+        max_depth: usize,
+        max_paths: usize,
+        step_title_query: Option<&str>,
+        cancelled: &std::sync::atomic::AtomicBool,
+        on_event: F,
+    ) -> Vec<Strand>
+    where
+        F: FnMut(crate::planner::PathFindingEvent),
+    {
+        let graph = self.live_cap_fab.read().await;
+        graph.find_paths_streaming_with_step_title_query(
+            source,
+            target,
+            is_sequence,
+            max_depth,
+            max_paths,
+            step_title_query,
             cancelled,
             on_event,
         )
