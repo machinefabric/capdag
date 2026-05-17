@@ -874,7 +874,8 @@ impl LiveCapFab {
     /// **Critical**: Uses `is_equivalent()` for target matching, NOT `conforms_to()`.
     /// `is_sequence` is the initial cardinality state (from input context).
     ///
-    /// Returns paths sorted by (total_steps, total_specificity desc, cap_urns).
+    /// Returns paths sorted by structural path score, then specificity,
+    /// then structural step order.
     pub fn find_paths_to_exact_target(
         &self,
         source: &MediaUrn,

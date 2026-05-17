@@ -207,7 +207,7 @@ Three ways to build a `Machine`:
 
 The two programmatic constructors (`from_strand`, `from_strands`) treat each input strand as a self-contained DAG. Even if two input strands have type-compatible URNs internally, `from_strands` does not join them — that's the contract. **Crossings only arise from notation**, where the user explicitly shares node names across wirings.
 
-For each Cap step in a planner strand, `from_strand` builds one resolved edge whose source is the step's `from_spec` and whose target is the step's `to_spec`. `ForEach` sets `is_loop = true` on the next cap edge; `Collect` is elided (cardinality transitions are implicit in the resolved data flow).
+For each Cap step in a planner strand, `from_strand` builds one resolved edge whose source is the step's `from_spec` and whose target is the step's `to_spec`. Those boundary URNs are the planner's resolved runtime endpoints, not merely the cap's declared `in=`/`out=` patterns. `ForEach` sets `is_loop = true` on the next cap edge; `Collect` is elided (cardinality transitions are implicit in the resolved data flow).
 
 ### Positional interning (planner path)
 
