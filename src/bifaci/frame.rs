@@ -1172,7 +1172,7 @@ mod tests {
     #[test]
     fn test181_hello_frame_with_manifest() {
         let manifest_json =
-            r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity"}]}]}"#;
+            r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}"#;
         let frame = Frame::hello_with_manifest(
             &Limits {
                 max_frame: 1_000_000,
@@ -3015,7 +3015,7 @@ mod tests {
         );
         // First cap is identity (required)
         large_manifest.push_str(
-            r#"{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity"}"#,
+            r#"{"urn":"cap:effect=none","title":"Identity","command":"identity"}"#,
         );
         for i in 0..99 {
             large_manifest.push_str(&format!(

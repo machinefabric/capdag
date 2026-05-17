@@ -723,7 +723,12 @@ mod tests {
         // form. The `op` parameter is the marker name (e.g. "convert"). This is just a convention.
         let mut tags = BTreeMap::new();
         tags.insert(op.to_string(), "*".to_string());
-        let urn = CapUrn::new(in_spec.to_string(), out_spec.to_string(), tags)?;
+        let urn = CapUrn::new(
+            in_spec.to_string(),
+            out_spec.to_string(),
+            "declared".to_string(),
+            tags,
+        )?;
         Ok(Cap::new(urn, title.to_string(), "test-command".to_string()))
     }
 

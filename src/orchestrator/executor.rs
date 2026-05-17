@@ -138,7 +138,7 @@ impl ProgressMapper {
 }
 
 /// Cap URN for the identity capability (always available from any cartridge runtime).
-const CAP_IDENTITY: &str = "cap:";
+const CAP_IDENTITY: &str = "cap:effect=none";
 
 // =============================================================================
 // Error Types

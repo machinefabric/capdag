@@ -64,8 +64,8 @@ use std::sync::Arc;
 // =============================================================================
 
 /// Identity capability — the categorical identity morphism. MANDATORY in every capset.
-/// Accepts any media type as input and outputs any media type.
-pub const CAP_IDENTITY: &str = "cap:";
+/// Accepts any media type as input and returns the same runtime media type unchanged.
+pub const CAP_IDENTITY: &str = "cap:effect=none";
 
 /// Discard capability — the terminal morphism. Standard, NOT mandatory.
 /// Accepts any media type as input and produces void output.
@@ -294,10 +294,10 @@ pub fn adapter_selection_cap() -> Cap {
 // =============================================================================
 
 // CAP_IDENTITY: the categorical identity morphism — MANDATORY in every capset
-// Canonical form of 'cap:' after wildcard expansion
+// Canonical form is explicit `cap:effect=none`
 
 // const IDENTITY_DEFINITION = {
-//   urn: 'cap:in=media:;out=media:',
+//   urn: 'cap:effect=none',
 //   command: 'identity',
 //   title: 'Identity',
 //   cap_description: 'The categorical identity morphism. Echoes input as output unchanged. Mandatory in every capability set.',

@@ -3025,7 +3025,7 @@ mod tests {
         );
 
         // Valid manifest WITH CAP_IDENTITY must succeed.
-        let manifest_ok = r#"{"name":"Test","version":"1.0","channel":"release","registry_url":null,"description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";convert;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest_ok = r#"{"name":"Test","version":"1.0","channel":"release","registry_url":null,"description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";convert;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
         let result_ok = parse_cap_groups_from_manifest(manifest_ok.as_bytes());
         let groups = result_ok.expect("Manifest with CAP_IDENTITY must be accepted");
         let total_caps: usize = groups.iter().map(|g| g.caps.len()).sum();
@@ -3412,7 +3412,7 @@ mod tests {
     // TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities
     #[tokio::test]
     async fn test416_attach_cartridge_handshake_updates_capabilities() {
-        let manifest = r#"{"name":"Test","version":"1.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"Test","version":"1.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair (tokio sockets)
         let (cartridge_to_runtime, runtime_from_cartridge) = UnixStream::pair().unwrap();
@@ -3469,8 +3469,8 @@ mod tests {
     // TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges)
     #[tokio::test]
     async fn test417_route_req_to_correct_cartridge() {
-        let manifest_a = r#"{"name":"CartridgeA","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge A","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";convert;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
-        let manifest_b = r#"{"name":"CartridgeB","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge B","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";analyze;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest_a = r#"{"name":"CartridgeA","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge A","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";convert;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest_b = r#"{"name":"CartridgeB","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge B","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";analyze;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         // Create two cartridge pipe pairs (tokio sockets)
         let (pa_to_rt, rt_from_pa) = UnixStream::pair().unwrap();
@@ -3629,7 +3629,7 @@ mod tests {
     // TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay)
     #[tokio::test]
     async fn test419_cartridge_heartbeat_handled_locally() {
-        let manifest = r#"{"name":"HBCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Heartbeat cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";hb;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"HBCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Heartbeat cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";hb;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair (tokio sockets)
         let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
@@ -3704,7 +3704,7 @@ mod tests {
     // TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through)
     #[tokio::test]
     async fn test420_cartridge_frames_forwarded_to_relay() {
-        let manifest = r#"{"name":"FwdCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Forward cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";fwd;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"FwdCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Forward cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";fwd;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair (tokio sockets)
         let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
@@ -3869,7 +3869,7 @@ mod tests {
     // is present on those frames.
     #[tokio::test]
     async fn test418_route_continuation_frames_by_req_id() {
-        let manifest = r#"{"name":"ContCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Continuation cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";cont;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"ContCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Continuation cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";cont;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair (tokio sockets)
         let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
@@ -4031,7 +4031,7 @@ mod tests {
     // TEST421: Cartridge death updates capability list (caps removed)
     #[tokio::test]
     async fn test421_cartridge_death_updates_capabilities() {
-        let manifest = r#"{"name":"Dying","version":"1.0","channel":"release","registry_url":null,"description":"Dying cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";die;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"Dying","version":"1.0","channel":"release","registry_url":null,"description":"Dying cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";die;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair (tokio sockets)
         let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
@@ -4114,7 +4114,7 @@ mod tests {
     // TEST422: Cartridge death sends ERR for all pending requests via relay
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test422_cartridge_death_sends_err_for_pending_requests() {
-        let manifest = r#"{"name":"DieCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Die cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";die;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"DieCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Die cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";die;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair (tokio sockets)
         let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
@@ -4205,8 +4205,8 @@ mod tests {
     // TEST423: Multiple cartridges registered with distinct caps route independently
     #[tokio::test]
     async fn test423_multiple_cartridges_route_independently() {
-        let manifest_a = r#"{"name":"PA","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge A","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";alpha;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
-        let manifest_b = r#"{"name":"PB","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge B","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";beta;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest_a = r#"{"name":"PA","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge A","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";alpha;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest_b = r#"{"name":"PB","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge B","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";beta;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge A (tokio sockets)
         let (pa_to_rt, rt_from_pa) = UnixStream::pair().unwrap();
@@ -4398,7 +4398,7 @@ mod tests {
     // TEST424: Concurrent requests to the same cartridge are handled independently
     #[tokio::test]
     async fn test424_concurrent_requests_to_same_cartridge() {
-        let manifest = r#"{"name":"ConcCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Concurrent cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";conc;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"ConcCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Concurrent cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";conc;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair (tokio sockets)
         let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
@@ -4582,7 +4582,7 @@ mod tests {
     // TEST485: attach_cartridge completes identity verification with working cartridge
     #[tokio::test]
     async fn test485_attach_cartridge_identity_verification_succeeds() {
-        let manifest = r#"{"name":"IdentityTest","version":"1.0","channel":"release","registry_url":null,"description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"IdentityTest","version":"1.0","channel":"release","registry_url":null,"description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair (tokio sockets)
         let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
@@ -4625,7 +4625,7 @@ mod tests {
     // TEST486: attach_cartridge rejects cartridge that fails identity verification
     #[tokio::test]
     async fn test486_attach_cartridge_identity_verification_fails() {
-        let manifest = r#"{"name":"BrokenIdentity","version":"1.0","channel":"release","registry_url":null,"description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"BrokenIdentity","version":"1.0","channel":"release","registry_url":null,"description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair (tokio sockets)
         let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
@@ -4837,7 +4837,7 @@ mod tests {
     async fn test664_running_cartridge_uses_manifest_caps() {
         // Manifest declares different caps than the pre-registration
         // probe — the post-HELLO snapshot must win.
-        let manifest = r#"{"name":"Test","version":"1.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:text\";uppercase;out=\"media:text\"","title":"Uppercase","command":"uppercase","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"Test","version":"1.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:text\";uppercase;out=\"media:text\"","title":"Uppercase","command":"uppercase","args":[]}],"adapter_urns":[]}]}"#;
 
         // Create socket pairs (runtime side and cartridge side)
         let (rt_sock, cartridge_sock) = UnixStream::pair().unwrap();
@@ -4904,7 +4904,7 @@ mod tests {
     #[tokio::test]
     async fn test665_cap_table_mixed_running_and_non_running() {
         // Set up a running cartridge
-        let manifest = r#"{"name":"Running","version":"1.0","channel":"release","registry_url":null,"description":"Running cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:text\";running-op;out=\"media:text\"","title":"RunningOp","command":"running","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"Running","version":"1.0","channel":"release","registry_url":null,"description":"Running cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:text\";running-op;out=\"media:text\"","title":"RunningOp","command":"running","args":[]}],"adapter_urns":[]}]}"#;
 
         // Create socket pairs (runtime side and cartridge side)
         let (rt_sock, cartridge_sock) = UnixStream::pair().unwrap();
@@ -4993,7 +4993,7 @@ mod tests {
         let (r_read, r_write) = runtime_sock.into_split();
         let (p_read, p_write) = cartridge_sock.into_split();
 
-        let manifest = r#"{"name":"SnapCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Snapshot test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";snap;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"SnapCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Snapshot test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";snap;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
 
         let cartridge_handle = tokio::spawn(async move {
             let (_reader, _writer) =
@@ -5052,7 +5052,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "OOM death detection for attached cartridges not yet implemented"]
     async fn test1254_oom_kill_sends_err_with_oom_killed_code() {
-        let manifest = r#"{"name":"OomCartridge","version":"1.0","channel":"release","registry_url":null,"description":"OOM test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";oom;out=\"media:void\"","title":"OOM","command":"oom","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"OomCartridge","version":"1.0","channel":"release","registry_url":null,"description":"OOM test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";oom;out=\"media:void\"","title":"OOM","command":"oom","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair
         let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();
@@ -5179,7 +5179,7 @@ mod tests {
     // TEST1255: App-exit shutdowns suppress ERR frames and close cleanly without noise.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test1255_app_exit_suppresses_err_frames() {
-        let manifest = r#"{"name":"ExitCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Exit test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";exit;out=\"media:void\"","title":"Exit","command":"exit","args":[]}],"adapter_urns":[]}]}"#;
+        let manifest = r#"{"name":"ExitCartridge","version":"1.0","channel":"release","registry_url":null,"description":"Exit test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";exit;out=\"media:void\"","title":"Exit","command":"exit","args":[]}],"adapter_urns":[]}]}"#;
 
         // Cartridge pipe pair
         let (p_to_rt, rt_from_p) = UnixStream::pair().unwrap();

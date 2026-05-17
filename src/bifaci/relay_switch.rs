@@ -3686,7 +3686,7 @@ mod tests {
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock1,
-                &serde_json::json!(["cap:in=media:;out=media:"]),
+                &serde_json::json!(["cap:effect=none"]),
                 &Limits::default(),
             )
             .await;
@@ -3697,7 +3697,7 @@ mod tests {
             slave_notify_with_identity(
                 slave_sock2,
                 &serde_json::json!([
-                    "cap:in=media:;out=media:",
+                    "cap:effect=none",
                     "cap:in=\"media:void\";double;out=\"media:void\""
                 ]),
                 &Limits::default(),
@@ -3713,7 +3713,7 @@ mod tests {
         // Verify routing (caps already populated during construction)
         assert_eq!(
             switch
-                .find_master_for_cap("cap:in=media:;out=media:", None)
+                .find_master_for_cap("cap:effect=none", None)
                 .await,
             Some(0)
         );
@@ -3744,7 +3744,7 @@ mod tests {
             let mut seq = SeqAssigner::new();
             let (mut reader, mut writer) = slave_notify_with_identity(
                 slave_sock,
-                &serde_json::json!(["cap:in=media:;out=media:"]),
+                &serde_json::json!(["cap:effect=none"]),
                 &Limits::default(),
             )
             .await;
@@ -3785,7 +3785,7 @@ mod tests {
         let req_id = MessageId::Uint(1);
         let req = Frame::req(
             req_id.clone(),
-            "cap:in=media:;out=media:",
+            "cap:effect=none",
             vec![1, 2, 3],
             "text/plain",
         );
@@ -3809,7 +3809,7 @@ mod tests {
             let mut seq = SeqAssigner::new();
             let (mut reader, mut writer) = slave_notify_with_identity(
                 slave_sock1,
-                &serde_json::json!(["cap:in=media:;out=media:"]),
+                &serde_json::json!(["cap:effect=none"]),
                 &Limits::default(),
             )
             .await;
@@ -3839,7 +3839,7 @@ mod tests {
             let (mut reader, mut writer) = slave_notify_with_identity(
                 slave_sock2,
                 &serde_json::json!([
-                    "cap:in=media:;out=media:",
+                    "cap:effect=none",
                     "cap:in=\"media:void\";double;out=\"media:void\""
                 ]),
                 &Limits::default(),
@@ -3876,7 +3876,7 @@ mod tests {
             .send_to_master(
                 Frame::req(
                     req1_id.clone(),
-                    "cap:in=media:;out=media:",
+                    "cap:effect=none",
                     vec![],
                     "text/plain",
                 ),
@@ -3920,7 +3920,7 @@ mod tests {
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock,
-                &serde_json::json!(["cap:in=media:;out=media:"]),
+                &serde_json::json!(["cap:effect=none"]),
                 &Limits::default(),
             )
             .await;
@@ -3947,7 +3947,7 @@ mod tests {
     // TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent)
     #[tokio::test]
     async fn test430_tie_breaking_same_cap_multiple_masters() {
-        let same_cap = "cap:in=media:;out=media:";
+        let same_cap = "cap:effect=none";
 
         let (engine_sock1, slave_sock1) = UnixStream::pair().unwrap();
         let (engine_sock2, slave_sock2) = UnixStream::pair().unwrap();
@@ -4057,7 +4057,7 @@ mod tests {
             let (mut reader, mut writer) = slave_notify_with_identity(
                 slave_sock,
                 &serde_json::json!([
-                    "cap:in=media:;out=media:",
+                    "cap:effect=none",
                     "cap:in=\"media:void\";test;out=\"media:void\""
                 ]),
                 &Limits::default(),
@@ -4143,7 +4143,7 @@ mod tests {
         // No handler for any cap
         assert_eq!(
             switch
-                .find_master_for_cap("cap:in=media:;out=media:", None)
+                .find_master_for_cap("cap:effect=none", None)
                 .await,
             None
         );
@@ -4159,7 +4159,7 @@ mod tests {
             slave_notify_with_identity(
                 slave_sock1,
                 &serde_json::json!([
-                    "cap:in=media:;out=media:",
+                    "cap:effect=none",
                     "cap:in=\"media:void\";double;out=\"media:void\""
                 ]),
                 &Limits::default(),
@@ -4171,7 +4171,7 @@ mod tests {
             slave_notify_with_identity(
                 slave_sock2,
                 &serde_json::json!([
-                    "cap:in=media:;out=media:",
+                    "cap:effect=none",
                     "cap:in=\"media:void\";triple;out=\"media:void\""
                 ]),
                 &Limits::default(),
@@ -4185,7 +4185,7 @@ mod tests {
 
         // Caps already populated during construction (plain JSON array
         // of canonical cap URN strings — alphabetical tag order, no
-        // unnecessary quoting, `cap:` for the bare identity).
+        // unnecessary quoting, `cap:effect=none` for the identity cap).
         let mut cap_list: Vec<String> =
             serde_json::from_slice(&switch.capabilities().await).unwrap();
         cap_list.sort();
@@ -4205,7 +4205,7 @@ mod tests {
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock1,
-                &serde_json::json!(["cap:in=media:;out=media:"]),
+                &serde_json::json!(["cap:effect=none"]),
                 &Limits {
                     max_frame: 1_000_000,
                     max_chunk: 100_000,
@@ -4218,7 +4218,7 @@ mod tests {
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock2,
-                &serde_json::json!(["cap:in=media:;out=media:"]),
+                &serde_json::json!(["cap:effect=none"]),
                 &Limits {
                     max_frame: 2_000_000,
                     max_chunk: 50_000,
@@ -4248,7 +4248,7 @@ mod tests {
             let mut seq = SeqAssigner::new();
             let (mut reader, mut writer) = slave_notify_with_identity(
                 slave_sock,
-                &serde_json::json!(["cap:in=media:;out=media:", registered_cap]),
+                &serde_json::json!(["cap:effect=none", registered_cap]),
                 &Limits::default(),
             )
             .await;
@@ -4351,7 +4351,7 @@ mod tests {
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock0,
-                &serde_json::json!(["cap:in=media:;out=media:", generic_cap]),
+                &serde_json::json!(["cap:effect=none", generic_cap]),
                 &Limits::default(),
             )
             .await;
@@ -4363,7 +4363,7 @@ mod tests {
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock1,
-                &serde_json::json!(["cap:in=media:;out=media:", specific_cap]),
+                &serde_json::json!(["cap:effect=none", specific_cap]),
                 &Limits::default(),
             )
             .await;
@@ -4407,7 +4407,7 @@ mod tests {
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock,
-                &serde_json::json!(["cap:in=media:;out=media:", registered]),
+                &serde_json::json!(["cap:effect=none", registered]),
                 &Limits::default(),
             )
             .await;
@@ -4444,7 +4444,7 @@ mod tests {
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock,
-                &serde_json::json!(["cap:in=media:;out=media:", generic_cap]),
+                &serde_json::json!(["cap:effect=none", generic_cap]),
                 &Limits::default(),
             )
             .await;
@@ -4485,7 +4485,7 @@ mod tests {
             slave_notify_with_identity(
                 slave_sock,
                 &serde_json::json!([
-                    "cap:in=media:;out=media:",
+                    "cap:effect=none",
                     "cap:in=\"media:void\";test;out=\"media:void\""
                 ]),
                 &Limits::default(),
@@ -4500,7 +4500,7 @@ mod tests {
         // Construction succeeded — caps are populated
         assert_eq!(
             switch
-                .find_master_for_cap("cap:in=media:;out=media:", None)
+                .find_master_for_cap("cap:effect=none", None)
                 .await,
             Some(0)
         );
@@ -4538,7 +4538,7 @@ mod tests {
                                 "name": "test",
                                 "caps": [
                                     {
-                                        "urn": "cap:in=media:;out=media:",
+                                        "urn": "cap:effect=none",
                                         "title": "Identity",
                                         "command": "identity",
                                         "args": [],
@@ -4623,7 +4623,7 @@ mod tests {
                                 "name": "test",
                                 "caps": [
                                     {
-                                        "urn": "cap:in=media:;out=media:",
+                                        "urn": "cap:effect=none",
                                         "title": "Identity",
                                         "command": "identity",
                                         "args": [],
@@ -5087,7 +5087,7 @@ mod tests {
         // is a pure RelaySwitch property — the slave just needs to
         // satisfy the handshake.
         let initial_caps = serde_json::json!([
-            "cap:in=media:;out=media:",
+            "cap:effect=none",
             "cap:in=\"media:void\";trivial;out=\"media:void\"",
         ]);
         let (engine_sock_1, slave_sock_1) = UnixStream::pair().unwrap();
@@ -5185,7 +5185,7 @@ mod tests {
     #[tokio::test]
     async fn test_add_master_with_duplicate_healthy_id_errors() {
         let initial_caps = serde_json::json!([
-            "cap:in=media:;out=media:",
+            "cap:effect=none",
             "cap:in=\"media:void\";trivial;out=\"media:void\"",
         ]);
         let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
@@ -5511,7 +5511,7 @@ mod tests {
             tokio::spawn(async move {
                 slave_notify_with_identity(
                     slave_sock,
-                    &serde_json::json!(["cap:in=media:;out=media:", cap]),
+                    &serde_json::json!(["cap:effect=none", cap]),
                     &Limits::default(),
                 )
                 .await;

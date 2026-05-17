@@ -658,15 +658,34 @@ impl LiveCapFab {
                     _ => true,
                 }
             })
-            .map(|edge| {
+            .filter_map(|edge| {
                 // Determine outgoing is_sequence from the cap's output flag
-                let out_is_seq = match &edge.edge_type {
+                match &edge.edge_type {
                     LiveMachinePlanEdgeType::Cap {
-                        output_is_sequence, ..
-                    } => *output_is_sequence,
-                    _ => is_sequence,
-                };
-                (edge.clone(), out_is_seq)
+                        cap_urn,
+                        cap_title,
+                        specificity,
+                        input_is_sequence,
+                        output_is_sequence,
+                    } => {
+                        let runtime_out = cap_urn.infer_runtime_output_media(source).ok()?;
+                        Some((
+                            LiveMachinePlanEdge {
+                                from_spec: source.clone(),
+                                to_spec: runtime_out,
+                                edge_type: LiveMachinePlanEdgeType::Cap {
+                                    cap_urn: cap_urn.clone(),
+                                    cap_title: cap_title.clone(),
+                                    specificity: *specificity,
+                                    input_is_sequence: *input_is_sequence,
+                                    output_is_sequence: *output_is_sequence,
+                                },
+                            },
+                            *output_is_sequence,
+                        ))
+                    }
+                    _ => Some((edge.clone(), is_sequence)),
+                }
             })
             .collect();
 
@@ -701,6 +720,43 @@ impl LiveCapFab {
         // infinite loops in the DFS.
 
         result
+    }
+
+    /// Fast reachability check using runtime-instantiated traversal semantics.
+    ///
+    /// This deliberately avoids checking only registered literal graph nodes,
+    /// because `effect=none` and `effect=patch` can materialize concrete runtime
+    /// outputs that do not appear verbatim as stored edge endpoints.
+    fn has_reachable_exact_target(
+        &self,
+        source: &MediaUrn,
+        target: &MediaUrn,
+        is_sequence: bool,
+        max_depth: usize,
+    ) -> bool {
+        use std::collections::VecDeque;
+
+        let mut queue = VecDeque::from([(source.clone(), is_sequence, 0usize)]);
+        let mut visited: HashSet<(MediaUrn, bool)> = HashSet::from([(source.clone(), is_sequence)]);
+
+        while let Some((current, current_is_seq, depth)) = queue.pop_front() {
+            if depth >= max_depth {
+                continue;
+            }
+
+            for (edge, next_is_seq) in self.get_outgoing_edges(&current, current_is_seq) {
+                if edge.is_cap() && edge.to_spec.is_equivalent(target).unwrap_or(false) {
+                    return true;
+                }
+
+                let visit_key = (edge.to_spec.clone(), next_is_seq);
+                if visited.insert(visit_key.clone()) {
+                    queue.push_back((visit_key.0, visit_key.1, depth + 1));
+                }
+            }
+        }
+
+        false
     }
 
     /// Get statistics about the graph.
@@ -846,17 +902,7 @@ impl LiveCapFab {
         max_paths: usize,
         step_title_query: Option<&str>,
     ) -> Vec<Strand> {
-        // Fast-fail: if no registered node is equivalent to the target, there
-        // is no path to find. Without this, IDDFS exhaustively explores the
-        // whole reachable graph (up to the 100_000-node abort) before giving
-        // up — which on the current cap set takes ~10s per query and blows
-        // past FinderSync's 3s budget. Target matching in IDDFS uses
-        // `is_equivalent()`, so the same predicate applies here.
-        let target_is_registered = self
-            .nodes
-            .iter()
-            .any(|node| node.is_equivalent(target).unwrap_or(false));
-        if !target_is_registered {
+        if !self.has_reachable_exact_target(source, target, is_sequence, max_depth) {
             return Vec::new();
         }
 
@@ -954,13 +1000,7 @@ impl LiveCapFab {
     where
         F: FnMut(PathFindingEvent),
     {
-        // Same fast-fail as find_paths_to_exact_target: if no registered node
-        // is equivalent to the target, don't run IDDFS.
-        let target_is_registered = self
-            .nodes
-            .iter()
-            .any(|node| node.is_equivalent(target).unwrap_or(false));
-        if !target_is_registered {
+        if !self.has_reachable_exact_target(source, target, is_sequence, max_depth) {
             return Vec::new();
         }
 
