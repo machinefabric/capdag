@@ -28,13 +28,13 @@ axes. Dispatch is one rule; kind is a description of the result.
 ### 2.1 Definition
 
 Let:
-- `p = (i_p, o_p, y_p)` — provider
-- `r = (i_r, o_r, y_r)` — request
+- `p = (i_p, o_p, y_p, e_p)` — provider
+- `r = (i_r, o_r, y_r, e_r)` — request
 
 Then:
 
 ```
-Dispatch(p, r)  ⟺  (i_r = ⊤ ∨ i_r ⪯ i_p)  ∧  (o_r = ⊤ ∨ o_p ⪯ o_r)  ∧  y_r ⪯ y_p
+Dispatch(p, r)  ⟺  (i_r = ⊤ ∨ i_r ⪯ i_p)  ∧  (o_r = ⊤ ∨ o_p ⪯ o_r)  ∧  (e_r = ? ∨ e_p = e_r)  ∧  y_r ⪯ y_p
 ```
 
 Where `⊤ = media:` (the identity/top of the media partial order). A request dimension
@@ -44,12 +44,13 @@ Note: provider wildcards need no special case. `i_p = ⊤` passes because `∀x,
 `o_p = ⊤` correctly fails for specific `o_r` because `⊤ ⪯ o_r` is false (top does not
 conform to a more specific type).
 
-### 2.2 The Three Conjuncts
+### 2.2 The Four Conjuncts
 
 | Axis | Condition | Variance | Meaning |
 |------|-----------|----------|---------|
 | Input | i_r = ⊤ ∨ i_r ⪯ i_p | Contravariant | Request unconstrained, or input conforms to provider |
 | Output | o_r = ⊤ ∨ o_p ⪯ o_r | Covariant | Request unconstrained, or provider output conforms |
+| Effect | e_r = ? ∨ e_p = e_r | Exact unless explicit wildcard | Provider satisfies requested runtime effect semantics |
 | Cap-tags | y_r ⪯ y_p | Invariant/Refinement | Provider satisfies request's constraints |
 
 ---

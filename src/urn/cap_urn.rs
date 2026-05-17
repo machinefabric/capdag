@@ -4,8 +4,10 @@
 //! hierarchical naming with key-value tags to handle cross-cutting concerns and
 //! multi-dimensional cap classification.
 //!
-//! Cap URNs use the tagged URN format with "cap" prefix and require mandatory
-//! `in` and `out` tags that specify the input and output media URNs.
+//! Cap URNs use the tagged URN format with "cap" prefix. Omitted structural
+//! coordinates default to `in=media:`, `out=media:`, and `effect=declared`,
+//! after which admissibility validation rejects the illegal all-default bare
+//! top form.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
@@ -15,8 +17,8 @@ use tagged_urn::{TaggedUrn, TaggedUrnBuilder, TaggedUrnError};
 
 use crate::urn::media_urn::{MediaUrn, MediaUrnError, MEDIA_IDENTITY, MEDIA_OBJECT, MEDIA_VOID};
 
-/// Functional category of a cap, derived from all three axes (`in`,
-/// `out`, and the remaining tags). The classification is **logical**
+/// Functional category of a cap, derived from all four structural axes (`in`,
+/// `out`, `effect`, and the remaining tags). The classification is **logical**
 /// — the dispatch protocol (specificity, conformance, accepts /
 /// conforms_to) does not branch on `CapKind`. The kind is exposed so
 /// tools, UIs, planners, and tests can reason about a cap's role in
@@ -28,24 +30,20 @@ use crate::urn::media_urn::{MediaUrn, MediaUrnError, MEDIA_IDENTITY, MEDIA_OBJEC
 /// **top type** — the wildcard over every media URN. With those two
 /// anchors the five kinds fall out:
 ///
-/// | Kind       | `in`         | `out`        | other tags | Reads as |
-/// |------------|--------------|--------------|------------|----------|
-/// | Identity   | `media:`     | `media:`     | none       | `A → A`  |
-/// | Source     | `media:void` | not `void`   | any        | `() → B` |
-/// | Sink       | not `void`   | `media:void` | any        | `A → ()` |
-/// | Effect     | `media:void` | `media:void` | any        | `() → ()`|
-/// | Transform  | anything else                                       |
+/// | Kind             | `in`         | `out`        | `effect`      | other tags | Reads as |
+/// |------------------|--------------|--------------|---------------|------------|----------|
+/// | Identity         | `media:`     | `media:`     | `none`        | none       | `A → A`  |
+/// | Source           | `media:void` | not `void`   | any           | any        | `() → B` |
+/// | Sink             | not `void`   | `media:void` | any           | any        | `A → ()` |
+/// | Effect           | `media:void` | `media:void` | any           | any        | `() → ()`|
+/// | Transform        | anything else                                               |
 ///
-/// `Identity` is the **fully generic** cap on every axis: input wide
-/// open, output wide open, no operation/metadata tags. The canonical
-/// form is `cap:` and only `cap:`. Adding any tag specifies something
-/// on the third axis and demotes the morphism to a Transform whose
-/// in/out happen to be the wildcards (e.g. `cap:passthrough` is a
-/// Transform that says "for the routing label `passthrough`, accept
-/// any input and produce any output").
+/// `Identity` is the explicit `effect=none` cap on every axis: input wide
+/// open, output wide open, no operation/metadata tags, and no effect on
+/// runtime media/type identity. The canonical form is `cap:effect=none`.
 ///
 /// Examples:
-/// - `cap:` — Identity
+/// - `cap:effect=none` — Identity
 /// - `cap:passthrough` — Transform (specifies the operation, even
 ///   though in/out are unconstrained)
 /// - `cap:in=media:void;out=media:model-artifact;warm` — Source
@@ -54,8 +52,8 @@ use crate::urn::media_urn::{MediaUrn, MediaUrnError, MEDIA_IDENTITY, MEDIA_OBJEC
 /// - `cap:in=media:pdf;out=media:textable;extract` — Transform
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CapKind {
-    /// `media:` → `media:` with no other tags. The categorical
-    /// identity morphism.
+    /// `media:` → `media:` with `effect=none` and no other tags.
+    /// The categorical identity morphism.
     Identity,
     /// `media:void` → non-`void`. A generator: produces a value with
     /// no meaningful input.
@@ -85,6 +83,35 @@ impl CapKind {
     }
 }
 
+/// Effect on runtime media/type identity carried by a cap URN.
+///
+/// `Declared` is the default when the `effect` coordinate is omitted.
+/// `Any` represents the explicit unconstrained request form (`?effect` or
+/// `effect=*`), not the default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapEffect {
+    Declared,
+    None,
+    Patch,
+    Any,
+}
+
+impl CapEffect {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CapEffect::Declared => "declared",
+            CapEffect::None => "none",
+            CapEffect::Patch => "patch",
+            CapEffect::Any => "?",
+        }
+    }
+
+    pub fn is_unconstrained(&self) -> bool {
+        matches!(self, CapEffect::Any)
+    }
+}
+
 impl fmt::Display for CapKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -106,8 +133,11 @@ pub struct CapUrn {
     in_urn: String,
     /// Output media URN - required
     out_urn: String,
+    /// Effect on runtime media/type identity. Stored as canonical raw value:
+    /// `declared`, `none`, `patch`, or `?` for explicit unconstrained effect.
+    effect: String,
     /// Additional tags that define this cap, stored in sorted order for canonical representation
-    /// Note: 'in' and 'out' are NOT stored here - they are in in_urn/out_urn
+    /// Note: 'in', 'out', and 'effect' are NOT stored here.
     pub tags: BTreeMap<String, String>,
 }
 
@@ -122,6 +152,17 @@ impl CapUrn {
     /// The required prefix for all cap URNs
     pub const PREFIX: &'static str = "cap";
 
+    fn validate_non_structural_tags(tags: &BTreeMap<String, String>) -> Result<(), CapUrnError> {
+        let mut builder = TaggedUrnBuilder::new(Self::PREFIX);
+        for (k, v) in tags {
+            builder = builder
+                .tag(k, v)
+                .map_err(CapUrnError::from_tagged_urn_error)?;
+        }
+        let _ = builder.build_allow_empty();
+        Ok(())
+    }
+
     /// Create a new cap URN from direction specs and additional tags
     /// Keys are normalized to lowercase; values are preserved as-is
     /// in_urn and out_urn are required direction specifiers (media URN strings)
@@ -129,6 +170,7 @@ impl CapUrn {
     pub fn new(
         in_urn: String,
         out_urn: String,
+        effect: String,
         tags: BTreeMap<String, String>,
     ) -> Result<Self, CapUrnError> {
         use crate::urn::media_urn::MediaUrn;
@@ -161,27 +203,39 @@ impl CapUrn {
                 .to_string()
         };
 
+        let effect_normalized = Self::normalize_effect_value(Some(effect.as_str()))?;
+
         let normalized_tags: BTreeMap<String, String> = tags
             .into_iter()
             .filter(|(k, _)| {
                 let k_lower = k.to_lowercase();
-                k_lower != "in" && k_lower != "out"
+                k_lower != "in" && k_lower != "out" && k_lower != "effect"
             })
             .map(|(k, v)| (k.to_lowercase(), v))
             .collect();
-        Ok(Self {
+        Self::validate_non_structural_tags(&normalized_tags)?;
+        let candidate = Self {
             in_urn: in_urn_normalized,
             out_urn: out_urn_normalized,
+            effect: effect_normalized,
             tags: normalized_tags,
-        })
+        };
+        candidate.validate_admissible()?;
+        Ok(candidate)
     }
 
-    /// Create a cap URN from tags map that must contain 'in' and 'out'
-    /// This is a convenience method for TOML deserialization
+    /// Create a cap URN from a tag map.
+    ///
+    /// Missing structural coordinates default exactly as they do in string
+    /// parsing:
+    /// - missing `in`   -> `media:`
+    /// - missing `out`  -> `media:`
+    /// - missing effect -> `declared`
     pub fn from_tags(mut tags: BTreeMap<String, String>) -> Result<Self, CapUrnError> {
-        let in_urn = tags.remove("in").ok_or(CapUrnError::MissingInSpec)?;
-        let out_urn = tags.remove("out").ok_or(CapUrnError::MissingOutSpec)?;
-        Self::new(in_urn, out_urn, tags)
+        let in_urn = tags.remove("in").unwrap_or_else(|| MEDIA_IDENTITY.to_string());
+        let out_urn = tags.remove("out").unwrap_or_else(|| MEDIA_IDENTITY.to_string());
+        let effect = tags.remove("effect").unwrap_or_else(|| "declared".to_string());
+        Self::new(in_urn, out_urn, effect, tags)
     }
 
     /// Create a cap URN from a string representation
@@ -193,9 +247,9 @@ impl CapUrn {
     /// - Missing `in` or `out` tag → defaults to `media:`
     /// - `in` or `out` without `=` → becomes `media:` (TaggedUrn treats `tag` as `tag=*`, we replace `*` with `media:`)
     /// - `in=*` or `out=*` → replaced with `media:`
-    /// - `cap:` → `cap:in=media:;out=media:`
-    /// - `cap:in` → `cap:in=media:;out=media:`
-    /// - `cap:in=media:;out` → `cap:in=media:;out=media:`
+    /// - `cap:` normalizes to `cap:in=media:;out=media:` and is then rejected as the illegal bare top form
+    /// - `cap:in` normalizes to `cap:in=media:;out=media:` and is then rejected as the illegal bare top form
+    /// - `cap:in=media:;out` normalizes to `cap:in=media:;out=media:` and is then rejected as the illegal bare top form
     ///
     /// Trailing semicolons are optional and ignored
     /// Tags are automatically sorted alphabetically for canonical form
@@ -217,6 +271,7 @@ impl CapUrn {
         // Missing tag or tag=* → "media:" (the wildcard)
         let in_urn_raw = Self::process_direction_tag(&tagged, "in")?;
         let out_urn_raw = Self::process_direction_tag(&tagged, "out")?;
+        let effect = Self::normalize_effect_value(tagged.tags.get("effect").map(|s| s.as_str()))?;
 
         // Parse and normalize media URNs to canonical form.
         // This ensures consistent tag ordering (e.g., "record;textable" vs "textable;record").
@@ -250,14 +305,18 @@ impl CapUrn {
         let tags: BTreeMap<String, String> = tagged
             .tags
             .into_iter()
-            .filter(|(k, _)| k != "in" && k != "out")
+            .filter(|(k, _)| k != "in" && k != "out" && k != "effect")
             .collect();
+        Self::validate_non_structural_tags(&tags)?;
 
-        Ok(Self {
+        let candidate = Self {
             in_urn,
             out_urn,
+            effect,
             tags,
-        })
+        };
+        candidate.validate_admissible()?;
+        Ok(candidate)
     }
 
     /// Process a direction tag (in or out) with wildcard expansion
@@ -295,6 +354,95 @@ impl CapUrn {
         }
     }
 
+    fn normalize_effect_value(raw: Option<&str>) -> Result<String, CapUrnError> {
+        match raw {
+            None => Ok("declared".to_string()),
+            Some("?") | Some("*") => Ok("?".to_string()),
+            Some("declared") => Ok("declared".to_string()),
+            Some("none") => Ok("none".to_string()),
+            Some("patch") => Ok("patch".to_string()),
+            Some(value) if value.is_empty() => Err(CapUrnError::InvalidEffect(
+                "Empty value for 'effect' tag is not allowed".to_string(),
+            )),
+            Some(value) => Err(CapUrnError::InvalidEffect(format!(
+                "Unsupported effect '{}'. Supported values are declared, none, patch, or explicit unconstrained ?effect/effect=*",
+                value
+            ))),
+        }
+    }
+
+    fn validate_admissible(&self) -> Result<(), CapUrnError> {
+        let in_media = self.in_media_urn().map_err(|e| {
+            CapUrnError::InvalidInSpec(format!(
+                "Stored in_urn failed CapUrn admissibility validation: {}",
+                e
+            ))
+        })?;
+        let out_media = self.out_media_urn().map_err(|e| {
+            CapUrnError::InvalidOutSpec(format!(
+                "Stored out_urn failed CapUrn admissibility validation: {}",
+                e
+            ))
+        })?;
+
+        if in_media.is_top()
+            && out_media.is_top()
+            && self.tags.is_empty()
+            && self.effect() == CapEffect::Declared
+        {
+            return Err(CapUrnError::IllegalDeclaration(
+                "illegal bare top cap; use cap:effect=none for identity, or declare a non-vacuous input/output/effect/tag"
+                    .to_string(),
+            ));
+        }
+
+        match self.effect() {
+            CapEffect::Declared | CapEffect::Any => Ok(()),
+            CapEffect::None => {
+                let sound = in_media.conforms_to(&out_media).map_err(|e| {
+                    CapUrnError::IllegalDeclaration(format!(
+                        "failed to verify effect=none admissibility for in='{}' out='{}': {}",
+                        in_media, out_media, e
+                    ))
+                })?;
+                if !sound {
+                    return Err(CapUrnError::IllegalDeclaration(format!(
+                        "effect=none requires declared input '{}' to conform to declared output '{}'",
+                        in_media, out_media
+                    )));
+                }
+                Ok(())
+            }
+            CapEffect::Patch => {
+                let delta = out_media.delta_from(&in_media).map_err(|e| {
+                    CapUrnError::IllegalDeclaration(format!(
+                        "effect=patch requires a computable declared media delta from '{}' to '{}': {}",
+                        in_media, out_media, e
+                    ))
+                })?;
+                let witness = in_media.apply_delta(&delta).map_err(|e| {
+                    CapUrnError::IllegalDeclaration(format!(
+                        "effect=patch failed to apply declared media delta to input '{}': {}",
+                        in_media, e
+                    ))
+                })?;
+                let sound = witness.conforms_to(&out_media).map_err(|e| {
+                    CapUrnError::IllegalDeclaration(format!(
+                        "failed to verify effect=patch admissibility for witness '{}' against declared output '{}': {}",
+                        witness, out_media, e
+                    ))
+                })?;
+                if !sound {
+                    return Err(CapUrnError::IllegalDeclaration(format!(
+                        "effect=patch witness '{}' does not conform to declared output '{}'",
+                        witness, out_media
+                    )));
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Get the canonical string representation of this cap URN
     ///
     /// Always includes "cap:" prefix
@@ -304,12 +452,11 @@ impl CapUrn {
     /// Build a TaggedUrn representation of this CapUrn (internal helper)
     ///
     /// `in` and `out` segments are emitted only when they refine beyond
-    /// the trivial wildcard `media:`. A cap whose `in`/`out` are both
-    /// `media:` and which has no other tags has the canonical form
-    /// `cap:` — the bare identity URN. This is the same morphism whether
-    /// written as `cap:`, `cap:in=media:;out=media:`, or any reordering
-    /// of those segments; the canonicalizer collapses them all to one
-    /// representative so byte-equality matches semantic identity.
+    /// the trivial wildcard `media:`. `effect=declared` is omitted because
+    /// it is the default on admissible caps.
+    ///
+    /// `effect=none` is not omitted. The true identity cap canonicalizes to
+    /// `cap:effect=none`, never to `cap:`.
     fn build_tagged_urn(&self) -> TaggedUrn {
         let mut builder = TaggedUrnBuilder::new(Self::PREFIX);
 
@@ -322,6 +469,11 @@ impl CapUrn {
             builder = builder
                 .tag("out", &self.out_urn)
                 .expect("out_urn guaranteed non-empty");
+        }
+        if self.effect != "declared" {
+            builder = builder
+                .tag("effect", &self.effect)
+                .expect("effect guaranteed valid");
         }
 
         for (k, v) in &self.tags {
@@ -354,6 +506,7 @@ impl CapUrn {
         match key_lower.as_str() {
             "in" => Some(&self.in_urn),
             "out" => Some(&self.out_urn),
+            "effect" => Some(&self.effect),
             _ => self.tags.get(&key_lower),
         }
     }
@@ -368,6 +521,22 @@ impl CapUrn {
         &self.out_urn
     }
 
+    /// Get the effect coordinate in canonical string form.
+    pub fn effect_spec(&self) -> &str {
+        &self.effect
+    }
+
+    /// Get the parsed effect coordinate.
+    pub fn effect(&self) -> CapEffect {
+        match self.effect.as_str() {
+            "declared" => CapEffect::Declared,
+            "none" => CapEffect::None,
+            "patch" => CapEffect::Patch,
+            "?" => CapEffect::Any,
+            other => panic!("CapUrn invariant: invalid stored effect '{}'", other),
+        }
+    }
+
     /// Get the input as a parsed MediaUrn
     pub fn in_media_urn(&self) -> Result<MediaUrn, MediaUrnError> {
         MediaUrn::from_string(&self.in_urn)
@@ -378,14 +547,8 @@ impl CapUrn {
         MediaUrn::from_string(&self.out_urn)
     }
 
-    /// Functional category of this cap, derived from all three axes:
-    /// `in`, `out`, and the rest of the tags (the "operation/metadata"
-    /// axis). All three are inspected — Identity is the **fully
-    /// generic** cap that constrains nothing on any axis: input wide
-    /// open (`media:`), output wide open (`media:`), no other tags.
-    /// Adding even one extra tag specifies something on the third axis
-    /// and demotes the cap from Identity to a Transform whose `in`/
-    /// `out` happen to be the wildcards.
+    /// Functional category of this cap, derived from all four structural axes:
+    /// `in`, `out`, `effect`, and the rest of the tags.
     ///
     /// Source/Sink/Effect are decided by the directional axes
     /// alone (presence of `media:void` on either side), since the
@@ -411,13 +574,9 @@ impl CapUrn {
         let in_top = in_media.is_top();
         let out_top = out_media.is_top();
         let no_extra_tags = self.tags.is_empty();
+        let effect = self.effect();
 
-        // Identity: fully generic on every axis. `cap:` is the only
-        // canonical-form cap that classifies as Identity. Adding any
-        // tag (operation name, target, language, anything) specifies
-        // something on the third axis and demotes the morphism to a
-        // Transform whose in/out happen to be the wildcards.
-        if in_top && out_top && no_extra_tags {
+        if in_top && out_top && no_extra_tags && effect == CapEffect::None {
             return Ok(CapKind::Identity);
         }
         if in_void && out_void {
@@ -440,6 +599,7 @@ impl CapUrn {
         match key_lower.as_str() {
             "in" => self.in_urn == value,
             "out" => self.out_urn == value,
+            "effect" => self.effect == value,
             _ => self.tags.get(&key_lower).map_or(false, |v| v == value),
         }
     }
@@ -453,46 +613,66 @@ impl CapUrn {
             .map_or(false, |v| v == "*")
     }
 
-    /// Add or update a tag
-    /// Key is normalized to lowercase; value is preserved as-is
-    /// Note: Cannot modify 'in' or 'out' tags - use with_in_spec/with_out_spec
-    /// Returns error if value is empty (use "*" for wildcard)
+    /// Add or update a non-structural tag.
+    /// Key is normalized to lowercase; value is preserved as-is.
+    ///
+    /// Reserved structural coordinates (`in`, `out`, `effect`) are not part of
+    /// the y-axis and must be changed through dedicated accessors.
+    /// Returns error if value is empty (use "*" for wildcard).
     pub fn with_tag(mut self, key: String, value: String) -> Result<Self, CapUrnError> {
         if value.is_empty() {
             return Err(CapUrnError::EmptyValue(key));
         }
         let key_lower = key.to_lowercase();
-        if key_lower == "in" || key_lower == "out" {
-            // Silently ignore attempts to set in/out via with_tag
-            // Use with_in_spec/with_out_spec instead
-            return Ok(self);
+        if key_lower == "in" || key_lower == "out" || key_lower == "effect" {
+            return Err(CapUrnError::InvalidTagFormat(format!(
+                "reserved structural key '{}' must be changed via dedicated CapUrn accessors",
+                key_lower
+            )));
         }
         self.tags.insert(key_lower, value);
+        Self::validate_non_structural_tags(&self.tags)?;
+        self.validate_admissible()?;
         Ok(self)
     }
 
     /// Create a new cap URN with a different input spec
     pub fn with_in_spec(mut self, in_urn: String) -> Self {
         self.in_urn = in_urn;
+        self.validate_admissible()
+            .expect("CapUrn::with_in_spec produced an illegal cap declaration");
         self
     }
 
     /// Create a new cap URN with a different output spec
     pub fn with_out_spec(mut self, out_urn: String) -> Self {
         self.out_urn = out_urn;
+        self.validate_admissible()
+            .expect("CapUrn::with_out_spec produced an illegal cap declaration");
         self
     }
 
-    /// Remove a tag
-    /// Key is normalized to lowercase for case-insensitive removal
-    /// Note: Cannot remove 'in' or 'out' tags - they are required
+    /// Create a new cap URN with a different effect coordinate.
+    pub fn with_effect(mut self, effect: CapEffect) -> Self {
+        self.effect = effect.as_str().to_string();
+        self.validate_admissible()
+            .expect("CapUrn::with_effect produced an illegal cap declaration");
+        self
+    }
+
+    /// Remove a non-structural tag.
+    /// Key is normalized to lowercase for case-insensitive removal.
     pub fn without_tag(mut self, key: &str) -> Self {
         let key_lower = key.to_lowercase();
-        if key_lower == "in" || key_lower == "out" {
-            // Silently ignore attempts to remove in/out
-            return self;
+        if key_lower == "in" || key_lower == "out" || key_lower == "effect" {
+            panic!(
+                "CapUrn::without_tag cannot remove reserved structural key '{}'",
+                key_lower
+            );
         }
         self.tags.remove(&key_lower);
+        self.validate_admissible()
+            .expect("CapUrn::without_tag produced an illegal cap declaration");
         self
     }
 
@@ -551,6 +731,10 @@ impl CapUrn {
             {
                 return false;
             }
+        }
+
+        if self.effect != "?" && self.effect != request.effect {
+            return false;
         }
 
         // Y-axis: every tag's per-key match runs through the six-form
@@ -635,6 +819,10 @@ impl CapUrn {
             return false;
         }
 
+        if !self.effect_dispatchable(request) {
+            return false;
+        }
+
         // Axis 3: Cap-tags - provider must satisfy explicit request constraints
         if !self.cap_tags_dispatchable(request) {
             return false;
@@ -710,6 +898,14 @@ impl CapUrn {
         prov_out.conforms_to(&req_out).unwrap_or(false)
     }
 
+    /// Check if provider's effect satisfies request's requested effect.
+    ///
+    /// Omitted `effect` means `declared`, not unconstrained. Unconstrained
+    /// matching must be requested explicitly via `?effect` / `effect=*`.
+    fn effect_dispatchable(&self, request: &CapUrn) -> bool {
+        request.effect == "?" || self.effect == request.effect
+    }
+
     /// Check if provider's cap-tags are dispatchable for request's cap-tags.
     ///
     /// Rules:
@@ -734,6 +930,84 @@ impl CapUrn {
             }
         }
         true
+    }
+
+    /// Apply this cap URN to a concrete runtime input media URN.
+    ///
+    /// This validates that the runtime input conforms to the cap's declared
+    /// input and, if so, returns the concrete runtime output media URN after
+    /// the cap's effect semantics are applied. The resulting runtime output
+    /// must conform to the declared output or this method fails hard.
+    pub fn apply_to_runtime_input_media(
+        &self,
+        runtime_input: &MediaUrn,
+    ) -> Result<MediaUrn, CapUrnError> {
+        let declared_in = self.in_media_urn().map_err(|e| {
+            CapUrnError::InvalidInSpec(format!("Stored in_urn failed to parse during inference: {}", e))
+        })?;
+        let declared_out = self.out_media_urn().map_err(|e| {
+            CapUrnError::InvalidOutSpec(format!("Stored out_urn failed to parse during inference: {}", e))
+        })?;
+
+        if !runtime_input
+            .conforms_to(&declared_in)
+            .map_err(|e| CapUrnError::InvalidEffectApplication(format!(
+                "Failed to compare runtime input '{}' against declared input '{}': {}",
+                runtime_input, declared_in, e
+            )))?
+        {
+            return Err(CapUrnError::InvalidEffectApplication(format!(
+                "Runtime input '{}' does not conform to declared input '{}'",
+                runtime_input, declared_in
+            )));
+        }
+
+        let runtime_out = match self.effect() {
+            CapEffect::Declared => declared_out.clone(),
+            CapEffect::None => runtime_input.clone(),
+            CapEffect::Patch => {
+                let delta = declared_out
+                    .delta_from(&declared_in)
+                    .map_err(|e| CapUrnError::InvalidEffectApplication(format!(
+                        "Failed to derive media delta from '{}' to '{}': {}",
+                        declared_in, declared_out, e
+                    )))?;
+                runtime_input
+                    .apply_delta(&delta)
+                    .map_err(|e| CapUrnError::InvalidEffectApplication(format!(
+                        "Failed to apply media delta to runtime input '{}': {}",
+                        runtime_input, e
+                    )))?
+            }
+            CapEffect::Any => {
+                return Err(CapUrnError::InvalidEffectApplication(
+                    "Cannot infer runtime output for an unconstrained effect request".to_string(),
+                ));
+            }
+        };
+
+        if !runtime_out
+            .conforms_to(&declared_out)
+            .map_err(|e| CapUrnError::InvalidEffectApplication(format!(
+                "Failed to validate runtime output '{}' against declared output '{}': {}",
+                runtime_out, declared_out, e
+            )))?
+        {
+            return Err(CapUrnError::InvalidEffectApplication(format!(
+                "Inferred runtime output '{}' does not conform to declared output '{}'",
+                runtime_out, declared_out
+            )));
+        }
+
+        Ok(runtime_out)
+    }
+
+    /// Infer the runtime output media URN for a concrete runtime input.
+    ///
+    /// Alias for `apply_to_runtime_input_media()`. Kept as the runtime-output
+    /// terminology used elsewhere in the stack.
+    pub fn infer_runtime_output_media(&self, runtime_input: &MediaUrn) -> Result<MediaUrn, CapUrnError> {
+        self.apply_to_runtime_input_media(runtime_input)
     }
 
     /// Calculate specificity score for cap matching.
@@ -811,10 +1085,13 @@ impl CapUrn {
         let key_lower = key.to_lowercase();
         match key_lower.as_str() {
             "in" => {
-                self.in_urn = "*".to_string();
+                self.in_urn = MEDIA_IDENTITY.to_string();
             }
             "out" => {
-                self.out_urn = "*".to_string();
+                self.out_urn = MEDIA_IDENTITY.to_string();
+            }
+            "effect" => {
+                self.effect = "?".to_string();
             }
             _ => {
                 if self.tags.contains_key(&key_lower) {
@@ -822,6 +1099,8 @@ impl CapUrn {
                 }
             }
         }
+        self.validate_admissible()
+            .expect("CapUrn::with_wildcard_tag produced an illegal cap declaration");
         self
     }
 
@@ -839,11 +1118,16 @@ impl CapUrn {
                 tags.insert(key_lower, value.clone());
             }
         }
-        Self {
+        let subset = Self {
             in_urn: self.in_urn.clone(),
             out_urn: self.out_urn.clone(),
+            effect: self.effect.clone(),
             tags,
-        }
+        };
+        subset
+            .validate_admissible()
+            .expect("CapUrn::subset produced an illegal cap declaration");
+        subset
     }
 
     /// Merge with another cap (other takes precedence for conflicts)
@@ -853,11 +1137,16 @@ impl CapUrn {
         for (key, value) in &other.tags {
             tags.insert(key.clone(), value.clone());
         }
-        Self {
+        let merged = Self {
             in_urn: other.in_urn.clone(),
             out_urn: other.out_urn.clone(),
+            effect: other.effect.clone(),
             tags,
-        }
+        };
+        merged
+            .validate_admissible()
+            .expect("CapUrn::merge produced an illegal cap declaration");
+        merged
     }
 
     pub fn canonical(cap_urn: &str) -> Result<String, CapUrnError> {
@@ -906,6 +1195,12 @@ pub enum CapUrnError {
     InvalidInSpec(String),
     /// Error code 14: Invalid media URN in 'out' spec
     InvalidOutSpec(String),
+    /// Error code 15: Invalid or unsupported effect coordinate
+    InvalidEffect(String),
+    /// Error code 16: Runtime effect inference/evaluation failed
+    InvalidEffectApplication(String),
+    /// Error code 17: Structurally parseable but inadmissible cap declaration
+    IllegalDeclaration(String),
 }
 
 impl CapUrnError {
@@ -980,6 +1275,15 @@ impl fmt::Display for CapUrnError {
             CapUrnError::InvalidOutSpec(msg) => {
                 write!(f, "Invalid 'out' spec: {}", msg)
             }
+            CapUrnError::InvalidEffect(msg) => {
+                write!(f, "Invalid 'effect' spec: {}", msg)
+            }
+            CapUrnError::InvalidEffectApplication(msg) => {
+                write!(f, "Invalid effect application: {}", msg)
+            }
+            CapUrnError::IllegalDeclaration(msg) => {
+                write!(f, "Illegal cap declaration: {}", msg)
+            }
         }
     }
 }
@@ -1039,6 +1343,11 @@ impl Ord for CapUrn {
             .out_media_urn()
             .expect("CapUrn invariant: out_urn parses as MediaUrn");
         match self_out.cmp(&other_out) {
+            std::cmp::Ordering::Equal => {}
+            ord => return ord,
+        }
+
+        match self.effect().cmp(&other.effect()) {
             std::cmp::Ordering::Equal => {}
             ord => return ord,
         }
@@ -1106,6 +1415,7 @@ impl CapMatcher {
 pub struct CapUrnBuilder {
     in_urn: Option<String>,
     out_urn: Option<String>,
+    effect: Option<String>,
     tags: BTreeMap<String, String>,
 }
 
@@ -1114,6 +1424,7 @@ impl CapUrnBuilder {
         Self {
             in_urn: None,
             out_urn: None,
+            effect: None,
             tags: BTreeMap::new(),
         }
     }
@@ -1130,12 +1441,21 @@ impl CapUrnBuilder {
         self
     }
 
-    /// Add a tag with key (normalized to lowercase) and value (preserved as-is)
-    /// Note: 'in' and 'out' are ignored here - use in_spec() and out_spec()
+    /// Set the effect coordinate.
+    pub fn effect(mut self, effect: CapEffect) -> Self {
+        self.effect = Some(effect.as_str().to_string());
+        self
+    }
+
+    /// Add a non-structural tag with key (normalized to lowercase) and value
+    /// (preserved as-is).
     pub fn tag(mut self, key: &str, value: &str) -> Self {
         let key_lower = key.to_lowercase();
-        if key_lower == "in" || key_lower == "out" {
-            return self;
+        if key_lower == "in" || key_lower == "out" || key_lower == "effect" {
+            panic!(
+                "CapUrnBuilder::tag cannot set reserved structural key '{}'; use in_spec/out_spec/effect",
+                key_lower
+            );
         }
         self.tags.insert(key_lower, value.to_string());
         self
@@ -1143,8 +1463,11 @@ impl CapUrnBuilder {
 
     pub fn marker(mut self, key: &str) -> Self {
         let key_lower = key.to_lowercase();
-        if key_lower == "in" || key_lower == "out" {
-            return self;
+        if key_lower == "in" || key_lower == "out" || key_lower == "effect" {
+            panic!(
+                "CapUrnBuilder::marker cannot set reserved structural key '{}'; use in_spec/out_spec/effect",
+                key_lower
+            );
         }
         self.tags.insert(key_lower, "*".to_string());
         self
@@ -1153,7 +1476,8 @@ impl CapUrnBuilder {
     pub fn build(self) -> Result<CapUrn, CapUrnError> {
         let in_urn = self.in_urn.ok_or(CapUrnError::MissingInSpec)?;
         let out_urn = self.out_urn.ok_or(CapUrnError::MissingOutSpec)?;
-        CapUrn::new(in_urn, out_urn, self.tags)
+        let effect = self.effect.unwrap_or_else(|| "declared".to_string());
+        CapUrn::new(in_urn, out_urn, effect, self.tags)
     }
 }
 
@@ -1545,10 +1869,13 @@ mod tests {
                 canonical
             );
         }
-        // Bare-identity round-trip: a cap with no tags and wildcard
-        // in/out must canonicalize to literally `cap:`.
-        let identity = CapUrn::from_string("cap:in=media:;out=media:").expect("identity must parse");
-        assert_eq!(identity.to_string(), "cap:");
+        let generic_top = CapUrn::from_string("cap:in=media:;out=media:");
+        assert!(matches!(generic_top, Err(CapUrnError::IllegalDeclaration(_))));
+
+        let identity =
+            CapUrn::from_string("cap:effect=none").expect("identity cap must parse");
+        assert_eq!(identity.to_string(), "cap:effect=none");
+        assert_ne!(identity.to_string(), generic_top.to_string());
     }
 
     // TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch
@@ -1684,6 +2011,23 @@ mod tests {
             .out_spec(MEDIA_OBJECT)
             .build();
         assert!(result.is_ok());
+
+        let invalid_tag = CapUrnBuilder::new()
+            .in_spec(MEDIA_VOID)
+            .out_spec(MEDIA_OBJECT)
+            .tag("123", "value")
+            .build();
+        assert!(matches!(invalid_tag, Err(CapUrnError::NumericKey(_))));
+
+        let reserved_tag = std::panic::catch_unwind(|| {
+            let _ = CapUrnBuilder::new().tag("in", "media:void");
+        });
+        assert!(reserved_tag.is_err());
+
+        let reserved_marker = std::panic::catch_unwind(|| {
+            let _ = CapUrnBuilder::new().marker("effect");
+        });
+        assert!(reserved_marker.is_err());
     }
 
     // TEST023: Test builder lowercases keys but preserves value case
@@ -1781,24 +2125,23 @@ mod tests {
 
         // Test wildcarding in/out
         let wildcard_in = cap.clone().with_wildcard_tag("in");
-        assert_eq!(wildcard_in.in_spec(), "*");
+        assert_eq!(wildcard_in.in_spec(), MEDIA_IDENTITY);
 
         let wildcard_out = cap.clone().with_wildcard_tag("out");
-        assert_eq!(wildcard_out.out_spec(), "*");
+        assert_eq!(wildcard_out.out_spec(), MEDIA_IDENTITY);
     }
 
-    // TEST028: Test empty cap URN defaults to media: wildcard
+    // TEST028: Test empty cap URN is illegal after effect transition
     #[test]
-    fn test028_empty_cap_urn_defaults_to_wildcard() {
-        // Empty cap URN defaults to media: for both in and out
-        let cap = CapUrn::from_string("cap:").expect("Empty cap should default to media: wildcard");
-        assert_eq!(cap.in_spec(), "media:");
-        assert_eq!(cap.out_spec(), "media:");
-
-        // With trailing semicolon - same behavior
-        let cap = CapUrn::from_string("cap:;").expect("cap:; should default to media: wildcard");
-        assert_eq!(cap.in_spec(), "media:");
-        assert_eq!(cap.out_spec(), "media:");
+    fn test028_empty_cap_urn_is_illegal() {
+        assert!(matches!(
+            CapUrn::from_string("cap:"),
+            Err(CapUrnError::IllegalDeclaration(_))
+        ));
+        assert!(matches!(
+            CapUrn::from_string("cap:;"),
+            Err(CapUrnError::IllegalDeclaration(_))
+        ));
     }
 
     // TEST029: Test minimal valid cap URN has just in and out, empty tags
@@ -1897,6 +2240,7 @@ mod tests {
         let cap = CapUrn::new(
             MEDIA_VOID.to_string(),
             MEDIA_OBJECT.to_string(),
+            "declared".to_string(),
             BTreeMap::new(),
         )?
         .with_tag("key".to_string(), "ValueWithCase".to_string())?;
@@ -1910,6 +2254,7 @@ mod tests {
         let cap = CapUrn::new(
             MEDIA_VOID.to_string(),
             MEDIA_OBJECT.to_string(),
+            "declared".to_string(),
             BTreeMap::new(),
         )?;
         let result = cap.with_tag("key".to_string(), "".to_string());
@@ -2075,7 +2420,7 @@ mod tests {
     #[test]
     fn test048_matching_semantics_test8_wildcard_direction_matches_anything() {
         // Test 8: Wildcard direction matches anything
-        let cap = CapUrn::from_string("cap:in=*;out=*").unwrap();
+        let cap = CapUrn::from_string("cap:in=*;out=*;op").unwrap();
         let request = CapUrn::from_string(&format!(
             "cap:ext=pdf;in=media:string;generate;out=\"{}\"",
             MEDIA_OBJECT
@@ -2249,53 +2594,58 @@ mod tests {
     }
 }
 
-// TEST639: cap: (empty) defaults to in=media:;out=media:
+// TEST639: bare/default top-to-top declared form is illegal
 #[test]
-fn test639_wildcard_001_empty_cap_defaults_to_media_wildcard() {
-    let cap = CapUrn::from_string("cap:").expect("Empty cap should default to media: wildcard");
-    assert_eq!(cap.in_spec(), "media:");
-    assert_eq!(cap.out_spec(), "media:");
-    assert_eq!(cap.tags.len(), 0);
+fn test639_wildcard_001_empty_cap_is_illegal() {
+    assert!(matches!(
+        CapUrn::from_string("cap:"),
+        Err(CapUrnError::IllegalDeclaration(_))
+    ));
 }
 
-// TEST640: cap:in defaults out to media:
+// TEST640: cap:in defaults to the same illegal bare top form
 #[test]
-fn test640_wildcard_002_in_only_defaults_out_to_media() {
-    let cap = CapUrn::from_string("cap:in").expect("in without out should default out to media:");
-    assert_eq!(cap.in_spec(), "media:");
-    assert_eq!(cap.out_spec(), "media:");
+fn test640_wildcard_002_in_only_is_illegal() {
+    assert!(matches!(
+        CapUrn::from_string("cap:in"),
+        Err(CapUrnError::IllegalDeclaration(_))
+    ));
 }
 
-// TEST641: cap:out defaults in to media:
+// TEST641: cap:out defaults to the same illegal bare top form
 #[test]
-fn test641_wildcard_003_out_only_defaults_in_to_media() {
-    let cap = CapUrn::from_string("cap:out").expect("out without in should default in to media:");
-    assert_eq!(cap.in_spec(), "media:");
-    assert_eq!(cap.out_spec(), "media:");
+fn test641_wildcard_003_out_only_is_illegal() {
+    assert!(matches!(
+        CapUrn::from_string("cap:out"),
+        Err(CapUrnError::IllegalDeclaration(_))
+    ));
 }
 
-// TEST642: cap:in;out both become media:
+// TEST642: cap:in;out becomes the same illegal bare top form
 #[test]
-fn test642_wildcard_004_in_out_no_values_become_media() {
-    let cap = CapUrn::from_string("cap:in;out").expect("in;out should both become media:");
-    assert_eq!(cap.in_spec(), "media:");
-    assert_eq!(cap.out_spec(), "media:");
+fn test642_wildcard_004_in_out_no_values_is_illegal() {
+    assert!(matches!(
+        CapUrn::from_string("cap:in;out"),
+        Err(CapUrnError::IllegalDeclaration(_))
+    ));
 }
 
-// TEST643: cap:in=*;out=* becomes media:
+// TEST643: cap:in=*;out=* is the same illegal bare top form
 #[test]
-fn test643_wildcard_005_explicit_asterisk_becomes_media() {
-    let cap = CapUrn::from_string("cap:in=*;out=*").expect("in=*;out=* should become media:");
-    assert_eq!(cap.in_spec(), "media:");
-    assert_eq!(cap.out_spec(), "media:");
+fn test643_wildcard_005_explicit_asterisk_is_illegal() {
+    assert!(matches!(
+        CapUrn::from_string("cap:in=*;out=*"),
+        Err(CapUrnError::IllegalDeclaration(_))
+    ));
 }
 
-// TEST644: cap:in=media:;out=* has specific in, wildcard out
+// TEST644: cap:in=media:;out=* is the same illegal bare top form
 #[test]
-fn test644_wildcard_006_specific_in_wildcard_out() {
-    let cap = CapUrn::from_string("cap:in=media:;out=*").expect("Specific in with wildcard out");
-    assert_eq!(cap.in_spec(), "media:");
-    assert_eq!(cap.out_spec(), "media:");
+fn test644_wildcard_006_specific_in_wildcard_out_is_illegal() {
+    assert!(matches!(
+        CapUrn::from_string("cap:in=media:;out=*"),
+        Err(CapUrnError::IllegalDeclaration(_))
+    ));
 }
 
 // TEST645: cap:in=*;out=media:text has wildcard in, specific out
@@ -2328,8 +2678,8 @@ fn test647_wildcard_009_invalid_out_spec_fails() {
 // TEST648: Wildcard in/out match specific caps
 #[test]
 fn test648_wildcard_010_wildcard_accepts_specific() {
-    let wildcard = CapUrn::from_string("cap:").unwrap();
-    let specific = CapUrn::from_string("cap:in=media:;out=media:text").unwrap();
+    let wildcard = CapUrn::from_string("cap:raw").unwrap();
+    let specific = CapUrn::from_string("cap:out=media:text;raw").unwrap();
 
     assert!(
         wildcard.accepts(&specific),
@@ -2344,13 +2694,13 @@ fn test648_wildcard_010_wildcard_accepts_specific() {
 // TEST649: Specificity - wildcard has 0, specific has tag count
 #[test]
 fn test649_wildcard_011_specificity_scoring() {
-    let wildcard = CapUrn::from_string("cap:").unwrap();
-    let specific = CapUrn::from_string("cap:in=media:;out=media:text").unwrap();
+    let wildcard = CapUrn::from_string("cap:raw").unwrap();
+    let specific = CapUrn::from_string("cap:out=media:text;raw").unwrap();
 
     assert_eq!(
         wildcard.specificity(),
-        0,
-        "Wildcard should have 0 specificity"
+        2,
+        "Marker-only wildcard cap should have y-axis specificity only"
     );
     assert!(
         specific.specificity() > 0,
@@ -2367,9 +2717,9 @@ fn test650_wildcard_012_preserve_other_tags() {
     assert!(cap.has_marker_tag("test"));
 }
 
-// TEST651: All identity forms produce the same CapUrn
+// TEST651: All bare/default top-to-top forms are rejected
 #[test]
-fn test651_wildcard_013_identity_forms_equivalent() {
+fn test651_wildcard_013_generic_forms_rejected() {
     let forms = [
         "cap:",
         "cap:in;out",
@@ -2380,33 +2730,11 @@ fn test651_wildcard_013_identity_forms_equivalent() {
         "cap:in=media:;out",
         "cap:in=media:;out=*",
     ];
-    let reference = CapUrn::from_string(forms[0]).unwrap();
-    for form in &forms[1..] {
-        let parsed = CapUrn::from_string(form).unwrap();
-        assert_eq!(
-            parsed.in_spec(),
-            "media:",
-            "in_spec mismatch for '{}'",
-            form
-        );
-        assert_eq!(
-            parsed.out_spec(),
-            "media:",
-            "out_spec mismatch for '{}'",
-            form
-        );
-        assert!(parsed.tags.is_empty(), "unexpected tags for '{}'", form);
-        // Bidirectional accepts — equivalent caps
-        assert!(
-            reference.accepts(&parsed),
-            "'cap:' must accept '{}' as instance",
-            form
-        );
-        assert!(
-            parsed.accepts(&reference),
-            "'{}' must accept 'cap:' as instance",
-            form
-        );
+    for form in &forms {
+        assert!(matches!(
+            CapUrn::from_string(form),
+            Err(CapUrnError::IllegalDeclaration(_))
+        ));
     }
 }
 
@@ -2415,70 +2743,76 @@ fn test651_wildcard_013_identity_forms_equivalent() {
 fn test652_wildcard_014_cap_identity_constant_works() {
     use crate::standard::caps::CAP_IDENTITY;
     let identity = CapUrn::from_string(CAP_IDENTITY).unwrap();
+    assert_eq!(identity.to_string(), "cap:effect=none");
+    assert_eq!(identity.kind().unwrap(), CapKind::Identity);
 
     // Identity accepts itself
     assert!(identity.accepts(&identity));
 
     // Identity parsed from different string forms is equivalent
-    let long_form = CapUrn::from_string("cap:in=media:;out=media:").unwrap();
+    let long_form = CapUrn::from_string("cap:in=media:;out=media:;effect=none").unwrap();
     assert!(identity.accepts(&long_form));
     assert!(long_form.accepts(&identity));
 
-    // Identity as pattern accepts any specific cap (wildcard in/out, no tags)
-    let specific = CapUrn::from_string("cap:in=media:void;out=media:void;test").unwrap();
-    assert!(
-        identity.accepts(&specific),
-        "Identity pattern must accept specific cap"
-    );
+    assert!(matches!(
+        CapUrn::from_string("cap:"),
+        Err(CapUrnError::IllegalDeclaration(_))
+    ));
+}
 
-    // Specific as pattern does NOT accept identity — specific requires things identity lacks
-    assert!(
-        !specific.accepts(&identity),
-        "Specific pattern must reject identity"
-    );
+// TEST653: invalid effect=none declarations fail at construction
+#[test]
+fn test653_effect_none_illegal_declaration_rejected() {
+    assert!(matches!(
+        CapUrn::from_string("cap:in=media:pdf;out=media:textable;effect=none"),
+        Err(CapUrnError::IllegalDeclaration(_))
+    ));
+}
 
-    // conforms_to is the reverse of accepts
-    // identity.conforms_to(specific) = specific.accepts(identity) → false
-    // (specific requires void in/out + test, identity has bare media: + no tags)
-    assert!(
-        !identity.conforms_to(&specific),
-        "Identity does not conform to specific cap"
+// TEST654: effect=none preserves runtime media identity
+#[test]
+fn test654_effect_none_preserves_runtime_media() {
+    let decimate = CapUrn::from_string("cap:decimate-sequence;effect=none").unwrap();
+    let png = MediaUrn::from_string("media:image;png").unwrap();
+    let pdf = MediaUrn::from_string("media:pdf").unwrap();
+    assert_eq!(
+        decimate.infer_runtime_output_media(&png).unwrap().to_string(),
+        png.to_string()
     );
-    // specific.conforms_to(identity) = identity.accepts(specific) → true
-    // (identity accepts everything — broadest pattern)
-    assert!(
-        specific.conforms_to(&identity),
-        "Specific conforms to identity (identity accepts all)"
+    assert_eq!(
+        decimate.infer_runtime_output_media(&pdf).unwrap().to_string(),
+        pdf.to_string()
     );
 }
 
-// TEST653: Identity (no tags) does not match specific requests via routing
+// TEST655: default effect=declared uses the declared output
 #[test]
-fn test653_wildcard_015_identity_routing_isolation() {
-    let identity = CapUrn::from_string("cap:").unwrap();
-    let specific_request =
-        CapUrn::from_string("cap:in=media:void;out=media:void;test").unwrap();
-
-    // Routing direction: request.accepts(registered_cap)
-    // Specific request rejects identity — identity's bare media: doesn't satisfy specific in/out
-    assert!(
-        !specific_request.accepts(&identity),
-        "Specific request must not route to identity handler"
+fn test655_effect_declared_uses_declared_output() {
+    let resize = CapUrn::from_string("cap:in=media:image;out=media:image;resize").unwrap();
+    let png = MediaUrn::from_string("media:image;png;width=4000").unwrap();
+    assert_eq!(
+        resize.infer_runtime_output_media(&png).unwrap().to_string(),
+        "media:image"
     );
+}
 
-    // Identity request accepts identity — exact match (no constraints)
-    let identity_request = CapUrn::from_string("cap:").unwrap();
-    assert!(
-        identity_request.accepts(&identity),
-        "Identity request must route to identity handler"
-    );
+// TEST656: invalid effect=none declarations fail hard
+#[test]
+fn test656_invalid_effect_none_fails_hard() {
+    assert!(matches!(
+        CapUrn::from_string("cap:in=media:pdf;out=media:textable;effect=none"),
+        Err(CapUrnError::IllegalDeclaration(_))
+    ));
+}
 
-    // Identity request does NOT accept specific cap — direction spec mismatch
-    // identity has media: for in (wildcard, skips check), BUT the direction check
-    // for output: identity out=media: → skip (wildcard). For tags: identity has no tags → match.
-    // So identity request DOES match specific via accepts. BUT closest-specificity
-    // routing ensures the identity handler is preferred.
-    // This is correct: identity request has no constraints, matches everything.
+// TEST657: omitted effect means declared; unconstrained effect must be explicit
+#[test]
+fn test657_effect_dispatch_requires_explicit_wildcard() {
+    let none_provider = CapUrn::from_string("cap:effect=none").unwrap();
+    let declared_request = CapUrn::from_string("cap:raw").unwrap();
+    let any_request = CapUrn::from_string("cap:?effect").unwrap();
+    assert!(!none_provider.is_dispatchable(&declared_request));
+    assert!(none_provider.is_dispatchable(&any_request));
 }
 
 #[cfg(test)]
@@ -2486,7 +2820,7 @@ mod tier_tests {
     use super::*;
     use crate::urn::media_urn::MEDIA_VOID;
 
-    // TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys
+    // TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys
     #[test]
     fn test559_without_tag() {
         let cap =
@@ -2499,11 +2833,13 @@ mod tier_tests {
         let removed2 = cap.clone().without_tag("EXT");
         assert_eq!(removed2.get_tag("ext"), None);
 
-        // Removing in/out is silently ignored
-        let same = cap.clone().without_tag("in");
-        assert_eq!(same.in_spec(), MEDIA_VOID);
-        let same2 = cap.clone().without_tag("out");
-        assert_eq!(same2.out_spec(), MEDIA_VOID);
+        // Removing structural coordinates fails hard
+        let remove_in = std::panic::catch_unwind(|| cap.clone().without_tag("in"));
+        assert!(remove_in.is_err());
+        let remove_out = std::panic::catch_unwind(|| cap.clone().without_tag("out"));
+        assert!(remove_out.is_err());
+        let remove_effect = std::panic::catch_unwind(|| cap.clone().without_tag("effect"));
+        assert!(remove_effect.is_err());
 
         // Removing non-existent tag is no-op
         let same3 = cap.clone().without_tag("nonexistent");
@@ -2530,6 +2866,10 @@ mod tier_tests {
             .with_out_spec("media:txt;textable".to_string());
         assert_eq!(changed_both.in_spec(), "media:pdf");
         assert_eq!(changed_both.out_spec(), "media:txt;textable");
+
+        let identity = CapUrn::from_string("cap:effect=none").unwrap();
+        let illegal = std::panic::catch_unwind(|| identity.with_out_spec("media:pdf".to_string()));
+        assert!(illegal.is_err(), "with_out_spec must revalidate admissibility");
     }
 
     // TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn
@@ -2551,7 +2891,7 @@ mod tier_tests {
         assert!(out_urn.has_tag("txt", "*"));
 
         // Wildcard media: fails to parse (no tags, just prefix)
-        let wildcard_cap = CapUrn::from_string("cap:").unwrap();
+        let wildcard_cap = CapUrn::from_string("cap:raw").unwrap();
         // "media:" is valid but has no tags
         let wildcard_in = wildcard_cap.in_media_urn();
         assert!(
@@ -2640,30 +2980,26 @@ mod tier_tests {
         assert!(tags_str.contains("test"));
     }
 
-    // TEST566: with_tag silently ignores in/out keys
+    // TEST566: with_tag rejects structural keys
     #[test]
-    fn test566_with_tag_ignores_in_out() {
+    fn test566_with_tag_rejects_structural_keys() {
         let cap = CapUrn::from_string(r#"cap:in=media:void;out=media:void;test"#).unwrap();
-        // Attempting to set in/out via with_tag is silently ignored
         let same = cap
             .clone()
             .with_tag("in".to_string(), "media:".to_string())
-            .unwrap();
-        assert_eq!(
-            same.in_spec(),
-            MEDIA_VOID,
-            "with_tag must not change in_spec"
-        );
+            .unwrap_err();
+        assert!(matches!(same, CapUrnError::InvalidTagFormat(_)));
 
         let same2 = cap
             .clone()
             .with_tag("out".to_string(), "media:".to_string())
-            .unwrap();
-        assert_eq!(
-            same2.out_spec(),
-            MEDIA_VOID,
-            "with_tag must not change out_spec"
-        );
+            .unwrap_err();
+        assert!(matches!(same2, CapUrnError::InvalidTagFormat(_)));
+
+        let same3 = cap
+            .with_tag("effect".to_string(), "none".to_string())
+            .unwrap_err();
+        assert!(matches!(same3, CapUrnError::InvalidTagFormat(_)));
     }
 
     // TEST567: conforms_to_str and accepts_str work with string arguments
@@ -2948,31 +3284,31 @@ mod tier_tests {
     // the protocol's public surface, not a per-port detail.
     // -------------------------------------------------------------------
 
-    // TEST1800: Identity classifier — and only the bare cap: form
-    // qualifies. `cap:` is the fully generic morphism on every axis;
-    // adding any tag (even one that doesn't constrain in/out) demotes
-    // the cap to Transform because the operation/metadata axis is no
-    // longer fully generic.
+    // TEST1800: Identity classifier — and only explicit effect=none
+    // qualifies.
     #[test]
     fn test1800_kind_identity_only_for_bare_cap() {
-        let identity = CapUrn::from_string("cap:").unwrap();
+        let identity = CapUrn::from_string("cap:effect=none").unwrap();
         assert_eq!(identity.kind().unwrap(), CapKind::Identity);
 
-        // Every long-hand spelling of identity canonicalizes to `cap:`
-        // and therefore classifies the same way.
         for spelling in &[
-            "cap:in=media:;out=media:",
-            "cap:in=*;out=*",
-            "cap:in=media:",
-            "cap:out=media:",
+            "cap:in=media:;out=media:;effect=none",
+            "cap:effect=none;in=*;out=*",
+            "cap:effect=none;in=media:",
+            "cap:effect=none;out=media:",
         ] {
             let cap = CapUrn::from_string(spelling).unwrap();
             assert_eq!(
                 cap.kind().unwrap(),
                 CapKind::Identity,
-                "{spelling} should classify as Identity (canonical form is `cap:`)"
+                "{spelling} should classify as Identity"
             );
         }
+
+        assert!(matches!(
+            CapUrn::from_string("cap:"),
+            Err(CapUrnError::IllegalDeclaration(_))
+        ));
 
         // Any non-directional tag demotes Identity to Transform.
         let with_op = CapUrn::from_string("cap:passthrough").unwrap();
@@ -3053,8 +3389,11 @@ mod tier_tests {
         // Each tuple: (spelling_a, spelling_b, expected kind).
         // The two spellings parse to canonically-equal URNs.
         let cases: &[(&str, &str, CapKind)] = &[
-            // Identity — both forms must collapse to `cap:`.
-            ("cap:", "cap:in=media:;out=media:", CapKind::Identity),
+            (
+                "cap:effect=none",
+                "cap:in=media:;out=media:;effect=none",
+                CapKind::Identity,
+            ),
             // Transform — quoted vs unquoted single-tag media URN.
             (
                 "cap:extract;in=media:pdf;out=media:textable",
@@ -3108,8 +3447,8 @@ mod tier_tests {
     // TEST1820: A `?`-valued cap-tag scores 0. Same as missing.
     #[test]
     fn test1820_specificity_question_is_zero() {
-        // Bare cap is the baseline (in/out top, no y).
-        let bare = CapUrn::from_string("cap:").unwrap();
+        // `?effect` is the legal fully unconstrained request baseline.
+        let bare = CapUrn::from_string("cap:?effect").unwrap();
         assert_eq!(bare.specificity(), 0);
 
         // Adding `?target` (canonical of `target=?`) does NOT change
@@ -3348,14 +3687,14 @@ mod tier_tests {
         for (i, inst_form) in forms.iter().enumerate() {
             for (j, patt_form) in forms.iter().enumerate() {
                 let inst_str = if inst_form.is_empty() {
-                    "cap:".to_string()
+                    "cap:base".to_string()
                 } else {
-                    format!("cap:{}", inst_form)
+                    format!("cap:base;{}", inst_form)
                 };
                 let patt_str = if patt_form.is_empty() {
-                    "cap:".to_string()
+                    "cap:base".to_string()
                 } else {
-                    format!("cap:{}", patt_form)
+                    format!("cap:base;{}", patt_form)
                 };
                 let inst = CapUrn::from_string(&inst_str).unwrap();
                 let patt = CapUrn::from_string(&patt_str).unwrap();

@@ -26,7 +26,7 @@ Capdag uses URNs as structured semantic descriptors, not merely names. The syste
 | Are these semantically identical? | is_equivalent |
 | Can output flow to input? | conforms_to |
 
-Previous bugs arose from conflating these questions. A single `accepts` or `conforms_to` cannot serve all purposes because Cap URNs have **mixed variance** across three dimensions.
+Previous bugs arose from conflating these questions. A single `accepts` or `conforms_to` cannot serve all purposes because Cap URNs have **mixed variance** across four structural coordinates.
 
 ---
 
@@ -149,21 +149,22 @@ If this also holds, equivalence classes of U form a **partial order**.
 A Cap URN is a triple over the Tagged URN domain:
 
 ```
-C = U × U × U
+C = U × U × U × E
 ```
 
 For c ∈ C, write:
 
 ```
-c = (i, o, y)
+c = (i, o, y, e)
 ```
 
 Where:
 - **i** = input dimension (the `in` tag value)
 - **o** = output dimension (the `out` tag value)
 - **y** = non-direction cap-tag dimension
+- **e** = effect coordinate
 
-All three dimensions reuse the same base domain U and relation ⪯.
+The `in`, `out`, and `y` dimensions reuse the base domain `U` and relation `⪯`. The `effect` coordinate is a structural axis with exact matching unless the request explicitly uses the unconstrained `?effect` form.
 
 ### 8.1 Distinguished Media URNs: Top and Unit
 
@@ -242,12 +243,12 @@ spec_C : C → ℕ
 By:
 
 ```
-spec_C(i, o, y) = 10_000 * spec_U(o)
-                +    100 * spec_U(i)
-                +          spec_U(y)
+spec_C(i, o, y, e) = 10_000 * spec_U(o)
+                    +    100 * spec_U(i)
+                    +          spec_U(y)
 ```
 
-All three axes go through the **same** Tagged URN specificity
+The `in`, `out`, and `y` axes go through the **same** Tagged URN specificity
 function `spec_U` for the *per-axis* sum. Where the axes differ is
 in their **weight** in the cap-URN total: two orders of magnitude
 separate `out` from `in` from `y`, giving a single integer with
@@ -277,13 +278,13 @@ details and worked examples.
 ## 10. The Dispatch Relation
 
 Let:
-- provider p = (i_p, o_p, y_p)
-- request r = (i_r, o_r, y_r)
+- provider p = (i_p, o_p, y_p, e_p)
+- request r = (i_r, o_r, y_r, e_r)
 
 Define the dispatch relation:
 
 ```
-Dispatch(p, r)  ⟺  i_r ⪯ i_p  ∧  o_p ⪯ o_r  ∧  y_r ⪯ y_p
+Dispatch(p, r)  ⟺  i_r ⪯ i_p  ∧  o_p ⪯ o_r  ∧  (e_r = ? ∨ e_p = e_r)  ∧  y_r ⪯ y_p
 ```
 
 This is the **primary routing predicate**.
@@ -441,7 +442,7 @@ Refinement preserves dispatchability.
 ### 17.4 Contradiction Rejection
 
 ```
-¬(i_r ⪯ i_p) ∨ ¬(o_p ⪯ o_r) ∨ ¬(y_r ⪯ y_p)  ⟹  ¬Dispatch(p, r)
+¬(i_r ⪯ i_p) ∨ ¬(o_p ⪯ o_r) ∨ ¬(e_r = ? ∨ e_p = e_r) ∨ ¬(y_r ⪯ y_p)  ⟹  ¬Dispatch(p, r)
 ```
 
 If any conjunct fails, dispatch fails.

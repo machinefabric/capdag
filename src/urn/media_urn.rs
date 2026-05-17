@@ -17,7 +17,7 @@
 
 use std::fmt;
 use std::str::FromStr;
-use tagged_urn::{TaggedUrn, TaggedUrnError};
+use tagged_urn::{TaggedUrn, TaggedUrnCoordinateDelta, TaggedUrnError};
 
 // =============================================================================
 // STANDARD MEDIA URN CONSTANTS
@@ -476,6 +476,16 @@ impl MediaUrn {
     /// Create a new MediaUrn without a specific tag
     pub fn without_tag(&self, key: &str) -> Self {
         Self(self.0.clone().without_tag(key))
+    }
+
+    /// Compute the coordinate-space delta from `base` to `self`.
+    pub fn delta_from(&self, base: &MediaUrn) -> Result<TaggedUrnCoordinateDelta, TaggedUrnError> {
+        self.0.delta_from(&base.0)
+    }
+
+    /// Apply a coordinate delta while preserving unrelated refinements.
+    pub fn apply_delta(&self, delta: &TaggedUrnCoordinateDelta) -> Result<Self, MediaUrnError> {
+        Self::new(self.0.apply_delta(delta)?)
     }
 
     /// Compute the least upper bound (most specific common type) of a set of MediaUrns.

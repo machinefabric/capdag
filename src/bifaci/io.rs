@@ -1965,7 +1965,7 @@ mod tests {
             max_chunk: DEFAULT_MAX_CHUNK,
             max_reorder_buffer: 32,
         };
-        let manifest = br#"{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity"}]}]}"#;
+        let manifest = br#"{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}"#;
 
         // Write cartridge's HELLO with manifest to a duplex stream
         let (mut cartridge_write, mut cartridge_read) = tokio::io::duplex(64 * 1024);
@@ -2009,7 +2009,7 @@ mod tests {
     // =========================================================================
 
     /// Manifest with only CAP_IDENTITY (minimum valid manifest)
-    const IDENTITY_MANIFEST: &str = r#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:","title":"Identity","command":"identity","args":[]}]}]}"#;
+    const IDENTITY_MANIFEST: &str = r#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]}]}]}"#;
 
     /// Simulate cartridge side: handshake_accept, then handle one identity REQ
     /// by echoing back the payload (like the standard identity handler).

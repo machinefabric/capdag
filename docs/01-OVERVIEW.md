@@ -127,7 +127,7 @@ This specification defines the semantic foundations, runtime protocol, execution
 | **MachineStrand** | A maximal connected component of resolved cap edges with anchors |
 | **Machine notation** | The textual encoding of a Machine (see [09-MACHINE-NOTATION](./09-MACHINE-NOTATION.md)) |
 | **Cartridge** | A standalone binary that provides one or more capabilities |
-| **Cap Kind** | A logical classification of a cap into one of *Identity*, *Source*, *Sink*, *Effect*, or *Transform*, derived from `(in, out, y)`. See [06-CAP-URN-STRUCTURE §4](./06-CAP-URN-STRUCTURE.md#4-cap-kinds). |
+| **Cap Kind** | A logical classification of a cap into one of *Identity*, *Source*, *Sink*, *Effect*, or *Transform*, derived from `(in, out, y, effect)`. See [06-CAP-URN-STRUCTURE §4](./06-CAP-URN-STRUCTURE.md#4-cap-kinds). |
 | **Top type** | `media:` — the universal wildcard for media URNs. Every media URN conforms to it. A side typed `media:` reads as "any A." |
 | **Unit type** | `media:void` — the nullary value. A side typed `media:void` reads as "()": no meaningful data flows there. Distinct from the top type. **Atomic**: refinements like `media:void;text` are parse errors. |
 
@@ -142,14 +142,15 @@ This specification defines the semantic foundations, runtime protocol, execution
 
 ### Cap URN Components
 
-A Cap URN `c` is written as a triple:
+A Cap URN `c` is written as a quadruple:
 ```
-c = (i, o, y)
+c = (i, o, y, e)
 ```
 where:
 - `i` = input media URN (the `in` tag value)
 - `o` = output media URN (the `out` tag value)
 - `y` = non-direction cap-tags (op, ext, model, etc. — all arbitrary, none has functional privilege)
+- `e` = effect on runtime media/type identity
 
 ---
 
@@ -158,7 +159,7 @@ where:
 This specification builds on the mathematical foundations in [02-FORMAL-FOUNDATIONS](./02-FORMAL-FOUNDATIONS.md), which defines the core dispatch relation:
 
 ```
-Dispatch(p, r) <=> i_r <= i_p /\ o_p <= o_r /\ y_r <= y_p
+Dispatch(p, r) <=> i_r <= i_p /\ o_p <= o_r /\ (e_r = ? \/ e_p = e_r) /\ y_r <= y_p
 ```
 
 The numbered documents fill in operational details: wildcard truth tables, normalization rules, specificity scoring, validation constraints, machine notation, protocol, runtime, execution, and development patterns.

@@ -1258,9 +1258,9 @@ mod tests {
     #[test]
     fn test632_deserialize_minimal_registry_cap() {
         let json =
-            r#"{"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"}"#;
+            r#"{"urn": "cap:effect=none", "title": "Identity", "command": "identity"}"#;
         let cap: RegistryCap = serde_json::from_str(json).unwrap();
-        assert_eq!(cap.urn, "cap:in=media:;out=media:");
+        assert_eq!(cap.urn, "cap:effect=none");
         assert_eq!(cap.title, "Identity");
         assert_eq!(cap.command, "identity");
         assert!(cap.cap_description.is_none());
@@ -1313,7 +1313,7 @@ mod tests {
         let json = r#"{
             "name": "pdf-formats",
             "caps": [
-                {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"}
+                {"urn": "cap:effect=none", "title": "Identity", "command": "identity"}
             ],
             "adapter_urns": ["media:pdf"]
         }"#;
@@ -1342,7 +1342,7 @@ mod tests {
                 {
                     "name": "pdf-formats",
                     "caps": [
-                        {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"},
+                        {"urn": "cap:effect=none", "title": "Identity", "command": "identity"},
                         {"urn": "cap:in=media:pdf;disbind;out=\"media:page;textable\"", "title": "Disbind PDF Into Page Text", "command": "disbind"}
                     ],
                     "adapter_urns": ["media:pdf"]
@@ -1408,7 +1408,7 @@ mod tests {
                         {
                             "name": "pdf-formats",
                             "caps": [
-                                {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"}
+                                {"urn": "cap:effect=none", "title": "Identity", "command": "identity"}
                             ],
                             "adapter_urns": ["media:pdf"]
                         }
@@ -1467,7 +1467,7 @@ mod tests {
     fn test320_cartridge_info_construction() {
         let group = build_cap_group(
             "test-group",
-            vec![build_cap("cap:in=media:;out=media:", "Identity", "identity")],
+            vec![build_cap("cap:effect=none", "Identity", "identity")],
             vec![],
         );
         let cartridge = build_cartridge_info("testcartridge", "Test Cartridge", vec![group]);
@@ -1565,7 +1565,7 @@ mod tests {
     fn test324_cartridge_repo_server_transform_to_array() {
         let group = build_cap_group(
             "g1",
-            vec![build_cap("cap:in=media:;out=media:", "Identity", "identity")],
+            vec![build_cap("cap:effect=none", "Identity", "identity")],
             vec!["media:test".to_string()],
         );
         let entry = build_registry_entry("Test Cartridge", vec![group]);
@@ -1585,7 +1585,7 @@ mod tests {
     fn test325_cartridge_repo_server_get_cartridges() {
         let entry = build_registry_entry(
             "Test Cartridge",
-            vec![build_cap_group("g", vec![build_cap("cap:in=media:;out=media:", "Identity", "identity")], vec![])],
+            vec![build_cap_group("g", vec![build_cap("cap:effect=none", "Identity", "identity")], vec![])],
         );
         let server = CartridgeRepoServer::new(build_registry(vec![("testcartridge", entry)]), "https://test.example/manifest").unwrap();
         let response = server.get_cartridges().unwrap();
@@ -1601,7 +1601,7 @@ mod tests {
     fn test326_cartridge_repo_server_get_cartridge_by_id() {
         let entry = build_registry_entry(
             "Test Cartridge",
-            vec![build_cap_group("g", vec![build_cap("cap:in=media:;out=media:", "Identity", "identity")], vec![])],
+            vec![build_cap_group("g", vec![build_cap("cap:effect=none", "Identity", "identity")], vec![])],
         );
         let server = CartridgeRepoServer::new(build_registry(vec![("testcartridge", entry)]), "https://test.example/manifest").unwrap();
         assert!(server.get_cartridge_by_id(CartridgeChannel::Release, "testcartridge").unwrap().is_some());
@@ -1618,7 +1618,7 @@ mod tests {
     fn test300_get_cartridge_by_id_channel_isolation() {
         let mut release_entry = build_registry_entry(
             "Foo (release)",
-            vec![build_cap_group("g", vec![build_cap("cap:in=media:;out=media:", "Identity", "identity")], vec![])],
+            vec![build_cap_group("g", vec![build_cap("cap:effect=none", "Identity", "identity")], vec![])],
         );
         release_entry.versions.clear();
         release_entry.versions.insert("1.0.0".to_string(), build_version_data("foo-1.0.0.pkg"));
@@ -1626,7 +1626,7 @@ mod tests {
 
         let mut nightly_entry = build_registry_entry(
             "Foo (nightly)",
-            vec![build_cap_group("g", vec![build_cap("cap:in=media:;out=media:", "Identity", "identity")], vec![])],
+            vec![build_cap_group("g", vec![build_cap("cap:effect=none", "Identity", "identity")], vec![])],
         );
         nightly_entry.versions.clear();
         nightly_entry.versions.insert("2.0.0".to_string(), build_version_data("foo-2.0.0.pkg"));
@@ -1686,7 +1686,7 @@ mod tests {
     fn test328_cartridge_repo_server_get_by_category() {
         let mut entry = build_registry_entry(
             "Doc Cartridge",
-            vec![build_cap_group("g", vec![build_cap("cap:in=media:;out=media:", "Identity", "identity")], vec![])],
+            vec![build_cap_group("g", vec![build_cap("cap:effect=none", "Identity", "identity")], vec![])],
         );
         entry.categories = vec!["document".to_string()];
         let server = CartridgeRepoServer::new(build_registry(vec![("doccartridge", entry)]), "https://test.example/manifest").unwrap();
@@ -1747,7 +1747,7 @@ mod tests {
                 "Test Cartridge",
                 vec![build_cap_group(
                     "g",
-                    vec![build_cap("cap:in=media:;out=media:", "Identity", "identity")],
+                    vec![build_cap("cap:effect=none", "Identity", "identity")],
                     vec![],
                 )],
             )],
@@ -1821,7 +1821,7 @@ mod tests {
                 "Test Cartridge",
                 vec![build_cap_group(
                     "g",
-                    vec![build_cap("cap:in=media:;out=media:", "Identity", "identity")],
+                    vec![build_cap("cap:effect=none", "Identity", "identity")],
                     vec![],
                 )],
             )],
