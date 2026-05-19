@@ -105,7 +105,7 @@ The grammar is defined in `capdag/src/machine/machine.pest`. Whitespace and line
 
 ## 5. Aliases and Node Names
 
-**Aliases and node names are opaque labels.** The parser does not extract any meaning from them beyond their identity within the program: two references to the same name refer to the same thing, two different names refer to different things. Conventions like `extract`, `doc`, `text` are for the user's benefit only — the canonical machine produced by the parser does not embed them.
+**Aliases and node names are opaque labels.** The parser does not extract any meaning from them beyond their role as program-local names: two references to the same name refer to the same thing, two different names refer to different things. Conventions like `extract`, `doc`, `text` are for the user's benefit only — the canonical machine produced by the parser does not embed them.
 
 The serializer produces canonical aliases as `edge_<i>` and canonical node names as `n<i>`, where `<i>` is a global counter across all strands. Two semantically-equivalent machines produce byte-identical canonical notation.
 
@@ -133,7 +133,7 @@ Strand declaration order matters: strands are listed in the resulting `Machine` 
 
 ## 7. Source-to-Cap-Arg Resolution
 
-Each cap defines its input arguments in its `args` list. Each arg has a `media_urn` (the **slot identity**, unique per cap per RULE1) and a `sources` list describing how the arg receives data at runtime. The source types are:
+Each cap definition lists its input arguments in `args`. Each arg has a `media_urn` (the **slot key**, unique per cap per RULE1) and a `sources` list describing how the arg receives data at runtime. The source types are:
 
 - `Stdin { stdin: "<media URN>" }` — the arg receives data via the stdin stream. The inner URN is the **data-flow type** (e.g. `media:pdf`). This is the type the runtime delivers on the wire.
 - `Position { position: N }` — positional CLI argument.
@@ -141,7 +141,7 @@ Each cap defines its input arguments in its `args` list. Each arg has a `media_u
 
 **Only args with a Stdin source participate in source-to-cap-arg matching.** Args with only CLI/positional sources are runtime configuration — they receive their values at execution time from cap settings, slot values, or defaults, not from upstream caps in the data flow.
 
-The slot identity (`arg.media_urn`, e.g. `media:file-path;textable`) may differ from the stdin source URN (`media:pdf`). The slot identity is the cap's internal label for the arg slot; the stdin URN is the type of data that actually flows on the wire. The runtime handles the translation transparently (e.g. reading a file path and piping the file's bytes into stdin). The resolver matches against the **stdin source URN**, not the slot identity.
+The slot key (`arg.media_urn`, e.g. `media:file-path;textable`) may differ from the stdin source URN (`media:pdf`). The slot key is the cap definition's internal label for the arg slot; the stdin URN is the type of data that actually flows on the wire. The runtime handles the translation transparently (e.g. reading a file path and piping the file's bytes into stdin). The resolver matches against the **stdin source URN**, not the slot key.
 
 ### Matching algorithm
 
@@ -152,7 +152,7 @@ The matching is a **minimum-cost bipartite assignment with a uniqueness check** 
 - **Uniqueness**. The minimum-cost matching must be unique. If two distinct assignments tie at the same minimum total cost, the resolver fails with `AmbiguousMachineNotation`. **Source vec position is not used as a tiebreaker.**
 - **Unmatched source**. If any source has no candidate stdin arg (no stdin arg whose URN it conforms to), the resolver fails with `UnmatchedSourceInCapArgs`.
 
-The result is a `Vec<EdgeAssignmentBinding>` of `(cap_arg_media_urn, source_node)` pairs, where `cap_arg_media_urn` is the **slot identity** (the arg's outer `media_urn`, for RULE1-based identification), sorted by `cap_arg_media_urn` for canonical comparison.
+The result is a `Vec<EdgeAssignmentBinding>` of `(cap_arg_media_urn, source_node)` pairs, where `cap_arg_media_urn` is the **slot key** (the arg's outer `media_urn`, for RULE1-based identification), sorted by `cap_arg_media_urn` for canonical comparison.
 
 Resolution requires the cap registry to look up each cap's `args` list. All `Machine` constructors (`from_strand`, `from_strands`, `from_string`) take `&FabricRegistry`.
 
@@ -190,7 +190,7 @@ There is no looser variant. If a "drop-in replaceable but order-flexible" relati
 
 Two strictly-equivalent `Machine`s produce byte-identical canonical notation, because:
 
-- Strand order is part of the machine's identity (`Machine::is_equivalent` is positional over strands).
+- Strand order is part of the machine's equivalence relation (`Machine::is_equivalent` is positional over strands).
 - Within each strand, canonical edge order is deterministic (Kahn's algorithm with a structural tiebreaker on `(cap_urn, sorted_assignment, target_node_urn, is_loop)`).
 - Aliases are `edge_<i>` from a global counter.
 - Node names are `n<i>` from a global counter.

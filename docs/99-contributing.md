@@ -32,7 +32,7 @@ The full template picker is at [github.com/machinefabric/capfab/issues/new/choos
 - **A real, distinct operation.** Not a re-skinning of an existing capability with different non-directional tags. Other tags ride along on the URN, but only `in` and `out` are functionally significant — see [Predicates](/docs/04-predicates) and [Cap URN Structure](/docs/06-cap-urn-structure) for the matching semantics.
 - **Documentation that says when to use it and when not to.** End users discover capabilities by reading the `documentation` field on capdag.com. A bare line like "convert X to Y" doesn't give them enough to decide. Tell them what upstream produces this kind of thing, what downstream consumes the output, and what neighbouring capabilities they might be confusing it with.
 - **Argument shape that follows the patterns we already use.** Look at a handful of existing caps in [`standard/`](https://github.com/machinefabric/capfab/tree/main/standard) before writing yours.
-- **A URN that survives review.** URNs are tagged URNs; once published, the URN is identity. Picking the right tags up front matters.
+- **A URN that survives review.** URNs are tagged URNs; once published, the URN is the permanent key. Picking the right tags up front matters.
 
 ## What makes a good media spec submission
 
@@ -44,7 +44,7 @@ The full template picker is at [github.com/machinefabric/capfab/issues/new/choos
 
 Removals are weighed against impact. Definitions in the registry are referenced by deployed cartridges, by published capdag.com pages, and by users' saved machine notations. We will work with you on a deprecation path before removing anything that is in active use.
 
-Edits change a definition's metadata (title, docs, content type, extensions) but never change its URN. URNs are identity; renaming a URN is not an edit, it is a removal plus a fresh add.
+Edits change a definition's metadata (title, docs, content type, extensions) but never change its URN. The URN is the permanent key; renaming a URN is not an edit, it is a removal plus a fresh add.
 
 ## What's out of scope
 

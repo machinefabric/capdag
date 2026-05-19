@@ -163,7 +163,7 @@ Per-form rules:
 - **Pattern `x?=v`**: permissive negative — instance may be absent OR have a non-v value. Instance `x=q` matches if q ≠ v; instance `?x=v` matches.
 - **Pattern `!x`**: requires absence. Only instance forms missing, `?x`, `x?=v` (which permits absence), and `!x` itself satisfy.
 - **Instance `?x`**: always ✓ (instance defers entirely to pattern).
-- **Instance `x` (=`x=*`)**: defers value identity to runtime — accepts any pattern that allows *some* value to be present (`x`, `x!=v`, `x=v`, `?x`, `?x=v`, `!x` is the only failing pattern).
+- **Instance `x` (=`x=*`)**: defers exact value choice to runtime — accepts any pattern that allows *some* value to be present (`x`, `x!=v`, `x=v`, `?x`, `?x=v`, `!x` is the only failing pattern).
 
 This is the single truth that drives `accepts`, `conforms_to`,
 `is_comparable`, and `is_equivalent` across every implementation.
@@ -180,7 +180,7 @@ established.
 | `accepts(a,b)` | b ⪯ a | No | Pattern matching |
 | `conforms_to(a,b)` | a ⪯ b | No | Instance checking |
 | `is_comparable(a,b)` | a ⪯ b ∨ b ⪯ a | Yes | Discovery, grouping |
-| `is_equivalent(a,b)` | a ⪯ b ∧ b ⪯ a | Yes | Exact identity |
+| `is_equivalent(a,b)` | a ⪯ b ∧ b ⪯ a | Yes | Exact equivalence |
 
 ### 3.1 Implications
 
@@ -237,7 +237,7 @@ if urn_a.is_comparable(&urn_b) {
 ### 4.4 Use `is_equivalent` when:
 - Exact lookup in a registry
 - Deduplication
-- Verifying identity
+- Verifying equivalence
 - Checking if two URNs represent the same thing
 
 ```rust
