@@ -99,18 +99,18 @@ o_p ⪯ o_r
 
 **Example**:
 ```
-Request:  out="media:object"           (general requirement)
-Provider: out="media:object;textable"  (more specific guarantee)
+Request:  out="media:record"                    (general requirement)
+Provider: out="media:json;record;textable"     (more specific guarantee)
 
-o_p = media:object;textable
-o_r = media:object
+o_p = media:json;record;textable
+o_r = media:record
 
-o_p ⪯ o_r? → Does object;textable conform to object?
-           → Yes, object;textable is more specific than object
+o_p ⪯ o_r? → Does json;record;textable conform to record?
+           → Yes, json;record;textable is more specific than record
            → PASS ✓
 ```
 
-A provider guaranteeing `media:object;textable` satisfies a request needing `media:object`.
+A provider guaranteeing `media:json;record;textable` satisfies a request needing `media:record`.
 
 ### 3.3 Cap-Tags Axis (Invariant for Explicit, Wildcard for Omitted)
 
@@ -238,14 +238,14 @@ Result: DISPATCHABLE ✓
 ### 6.2 Specific Request, Generic Provider (Fallback)
 
 ```
-Request:  cap:in="media:pdf";extract;out="media:object"
+Request:  cap:in="media:pdf";extract;out="media:record"
 Provider: cap:in="media:bytes";extract;out="media:"
 
 Input:  i_r=media:pdf, i_p=media:bytes
         pdf ⪯ bytes? Yes → PASS ✓
 
-Output: o_p=media:, o_r=media:object
-        media: ⪯ media:object? No, identity is NOT more specific
+Output: o_p=media:, o_r=media:record
+        media: ⪯ media:record? No, top is NOT more specific
         → FAIL ✗
 
 Result: NOT DISPATCHABLE
@@ -255,7 +255,7 @@ Result: NOT DISPATCHABLE
 
 ```
 Request:  cap:in="media:pdf";convert;out="media:html"
-Provider: cap:in="media:image";convert;out="media:text"
+Provider: cap:in="media:image";convert;out="media:textable"
 
 Input:  i_r=media:pdf, i_p=media:image
         pdf ⪯ image? No, different families → FAIL ✗

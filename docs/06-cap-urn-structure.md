@@ -39,7 +39,7 @@ cap:in="<media-urn>";out="<media-urn>";effect=<effect>;<cap-tags>
 Examples:
 ```
 cap:effect=none
-cap:extract;in="media:pdf";out="media:object"
+cap:extract;in="media:pdf";out="media:record"
 cap:in="media:textable";out="media:json;record;textable";prompt
 ```
 
@@ -126,7 +126,7 @@ Validation rules (CU1, CU2 in [10-VALIDATION-RULES](/docs/10-validation-rules)) 
 
 Direction spec values containing `;` must be quoted:
 ```
-cap:in="media:pdf;bytes";extract;out="media:object"
+cap:in="media:pdf;bytes";extract;out="media:record"
 ```
 
 Without quotes, `media:pdf;bytes` would parse incorrectly.
@@ -403,7 +403,7 @@ other refinements are Transform/Source/Sink/Effect as their structure dictates.
 The `in` and `out` tag values are themselves Media URNs:
 
 ```
-cap:in="media:pdf;bytes";out="media:object"
+cap:in="media:pdf;bytes";out="media:record"
         ↑                     ↑
     Media URN             Media URN
 ```
