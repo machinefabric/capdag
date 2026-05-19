@@ -40,7 +40,7 @@ Examples:
 ```
 cap:effect=none
 cap:extract;in="media:pdf";out="media:object"
-cap:in="media:textable;form=scalar";out="media:textable;form=map";prompt
+cap:in="media:textable";out="media:json;record;textable";prompt
 ```
 
 ### 2.2 Direction Tags
