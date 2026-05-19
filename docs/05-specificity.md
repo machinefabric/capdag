@@ -67,7 +67,7 @@ media:bytes                      → 2        # bytes=* (bare = must-have-any)
 media:pdf;bytes                  → 2 + 2 = 4
 media:pdf;v=2.0                  → 2 + 4 = 6  # pdf=*, v=2.0 (exact)
 media:pdf;v=2.0;!compressed      → 2 + 4 + 5 = 11
-media:textable;form=scalar       → 2 + 4 = 6
+media:json;record;textable       → 2 + 2 + 2 = 6
 media:pdf;v?=draft               → 2 + 1 = 3  # absent OR not draft
 media:pdf;v!=draft               → 2 + 3 = 5  # present and not draft
 ```

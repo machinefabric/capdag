@@ -18,7 +18,7 @@ Examples:
 media:                          # Identity (any media)
 media:pdf                       # PDF type
 media:pdf;bytes                 # PDF with bytes marker
-media:textable;form=scalar      # String type
+media:textable                  # String type (scalar by default)
 media:image;subtype=png;visual  # PNG image
 ```
 
@@ -164,26 +164,27 @@ Media URNs use **coercion tags** to declare type capabilities. These enable poly
 | Tag | Meaning | Examples |
 |-----|---------|----------|
 | `textable` | Can be represented as UTF-8 text | strings, numbers, booleans, JSON |
-| `binary` | Raw bytes representation | images, PDFs, audio |
 | `numeric` | Supports numeric operations | integers, floats |
-| `scalar` | Single atomic value | primitives (not arrays/objects) |
-| `sequence` | Ordered collection | arrays |
-| `map` | Key-value structure | objects |
 | `visual` | Has visual rendering | images, PDFs |
+| `audio` | Represents audio content | wav, mp3, flac |
+
+`binary` is not a stored marker tag. It is the derived complement of
+`textable`: a media URN is treated as binary when the `textable` marker
+is absent.
 
 ### 3.2 How Coercion Works
 
 A capability requiring `media:textable` matches ANY type with the `textable` tag:
 
 ```
-cap:in="media:textable";prompt;out="media:textable;form=map"
+cap:in="media:textable";prompt;out="media:json;record;textable"
 ```
 
 This matches:
-- `media:textable;form=scalar` (string)
+- `media:textable` (string)
 - `media:integer` (if it has textable)
-- `media:bool;textable;form=scalar` (boolean)
-- `media:textable;form=map` (object via JSON.stringify)
+- `media:bool;textable` (boolean)
+- `media:json;record;textable` (object via JSON.stringify)
 
 ### 3.3 Coercion Rules
 
@@ -197,23 +198,32 @@ This matches:
 
 ---
 
-## 4. Form Tags
+## 4. Structural Markers and Defaults
 
-The `form` tag specifies structural shape:
+Media URNs no longer use a `form=` axis. Structure is represented by
+marker tags and by default absence:
 
-| Value | Meaning |
-|-------|---------|
-| `form=scalar` | Single value |
-| `form=list` | Array/sequence |
-| `form=map` | Object/dictionary |
+| Shape property | Encoding | Meaning |
+|----------------|----------|---------|
+| scalar | no `list` tag | Single value (default cardinality) |
+| list | `list` marker | Ordered collection |
+| opaque | no `record` tag | No internal key-value structure (default) |
+| record | `record` marker | Key-value structure |
+
+So:
+
+- `media:textable` means scalar + opaque
+- `media:json;record;textable` means scalar + record
+- `media:list;textable` means list + opaque
+- `media:json;list;record;textable` means list + record
 
 ### 4.1 Examples
 
 ```
-media:textable;form=scalar         # String
-media:textable;form=list           # Array of strings
-media:textable;form=map            # JSON object
-media:integer;textable;form=list   # Array of integers
+media:textable                     # String
+media:list;textable                # Array of strings
+media:json;record;textable         # JSON object
+media:integer;list;textable;numeric # Array of integers
 ```
 
 ---
@@ -226,20 +236,22 @@ media:integer;textable;form=list   # Array of integers
 |-----------|----------|-------------|
 | `media:` | `MEDIA_IDENTITY` | **Top** — any data type (universal wildcard) |
 | `media:void` | `MEDIA_VOID` | **Unit** — the nullary value (no data flows here) |
-| `media:textable;form=scalar` | `MEDIA_STRING` | UTF-8 string |
+| `media:textable` | `MEDIA_STRING` | UTF-8 string |
 | `media:integer` | `MEDIA_INTEGER` | Integer |
-| `media:textable;numeric;form=scalar` | `MEDIA_NUMBER` | Float |
-| `media:bool;textable;form=scalar` | `MEDIA_BOOLEAN` | Boolean |
-| `media:textable;form=map` | `MEDIA_OBJECT` | JSON object |
+| `media:textable;numeric` | `MEDIA_NUMBER` | Float |
+| `media:bool;textable` | `MEDIA_BOOLEAN` | Boolean |
+| `media:record` | `MEDIA_OBJECT` | Generic record/object |
+| `media:json;record;textable` | `MEDIA_JSON` | JSON object |
 
 ### 5.2 Arrays
 
 | Media URN | Constant | Description |
 |-----------|----------|-------------|
-| `media:textable;form=list` | `MEDIA_STRING_ARRAY` | String array |
-| `media:integer;textable;form=list` | `MEDIA_INTEGER_ARRAY` | Integer array |
-| `media:textable;numeric;form=list` | `MEDIA_NUMBER_ARRAY` | Number array |
-| `media:bool;textable;form=list` | `MEDIA_BOOLEAN_ARRAY` | Boolean array |
+| `media:list;textable` | `MEDIA_STRING_LIST` | String array |
+| `media:integer;list;textable;numeric` | `MEDIA_INTEGER_LIST` | Integer array |
+| `media:list;numeric;textable` | `MEDIA_NUMBER_LIST` | Number array |
+| `media:bool;list;textable` | `MEDIA_BOOLEAN_LIST` | Boolean array |
+| `media:list;record` | `MEDIA_OBJECT_LIST` | List of opaque records |
 
 ### 5.3 Visual Types
 
@@ -323,7 +335,7 @@ For dispatch (see [05-DISPATCH](/docs/07-dispatch)):
 ### 8.1 Helper Methods
 
 ```rust
-let urn = MediaUrn::from_string("media:textable;form=scalar")?;
+let urn = MediaUrn::from_string("media:textable")?;
 
 urn.is_text()    // true for string, text/*
 urn.is_json()    // true for object, object-array
@@ -341,7 +353,8 @@ without parsing strings.
 
 ```rust
 urn.has_tag("textable")     // true
-urn.tag_value("form")       // Some("scalar")
+urn.has_tag("list")         // false
+urn.has_tag("record")       // false
 ```
 
 ---
@@ -351,7 +364,7 @@ urn.tag_value("form")       // Some("scalar")
 When defining a new media type:
 
 1. **Determine coercion tags**: What can this type be coerced to?
-2. **Determine form**: scalar, list, or map?
+2. **Determine structure/cardinality**: default scalar vs `list`, default opaque vs `record`
 3. **Add constant** if frequently used
 4. **Document** in media catalog
 
@@ -359,9 +372,9 @@ When defining a new media type:
 
 ```rust
 // A new type for structured logs
-const MEDIA_LOG_ENTRY: &str = "media:log-entry;textable;form=map";
+const MEDIA_LOG_ENTRY: &str = "media:log-entry;record;textable";
 
-// Coercible to text (via JSON), structured as map
+// Coercible to text, structured as record
 ```
 
 ---
@@ -377,9 +390,9 @@ type:
                   /        \
           media:textable    media:void              (leaf — unit ())
             /         \
-media:textable;form=scalar   media:textable;form=map
+     media:textable    media:json;record;textable
         |                            |
-media:integer;textable       media:json;textable;form=map
+media:integer;textable;numeric  media:json;list;record;textable
 ```
 
 More tags = lower in the order = more specific. `media:void` carries
@@ -396,8 +409,8 @@ concrete type.
 | Structure | `media:<type>[;tag=value]...` |
 | Top | `media:` — universal wildcard, max of the partial order, "any A" |
 | Unit | `media:void` — nullary value, leaf of the partial order, "()" |
-| Coercion tags | textable, binary, numeric, scalar, sequence, map, visual |
-| Form tag | scalar, list, map |
+| Coercion / semantic markers | textable, numeric, visual, audio |
+| Structural markers | `list` and `record`; scalar and opaque are defaults by absence |
 | Matching | Tagged URN semantics (truth table) |
 | Specificity | Sum of per-tag scores |
 
