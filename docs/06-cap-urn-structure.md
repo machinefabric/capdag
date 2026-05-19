@@ -58,7 +58,7 @@ The `in`, `out`, and `effect` coordinates are structural:
 All other tags form the `y` dimension. **No tag in `y` has functional
 meaning to the protocol** — only `in`, `out`, and `effect` participate in
 dispatch, conformance, and runtime output inference. Cap-tags are arbitrary descriptive
-metadata: they refine the cap's identity (so two caps with different
+metadata: they refine the cap's definition (so two caps with different
 `y` are different caps), but no tag key is privileged. Common
 descriptive tags include operation names (`extract`, `generate`),
 language codes, model identifiers, hints — all are equal under the
@@ -216,7 +216,7 @@ data transformers in the conventional sense.
 
 In all three cases the `y` dimension may carry any tags. `media:void`
 on a side is a directional decision; `y` continues to refine the
-identity of the cap.
+definition of the cap.
 
 ### 4.4 Transform: The Default
 
@@ -229,7 +229,7 @@ processors (extract, render, generate-text, embed, convert).
 ### 4.5 Why the Distinction Is Logical Only
 
 Dispatch (the `accepts` / `conforms_to` predicates) operates on the
-`(i, o, y, effect)` cap identity uniformly. It does not consult `CapKind`. A
+`(i, o, y, effect)` cap structure uniformly. It does not consult `CapKind`. A
 `Source` and a `Transform` whose `in` happens to specialize a
 pattern's `media:void` are matched by the same rules; the kind is a
 description of the result, not a routing dimension.
