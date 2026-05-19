@@ -53,9 +53,16 @@ media: ⪯ media:               (reflexive)
 ```
 
 A cap with `in=media:` says "I accept any input." A cap with
-`out=media:` says "I may produce any output." Used on both sides of
-a cap with no other tags, the cap is the [identity morphism](/docs/06-cap-urn-structure#4-cap-kinds)
-of the category.
+`out=media:` says "I may produce any output." Used on both sides,
+these are just the fully generic top types for the directional axes.
+They do **not** by themselves mean identity.
+
+Under the four-axis cap model:
+
+- `cap:effect=none` is the explicit [identity morphism](/docs/06-cap-urn-structure#4-cap-kinds)
+- `cap:` and `cap:in=media:;out=media:` are illegal bare top forms
+- `cap:<y-tags>` with both directional sides at `media:` is a generic
+  top-to-top transform, not identity
 
 ### 2.2 `media:void` — the Unit Type
 
