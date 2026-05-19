@@ -19,7 +19,7 @@ media:                          # Identity (any media)
 media:pdf                       # PDF type
 media:pdf;bytes                 # PDF with bytes marker
 media:textable                  # String type (scalar by default)
-media:image;subtype=png;visual  # PNG image
+media:image;png                 # PNG image
 ```
 
 ---
@@ -155,11 +155,13 @@ is a leaf carrying the nullary value.
 
 ---
 
-## 3. Coercion Tags
+## 3. Semantic and Coercion Markers
 
-Media URNs use **coercion tags** to declare type capabilities. These enable polymorphic matching.
+Media URNs use marker tags to declare type capabilities and content
+properties. Some of these participate in coercion-style matching
+(`textable`, `numeric`); others describe modality (`visual`, `audio`).
 
-### 3.1 Standard Coercion Tags
+### 3.1 Standard Markers
 
 | Tag | Meaning | Examples |
 |-----|---------|----------|
@@ -168,9 +170,10 @@ Media URNs use **coercion tags** to declare type capabilities. These enable poly
 | `visual` | Has visual rendering | images, PDFs |
 | `audio` | Represents audio content | wav, mp3, flac |
 
-`binary` is not a stored marker tag. It is the derived complement of
-`textable`: a media URN is treated as binary when the `textable` marker
-is absent.
+There is **no `binary` marker dim** in the media model. The definition
+is positive: `textable` means the value is faithfully representable as
+UTF-8 text without loss. A media URN that lacks `textable` simply makes
+no such promise.
 
 ### 3.2 How Coercion Works
 
@@ -257,9 +260,9 @@ media:integer;list;textable;numeric # Array of integers
 
 | Media URN | Description |
 |-----------|-------------|
-| `media:image;subtype=png;visual` | PNG image |
-| `media:image;subtype=jpeg;visual` | JPEG image |
-| `media:application;subtype=pdf;visual` | PDF document |
+| `media:image;png` | PNG image |
+| `media:jpeg;image` | JPEG image |
+| `media:pdf` | PDF document |
 
 ---
 
@@ -309,7 +312,7 @@ When used as `in` or `out` values in Cap URNs:
 Media URNs containing `;` must be quoted:
 
 ```
-cap:in="media:pdf;bytes";extract;out="media:object"
+cap:in="media:pdf;bytes";extract;out="media:record"
 ```
 
 ### 7.2 Identity Expansion
@@ -337,9 +340,9 @@ For dispatch (see [05-DISPATCH](/docs/07-dispatch)):
 ```rust
 let urn = MediaUrn::from_string("media:textable")?;
 
-urn.is_text()    // true for string, text/*
-urn.is_json()    // true for object, object-array
-urn.is_binary()  // true for raw binary, images
+urn.is_text()    // true when the `textable` marker is present
+urn.is_json()    // true for JSON-flavoured URNs
+urn.is_binary()  // implementation convenience: true when `textable` is absent
 urn.is_void()    // true iff the `void` marker tag is present (unit type)
 urn.is_top()     // true iff the URN has no tags at all (top type)
 ```
@@ -348,6 +351,11 @@ urn.is_top()     // true iff the URN has no tags at all (top type)
 classifier consults. Together they let any caller reason about
 whether a media URN is a concrete type, the wildcard, or the unit
 without parsing strings.
+
+`is_binary()` is a helper some implementations expose, but it is not a
+first-class structural axis in the media spec system. The normative
+question is whether `textable` is present, not whether the URN belongs
+to a separate "binary" category.
 
 ### 8.2 Tag Queries
 

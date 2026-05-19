@@ -47,8 +47,8 @@ cap:in="<media-urn>";out="<media-urn>";<other-tags>
 cap:in=media:;out=media:;transform  →  cap:in=media:;transform;out=media:   ✓ (normalized)
 
 # Already canonical
-cap:in="media:pdf";extract;out="media:object"             ✓
-cap:in=media:;generate;out="media:text"                   ✓
+cap:in="media:pdf";extract;out="media:record"             ✓
+cap:in=media:;generate;out="media:textable"               ✓
 ```
 
 **Error**: `Cap URN requires 'in' tag` / `Cap URN requires 'out' tag`
@@ -63,9 +63,9 @@ This error occurs only for malformed inputs that bypass normalization (e.g., pro
 
 **Examples**:
 ```
-cap:in="media:pdf;bytes";extract;out="media:object"   ✓
+cap:in="media:pdf;bytes";extract;out="media:record"   ✓
 cap:in=*;convert;out=*                                ✓ (normalizes to media:)
-cap:in="invalid";test;out="media:text"                ✗
+cap:in="invalid";test;out="media:textable"            ✗
 ```
 
 **Error**: `Invalid 'in' media URN: <value>. Must start with 'media:' or be '*'`
