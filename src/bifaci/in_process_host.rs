@@ -493,7 +493,7 @@ type CapTable = Vec<(String, usize)>;
 pub struct InProcessHostIdentity {
     /// Registry URL the embedding binary was built for. `None` ⇔ dev
     /// build. Pass through verbatim from the binary's compile-time
-    /// `option_env!("MFR_REGISTRY_URL")` (or equivalent).
+    /// `option_env!("MFR_CARTRIDGE_REGISTRY_URL")` (or equivalent).
     pub registry_url: Option<String>,
     /// Channel the embedding binary was built for. Comes from the
     /// same compile-time constant the embedding binary uses to

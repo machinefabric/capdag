@@ -50,7 +50,7 @@ const SYNC_FETCH_DEADLINE: Duration = Duration::from_millis(500);
 ///
 /// Sources, in priority order:
 /// 1. Builder methods.
-/// 2. Environment variables (`CAPDAG_REGISTRY_URL`, `CAPDAG_SCHEMA_BASE_URL`).
+/// 2. Environment variables (`CDG_FABRIC_REGISTRY_URL`, `CDG_SCHEMA_BASE_URL`).
 /// 3. Defaults: `https://fabric.capdag.com` for the registry, `<registry>/schema`
 ///    for schemas.
 #[derive(Debug, Clone)]
@@ -61,9 +61,9 @@ pub struct RegistryConfig {
 
 impl Default for RegistryConfig {
     fn default() -> Self {
-        let registry_base = env::var("CAPDAG_REGISTRY_URL")
+        let registry_base = env::var("CDG_FABRIC_REGISTRY_URL")
             .unwrap_or_else(|_| DEFAULT_REGISTRY_BASE_URL.to_string());
-        let schema_base = env::var("CAPDAG_SCHEMA_BASE_URL")
+        let schema_base = env::var("CDG_SCHEMA_BASE_URL")
             .unwrap_or_else(|_| format!("{}/schema", registry_base));
         Self {
             registry_base_url: registry_base,

@@ -27,14 +27,14 @@ pub const SCHEMA_BASE: &str = "https://capdag.com/schema";
 /// Get the schema base URL from environment variables or default
 ///
 /// Checks in order:
-/// 1. `CAPDAG_SCHEMA_BASE_URL` environment variable
-/// 2. `CAPDAG_REGISTRY_URL` environment variable + "/schema"
+/// 1. `CDG_SCHEMA_BASE_URL` environment variable
+/// 2. `CDG_FABRIC_REGISTRY_URL` environment variable + "/schema"
 /// 3. Default: "https://capdag.com/schema"
 pub fn get_schema_base() -> String {
-    if let Ok(schema_url) = std::env::var("CAPDAG_SCHEMA_BASE_URL") {
+    if let Ok(schema_url) = std::env::var("CDG_SCHEMA_BASE_URL") {
         return schema_url;
     }
-    if let Ok(registry_url) = std::env::var("CAPDAG_REGISTRY_URL") {
+    if let Ok(registry_url) = std::env::var("CDG_FABRIC_REGISTRY_URL") {
         return format!("{}/schema", registry_url);
     }
     SCHEMA_BASE.to_string()
