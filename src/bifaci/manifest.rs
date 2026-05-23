@@ -39,7 +39,7 @@ pub struct CapGroup {
 /// or channels.
 ///
 /// `registry_url` is `None` for dev builds (the cartridge was built
-/// without `MFR_REGISTRY_URL` set). It is required-but-nullable on
+/// without `MFR_CARTRIDGE_REGISTRY_URL` set). It is required-but-nullable on
 /// the wire — present-and-null means dev; absent means the cartridge
 /// SDK is too old to know the field exists, which is a parse error.
 /// The `Deserialize` impl is manual to enforce this stricter
@@ -58,7 +58,7 @@ pub struct CapManifest {
     pub channel: CartridgeChannel,
 
     /// Registry the cartridge was built for. Baked into the binary
-    /// at compile time from `MFR_REGISTRY_URL` (Rust:
+    /// at compile time from `MFR_CARTRIDGE_REGISTRY_URL` (Rust:
     /// `option_env!()`). `None` means the cartridge was built as a
     /// dev artefact and is only valid under the on-disk `dev/`
     /// folder. Re-publishing a dev cartridge to a registry requires
@@ -136,7 +136,7 @@ impl CapManifest {
     /// and the cartridge's self-report agree. `registry_url` is the
     /// optional URL of the registry the cartridge was built for
     /// (`None` ⇔ dev build); the cartridge SDK macro reads this from
-    /// `option_env!("MFR_REGISTRY_URL")` so it is set correctly at
+    /// `option_env!("MFR_CARTRIDGE_REGISTRY_URL")` so it is set correctly at
     /// compile time and never inferred at runtime.
     pub fn new(
         name: String,
@@ -199,7 +199,7 @@ impl CapManifest {
     }
 }
 
-/// Compile-time validation for `MFR_REGISTRY_URL`.
+/// Compile-time validation for `MFR_CARTRIDGE_REGISTRY_URL`.
 ///
 /// Valid states:
 /// - `None`   => dev build; registry identity is absent and the build
@@ -217,7 +217,7 @@ pub const fn registry_url_from_build_env(raw: Option<&'static str>) -> Option<&'
         Some(url) => {
             if url.len() == 0 {
                 panic!(
-                    "MFR_REGISTRY_URL must be unset for dev builds or set to a non-empty registry URL for published builds; empty string is invalid"
+                    "MFR_CARTRIDGE_REGISTRY_URL must be unset for dev builds or set to a non-empty registry URL for published builds; empty string is invalid"
                 );
             }
             Some(url)
@@ -355,7 +355,7 @@ mod tests {
         );
     }
 
-    // TEST118: A dev manifest (built without `MFR_REGISTRY_URL`) carries
+    // TEST118: A dev manifest (built without `MFR_CARTRIDGE_REGISTRY_URL`) carries
     // `registry_url: null` and serializes the field explicitly. The
     // null-vs-absent distinction matters because the parser refuses
     // to accept absent (test117) — so an old SDK can't accidentally
