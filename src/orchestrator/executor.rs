@@ -24,7 +24,7 @@ use crate::{
     FrameReader, FrameWriter, Limits, RelayNotifyCapabilitiesPayload,
     RelaySlave, RelaySwitch, DEFAULT_MAX_CHUNK,
 };
-use super::stream_io::StreamIoError;
+use super::stream_io::{PipelineLogFn, StreamIoError};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -1253,6 +1253,7 @@ impl ExecutionContext {
         edges: &[ResolvedEdge],
         extra_args: &[(String, Vec<u8>)],
         progress_fn: Option<&CapProgressFn>,
+        log_fn: &PipelineLogFn,
     ) -> Result<(), ExecutionError> {
         assert!(
             !edges.is_empty(),
@@ -1404,7 +1405,7 @@ impl ExecutionContext {
             rx,
             progress_fn,
             cap_urn,
-            None,
+            Some(log_fn),
             None,
             None,
             None,
@@ -1486,6 +1487,10 @@ impl ExecutionContext {
 /// split self-delimiting CBOR values into per-chunk frames;
 /// scalar → wrap raw bytes in `Value::Bytes` and chunk by
 /// `max_chunk`.
+///
+/// `log_fn` is mandatory. Cartridges emit operational log and
+/// progress frames during long-running work, and dropping them at
+/// the DAG boundary makes failures opaque.
 pub async fn execute_dag(
     graph: &ResolvedGraph,
     cartridge_dir: PathBuf,
@@ -1496,6 +1501,7 @@ pub async fn execute_dag(
     dev_binaries: Vec<PathBuf>,
     fabric_registry: Arc<FabricRegistry>,
     progress_fn: Option<&CapProgressFn>,
+    log_fn: &PipelineLogFn,
     node_values: &HashMap<String, HashMap<String, serde_json::Value>>,
 ) -> Result<HashMap<String, NodeData>, ExecutionError> {
     // 1. Initialize cartridge manager and discover/download all needed cartridges
@@ -1597,7 +1603,7 @@ pub async fn execute_dag(
             None => Vec::new(),
         };
 
-        ctx.execute_fanin(&groups[*idx].edges, &extra_args, group_pfn.as_ref())
+        ctx.execute_fanin(&groups[*idx].edges, &extra_args, group_pfn.as_ref(), log_fn)
             .await?;
 
         // Report group completion

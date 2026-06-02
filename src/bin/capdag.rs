@@ -4,7 +4,7 @@
 
 use capdag::machine::parse_machine_with_node_names;
 use capdag::orchestrator::{execute_dag, parse_machine_to_cap_dag, NodeData};
-use capdag::{CapProgressFn, FabricRegistry, CartridgeChannel};
+use capdag::{CapProgressFn, FabricRegistry, CartridgeChannel, PipelineLogFn, StreamMeta};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -438,6 +438,36 @@ async fn main() {
         let progress: CapProgressFn = Arc::new(|p: f32, cap_urn: &str, msg: &str| {
             eprintln!("  [{:5.1}%] {} {}", p * 100.0, cap_urn, msg);
         });
+        let log_fn: PipelineLogFn = Arc::new(
+            |cap_urn: &str,
+             level: &str,
+             message: &str,
+             meta: Option<StreamMeta>,
+             body_index: Option<usize>| {
+                let meta_suffix = match meta.as_ref().and_then(|meta| meta.get("progress")) {
+                    Some(ciborium::Value::Float(progress)) => {
+                        format!(" [meta progress={:.1}%]", progress * 100.0)
+                    }
+                    Some(ciborium::Value::Integer(progress)) => {
+                        let progress: i128 = (*progress).into();
+                        format!(" [meta progress={}]", progress)
+                    }
+                    _ => meta
+                        .as_ref()
+                        .map(|meta| format!(" [meta {:?}]", meta))
+                        .unwrap_or_default(),
+                };
+                match body_index {
+                    Some(index) => {
+                        eprintln!(
+                            "  [log:{} body={}]{} {} {}",
+                            level, index, meta_suffix, cap_urn, message
+                        )
+                    }
+                    None => eprintln!("  [log:{}]{} {} {}", level, meta_suffix, cap_urn, message),
+                }
+            },
+        );
 
         match execute_dag(
             &graph,
@@ -449,6 +479,7 @@ async fn main() {
             dev_binaries.clone(),
             registry.clone(),
             Some(&progress),
+            &log_fn,
             &node_values,
         )
         .await
