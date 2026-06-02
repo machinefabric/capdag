@@ -13,7 +13,7 @@ use capdag::cap::definition::{ArgSource, CapArg, CapOutput};
 use capdag::orchestrator::{
     execute_dag, parse_machine_to_cap_dag, NodeData, ParseOrchestrationError,
 };
-use capdag::{Cap, FabricRegistry, CapUrn};
+use capdag::{Cap, FabricRegistry, CapUrn, PipelineLogFn, StreamMeta};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -21,6 +21,42 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use tempfile::TempDir;
+
+fn test_pipeline_log_fn() -> PipelineLogFn {
+    fn render_meta(meta: Option<&StreamMeta>) -> String {
+        let Some(meta) = meta else {
+            return String::new();
+        };
+        if let Some(ciborium::Value::Float(progress)) = meta.get("progress") {
+            return format!(" [meta progress={:.1}%]", progress * 100.0);
+        }
+        if let Some(ciborium::Value::Integer(progress)) = meta.get("progress") {
+            let progress: i128 = (*progress).into();
+            return format!(" [meta progress={}]", progress);
+        }
+        format!(" [meta {:?}]", meta)
+    }
+
+    Arc::new(
+        |cap_urn: &str,
+         level: &str,
+         message: &str,
+         meta: Option<StreamMeta>,
+         body_index: Option<usize>| {
+            let meta_suffix = render_meta(meta.as_ref());
+            match body_index {
+                Some(index) => eprintln!(
+                    "[OrchestratorTestLog][{}][body {}]{} {} {}",
+                    level, index, meta_suffix, cap_urn, message
+                ),
+                None => eprintln!(
+                    "[OrchestratorTestLog][{}]{} {} {}",
+                    level, meta_suffix, cap_urn, message
+                ),
+            }
+        },
+    )
+}
 
 // =============================================================================
 // Test Cap Registry for testcartridge Caps
@@ -354,6 +390,7 @@ async fn test889_execute_single_edge_dag() {
         dev_binaries,
         fabric_registry,
         None,
+        &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
     )
     .await;
@@ -404,6 +441,7 @@ async fn test888_execute_edge1_to_edge2_chain() {
         dev_binaries,
         fabric_registry,
         None,
+        &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
     )
     .await
@@ -454,6 +492,7 @@ async fn test887_execute_with_file_input() {
         dev_binaries,
         create_test_fabric_registry(),
         None,
+        &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
     )
     .await
@@ -500,6 +539,7 @@ async fn test952_execute_large_payload() {
         dev_binaries,
         create_test_fabric_registry(),
         None,
+        &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
     )
     .await
@@ -555,6 +595,7 @@ async fn test951_fan_in_pattern() {
         dev_binaries,
         create_test_fabric_registry(),
         None,
+        &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
     )
     .await
@@ -708,6 +749,7 @@ async fn test946_four_machine() {
         dev_binaries,
         create_test_fabric_registry(),
         None,
+        &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
     )
     .await
@@ -767,6 +809,7 @@ async fn test945_five_machine() {
         dev_binaries,
         create_test_fabric_registry(),
         None,
+        &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
     )
     .await
@@ -826,6 +869,7 @@ async fn test944_six_machine() {
         dev_binaries,
         create_test_fabric_registry(),
         None,
+        &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
     )
     .await

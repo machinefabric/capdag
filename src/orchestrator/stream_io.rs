@@ -162,10 +162,12 @@ impl PipelineProgressTracker {
 
 /// Pipeline-level log callback.
 ///
-/// Arguments: `(cap_urn, level, message, body_index)`.
+/// Arguments: `(cap_urn, level, message, meta, body_index)`.
+/// `meta` is the original LOG-frame metadata when available.
 /// `body_index` is `Some` for pipeline bodies (ForEach parallelism) and `None`
 /// for single-body / CLI execution.
-pub type PipelineLogFn = Arc<dyn Fn(&str, &str, &str, Option<usize>) + Send + Sync>;
+pub type PipelineLogFn =
+    Arc<dyn Fn(&str, &str, &str, Option<StreamMeta>, Option<usize>) + Send + Sync>;
 
 // =============================================================================
 // Terminal output meta
@@ -480,7 +482,7 @@ pub async fn collect_terminal_output(
                             let details =
                                 format!("END without success: {}", detail);
                             if let Some(lfn) = &log_fn {
-                                lfn(cap_urn, "error", &details, body_index);
+                            lfn(cap_urn, "error", &details, None, body_index);
                             }
                             return Err(StreamIoError::Terminal {
                                 cap_urn: cap_urn.to_string(),
@@ -509,7 +511,7 @@ pub async fn collect_terminal_output(
                             .unwrap_or("Unknown cartridge error")
                             .to_string();
                         if let Some(lfn) = &log_fn {
-                            lfn(cap_urn, "error", &msg, body_index);
+                            lfn(cap_urn, "error", &msg, None, body_index);
                         }
                         return Err(StreamIoError::Terminal {
                             cap_urn: cap_urn.to_string(),
@@ -526,11 +528,17 @@ pub async fn collect_terminal_output(
                                 pfn(p, cap_urn, cartridge_msg);
                             }
                             if let Some(lfn) = &log_fn {
-                                lfn(cap_urn, "progress", cartridge_msg, body_index);
+                                lfn(
+                                    cap_urn,
+                                    "progress",
+                                    cartridge_msg,
+                                    frame.meta.clone(),
+                                    body_index,
+                                );
                             }
                         } else if let Some(msg) = frame.log_message() {
                             if let Some(lfn) = &log_fn {
-                                lfn(cap_urn, level, msg, body_index);
+                                lfn(cap_urn, level, msg, frame.meta.clone(), body_index);
                             }
                         }
                     }
@@ -561,7 +569,7 @@ pub async fn collect_terminal_output(
             Ok(None) => {
                 let details = "response channel closed without END".to_string();
                 if let Some(lfn) = &log_fn {
-                    lfn(cap_urn, "error", &details, body_index);
+                    lfn(cap_urn, "error", &details, None, body_index);
                 }
                 return Err(StreamIoError::Terminal {
                     cap_urn: cap_urn.to_string(),
@@ -583,7 +591,7 @@ pub async fn collect_terminal_output(
                         activity_timeout_secs
                     );
                     if let Some(lfn) = &log_fn {
-                        lfn(cap_urn, "warn", &details, body_index);
+                        lfn(cap_urn, "warn", &details, None, body_index);
                     }
                     tracing::warn!(
                         cap_urn = %cap_urn,
