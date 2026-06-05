@@ -85,7 +85,9 @@ pub fn slug_for(registry_url: Option<&str>) -> String {
 /// Used by host scanners to distinguish dev folders from registry
 /// folders before they read any cartridge.json.
 pub fn is_registry_slug(s: &str) -> bool {
-    s.len() == SLUG_HEX_LEN && s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    s.len() == SLUG_HEX_LEN
+        && s.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 #[cfg(test)]

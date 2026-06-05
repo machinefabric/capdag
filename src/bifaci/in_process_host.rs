@@ -524,8 +524,7 @@ impl InProcessHostIdentity {
             channel: crate::bifaci::cartridge_repo::CartridgeChannel::Release,
             id: id.into(),
             version: "0.0.0-test".to_string(),
-            sha256: "0000000000000000000000000000000000000000000000000000000000000000"
-                .to_string(),
+            sha256: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
         }
     }
 }
@@ -775,9 +774,7 @@ impl InProcessCartridgeHost {
                         Arc::clone(&identity_handler)
                     } else {
                         match Self::find_handler_for_cap(&cap_table, &cap_urn) {
-                            Some(idx) => {
-                                Arc::clone(&handlers[idx].handler)
-                            }
+                            Some(idx) => Arc::clone(&handlers[idx].handler),
                             None => {
                                 let mut err = Frame::err(
                                     rid,
@@ -1089,10 +1086,8 @@ mod tests {
     // TEST655: InProcessCartridgeHost handles identity verification (echo nonce)
     #[tokio::test]
     async fn test655_identity_verification() {
-        let host = InProcessCartridgeHost::new(
-            InProcessHostIdentity::for_test("in-process-test"),
-            vec![],
-        );
+        let host =
+            InProcessCartridgeHost::new(InProcessHostIdentity::for_test("in-process-test"), vec![]);
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
         let (host_read, host_write) = host_sock.into_split();
@@ -1161,10 +1156,8 @@ mod tests {
     // TEST656: InProcessCartridgeHost returns NO_HANDLER for unregistered cap
     #[tokio::test]
     async fn test656_no_handler_returns_err() {
-        let host = InProcessCartridgeHost::new(
-            InProcessHostIdentity::for_test("in-process-test"),
-            vec![],
-        );
+        let host =
+            InProcessCartridgeHost::new(InProcessHostIdentity::for_test("in-process-test"), vec![]);
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
         let (host_read, host_write) = host_sock.into_split();
@@ -1230,10 +1223,8 @@ mod tests {
     // TEST658: InProcessCartridgeHost handles heartbeat by echoing same ID
     #[tokio::test]
     async fn test658_heartbeat_response() {
-        let host = InProcessCartridgeHost::new(
-            InProcessHostIdentity::for_test("in-process-test"),
-            vec![],
-        );
+        let host =
+            InProcessCartridgeHost::new(InProcessHostIdentity::for_test("in-process-test"), vec![]);
 
         let (host_sock, test_sock) = UnixStream::pair().unwrap();
         let (host_read, host_write) = host_sock.into_split();

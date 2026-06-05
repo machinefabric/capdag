@@ -88,10 +88,9 @@ pub async fn parse_machine_to_cap_dag(
     // per-binding `ResolvedEdge` shape the executor consumes,
     // and the structure-compatibility check (record vs
     // opaque).
-    let (machine, strand_node_names) =
-        parse_machine_with_node_names_async(notation, registry)
-            .await
-            .map_err(translate_machine_parse_error)?;
+    let (machine, strand_node_names) = parse_machine_with_node_names_async(notation, registry)
+        .await
+        .map_err(translate_machine_parse_error)?;
 
     // Phase 2: For each strand, build a reverse `NodeId →
     // user node name` map so we can produce `ResolvedEdge`s
@@ -513,7 +512,10 @@ mod tests {
 
         let result = parse_machine_to_cap_dag(notation, &registry).await;
         assert!(
-            matches!(result, Err(ParseOrchestrationError::MachineSyntaxParseFailed(_))),
+            matches!(
+                result,
+                Err(ParseOrchestrationError::MachineSyntaxParseFailed(_))
+            ),
             "Expected MachineSyntaxParseFailed, got {:?}",
             result
         );

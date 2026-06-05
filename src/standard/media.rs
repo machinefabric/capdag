@@ -107,8 +107,7 @@ pub use crate::media::spec::{
 
 // Re-export types and resolution function from media_def
 pub use crate::media::spec::{
-    resolve_media_urn, validate_media_defs_no_duplicates, MediaDef, MediaDefError,
-    ResolvedMediaDef,
+    resolve_media_urn, validate_media_defs_no_duplicates, MediaDef, MediaDefError, ResolvedMediaDef,
 };
 
 #[cfg(test)]

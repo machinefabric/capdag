@@ -18,13 +18,13 @@
 //!                                                             ←→ Cartridge C
 //! ```
 
+use super::stream_io::{PipelineLogFn, StreamIoError};
 use super::types::{ResolvedEdge, ResolvedGraph};
 use crate::{
-    handshake, CapManifest, FabricRegistry, CapUrn, CartridgeHostRuntime, CartridgeRepo, Frame,
-    FrameReader, FrameWriter, Limits, RelayNotifyCapabilitiesPayload,
-    RelaySlave, RelaySwitch, DEFAULT_MAX_CHUNK,
+    handshake, CapManifest, CapUrn, CartridgeHostRuntime, CartridgeRepo, FabricRegistry, Frame,
+    FrameReader, FrameWriter, Limits, RelayNotifyCapabilitiesPayload, RelaySlave, RelaySwitch,
+    DEFAULT_MAX_CHUNK,
 };
-use super::stream_io::{PipelineLogFn, StreamIoError};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -467,7 +467,18 @@ impl CartridgeManager {
     pub async fn resolve_cartridges(
         &self,
         cap_urns: &[&str],
-    ) -> Result<Vec<(PathBuf, Option<(String, String, crate::bifaci::cartridge_repo::CartridgeChannel)>, Vec<crate::bifaci::manifest::CapGroup>)>, ExecutionError> {
+    ) -> Result<
+        Vec<(
+            PathBuf,
+            Option<(
+                String,
+                String,
+                crate::bifaci::cartridge_repo::CartridgeChannel,
+            )>,
+            Vec<crate::bifaci::manifest::CapGroup>,
+        )>,
+        ExecutionError,
+    > {
         // Collect unique cartridge binaries needed for the DAG
         let mut cartridge_paths: HashSet<PathBuf> = HashSet::new();
 
@@ -487,11 +498,23 @@ impl CartridgeManager {
         // get a synthetic identity-only group so on-demand spawn can
         // route the identity probe; their real cap_groups arrive via
         // the post-spawn HELLO and overwrite this fallback.
-        let result: Vec<(PathBuf, Option<(String, String, crate::bifaci::cartridge_repo::CartridgeChannel)>, Vec<crate::bifaci::manifest::CapGroup>)> = cartridge_paths
+        let result: Vec<(
+            PathBuf,
+            Option<(
+                String,
+                String,
+                crate::bifaci::cartridge_repo::CartridgeChannel,
+            )>,
+            Vec<crate::bifaci::manifest::CapGroup>,
+        )> = cartridge_paths
             .into_iter()
             .map(|path| {
                 if let Some(manifest) = self.dev_cartridges.get(&path) {
-                    let identity = Some((manifest.name.clone(), manifest.version.clone(), manifest.channel));
+                    let identity = Some((
+                        manifest.name.clone(),
+                        manifest.version.clone(),
+                        manifest.channel,
+                    ));
                     (path, identity, manifest.cap_groups.clone())
                 } else {
                     let groups = vec![crate::bifaci::manifest::CapGroup {
@@ -567,7 +590,9 @@ impl CartridgeManager {
             .join(self.channel.as_str())
             .join(cartridge_id);
         if name_dir.is_dir() {
-            if let Some(entry_point) = self.find_latest_installed_entry_point(&name_dir, &registry_slug) {
+            if let Some(entry_point) =
+                self.find_latest_installed_entry_point(&name_dir, &registry_slug)
+            {
                 return Ok(entry_point);
             }
         }
@@ -860,9 +885,7 @@ impl ExecutionContext {
     /// Requires a `FabricRegistry` for the RelaySwitch to use when building
     /// the LiveCapFab for path finding queries. The registry is read at
     /// every LiveCapFab sync to compute the bookend-eligible URN set.
-    pub async fn new(
-        fabric_registry: Arc<FabricRegistry>,
-    ) -> Result<Self, ExecutionError> {
+    pub async fn new(fabric_registry: Arc<FabricRegistry>) -> Result<Self, ExecutionError> {
         let switch = RelaySwitch::new(vec![], fabric_registry)
             .await
             .map_err(|e| ExecutionError::HostError(format!("RelaySwitch init: {}", e)))?;
@@ -955,7 +978,15 @@ impl ExecutionContext {
     /// The ExecutionContext manages cleanup of these resources.
     pub async fn add_cartridge_host(
         &mut self,
-        cartridges: Vec<(PathBuf, Option<(String, String, crate::bifaci::cartridge_repo::CartridgeChannel)>, Vec<crate::bifaci::manifest::CapGroup>)>,
+        cartridges: Vec<(
+            PathBuf,
+            Option<(
+                String,
+                String,
+                crate::bifaci::cartridge_repo::CartridgeChannel,
+            )>,
+            Vec<crate::bifaci::manifest::CapGroup>,
+        )>,
     ) -> Result<usize, ExecutionError> {
         // Create socket pairs:
         //   switch_sock <-> slave_ext_sock (switch to slave)
@@ -1040,14 +1071,7 @@ impl ExecutionContext {
                         path.display()
                     ))
                 })?;
-                host.register_cartridge(
-                    path,
-                    name,
-                    version,
-                    *channel,
-                    None,
-                    cap_groups,
-                );
+                host.register_cartridge(path, name, version, *channel, None, cap_groups);
             }
         }
 
@@ -1276,29 +1300,28 @@ impl ExecutionContext {
         // Collect all input data upfront — fail fast if any source is missing
         let mut inputs: Vec<(&[u8], &str, bool)> = Vec::new();
         for edge in edges {
-            let data = self
-                .node_data
-                .get(&edge.from)
-                .ok_or_else(|| ExecutionError::NoIncomingData {
-                    node: edge.from.clone(),
-                })?;
+            let data =
+                self.node_data
+                    .get(&edge.from)
+                    .ok_or_else(|| ExecutionError::NoIncomingData {
+                        node: edge.from.clone(),
+                    })?;
             // Strict lookup: every node in `node_data` MUST also
             // have an entry in `node_is_sequence`. Initial inputs
             // get theirs from `execute_dag`'s init loop;
             // intermediate caps get theirs from the output-write
             // branches above (both `true` and `false` cases now
             // insert explicitly). A miss here is a wiring bug.
-            let is_seq = *self
-                .node_is_sequence
-                .get(&edge.from)
-                .ok_or_else(|| ExecutionError::HostError(format!(
+            let is_seq = *self.node_is_sequence.get(&edge.from).ok_or_else(|| {
+                ExecutionError::HostError(format!(
                     "execute_fanin: node '{}' has data but no \
                      sequence flag — initial inputs must declare \
                      scalar/sequence in `initial_is_sequence`, and \
                      intermediate caps must set the flag when they \
                      write their output node.",
                     edge.from,
-                )))?;
+                ))
+            })?;
             inputs.push((data.as_slice(), edge.in_media.as_str(), is_seq));
         }
         // Wait until a master advertises a cap that's dispatchable
@@ -1427,9 +1450,8 @@ impl ExecutionContext {
 
         // Decode response using shared stream I/O (matches machfab engine behavior).
         // Unwraps CBOR transport wrappers so node_data always contains raw bytes.
-        let decoded_items =
-            super::stream_io::decode_terminal_output(&response_chunks, is_sequence)
-                .map_err(|e| ExecutionError::HostError(format!("{}", e)))?;
+        let decoded_items = super::stream_io::decode_terminal_output(&response_chunks, is_sequence)
+            .map_err(|e| ExecutionError::HostError(format!("{}", e)))?;
 
         if is_sequence == Some(true) {
             // Re-encode as CBOR sequence for storage: each unwrapped item
@@ -1522,12 +1544,9 @@ pub async fn execute_dag(
     //    node has an explicit sequence flag, every flag entry
     //    refers to an input node. Missing or extra entries are a
     //    programmer error, not a silent default.
-    let inputs_keys: HashSet<&str> =
-        initial_inputs.keys().map(|s| s.as_str()).collect();
-    let flags_keys: HashSet<&str> =
-        initial_is_sequence.keys().map(|s| s.as_str()).collect();
-    let missing_flags: Vec<&str> =
-        inputs_keys.difference(&flags_keys).copied().collect();
+    let inputs_keys: HashSet<&str> = initial_inputs.keys().map(|s| s.as_str()).collect();
+    let flags_keys: HashSet<&str> = initial_is_sequence.keys().map(|s| s.as_str()).collect();
+    let missing_flags: Vec<&str> = inputs_keys.difference(&flags_keys).copied().collect();
     if !missing_flags.is_empty() {
         return Err(ExecutionError::HostError(format!(
             "execute_dag: initial_is_sequence is missing entries for input \
@@ -1537,8 +1556,7 @@ pub async fn execute_dag(
             missing_flags,
         )));
     }
-    let extra_flags: Vec<&str> =
-        flags_keys.difference(&inputs_keys).copied().collect();
+    let extra_flags: Vec<&str> = flags_keys.difference(&inputs_keys).copied().collect();
     if !extra_flags.is_empty() {
         return Err(ExecutionError::HostError(format!(
             "execute_dag: initial_is_sequence has flag(s) for node(s) \
@@ -1614,7 +1632,6 @@ pub async fn execute_dag(
                 "Completed",
             );
         }
-
     }
 
     // Explicitly shut down infrastructure

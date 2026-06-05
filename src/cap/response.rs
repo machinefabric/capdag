@@ -186,16 +186,14 @@ impl ResponseWrapper {
             ResponseContentType::Binary => {
                 // Binary outputs can't be validated as JSON, validate the response type instead
                 if let Some(output_def) = cap.get_output() {
-                    let resolved = crate::media::spec::resolve_media_urn(
-                        &output_def.media_urn,
-                        registry,
-                    )
-                    .await
-                    .map_err(|e| ValidationError::InvalidMediaDef {
-                        cap_urn: cap.urn_string(),
-                        field_name: "output".to_string(),
-                        error: e.to_string(),
-                    })?;
+                    let resolved =
+                        crate::media::spec::resolve_media_urn(&output_def.media_urn, registry)
+                            .await
+                            .map_err(|e| ValidationError::InvalidMediaDef {
+                                cap_urn: cap.urn_string(),
+                                field_name: "output".to_string(),
+                                error: e.to_string(),
+                            })?;
                     let is_binary = resolved.is_binary();
                     if !is_binary {
                         return Err(ValidationError::InvalidOutputType {
@@ -242,11 +240,8 @@ impl ResponseWrapper {
             )
         })?;
 
-        let resolved = crate::media::spec::resolve_media_urn(
-            &output_def.media_urn,
-            registry,
-        )
-        .await?;
+        let resolved =
+            crate::media::spec::resolve_media_urn(&output_def.media_urn, registry).await?;
         let is_output_binary = resolved.is_binary();
         let is_output_structured = resolved.is_structured();
 

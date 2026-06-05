@@ -584,15 +584,12 @@ mod tests {
     fn test1176_render_payload_json_includes_strand_with_anchors() {
         use crate::machine::test_fixtures::seed_media_titles;
         let registry = registry_with(vec![extract_cap_def(), embed_cap_def()]);
-        seed_media_titles(&registry, &[
-            "media:pdf",
-            "media:txt;textable",
-            "media:vec;record",
-        ]);
+        seed_media_titles(
+            &registry,
+            &["media:pdf", "media:txt;textable", "media:vec;record"],
+        );
         let machine = Machine::from_strand(&pdf_to_vec_strand(), &registry).unwrap();
-        let payload = machine
-            .to_render_payload_json(&registry)
-            .unwrap();
+        let payload = machine.to_render_payload_json(&registry).unwrap();
         // Should have a `strands` array, containing one strand
         // with `nodes`, `edges`, `input_anchor_nodes`,
         // `output_anchor_nodes`.
@@ -616,9 +613,7 @@ mod tests {
     fn test1177_render_payload_for_empty_machine_has_empty_strands_array() {
         let registry = registry_with(Vec::new());
         let machine = Machine::from_resolved_strands(vec![]);
-        let payload = machine
-            .to_render_payload_json(&registry)
-            .unwrap();
+        let payload = machine.to_render_payload_json(&registry).unwrap();
         assert_eq!(payload, "{\"strands\":[]}");
     }
 
@@ -657,8 +652,17 @@ mod tests {
         let machine = Machine::from_strands(&[extract_strand, caption_strand], &registry).unwrap();
         let notation = machine.to_machine_notation().unwrap();
 
-        assert!(!notation.is_empty(), "notation must be non-empty for a two-strand machine");
-        assert!(notation.contains("extract"), "notation must contain the 'extract' op tag");
-        assert!(notation.contains("caption"), "notation must contain the 'caption' op tag");
+        assert!(
+            !notation.is_empty(),
+            "notation must be non-empty for a two-strand machine"
+        );
+        assert!(
+            notation.contains("extract"),
+            "notation must contain the 'extract' op tag"
+        );
+        assert!(
+            notation.contains("caption"),
+            "notation must contain the 'caption' op tag"
+        );
     }
 }

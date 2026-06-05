@@ -95,8 +95,7 @@ mod tests {
     fn test638_no_peer_router_rejects_all() {
         let router = NoPeerRouter;
         let req_id = [0u8; 16];
-        let result =
-            router.begin_request("cap:in=\"media:void\";test;out=\"media:void\"", &req_id);
+        let result = router.begin_request("cap:in=\"media:void\";test;out=\"media:void\"", &req_id);
 
         assert!(result.is_err());
         match result {

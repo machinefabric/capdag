@@ -58,9 +58,7 @@ pub use media::profile::{ProfileSchemaError, ProfileSchemaRegistry};
 pub use media::spec::*;
 
 // Unified fabric registry — caps + media defs in one type
-pub use fabric::registry::{
-    FabricRegistry, FabricRegistryError, RegistryConfig, StoredMediaDef,
-};
+pub use fabric::registry::{FabricRegistry, FabricRegistryError, RegistryConfig, StoredMediaDef};
 
 // Standard caps and media
 pub use standard::*;
@@ -68,11 +66,11 @@ pub use standard::*;
 // Bifaci protocol — frames, I/O, runtimes
 pub use bifaci::cartridge_runtime::{
     find_stream, find_stream_conforming, find_stream_meta, find_stream_str,
-    find_stream_str_conforming, require_stream, require_stream_str,
-    AdapterSelectionOp, CapacityHandle, CartridgeRuntime, CliStreamEmitter, DiscardOp,
-    FrameSender, IdentityOp, InputPackage, InputStream, NoPeerInvoker, OpFactory,
-    OutputStream, PeerCall, PeerInvoker, PeerResponse, PeerResponseItem, ProgressSender,
-    Request, RuntimeError, StreamError, StreamMeta, StreamSender, WET_KEY_REQUEST,
+    find_stream_str_conforming, require_stream, require_stream_str, AdapterSelectionOp,
+    CapacityHandle, CartridgeRuntime, CliStreamEmitter, DiscardOp, FrameSender, IdentityOp,
+    InputPackage, InputStream, NoPeerInvoker, OpFactory, OutputStream, PeerCall, PeerInvoker,
+    PeerResponse, PeerResponseItem, ProgressSender, Request, RuntimeError, StreamError, StreamMeta,
+    StreamSender, WET_KEY_REQUEST,
 };
 pub use bifaci::decode_chunk_payload;
 pub use bifaci::frame::{
@@ -195,22 +193,44 @@ pub use machine::{
 
 // Orchestrator — machine notation parsing and DAG execution
 pub use orchestrator::{
-    assemble_cbor_array, assemble_cbor_sequence, execute_dag, map_progress,
-    parse_machine_to_cap_dag, plan_to_resolved_graph, split_cbor_array, split_cbor_sequence,
-    CapProgressFn, CartridgeManager, CborUtilError, EdgeGroup, ExecutionContext, ExecutionError,
-    NodeData, ParseOrchestrationError, ProgressMapper, ResolvedEdge, ResolvedGraph,
+    assemble_cbor_array,
+    assemble_cbor_sequence,
     // Stream I/O — shared between orchestrator executor and machfab engine
-    collect_terminal_output, decode_terminal_output, send_one_stream, unwrap_cbor_value,
-    ActivityTimer, IncrementalWriter, PipelineLogFn, PipelineProgressTracker, StreamIoError,
-    TerminalMeta, PIPELINE_STALL_TIMEOUT_SECS,
+    collect_terminal_output,
+    decode_terminal_output,
+    execute_dag,
+    map_progress,
+    parse_machine_to_cap_dag,
+    plan_to_resolved_graph,
+    send_one_stream,
+    split_cbor_array,
+    split_cbor_sequence,
+    unwrap_cbor_value,
+    ActivityTimer,
+    CapProgressFn,
+    CartridgeManager,
+    CborUtilError,
+    EdgeGroup,
+    ExecutionContext,
+    ExecutionError,
+    IncrementalWriter,
+    NodeData,
+    ParseOrchestrationError,
+    PipelineLogFn,
+    PipelineProgressTracker,
+    ProgressMapper,
+    ResolvedEdge,
+    ResolvedGraph,
+    StreamIoError,
+    TerminalMeta,
+    PIPELINE_STALL_TIMEOUT_SECS,
 };
 
 // InputResolver — unified input resolution with media detection
 pub use input_resolver::{
-    detect_file_confirmed, detect_file_with_fabric_registry,
-    discriminate_candidates_by_validation, resolve_input, resolve_inputs,
-    resolve_inputs_confirmed, resolve_paths, AdapterResult, CartridgeAdapterInvoker,
-    ContentStructure, InputItem, InputResolverError, MediaAdapterRegistry,
-    MAX_CONTENT_INSPECTION_BYTES, ResolvedFile, ResolvedInputSet, ValueAdapter,
-    ValueAdapterRegistry, ValueAdapterResult,
+    detect_file_confirmed, detect_file_with_fabric_registry, discriminate_candidates_by_validation,
+    resolve_input, resolve_inputs, resolve_inputs_confirmed, resolve_paths, AdapterResult,
+    CartridgeAdapterInvoker, ContentStructure, InputItem, InputResolverError, MediaAdapterRegistry,
+    ResolvedFile, ResolvedInputSet, ValueAdapter, ValueAdapterRegistry, ValueAdapterResult,
+    MAX_CONTENT_INSPECTION_BYTES,
 };

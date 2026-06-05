@@ -4,7 +4,7 @@
 
 use capdag::machine::parse_machine_with_node_names;
 use capdag::orchestrator::{execute_dag, parse_machine_to_cap_dag, NodeData};
-use capdag::{CapProgressFn, FabricRegistry, CartridgeChannel, PipelineLogFn, StreamMeta};
+use capdag::{CapProgressFn, CartridgeChannel, FabricRegistry, PipelineLogFn, StreamMeta};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -320,14 +320,14 @@ async fn main() {
             }
             let mut node_args = serde_json::Map::new();
             for arg in &edge.cap.args {
-                let has_stdin = arg.sources.iter().any(|s| matches!(s, capdag::cap::definition::ArgSource::Stdin { .. }));
+                let has_stdin = arg
+                    .sources
+                    .iter()
+                    .any(|s| matches!(s, capdag::cap::definition::ArgSource::Stdin { .. }));
                 if has_stdin {
                     continue;
                 }
-                let value = arg
-                    .default_value
-                    .clone()
-                    .unwrap_or(serde_json::Value::Null);
+                let value = arg.default_value.clone().unwrap_or(serde_json::Value::Null);
                 node_args.insert(arg.media_urn.clone(), value);
             }
             if !node_args.is_empty() {

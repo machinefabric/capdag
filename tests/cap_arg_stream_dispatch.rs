@@ -35,8 +35,12 @@ fn conforms(concrete: &str, pattern: &str) -> bool {
         .unwrap_or_else(|e| panic!("BUG: concrete URN {:?} unparseable: {}", concrete, e));
     let p = MediaUrn::from_string(pattern)
         .unwrap_or_else(|e| panic!("BUG: pattern URN {:?} unparseable: {}", pattern, e));
-    c.conforms_to(&p)
-        .unwrap_or_else(|e| panic!("conforms_to failed for ({:?},{:?}): {}", concrete, pattern, e))
+    c.conforms_to(&p).unwrap_or_else(|e| {
+        panic!(
+            "conforms_to failed for ({:?},{:?}): {}",
+            concrete, pattern, e
+        )
+    })
 }
 
 fn equivalent(a: &str, b: &str) -> bool {
@@ -56,7 +60,8 @@ const BARE_TEMPERATURE: &str = "media:temperature;textable;numeric";
 const RICH_TOP_P: &str = "media:top-p;inference;sampling;user;task;textable;numeric";
 const BARE_TOP_P: &str = "media:top-p;textable;numeric";
 
-const RICH_MAX_CONTEXT: &str = "media:max-context-length;inference;limit;operator;model;textable;numeric";
+const RICH_MAX_CONTEXT: &str =
+    "media:max-context-length;inference;limit;operator;model;textable;numeric";
 const BARE_MAX_CONTEXT: &str = "media:max-context-length;textable;numeric";
 
 const RICH_BATCH_SIZE: &str = "media:batch-size;inference;limit;operator;task;textable;numeric";

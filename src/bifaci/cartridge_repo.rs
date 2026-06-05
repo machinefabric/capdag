@@ -1160,7 +1160,11 @@ mod tests {
         }
     }
 
-    fn build_cap_group(name: &str, caps: Vec<RegistryCap>, adapter_urns: Vec<String>) -> RegistryCapGroup {
+    fn build_cap_group(
+        name: &str,
+        caps: Vec<RegistryCap>,
+        adapter_urns: Vec<String>,
+    ) -> RegistryCapGroup {
         RegistryCapGroup {
             name: name.to_string(),
             caps,
@@ -1257,8 +1261,7 @@ mod tests {
     // TEST632: A registry cap with only the three required fields parses.
     #[test]
     fn test632_deserialize_minimal_registry_cap() {
-        let json =
-            r#"{"urn": "cap:effect=none", "title": "Identity", "command": "identity"}"#;
+        let json = r#"{"urn": "cap:effect=none", "title": "Identity", "command": "identity"}"#;
         let cap: RegistryCap = serde_json::from_str(json).unwrap();
         assert_eq!(cap.urn, "cap:effect=none");
         assert_eq!(cap.title, "Identity");
@@ -1453,7 +1456,11 @@ mod tests {
         }"#;
         let response: CartridgeRegistryResponse = serde_json::from_str(json).unwrap();
         assert_eq!(response.cartridges.len(), 2);
-        let img = response.cartridges.iter().find(|c| c.id == "imagecartridge").unwrap();
+        let img = response
+            .cartridges
+            .iter()
+            .find(|c| c.id == "imagecartridge")
+            .unwrap();
         assert_eq!(img.cap_groups.len(), 1);
         assert_eq!(img.cap_groups[0].adapter_urns.len(), 6);
     }
@@ -1540,8 +1547,12 @@ mod tests {
             // self-referential check downstream stays consistent.
             registry_url: "https://test.example/manifest".to_string(),
             channels: CartridgeRegistryChannels {
-                release: CartridgeChannelEntries { cartridges: release_map },
-                nightly: CartridgeChannelEntries { cartridges: nightly_map },
+                release: CartridgeChannelEntries {
+                    cartridges: release_map,
+                },
+                nightly: CartridgeChannelEntries {
+                    cartridges: nightly_map,
+                },
             },
         }
     }
@@ -1549,7 +1560,8 @@ mod tests {
     // TEST323: CartridgeRepoServer requires schema 5.0 and rejects older.
     #[test]
     fn test323_cartridge_repo_server_validate_registry() {
-        let server = CartridgeRepoServer::new(build_registry(vec![]), "https://test.example/manifest");
+        let server =
+            CartridgeRepoServer::new(build_registry(vec![]), "https://test.example/manifest");
         assert!(server.is_ok());
 
         let mut bad = build_registry(vec![]);
@@ -1569,13 +1581,20 @@ mod tests {
             vec!["media:test".to_string()],
         );
         let entry = build_registry_entry("Test Cartridge", vec![group]);
-        let server = CartridgeRepoServer::new(build_registry(vec![("testcartridge", entry)]), "https://test.example/manifest").unwrap();
+        let server = CartridgeRepoServer::new(
+            build_registry(vec![("testcartridge", entry)]),
+            "https://test.example/manifest",
+        )
+        .unwrap();
 
         let array = server.transform_to_cartridge_array().unwrap();
         assert_eq!(array.len(), 1);
         assert_eq!(array[0].id, "testcartridge");
         assert_eq!(array[0].cap_groups.len(), 1);
-        assert_eq!(array[0].cap_groups[0].adapter_urns, vec!["media:test".to_string()]);
+        assert_eq!(
+            array[0].cap_groups[0].adapter_urns,
+            vec!["media:test".to_string()]
+        );
         assert_eq!(array[0].iter_caps().count(), 1);
     }
 
@@ -1585,9 +1604,17 @@ mod tests {
     fn test325_cartridge_repo_server_get_cartridges() {
         let entry = build_registry_entry(
             "Test Cartridge",
-            vec![build_cap_group("g", vec![build_cap("cap:effect=none", "Identity", "identity")], vec![])],
+            vec![build_cap_group(
+                "g",
+                vec![build_cap("cap:effect=none", "Identity", "identity")],
+                vec![],
+            )],
         );
-        let server = CartridgeRepoServer::new(build_registry(vec![("testcartridge", entry)]), "https://test.example/manifest").unwrap();
+        let server = CartridgeRepoServer::new(
+            build_registry(vec![("testcartridge", entry)]),
+            "https://test.example/manifest",
+        )
+        .unwrap();
         let response = server.get_cartridges().unwrap();
         assert_eq!(response.cartridges.len(), 1);
         assert_eq!(response.cartridges[0].id, "testcartridge");
@@ -1601,15 +1628,32 @@ mod tests {
     fn test326_cartridge_repo_server_get_cartridge_by_id() {
         let entry = build_registry_entry(
             "Test Cartridge",
-            vec![build_cap_group("g", vec![build_cap("cap:effect=none", "Identity", "identity")], vec![])],
+            vec![build_cap_group(
+                "g",
+                vec![build_cap("cap:effect=none", "Identity", "identity")],
+                vec![],
+            )],
         );
-        let server = CartridgeRepoServer::new(build_registry(vec![("testcartridge", entry)]), "https://test.example/manifest").unwrap();
-        assert!(server.get_cartridge_by_id(CartridgeChannel::Release, "testcartridge").unwrap().is_some());
-        assert!(server.get_cartridge_by_id(CartridgeChannel::Release, "nonexistent").unwrap().is_none());
+        let server = CartridgeRepoServer::new(
+            build_registry(vec![("testcartridge", entry)]),
+            "https://test.example/manifest",
+        )
+        .unwrap();
+        assert!(server
+            .get_cartridge_by_id(CartridgeChannel::Release, "testcartridge")
+            .unwrap()
+            .is_some());
+        assert!(server
+            .get_cartridge_by_id(CartridgeChannel::Release, "nonexistent")
+            .unwrap()
+            .is_none());
         // Looked up in the wrong channel — id exists only in release
         // (build_registry's default channel) but the nightly side is
         // empty. Channel partitioning is the whole point.
-        assert!(server.get_cartridge_by_id(CartridgeChannel::Nightly, "testcartridge").unwrap().is_none());
+        assert!(server
+            .get_cartridge_by_id(CartridgeChannel::Nightly, "testcartridge")
+            .unwrap()
+            .is_none());
     }
 
     // TEST300: A cartridge with the same id can independently exist in
@@ -1618,18 +1662,30 @@ mod tests {
     fn test300_get_cartridge_by_id_channel_isolation() {
         let mut release_entry = build_registry_entry(
             "Foo (release)",
-            vec![build_cap_group("g", vec![build_cap("cap:effect=none", "Identity", "identity")], vec![])],
+            vec![build_cap_group(
+                "g",
+                vec![build_cap("cap:effect=none", "Identity", "identity")],
+                vec![],
+            )],
         );
         release_entry.versions.clear();
-        release_entry.versions.insert("1.0.0".to_string(), build_version_data("foo-1.0.0.pkg"));
+        release_entry
+            .versions
+            .insert("1.0.0".to_string(), build_version_data("foo-1.0.0.pkg"));
         release_entry.latest_version = "1.0.0".to_string();
 
         let mut nightly_entry = build_registry_entry(
             "Foo (nightly)",
-            vec![build_cap_group("g", vec![build_cap("cap:effect=none", "Identity", "identity")], vec![])],
+            vec![build_cap_group(
+                "g",
+                vec![build_cap("cap:effect=none", "Identity", "identity")],
+                vec![],
+            )],
         );
         nightly_entry.versions.clear();
-        nightly_entry.versions.insert("2.0.0".to_string(), build_version_data("foo-2.0.0.pkg"));
+        nightly_entry
+            .versions
+            .insert("2.0.0".to_string(), build_version_data("foo-2.0.0.pkg"));
         nightly_entry.latest_version = "2.0.0".to_string();
 
         let registry = build_registry_in_channels(
@@ -1638,12 +1694,18 @@ mod tests {
         );
         let server = CartridgeRepoServer::new(registry, "https://test.example/manifest").unwrap();
 
-        let r = server.get_cartridge_by_id(CartridgeChannel::Release, "foocartridge").unwrap().unwrap();
+        let r = server
+            .get_cartridge_by_id(CartridgeChannel::Release, "foocartridge")
+            .unwrap()
+            .unwrap();
         assert_eq!(r.name, "Foo (release)");
         assert_eq!(r.version, "1.0.0");
         assert_eq!(r.channel, CartridgeChannel::Release);
 
-        let n = server.get_cartridge_by_id(CartridgeChannel::Nightly, "foocartridge").unwrap().unwrap();
+        let n = server
+            .get_cartridge_by_id(CartridgeChannel::Nightly, "foocartridge")
+            .unwrap()
+            .unwrap();
         assert_eq!(n.name, "Foo (nightly)");
         assert_eq!(n.version, "2.0.0");
         assert_eq!(n.channel, CartridgeChannel::Nightly);
@@ -1667,7 +1729,11 @@ mod tests {
         );
         entry.tags = vec!["document".to_string()];
         entry.description = "Process PDF documents".to_string();
-        let server = CartridgeRepoServer::new(build_registry(vec![("pdfcartridge", entry)]), "https://test.example/manifest").unwrap();
+        let server = CartridgeRepoServer::new(
+            build_registry(vec![("pdfcartridge", entry)]),
+            "https://test.example/manifest",
+        )
+        .unwrap();
 
         // Match on name.
         let by_name = server.search_cartridges("pdf").unwrap();
@@ -1686,12 +1752,29 @@ mod tests {
     fn test328_cartridge_repo_server_get_by_category() {
         let mut entry = build_registry_entry(
             "Doc Cartridge",
-            vec![build_cap_group("g", vec![build_cap("cap:effect=none", "Identity", "identity")], vec![])],
+            vec![build_cap_group(
+                "g",
+                vec![build_cap("cap:effect=none", "Identity", "identity")],
+                vec![],
+            )],
         );
         entry.categories = vec!["document".to_string()];
-        let server = CartridgeRepoServer::new(build_registry(vec![("doccartridge", entry)]), "https://test.example/manifest").unwrap();
-        assert_eq!(server.get_cartridges_by_category("document").unwrap().len(), 1);
-        assert_eq!(server.get_cartridges_by_category("nonexistent").unwrap().len(), 0);
+        let server = CartridgeRepoServer::new(
+            build_registry(vec![("doccartridge", entry)]),
+            "https://test.example/manifest",
+        )
+        .unwrap();
+        assert_eq!(
+            server.get_cartridges_by_category("document").unwrap().len(),
+            1
+        );
+        assert_eq!(
+            server
+                .get_cartridges_by_category("nonexistent")
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     // TEST329: get_cartridges_by_cap parses the input URN and matches
@@ -1700,12 +1783,10 @@ mod tests {
     // than the cap's declared form still resolves.
     #[test]
     fn test329_cartridge_repo_server_get_by_cap() {
-        let declared_urn =
-            "cap:in=\"media:pdf\";disbind;out=\"media:disbound-page;textable;list\"";
+        let declared_urn = "cap:in=\"media:pdf\";disbind;out=\"media:disbound-page;textable;list\"";
         // Same cap URN with the in/out spec tags in a different declared
         // order. Tagged-URN normalization treats them as identical.
-        let request_urn =
-            "cap:in=\"media:pdf\";disbind;out=\"media:list;disbound-page;textable\"";
+        let request_urn = "cap:in=\"media:pdf\";disbind;out=\"media:list;disbound-page;textable\"";
 
         let entry = build_registry_entry(
             "PDF Cartridge",
@@ -1715,7 +1796,11 @@ mod tests {
                 vec![],
             )],
         );
-        let server = CartridgeRepoServer::new(build_registry(vec![("pdfcartridge", entry)]), "https://test.example/manifest").unwrap();
+        let server = CartridgeRepoServer::new(
+            build_registry(vec![("pdfcartridge", entry)]),
+            "https://test.example/manifest",
+        )
+        .unwrap();
 
         let exact = server.get_cartridges_by_cap(declared_urn).unwrap();
         assert_eq!(exact.len(), 1);
@@ -1757,13 +1842,21 @@ mod tests {
             .expect("update_cache must succeed for a well-formed registry");
         drop(caches);
         let cartridge = repo
-            .get_cartridge("https://example.com/cartridges", CartridgeChannel::Release, "testcartridge")
+            .get_cartridge(
+                "https://example.com/cartridges",
+                CartridgeChannel::Release,
+                "testcartridge",
+            )
             .await;
         assert!(cartridge.is_some());
         assert_eq!(cartridge.unwrap().channel, CartridgeChannel::Release);
         // Same id in nightly is absent — channels are independent.
         assert!(repo
-            .get_cartridge("https://example.com/cartridges", CartridgeChannel::Nightly, "testcartridge")
+            .get_cartridge(
+                "https://example.com/cartridges",
+                CartridgeChannel::Nightly,
+                "testcartridge"
+            )
             .await
             .is_none());
     }
@@ -1774,10 +1867,8 @@ mod tests {
     #[tokio::test]
     async fn test331_cartridge_repo_client_get_suggestions() {
         let repo = CartridgeRepo::new(3600);
-        let declared_urn =
-            "cap:in=\"media:pdf\";disbind;out=\"media:disbound-page;textable;list\"";
-        let request_urn =
-            "cap:in=\"media:pdf\";disbind;out=\"media:list;disbound-page;textable\"";
+        let declared_urn = "cap:in=\"media:pdf\";disbind;out=\"media:disbound-page;textable;list\"";
+        let request_urn = "cap:in=\"media:pdf\";disbind;out=\"media:list;disbound-page;textable\"";
 
         let registry = CartridgeRegistryResponse {
             cartridges: vec![{
@@ -1832,15 +1923,27 @@ mod tests {
         drop(caches);
 
         assert!(repo
-            .get_cartridge("https://example.com/cartridges", CartridgeChannel::Nightly, "testcartridge")
+            .get_cartridge(
+                "https://example.com/cartridges",
+                CartridgeChannel::Nightly,
+                "testcartridge"
+            )
             .await
             .is_some());
         assert!(repo
-            .get_cartridge("https://example.com/cartridges", CartridgeChannel::Release, "testcartridge")
+            .get_cartridge(
+                "https://example.com/cartridges",
+                CartridgeChannel::Release,
+                "testcartridge"
+            )
             .await
             .is_none());
         assert!(repo
-            .get_cartridge("https://example.com/cartridges", CartridgeChannel::Nightly, "nonexistent")
+            .get_cartridge(
+                "https://example.com/cartridges",
+                CartridgeChannel::Nightly,
+                "nonexistent"
+            )
             .await
             .is_none());
     }
@@ -1859,12 +1962,20 @@ mod tests {
                 build_cartridge_info(
                     "cartridge1",
                     "Cartridge 1",
-                    vec![build_cap_group("g", vec![build_cap(cap1, "Cap 1", "x")], vec![])],
+                    vec![build_cap_group(
+                        "g",
+                        vec![build_cap(cap1, "Cap 1", "x")],
+                        vec![],
+                    )],
                 ),
                 build_cartridge_info(
                     "cartridge2",
                     "Cartridge 2",
-                    vec![build_cap_group("g", vec![build_cap(cap2, "Cap 2", "x")], vec![])],
+                    vec![build_cap_group(
+                        "g",
+                        vec![build_cap(cap2, "Cap 2", "x")],
+                        vec![],
+                    )],
                 ),
             ],
         };
@@ -1908,7 +2019,11 @@ mod tests {
                 vec!["media:test".to_string()],
             )],
         );
-        let server = CartridgeRepoServer::new(build_registry(vec![("testcartridge", entry)]), "https://test.example/manifest").unwrap();
+        let server = CartridgeRepoServer::new(
+            build_registry(vec![("testcartridge", entry)]),
+            "https://test.example/manifest",
+        )
+        .unwrap();
         let response = server.get_cartridges().unwrap();
 
         assert_eq!(response.cartridges.len(), 1);
@@ -1916,7 +2031,10 @@ mod tests {
         assert!(cartridge.is_signed());
         assert!(!cartridge.versions.is_empty());
         assert_eq!(cartridge.cap_groups.len(), 1);
-        assert_eq!(cartridge.cap_groups[0].adapter_urns, vec!["media:test".to_string()]);
+        assert_eq!(
+            cartridge.cap_groups[0].adapter_urns,
+            vec!["media:test".to_string()]
+        );
         assert_eq!(cartridge.iter_caps().count(), 1);
     }
 

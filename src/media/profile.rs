@@ -374,9 +374,10 @@ impl ProfileSchemaRegistry {
             ))
         })?;
 
-        let mut schemas = self.compiled_schemas.lock().map_err(|e| {
-            ProfileSchemaError::CacheError(format!("Failed to lock cache: {}", e))
-        })?;
+        let mut schemas = self
+            .compiled_schemas
+            .lock()
+            .map_err(|e| ProfileSchemaError::CacheError(format!("Failed to lock cache: {}", e)))?;
         schemas.insert(
             profile_url.to_string(),
             Arc::new(CompiledSchema {
@@ -409,7 +410,6 @@ impl ProfileSchemaRegistry {
 
         Ok(())
     }
-
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -1505,9 +1505,7 @@ mod debug_tests {
                         "{input}: extra_tags must NOT include `void` itself, got {extra_tags:?}"
                     );
                 }
-                Err(other) => panic!(
-                    "{input}: expected VoidNotAtomic error, got {other:?}"
-                ),
+                Err(other) => panic!("{input}: expected VoidNotAtomic error, got {other:?}"),
                 Ok(parsed) => panic!(
                     "{input}: expected parse error, but parsed successfully as {}",
                     parsed.to_string()

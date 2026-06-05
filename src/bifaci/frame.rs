@@ -1171,8 +1171,7 @@ mod tests {
     // TEST181: Test Frame::hello_with_manifest produces HELLO with manifest bytes for cartridge side
     #[test]
     fn test181_hello_frame_with_manifest() {
-        let manifest_json =
-            r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}"#;
+        let manifest_json = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}"#;
         let frame = Frame::hello_with_manifest(
             &Limits {
                 max_frame: 1_000_000,
@@ -3014,9 +3013,8 @@ mod tests {
             r#"{"name":"Large","version":"1.0","channel":"release","description":"Large test","cap_groups":[{"name":"default","caps":["#,
         );
         // First cap is identity (required)
-        large_manifest.push_str(
-            r#"{"urn":"cap:effect=none","title":"Identity","command":"identity"}"#,
-        );
+        large_manifest
+            .push_str(r#"{"urn":"cap:effect=none","title":"Identity","command":"identity"}"#);
         for i in 0..99 {
             large_manifest.push_str(&format!(
                 r#",{{"urn":"cap:in=\"media:void\";op{i};out=\"media:void\"","title":"Op{i}","command":"op{i}"}}"#,

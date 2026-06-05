@@ -95,11 +95,10 @@ impl MachinePlanBuilder {
 
         let mut plan = MachinePlan::new(name);
 
-        let caps = self
-            .fabric_registry
-            .get_cached_caps()
-            .await
-            .map_err(|e| PlannerError::FabricRegistryError(format!("Failed to get caps: {}", e)))?;
+        let caps =
+            self.fabric_registry.get_cached_caps().await.map_err(|e| {
+                PlannerError::FabricRegistryError(format!("Failed to get caps: {}", e))
+            })?;
 
         // Build a map from cap_urn string to (file-path arg name, stdin-chainable)
         // Only for Cap steps (not cardinality transitions)
@@ -545,11 +544,10 @@ impl MachinePlanBuilder {
         &self,
         path: &Strand,
     ) -> PlannerResult<PathArgumentRequirements> {
-        let caps = self
-            .fabric_registry
-            .get_cached_caps()
-            .await
-            .map_err(|e| PlannerError::FabricRegistryError(format!("Failed to get caps: {}", e)))?;
+        let caps =
+            self.fabric_registry.get_cached_caps().await.map_err(|e| {
+                PlannerError::FabricRegistryError(format!("Failed to get caps: {}", e))
+            })?;
 
         let mut step_requirements = Vec::new();
         // Track cap step index for determining first cap (affects file_path resolution)
@@ -589,12 +587,10 @@ impl MachinePlanBuilder {
                 // Resolve validation from the media definition via the registry. There
                 // is no inline `cap.media_defs` override anymore — every
                 // media URN is resolved through the same path.
-                let resolved_spec = crate::media::spec::resolve_media_urn(
-                    &arg.media_urn,
-                    &self.fabric_registry,
-                )
-                .await
-                .ok();
+                let resolved_spec =
+                    crate::media::spec::resolve_media_urn(&arg.media_urn, &self.fabric_registry)
+                        .await
+                        .ok();
                 let validation = resolved_spec.and_then(|spec| spec.validation);
 
                 let arg_info = ArgumentInfo {
