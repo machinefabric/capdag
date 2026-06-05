@@ -1288,9 +1288,8 @@ mod tests {
             media("media:textable"),
             media("media:txt;textable"),
         ];
-        let cap_urn = CapUrn::from_string(
-            "cap:in=media:pdf;merge;out=\"media:txt;textable\""
-        ).unwrap();
+        let cap_urn =
+            CapUrn::from_string("cap:in=media:pdf;merge;out=\"media:txt;textable\"").unwrap();
         let wirings = vec![PreInternedWiring {
             cap_urn,
             source_node_ids: vec![0, 1], // pdf first, textable second
@@ -1304,7 +1303,10 @@ mod tests {
         let bindings = &strand.edges()[0].assignment;
         assert_eq!(bindings.len(), 2);
 
-        let slot_urns: Vec<String> = bindings.iter().map(|b| b.cap_arg_media_urn.to_string()).collect();
+        let slot_urns: Vec<String> = bindings
+            .iter()
+            .map(|b| b.cap_arg_media_urn.to_string())
+            .collect();
         let mut sorted = slot_urns.clone();
         sorted.sort();
         assert_eq!(

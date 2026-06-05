@@ -138,7 +138,9 @@ pub struct MasterHealthStatus {
 /// Kinds of attachment failure for a cartridge. Matches the
 /// `CartridgeAttachmentErrorKind` enum defined in `cartridge.proto`; this enum
 /// is the authoritative, language-neutral domain definition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CartridgeAttachmentErrorKind {
     /// Manifest parsed but violates the cartridge schema (missing required
@@ -206,7 +208,9 @@ pub enum CartridgeAttachmentErrorKind {
 /// When `attachment_error` is `None`, the cartridge is in one of the
 /// in-progress phases or has reached `Operational`; only
 /// `Operational` cartridges are dispatchable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CartridgeLifecycle {
     /// Discovery scan has found the version directory and is about
@@ -244,7 +248,9 @@ impl Default for CartridgeLifecycle {
 }
 
 /// Structured per-cartridge attachment failure.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct CartridgeAttachmentError {
     pub kind: CartridgeAttachmentErrorKind,
     pub message: String,
@@ -260,7 +266,9 @@ pub struct CartridgeAttachmentError {
 /// by the cartridge in its heartbeat reply (using `proc_pid_rusage` on
 /// its own pid) so the host never needs to inspect another process's
 /// state — this keeps the path sandbox-compatible.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct CartridgeRuntimeStats {
     /// Process is currently running and serving requests.
     pub running: bool,
@@ -454,7 +462,9 @@ pub struct RelayNotifyCapabilitiesPayload {
 impl RelayNotifyCapabilitiesPayload {
     /// Construct a payload from a list of installed-cartridge identities.
     pub fn new(installed_cartridges: Vec<InstalledCartridgeRecord>) -> Self {
-        Self { installed_cartridges }
+        Self {
+            installed_cartridges,
+        }
     }
 
     /// Flat cap-URN union across every cartridge in the payload,
@@ -971,7 +981,10 @@ impl RelaySwitch {
             peer_call_parents: RwLock::new(HashMap::new()),
             origin_map: RwLock::new(HashMap::new()),
             external_response_channels: RwLock::new(HashMap::new()),
-            aggregate_capabilities: RwLock::new(Vec::new()),
+            aggregate_capabilities: RwLock::new(
+                serde_json::to_vec(&Vec::<String>::new())
+                    .expect("empty capability snapshot must serialize"),
+            ),
             aggregate_installed_cartridges: RwLock::new(Vec::new()),
             aggregate_installed_cartridges_tx,
             negotiated_limits: RwLock::new(Limits::default()),
@@ -1164,6 +1177,32 @@ impl RelaySwitch {
             }
         });
         guard.push(probe_handle);
+
+        // Registry definitions can arrive after a RelayNotify advertised
+        // their URNs. LiveCapFab intentionally drops caps whose canonical
+        // definitions are not yet cached; this listener retries the current
+        // aggregate cap set whenever the registry cache warms, without
+        // requiring a cartridge reconnect or capability-set change.
+        let mut cache_revisions = self.fabric_registry.subscribe_cache_revisions();
+        let weak_registry = Arc::downgrade(self);
+        let stop_registry = self.background_pump_stop.clone();
+        let registry_handle = tokio::spawn(async move {
+            loop {
+                if stop_registry.load(Ordering::Relaxed) {
+                    break;
+                }
+                if cache_revisions.changed().await.is_err() {
+                    break;
+                }
+                let Some(switch) = weak_registry.upgrade() else {
+                    break;
+                };
+                switch
+                    .rebuild_live_cap_fab_from_current_capabilities("registry_cache_revision")
+                    .await;
+            }
+        });
+        guard.push(registry_handle);
     }
 
     /// Get the negotiated limits (minimum across all masters).
@@ -1357,11 +1396,7 @@ impl RelaySwitch {
     /// to invoke `execute_cap` and have it route to the right master.
     /// Without this wait, callers race the RelayNotify and observe
     /// an empty cap table.
-    pub async fn wait_for_cap(
-        &self,
-        cap_urn: &str,
-        timeout: std::time::Duration,
-    ) -> Option<usize> {
+    pub async fn wait_for_cap(&self, cap_urn: &str, timeout: std::time::Duration) -> Option<usize> {
         let started = std::time::Instant::now();
         loop {
             if let Some(idx) = self.find_master_for_cap(cap_urn, None).await {
@@ -1655,10 +1690,7 @@ impl RelaySwitch {
     ///
     /// On success returns `Ok(())`. On failure returns a typed error
     /// string suitable for `MasterConnection.last_error`.
-    async fn run_identity_probe_via_relay(
-        &self,
-        master_idx: usize,
-    ) -> Result<(), String> {
+    async fn run_identity_probe_via_relay(&self, master_idx: usize) -> Result<(), String> {
         use crate::standard::caps::CAP_IDENTITY;
         use std::time::Duration;
 
@@ -1700,15 +1732,10 @@ impl RelaySwitch {
             // Build and send the probe frames. All five carry the
             // same (xid, rid) so the master returns its echo on the
             // same flow.
-            let mut req =
-                Frame::req(rid.clone(), CAP_IDENTITY, vec![], "application/cbor");
+            let mut req = Frame::req(rid.clone(), CAP_IDENTITY, vec![], "application/cbor");
             req.routing_id = Some(xid.clone());
-            let mut ss = Frame::stream_start(
-                rid.clone(),
-                stream_id.clone(),
-                "media:".to_string(),
-                None,
-            );
+            let mut ss =
+                Frame::stream_start(rid.clone(), stream_id.clone(), "media:".to_string(), None);
             ss.routing_id = Some(xid.clone());
             let checksum = Frame::compute_checksum(&nonce);
             let mut chunk = Frame::chunk(
@@ -1750,9 +1777,7 @@ impl RelaySwitch {
                 let frame = match tokio::time::timeout(remaining, rx.recv()).await {
                     Ok(Some(f)) => f,
                     Ok(None) => {
-                        return Err(
-                            "runtime identity probe channel closed before END".to_string(),
-                        );
+                        return Err("runtime identity probe channel closed before END".to_string());
                     }
                     Err(_) => {
                         return Err(format!(
@@ -1785,10 +1810,7 @@ impl RelaySwitch {
                         return Err(format!("identity probe failed: [{}] {}", code, msg));
                     }
                     other => {
-                        return Err(format!(
-                            "identity probe: unexpected frame type {:?}",
-                            other
-                        ));
+                        return Err(format!("identity probe: unexpected frame type {:?}", other));
                     }
                 }
             }
@@ -1798,10 +1820,7 @@ impl RelaySwitch {
         // Always purge the routing entries — whether the probe
         // succeeded, failed, or timed out. Leaking these would waste
         // memory and confuse introspection over time.
-        self.external_response_channels
-            .write()
-            .await
-            .remove(&key);
+        self.external_response_channels.write().await.remove(&key);
         self.origin_map.write().await.remove(&key);
         self.request_routing.write().await.remove(&key);
         self.rid_to_xid.write().await.remove(&rid);
@@ -2847,7 +2866,9 @@ impl RelaySwitch {
                         &format!("No handler found for cap: {}", cap_urn),
                     );
                     err_frame.routing_id = Some(xid.clone());
-                    let _ = self.write_to_master_idx_raw(source_idx, &mut err_frame).await;
+                    let _ = self
+                        .write_to_master_idx_raw(source_idx, &mut err_frame)
+                        .await;
                     return Ok(None);
                 }
                 let dest_idx = dest_idx_opt.unwrap();
@@ -3367,14 +3388,15 @@ impl RelaySwitch {
         // Compare with previous capabilities
         let old_caps: Vec<String> = {
             let old_bytes = self.aggregate_capabilities.read().await;
-            serde_json::from_slice(&old_bytes).unwrap_or_default()
+            serde_json::from_slice(&old_bytes)
+                .expect("aggregate_capabilities must be a JSON array of cap URNs")
         };
 
         let changed = old_caps != all_caps;
 
         // Build manifest as JSON array (same format as RelayNotify payloads)
         *self.aggregate_capabilities.write().await =
-            serde_json::to_vec(&all_caps).unwrap_or_default();
+            serde_json::to_vec(&all_caps).expect("cap URNs must serialize to JSON");
         // Installed-cartridges aggregate is the inventory view — what is
         // physically installed and known to any master, regardless of
         // current per-master reachability. We do NOT filter by health
@@ -3427,22 +3449,34 @@ impl RelaySwitch {
                 "[RelaySwitch] Capabilities changed"
             );
 
-            // Rebuild the LiveCapFab with the new set of available caps.
-            //
-            // The bookend URN set is the registry's own predicate: every
-            // URN whose stored spec carries at least one file extension.
-            // The snapshot is taken once per sync and handed to
-            // LiveCapFab, which stores per-node bookend bits; traversals
-            // never call into the registry. New media defs registered
-            // between syncs become bookends only after the next sync —
-            // which is also when their owning caps appear in the graph.
-            let bookend_urns = self.fabric_registry.bookend_urns();
-
-            let mut graph = self.live_cap_fab.write().await;
-            graph
-                .sync_from_cap_urns(&all_caps, &self.fabric_registry, &bookend_urns)
+            self.rebuild_live_cap_fab_from_current_capabilities("capabilities_changed")
                 .await;
         }
+    }
+
+    async fn rebuild_live_cap_fab_from_current_capabilities(&self, reason: &'static str) {
+        let all_caps: Vec<String> = {
+            let aggregate = self.aggregate_capabilities.read().await;
+            serde_json::from_slice(&aggregate)
+                .expect("aggregate_capabilities must be a JSON array of cap URNs")
+        };
+
+        // The bookend URN set is the registry's own predicate: every
+        // URN whose stored spec carries at least one file extension.
+        // A media-def cache revision can therefore change both which
+        // caps are admissible and which graph nodes are file bookends.
+        let bookend_urns = self.fabric_registry.bookend_urns();
+
+        let mut graph = self.live_cap_fab.write().await;
+        graph
+            .sync_from_cap_urns(&all_caps, &self.fabric_registry, &bookend_urns)
+            .await;
+        tracing::debug!(
+            target: "relay_switch",
+            cap_count = all_caps.len(),
+            reason = reason,
+            "[RelaySwitch] LiveCapFab rebuilt from current capabilities"
+        );
     }
 
     /// Rebuild negotiated limits (minimum across all healthy masters).
@@ -3566,6 +3600,92 @@ mod tests {
             .enumerate()
             .map(|(i, s)| (format!("test-master-{}", i), s))
             .collect()
+    }
+
+    fn test_media_def(
+        urn: &str,
+        title: &str,
+        extensions: &[&str],
+    ) -> crate::fabric::registry::StoredMediaDef {
+        crate::fabric::registry::StoredMediaDef {
+            urn: urn.to_string(),
+            media_type: urn.to_string(),
+            title: title.to_string(),
+            profile_uri: None,
+            schema: None,
+            description: None,
+            documentation: None,
+            validation: None,
+            metadata: None,
+            extensions: extensions.iter().map(|ext| ext.to_string()).collect(),
+        }
+    }
+
+    // TEST490: A cartridge can advertise a cap before the registry cache
+    // has finished hydrating that cap's canonical definition. LiveCapFab
+    // must retry the already-advertised aggregate capability set when the
+    // registry cache later warms; otherwise the cap remains absent from
+    // machine selection until an unrelated cartridge reconnect occurs.
+    #[tokio::test]
+    async fn test490_registry_cache_revision_rebuilds_live_cap_fab_without_capability_change() {
+        let registry = test_fabric_registry();
+        registry.insert_cached_media_def_for_test(test_media_def(
+            "media:test-source;textable",
+            "Test Source",
+            &[],
+        ));
+        registry.insert_cached_media_def_for_test(test_media_def(
+            "media:test-output;textable;txt",
+            "Test Output",
+            &["txt"],
+        ));
+
+        let switch = Arc::new(
+            RelaySwitch::new(wrap_with_test_ids(vec![]), registry.clone())
+                .await
+                .expect("empty relay switch must construct"),
+        );
+
+        let cap_urn = "cap:test-transform;in=\"media:test-source;textable\";out=\"media:test-output;textable;txt\"";
+        *switch.aggregate_capabilities.write().await =
+            serde_json::to_vec(&vec![CAP_IDENTITY.to_string(), cap_urn.to_string()])
+                .expect("aggregate cap URNs must serialize");
+
+        let source = MediaUrn::from_string("media:test-source;textable")
+            .expect("test source media URN must parse");
+        let target = MediaUrn::from_string("media:test-output;textable;txt")
+            .expect("test target media URN must parse");
+        assert!(
+            switch
+                .find_paths_to_exact_target(&source, &target, false, 2, 8)
+                .await
+                .is_empty(),
+            "cap must not be reachable before its registry definition is cached"
+        );
+
+        switch.start_background_pump();
+
+        let cap = crate::cap::definition::Cap::with_description(
+            crate::urn::cap_urn::CapUrn::from_string(cap_urn).expect("test cap URN must parse"),
+            "Test Transform".to_string(),
+            "test-transform".to_string(),
+            "Transforms test source into test output.".to_string(),
+        );
+        registry.add_caps_to_cache(vec![cap]);
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let paths = switch
+                    .find_paths_to_exact_target(&source, &target, false, 2, 8)
+                    .await;
+                if !paths.is_empty() {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("registry cache revision must make the advertised cap reachable");
     }
 
     /// Helper: send RelayNotify with given caps/limits, then handle identity verification.
@@ -3706,15 +3826,16 @@ mod tests {
         });
 
         // Constructor reads RelayNotify + verifies identity for both masters
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock1, engine_sock2]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock1, engine_sock2]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // Verify routing (caps already populated during construction)
         assert_eq!(
-            switch
-                .find_master_for_cap("cap:effect=none", None)
-                .await,
+            switch.find_master_for_cap("cap:effect=none", None).await,
             Some(0)
         );
         assert_eq!(
@@ -3777,9 +3898,12 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // Send REQ + END (caps already populated from construction)
         let req_id = MessageId::Uint(1);
@@ -3866,20 +3990,18 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock1, engine_sock2]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock1, engine_sock2]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // Caps already populated from construction — send requests directly
         let req1_id = MessageId::Uint(1);
         switch
             .send_to_master(
-                Frame::req(
-                    req1_id.clone(),
-                    "cap:effect=none",
-                    vec![],
-                    "text/plain",
-                ),
+                Frame::req(req1_id.clone(), "cap:effect=none", vec![], "text/plain"),
                 None,
             )
             .await
@@ -3926,9 +4048,12 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         let req = Frame::req(
             MessageId::Uint(1),
@@ -4010,9 +4135,12 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock1, engine_sock2]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock1, engine_sock2]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // First request — should go to master 0 (first match)
         let req1_id = MessageId::Uint(1);
@@ -4088,9 +4216,12 @@ mod tests {
             });
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         let req_id = MessageId::Uint(1);
         switch
@@ -4134,7 +4265,9 @@ mod tests {
     // TEST432: Empty masters list creates empty switch, add_master works
     #[tokio::test]
     async fn test432_empty_masters_allowed() {
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![]), test_fabric_registry()).await.unwrap();
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![]), test_fabric_registry())
+            .await
+            .unwrap();
 
         // Empty switch has no caps
         let caps: Vec<String> = serde_json::from_slice(&switch.capabilities().await).unwrap();
@@ -4142,9 +4275,7 @@ mod tests {
 
         // No handler for any cap
         assert_eq!(
-            switch
-                .find_master_for_cap("cap:effect=none", None)
-                .await,
+            switch.find_master_for_cap("cap:effect=none", None).await,
             None
         );
     }
@@ -4179,9 +4310,12 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock1, engine_sock2]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock1, engine_sock2]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // Caps already populated during construction (plain JSON array
         // of canonical cap URN strings — alphabetical tag order, no
@@ -4228,9 +4362,12 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock1, engine_sock2]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock1, engine_sock2]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // Limits already negotiated during construction
         assert_eq!(switch.limits().await.max_frame, 1_000_000);
@@ -4273,9 +4410,12 @@ mod tests {
             }
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // Exact match should work
         let req1_id = MessageId::Uint(1);
@@ -4369,13 +4509,15 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock0, engine_sock1]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock0, engine_sock1]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // Specific request for PDF thumbnail
-        let request =
-            "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let request = "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
 
         // Without preference: routes to master 1 (specific, closest-specificity)
         assert_eq!(switch.find_master_for_cap(request, None).await, Some(1));
@@ -4413,12 +4555,14 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
-        let request =
-            "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let request = "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
 
         // Preference for an unrelated cap — no equivalent match, falls back to closest-specificity
         let unrelated =
@@ -4450,14 +4594,16 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // Specific PDF request — generic handler CAN dispatch it
         // because provider's wildcard input (media:) accepts any input type
-        let request =
-            "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let request = "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
         assert_eq!(
             switch.find_master_for_cap(request, None).await,
             Some(0),
@@ -4493,15 +4639,16 @@ mod tests {
             .await;
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // Construction succeeded — caps are populated
         assert_eq!(
-            switch
-                .find_master_for_cap("cap:effect=none", None)
-                .await,
+            switch.find_master_for_cap("cap:effect=none", None).await,
             Some(0)
         );
         assert_eq!(
@@ -4561,7 +4708,11 @@ mod tests {
             writer.write(&err).await.unwrap();
         });
 
-        let result = RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry()).await;
+        let result = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock]),
+            test_fabric_registry(),
+        )
+        .await;
         assert!(
             result.is_err(),
             "construction must fail when identity verification fails"
@@ -4669,9 +4820,12 @@ mod tests {
         });
 
         let switch = Arc::new(
-            RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-                .await
-                .expect("RelaySwitch construction must succeed for empty-cap initial notify"),
+            RelaySwitch::new(
+                wrap_with_test_ids(vec![engine_sock]),
+                test_fabric_registry(),
+            )
+            .await
+            .expect("RelaySwitch construction must succeed for empty-cap initial notify"),
         );
         switch.start_background_pump();
 
@@ -4787,9 +4941,12 @@ mod tests {
             slave.run(socket_reader, socket_writer, None).await.unwrap();
         });
 
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![switch_sock]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![switch_sock]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
 
         // Verify the switch has our echo cap registered
         let caps_json: Vec<String> = serde_json::from_slice(&switch.capabilities().await).unwrap();
@@ -4967,9 +5124,12 @@ mod tests {
         );
 
         let (switch_sock_a, ht_a, st_a) = wire_host(host_a).await;
-        let switch = RelaySwitch::new(wrap_with_test_ids(vec![switch_sock_a]), test_fabric_registry())
-            .await
-            .unwrap();
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![switch_sock_a]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
         assert_eq!(switch.masters.read().await.len(), 1);
 
         // Add handler B dynamically
@@ -5000,7 +5160,10 @@ mod tests {
         // Use a distinct id so this test exercises the append branch
         // of `add_master` (the constructor already filled `test-master-0`
         // via `wrap_with_test_ids`; this is a fresh slot at index 1).
-        let idx = switch.add_master("test-master-1", switch_sock_b).await.unwrap();
+        let idx = switch
+            .add_master("test-master-1", switch_sock_b)
+            .await
+            .unwrap();
         assert_eq!(idx, 1);
         assert_eq!(switch.masters.read().await.len(), 2);
 
@@ -5116,11 +5279,9 @@ mod tests {
         );
         assert_eq!(switch.masters.read().await.len(), 1);
         assert_eq!(switch.masters.read().await[0].id, "xpc-service");
-        assert!(
-            switch.masters.read().await[0]
-                .healthy
-                .load(Ordering::SeqCst)
-        );
+        assert!(switch.masters.read().await[0]
+            .healthy
+            .load(Ordering::SeqCst));
 
         // Phase 2: simulate master death. handle_master_death is
         // the same code path the frame pump invokes on EOF — using
@@ -5129,7 +5290,9 @@ mod tests {
         // but its `healthy` flag flips to false.
         switch.handle_master_death(0).await.unwrap();
         assert!(
-            !switch.masters.read().await[0].healthy.load(Ordering::SeqCst),
+            !switch.masters.read().await[0]
+                .healthy
+                .load(Ordering::SeqCst),
             "slot 0 must be unhealthy after handle_master_death"
         );
         assert_eq!(
@@ -5165,7 +5328,9 @@ mod tests {
             "reattach MUST NOT grow the slot count — that was the zombie-slot bug"
         );
         assert!(
-            switch.masters.read().await[0].healthy.load(Ordering::SeqCst),
+            switch.masters.read().await[0]
+                .healthy
+                .load(Ordering::SeqCst),
             "slot must be healthy after reattach"
         );
         assert_eq!(
@@ -5193,8 +5358,7 @@ mod tests {
             let initial_caps = initial_caps.clone();
             async move {
                 let _kept_open =
-                    slave_notify_with_identity(slave_sock, &initial_caps, &Limits::default())
-                        .await;
+                    slave_notify_with_identity(slave_sock, &initial_caps, &Limits::default()).await;
                 std::future::pending::<()>().await;
             }
         });
@@ -5207,7 +5371,9 @@ mod tests {
             .unwrap(),
         );
         assert!(
-            switch.masters.read().await[0].healthy.load(Ordering::SeqCst),
+            switch.masters.read().await[0]
+                .healthy
+                .load(Ordering::SeqCst),
             "slot 0 must be healthy after construction"
         );
 
@@ -5579,12 +5745,8 @@ mod tests {
             let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
             engine_socks.push(engine_sock);
             tokio::spawn(async move {
-                slave_notify_with_identity(
-                    slave_sock,
-                    &serde_json::json!([]),
-                    &Limits::default(),
-                )
-                .await;
+                slave_notify_with_identity(slave_sock, &serde_json::json!([]), &Limits::default())
+                    .await;
             });
         }
         Arc::new(
@@ -5661,19 +5823,36 @@ mod tests {
     fn test1720_kind_serde_renames_match_proto_snake_case() {
         use super::CartridgeAttachmentErrorKind;
         let cases = [
-            (CartridgeAttachmentErrorKind::Incompatible,         "incompatible"),
-            (CartridgeAttachmentErrorKind::ManifestInvalid,      "manifest_invalid"),
-            (CartridgeAttachmentErrorKind::HandshakeFailed,      "handshake_failed"),
-            (CartridgeAttachmentErrorKind::IdentityRejected,     "identity_rejected"),
-            (CartridgeAttachmentErrorKind::EntryPointMissing,    "entry_point_missing"),
-            (CartridgeAttachmentErrorKind::Quarantined,          "quarantined"),
-            (CartridgeAttachmentErrorKind::BadInstallation,      "bad_installation"),
-            (CartridgeAttachmentErrorKind::Disabled,             "disabled"),
-            (CartridgeAttachmentErrorKind::RegistryUnreachable,  "registry_unreachable"),
+            (CartridgeAttachmentErrorKind::Incompatible, "incompatible"),
+            (
+                CartridgeAttachmentErrorKind::ManifestInvalid,
+                "manifest_invalid",
+            ),
+            (
+                CartridgeAttachmentErrorKind::HandshakeFailed,
+                "handshake_failed",
+            ),
+            (
+                CartridgeAttachmentErrorKind::IdentityRejected,
+                "identity_rejected",
+            ),
+            (
+                CartridgeAttachmentErrorKind::EntryPointMissing,
+                "entry_point_missing",
+            ),
+            (CartridgeAttachmentErrorKind::Quarantined, "quarantined"),
+            (
+                CartridgeAttachmentErrorKind::BadInstallation,
+                "bad_installation",
+            ),
+            (CartridgeAttachmentErrorKind::Disabled, "disabled"),
+            (
+                CartridgeAttachmentErrorKind::RegistryUnreachable,
+                "registry_unreachable",
+            ),
         ];
         for (variant, expected) in cases {
-            let json = serde_json::to_string(&variant)
-                .expect("variant must serialize");
+            let json = serde_json::to_string(&variant).expect("variant must serialize");
             // serde_json emits scalar enums as JSON strings:
             // surrounded by quotes. Strip them for the byte
             // comparison so the test message reads naturally.
@@ -5696,15 +5875,33 @@ mod tests {
     fn test1721_kind_decodes_wire_format_into_expected_variants() {
         use super::CartridgeAttachmentErrorKind;
         let cases: [(&str, CartridgeAttachmentErrorKind); 9] = [
-            ("incompatible",         CartridgeAttachmentErrorKind::Incompatible),
-            ("manifest_invalid",     CartridgeAttachmentErrorKind::ManifestInvalid),
-            ("handshake_failed",     CartridgeAttachmentErrorKind::HandshakeFailed),
-            ("identity_rejected",    CartridgeAttachmentErrorKind::IdentityRejected),
-            ("entry_point_missing",  CartridgeAttachmentErrorKind::EntryPointMissing),
-            ("quarantined",          CartridgeAttachmentErrorKind::Quarantined),
-            ("bad_installation",     CartridgeAttachmentErrorKind::BadInstallation),
-            ("disabled",             CartridgeAttachmentErrorKind::Disabled),
-            ("registry_unreachable", CartridgeAttachmentErrorKind::RegistryUnreachable),
+            ("incompatible", CartridgeAttachmentErrorKind::Incompatible),
+            (
+                "manifest_invalid",
+                CartridgeAttachmentErrorKind::ManifestInvalid,
+            ),
+            (
+                "handshake_failed",
+                CartridgeAttachmentErrorKind::HandshakeFailed,
+            ),
+            (
+                "identity_rejected",
+                CartridgeAttachmentErrorKind::IdentityRejected,
+            ),
+            (
+                "entry_point_missing",
+                CartridgeAttachmentErrorKind::EntryPointMissing,
+            ),
+            ("quarantined", CartridgeAttachmentErrorKind::Quarantined),
+            (
+                "bad_installation",
+                CartridgeAttachmentErrorKind::BadInstallation,
+            ),
+            ("disabled", CartridgeAttachmentErrorKind::Disabled),
+            (
+                "registry_unreachable",
+                CartridgeAttachmentErrorKind::RegistryUnreachable,
+            ),
         ];
         for (raw, expected_variant) in cases {
             let json = format!("\"{}\"", raw);
@@ -5728,9 +5925,9 @@ mod tests {
     fn test1730_lifecycle_serde_renames_match_proto_snake_case() {
         use super::CartridgeLifecycle;
         let cases = [
-            (CartridgeLifecycle::Discovered,  "discovered"),
-            (CartridgeLifecycle::Inspecting,  "inspecting"),
-            (CartridgeLifecycle::Verifying,   "verifying"),
+            (CartridgeLifecycle::Discovered, "discovered"),
+            (CartridgeLifecycle::Inspecting, "inspecting"),
+            (CartridgeLifecycle::Verifying, "verifying"),
             (CartridgeLifecycle::Operational, "operational"),
         ];
         for (variant, expected) in cases {
@@ -5775,8 +5972,7 @@ mod tests {
             "version": "0.0.1",
             "sha256": "deadbeef"
         }"#;
-        let record: super::InstalledCartridgeRecord =
-            serde_json::from_str(json).expect("decode");
+        let record: super::InstalledCartridgeRecord = serde_json::from_str(json).expect("decode");
         assert_eq!(
             record.lifecycle,
             CartridgeLifecycle::Discovered,
@@ -5794,9 +5990,7 @@ mod tests {
     /// of the HTTPS rule.
     #[test]
     fn test1733_registry_url_scheme_validator() {
-        use super::super::cartridge_json::{
-            validate_registry_url_scheme, RegistryUrlSchemeResult,
-        };
+        use super::super::cartridge_json::{validate_registry_url_scheme, RegistryUrlSchemeResult};
         // https always OK.
         assert_eq!(
             validate_registry_url_scheme("https://example.com/manifest", false),

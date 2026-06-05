@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 const DEFAULT_REGISTRY_BASE_URL: &str = "https://fabric.capdag.com";
 const CACHE_DURATION_HOURS: u64 = 24;
@@ -63,8 +63,8 @@ impl Default for RegistryConfig {
     fn default() -> Self {
         let registry_base = env::var("CDG_FABRIC_REGISTRY_URL")
             .unwrap_or_else(|_| DEFAULT_REGISTRY_BASE_URL.to_string());
-        let schema_base = env::var("CDG_SCHEMA_BASE_URL")
-            .unwrap_or_else(|_| format!("{}/schema", registry_base));
+        let schema_base =
+            env::var("CDG_SCHEMA_BASE_URL").unwrap_or_else(|_| format!("{}/schema", registry_base));
         Self {
             registry_base_url: registry_base,
             schema_base_url: schema_base,
@@ -161,12 +161,20 @@ trait CacheEntryExt {
     }
 }
 impl CacheEntryExt for CapCacheEntry {
-    fn cached_at(&self) -> u64 { self.cached_at }
-    fn ttl_hours(&self) -> u64 { self.ttl_hours }
+    fn cached_at(&self) -> u64 {
+        self.cached_at
+    }
+    fn ttl_hours(&self) -> u64 {
+        self.ttl_hours
+    }
 }
 impl CacheEntryExt for MediaCacheEntry {
-    fn cached_at(&self) -> u64 { self.cached_at }
-    fn ttl_hours(&self) -> u64 { self.ttl_hours }
+    fn cached_at(&self) -> u64 {
+        self.cached_at
+    }
+    fn ttl_hours(&self) -> u64 {
+        self.ttl_hours
+    }
 }
 
 // =============================================================================
@@ -213,6 +221,7 @@ pub struct FabricRegistry {
     offline_flag: Arc<AtomicBool>,
     fetch_queue_tx: Option<mpsc::UnboundedSender<FetchKey>>,
     fetch_in_queue: Arc<Mutex<HashSet<FetchKey>>>,
+    cache_revision_tx: watch::Sender<u64>,
 }
 
 impl FabricRegistry {
@@ -251,6 +260,7 @@ impl FabricRegistry {
         let extension_index = Arc::new(Mutex::new(extension_index_map));
         let fetch_in_queue = Arc::new(Mutex::new(HashSet::new()));
         let offline_flag = Arc::new(AtomicBool::new(false));
+        let (cache_revision_tx, _) = watch::channel(0u64);
 
         let fetch_queue_tx = match tokio::runtime::Handle::try_current() {
             Ok(_) => {
@@ -265,6 +275,7 @@ impl FabricRegistry {
                     Arc::clone(&fetch_in_queue),
                     Arc::clone(&offline_flag),
                     config.clone(),
+                    cache_revision_tx.clone(),
                 ));
                 Some(tx)
             }
@@ -281,6 +292,7 @@ impl FabricRegistry {
             offline_flag,
             fetch_queue_tx,
             fetch_in_queue,
+            cache_revision_tx,
         };
 
         // The identity cap is the protocol-mandatory categorical
@@ -299,6 +311,10 @@ impl FabricRegistry {
 
     pub fn set_offline(&self, offline: bool) {
         self.offline_flag.store(offline, Ordering::Relaxed);
+    }
+
+    pub fn subscribe_cache_revisions(&self) -> watch::Receiver<u64> {
+        self.cache_revision_tx.subscribe()
     }
 
     fn default_cache_root() -> Result<PathBuf, FabricRegistryError> {
@@ -330,7 +346,12 @@ impl FabricRegistry {
     /// can't be fully fetched is not cached and the call returns `Err`.
     pub async fn get_cap(&self, urn: &str) -> Result<Cap, FabricRegistryError> {
         let normalized_urn = normalize_cap_urn(urn);
-        if let Some(cap) = self.cached_caps.lock().ok().and_then(|m| m.get(&normalized_urn).cloned()) {
+        if let Some(cap) = self
+            .cached_caps
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&normalized_urn).cloned())
+        {
             return Ok(cap);
         }
         fetch_one_cap_atomic(
@@ -341,6 +362,7 @@ impl FabricRegistry {
             &self.extension_index,
             &self.offline_flag,
             &self.config,
+            &self.cache_revision_tx,
             &normalized_urn,
         )
         .await
@@ -366,7 +388,12 @@ impl FabricRegistry {
     /// Synchronous cap lookup that warms its own cache. See module docs.
     pub fn get_cached_cap(&self, urn: &str) -> Option<Cap> {
         let normalized_urn = normalize_cap_urn(urn);
-        if let Some(cap) = self.cached_caps.lock().ok().and_then(|m| m.get(&normalized_urn).cloned()) {
+        if let Some(cap) = self
+            .cached_caps
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&normalized_urn).cloned())
+        {
             return Some(cap);
         }
         let runtime = tokio::runtime::Handle::try_current().ok()?;
@@ -389,6 +416,7 @@ impl FabricRegistry {
                         &self.extension_index,
                         &self.offline_flag,
                         &self.config,
+                        &self.cache_revision_tx,
                         &normalized_urn,
                     ),
                 )
@@ -414,6 +442,25 @@ impl FabricRegistry {
         }
         self.enqueue_for_background_fetch(FetchKey::Cap(normalized_urn));
         None
+    }
+
+    /// In-memory-only cap lookup for latency-critical planner sync.
+    ///
+    /// This never performs the bounded synchronous network fetch used by
+    /// `get_cached_cap`. If the cap is missing, the caller can enqueue it
+    /// for asynchronous cache hydration and rely on cache revision events to
+    /// retry graph admission.
+    pub fn get_cached_cap_in_memory(&self, urn: &str) -> Option<Cap> {
+        let normalized_urn = normalize_cap_urn(urn);
+        self.cached_caps
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&normalized_urn).cloned())
+    }
+
+    /// Request asynchronous hydration of a cap definition without waiting.
+    pub fn request_cap_cache_hydration(&self, urn: &str) {
+        self.enqueue_for_background_fetch(FetchKey::Cap(normalize_cap_urn(urn)));
     }
 
     /// Validate a local cap against its canonical definition.
@@ -443,12 +490,17 @@ impl FabricRegistry {
 
     /// Add caps to the in-memory cache. Test helper.
     pub fn add_caps_to_cache(&self, caps: Vec<Cap>) {
+        let mut changed = false;
         if let Ok(mut cached_caps) = self.cached_caps.lock() {
             for cap in caps {
                 let urn = cap.urn_string();
                 let normalized_urn = normalize_cap_urn(&urn);
                 cached_caps.insert(normalized_urn, cap);
+                changed = true;
             }
+        }
+        if changed {
+            publish_cache_revision(&self.cache_revision_tx);
         }
     }
 
@@ -457,10 +509,7 @@ impl FabricRegistry {
     // -------------------------------------------------------------------------
 
     /// Get a media def from cache or fetch from registry.
-    pub async fn get_media_def(
-        &self,
-        urn: &str,
-    ) -> Result<StoredMediaDef, FabricRegistryError> {
+    pub async fn get_media_def(&self, urn: &str) -> Result<StoredMediaDef, FabricRegistryError> {
         let normalized = normalize_media_urn(urn);
         if let Some(spec) = self
             .cached_media_defs
@@ -477,6 +526,7 @@ impl FabricRegistry {
             &self.extension_index,
             &self.offline_flag,
             &self.config,
+            &self.cache_revision_tx,
             &normalized,
         )
         .await
@@ -501,7 +551,6 @@ impl FabricRegistry {
         })?;
         Ok(cached_specs.values().cloned().collect())
     }
-
 
     /// Synchronous media-def lookup that warms its own cache.
     pub fn get_cached_media_def(&self, urn: &str) -> Option<StoredMediaDef> {
@@ -533,6 +582,7 @@ impl FabricRegistry {
                         &self.extension_index,
                         &self.offline_flag,
                         &self.config,
+                        &self.cache_revision_tx,
                         &normalized,
                     ),
                 )
@@ -624,6 +674,7 @@ impl FabricRegistry {
                 }
             }
         }
+        publish_cache_revision(&self.cache_revision_tx);
     }
 
     /// Check if a media URN exists in registry (cached or online).
@@ -814,6 +865,7 @@ impl FabricRegistry {
         let fetch_in_queue = Arc::new(Mutex::new(HashSet::new()));
         let offline_flag = Arc::new(AtomicBool::new(false));
         let client = reqwest::Client::new();
+        let (cache_revision_tx, _) = watch::channel(0u64);
 
         let fetch_queue_tx = match tokio::runtime::Handle::try_current() {
             Ok(_) => {
@@ -828,6 +880,7 @@ impl FabricRegistry {
                     Arc::clone(&fetch_in_queue),
                     Arc::clone(&offline_flag),
                     config.clone(),
+                    cache_revision_tx.clone(),
                 ));
                 Some(tx)
             }
@@ -844,6 +897,7 @@ impl FabricRegistry {
             offline_flag,
             fetch_queue_tx,
             fetch_in_queue,
+            cache_revision_tx,
         };
         registry.ensure_identity_cap();
         registry
@@ -865,6 +919,7 @@ async fn fetch_one_cap_atomic(
     extension_index: &Arc<Mutex<HashMap<String, Vec<String>>>>,
     offline_flag: &Arc<AtomicBool>,
     config: &RegistryConfig,
+    cache_revision_tx: &watch::Sender<u64>,
     normalized_urn: &str,
 ) -> Result<Cap, FabricRegistryError> {
     if offline_flag.load(Ordering::Relaxed) {
@@ -879,9 +934,11 @@ async fn fetch_one_cap_atomic(
     let hash = format!("{:x}", hasher.finalize());
     let url = format!("{}/caps/{}", config.registry_base_url, hash);
 
-    let response = client.get(&url).send().await.map_err(|e| {
-        FabricRegistryError::HttpError(format!("Failed to fetch cap: {}", e))
-    })?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| FabricRegistryError::HttpError(format!("Failed to fetch cap: {}", e)))?;
     if !response.status().is_success() {
         return Err(FabricRegistryError::NotFound(format!(
             "Cap '{}' not found in registry (HTTP {})",
@@ -890,10 +947,7 @@ async fn fetch_one_cap_atomic(
         )));
     }
     let cap: Cap = response.json().await.map_err(|e| {
-        FabricRegistryError::ParseError(format!(
-            "Failed to parse cap '{}': {}",
-            normalized_urn, e
-        ))
+        FabricRegistryError::ParseError(format!("Failed to parse cap '{}': {}", normalized_urn, e))
     })?;
 
     // Walk every media URN referenced by the cap. Empty/wildcard URN
@@ -936,6 +990,7 @@ async fn fetch_one_cap_atomic(
             extension_index,
             offline_flag,
             config,
+            cache_revision_tx,
             media_urn,
         )
         .await
@@ -975,6 +1030,7 @@ async fn fetch_one_cap_atomic(
     if let Ok(mut cached) = cached_caps.lock() {
         cached.insert(normalized_urn.to_string(), cap.clone());
     }
+    publish_cache_revision(cache_revision_tx);
 
     Ok(cap)
 }
@@ -987,6 +1043,7 @@ pub(crate) async fn fetch_one_media_def(
     extension_index: &Arc<Mutex<HashMap<String, Vec<String>>>>,
     offline_flag: &Arc<AtomicBool>,
     config: &RegistryConfig,
+    cache_revision_tx: &watch::Sender<u64>,
     normalized_urn: &str,
 ) -> Result<StoredMediaDef, FabricRegistryError> {
     if offline_flag.load(Ordering::Relaxed) {
@@ -1001,9 +1058,10 @@ pub(crate) async fn fetch_one_media_def(
     let hash = format!("{:x}", hasher.finalize());
     let url = format!("{}/media/{}", config.registry_base_url, hash);
 
-    let response = client.get(&url).send().await.map_err(|e| {
-        FabricRegistryError::HttpError(format!("Failed to fetch media def: {}", e))
-    })?;
+    let response =
+        client.get(&url).send().await.map_err(|e| {
+            FabricRegistryError::HttpError(format!("Failed to fetch media def: {}", e))
+        })?;
     if !response.status().is_success() {
         return Err(FabricRegistryError::NotFound(format!(
             "Media def '{}' not found in registry (HTTP {})",
@@ -1028,10 +1086,7 @@ pub(crate) async fn fetch_one_media_def(
     };
     let cache_file = cache_dir.join("media").join(format!("{}.json", hash));
     let content = serde_json::to_string_pretty(&cache_entry).map_err(|e| {
-        FabricRegistryError::CacheError(format!(
-            "Failed to serialize media cache entry: {}",
-            e
-        ))
+        FabricRegistryError::CacheError(format!("Failed to serialize media cache entry: {}", e))
     })?;
     fs::write(&cache_file, content).map_err(|e| {
         FabricRegistryError::CacheError(format!("Failed to write media cache file: {}", e))
@@ -1049,7 +1104,16 @@ pub(crate) async fn fetch_one_media_def(
             }
         }
     }
+    publish_cache_revision(cache_revision_tx);
     Ok(spec)
+}
+
+fn publish_cache_revision(tx: &watch::Sender<u64>) {
+    let next = {
+        let current = *tx.borrow();
+        current.wrapping_add(1)
+    };
+    let _ = tx.send(next);
 }
 
 /// Single shared background fetch consumer for both cap and media URNs.
@@ -1065,6 +1129,7 @@ async fn run_fetch_consumer(
     fetch_in_queue: Arc<Mutex<HashSet<FetchKey>>>,
     offline_flag: Arc<AtomicBool>,
     config: RegistryConfig,
+    cache_revision_tx: watch::Sender<u64>,
 ) {
     while let Some(key) = rx.recv().await {
         match &key {
@@ -1083,6 +1148,7 @@ async fn run_fetch_consumer(
                         &extension_index,
                         &offline_flag,
                         &config,
+                        &cache_revision_tx,
                         normalized_urn,
                     )
                     .await
@@ -1118,6 +1184,7 @@ async fn run_fetch_consumer(
                         &extension_index,
                         &offline_flag,
                         &config,
+                        &cache_revision_tx,
                         normalized_urn,
                     )
                     .await

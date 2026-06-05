@@ -124,9 +124,9 @@ impl<'de> Deserialize<'de> for CartridgeJson {
         use serde::de::Error as _;
 
         let value = serde_json::Value::deserialize(deserializer)?;
-        let obj = value.as_object().ok_or_else(|| {
-            D::Error::custom("cartridge.json must be a JSON object")
-        })?;
+        let obj = value
+            .as_object()
+            .ok_or_else(|| D::Error::custom("cartridge.json must be a JSON object"))?;
         if !obj.contains_key("registry_url") {
             return Err(D::Error::missing_field("registry_url"));
         }
@@ -503,7 +503,10 @@ mod tests {
         assert_eq!(parsed.name, "pdfcartridge");
         assert_eq!(parsed.version, "0.168.411");
         assert_eq!(parsed.entry, "pdfcartridge");
-        assert_eq!(parsed.installed_from, Some(CartridgeInstallSource::Registry));
+        assert_eq!(
+            parsed.installed_from,
+            Some(CartridgeInstallSource::Registry)
+        );
         assert_eq!(parsed.channel, CartridgeChannel::Release);
         assert_eq!(parsed.registry_url.as_deref(), Some(TEST_REGISTRY));
     }

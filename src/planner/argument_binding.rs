@@ -281,7 +281,11 @@ fn json_value_to_bytes(value: &serde_json::Value) -> Vec<u8> {
     match value {
         serde_json::Value::String(s) => s.as_bytes().to_vec(),
         serde_json::Value::Bool(b) => {
-            if *b { b"true".to_vec() } else { b"false".to_vec() }
+            if *b {
+                b"true".to_vec()
+            } else {
+                b"false".to_vec()
+            }
         }
         serde_json::Value::Number(n) => n.to_string().into_bytes(),
         serde_json::Value::Null => Vec::new(),

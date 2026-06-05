@@ -74,9 +74,8 @@ mod tests {
 
         let mut runtime = CartridgeRuntime::new(TEST_MANIFEST.as_bytes());
         runtime.register_op_type::<JsonEchoOp>(CAP_IDENTITY);
-        runtime.register_op_type::<TransformOp>(
-            "cap:in=\"media:void\";transform;out=\"media:void\"",
-        );
+        runtime
+            .register_op_type::<TransformOp>("cap:in=\"media:void\";transform;out=\"media:void\"");
 
         // Exact match
         assert!(runtime.find_handler(CAP_IDENTITY).is_some());

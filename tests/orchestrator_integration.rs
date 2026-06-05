@@ -13,7 +13,7 @@ use capdag::cap::definition::{ArgSource, CapArg, CapOutput};
 use capdag::orchestrator::{
     execute_dag, parse_machine_to_cap_dag, NodeData, ParseOrchestrationError,
 };
-use capdag::{Cap, FabricRegistry, CapUrn, PipelineLogFn, StreamMeta};
+use capdag::{Cap, CapUrn, FabricRegistry, PipelineLogFn, StreamMeta};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -243,7 +243,10 @@ fn testcartridge_bin() -> PathBuf {
     let bin_path = target_dir.join("release").join("testcartridge");
 
     let needs_build = if !bin_path.exists() {
-        eprintln!("[TestcartridgeTest] Binary not found at {:?}, will build", bin_path);
+        eprintln!(
+            "[TestcartridgeTest] Binary not found at {:?}, will build",
+            bin_path
+        );
         true
     } else {
         testcartridge_needs_rebuild(&bin_path)

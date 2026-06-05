@@ -24,12 +24,12 @@ use crate::urn::media_urn::{
     MEDIA_JSON_SCHEMA,
     // Format conversion types (JSON, YAML, CSV variants)
     MEDIA_JSON_VALUE,
-    MEDIA_MEDIA_DEFINITION,
-    MEDIA_MEDIA_URN,
     MEDIA_LIST_OUTPUT,
     MEDIA_LOG,
     // Text format types
     MEDIA_MD,
+    MEDIA_MEDIA_DEFINITION,
+    MEDIA_MEDIA_URN,
     // CAPDAG output types
     MEDIA_MODEL_DIM,
     MEDIA_MODEL_REPO,
@@ -37,9 +37,9 @@ use crate::urn::media_urn::{
     MEDIA_MODEL_SPEC,
     MEDIA_OBJECT,
     MEDIA_PATH_OUTPUT,
-    MEDIA_PLAIN_TEXT,
     // Document types
     MEDIA_PDF,
+    MEDIA_PLAIN_TEXT,
     // Semantic media types
     MEDIA_PNG,
     MEDIA_RST,
@@ -57,7 +57,7 @@ use crate::urn::media_urn::{
     MEDIA_YAML_RECORD,
     MEDIA_YAML_VALUE,
 };
-use crate::{Cap, CapOutput, FabricRegistry, CapUrn, CapUrnBuilder, FabricRegistryError};
+use crate::{Cap, CapOutput, CapUrn, CapUrnBuilder, FabricRegistry, FabricRegistryError};
 use std::sync::Arc;
 
 // =============================================================================
@@ -103,8 +103,12 @@ pub fn lookup_cap_fabric_urn() -> CapUrn {
 
 /// Parse and return the canonical `cap:lookup-media-def;fabric` `CapUrn`.
 pub fn lookup_media_def_fabric_urn() -> CapUrn {
-    CapUrn::from_string(CAP_LOOKUP_MEDIA_DEF_FABRIC)
-        .unwrap_or_else(|e| panic!("BUG: CAP_LOOKUP_MEDIA_DEF_FABRIC constant is invalid: {}", e))
+    CapUrn::from_string(CAP_LOOKUP_MEDIA_DEF_FABRIC).unwrap_or_else(|e| {
+        panic!(
+            "BUG: CAP_LOOKUP_MEDIA_DEF_FABRIC constant is invalid: {}",
+            e
+        )
+    })
 }
 
 /// Construct the canonical `cap:lookup-cap;fabric` `Cap` definition.
@@ -122,17 +126,18 @@ pub fn lookup_cap_fabric_cap() -> Cap {
          fetching from the public fabric registry."
             .to_string(),
     );
-    cap.args.push(crate::cap::definition::CapArg::with_description(
-        MEDIA_CAP_URN,
-        true,
-        vec![
-            crate::cap::definition::ArgSource::Stdin {
-                stdin: MEDIA_CAP_URN.to_string(),
-            },
-            crate::cap::definition::ArgSource::Position { position: 0 },
-        ],
-        "Canonical cap URN to look up.".to_string(),
-    ));
+    cap.args
+        .push(crate::cap::definition::CapArg::with_description(
+            MEDIA_CAP_URN,
+            true,
+            vec![
+                crate::cap::definition::ArgSource::Stdin {
+                    stdin: MEDIA_CAP_URN.to_string(),
+                },
+                crate::cap::definition::ArgSource::Position { position: 0 },
+            ],
+            "Canonical cap URN to look up.".to_string(),
+        ));
     cap.set_output(crate::cap::definition::CapOutput::new(
         MEDIA_CAP_DEFINITION,
         "Full flattened cap definition as published in the registry.",
@@ -153,17 +158,18 @@ pub fn lookup_media_def_fabric_cap() -> Cap {
          definition by fetching from the public fabric registry."
             .to_string(),
     );
-    cap.args.push(crate::cap::definition::CapArg::with_description(
-        MEDIA_MEDIA_URN,
-        true,
-        vec![
-            crate::cap::definition::ArgSource::Stdin {
-                stdin: MEDIA_MEDIA_URN.to_string(),
-            },
-            crate::cap::definition::ArgSource::Position { position: 0 },
-        ],
-        "Canonical media URN to look up.".to_string(),
-    ));
+    cap.args
+        .push(crate::cap::definition::CapArg::with_description(
+            MEDIA_MEDIA_URN,
+            true,
+            vec![
+                crate::cap::definition::ArgSource::Stdin {
+                    stdin: MEDIA_MEDIA_URN.to_string(),
+                },
+                crate::cap::definition::ArgSource::Position { position: 0 },
+            ],
+            "Canonical media URN to look up.".to_string(),
+        ));
     cap.set_output(crate::cap::definition::CapOutput::new(
         MEDIA_MEDIA_DEFINITION,
         "Full media definition as published in the registry.",
@@ -811,7 +817,9 @@ pub fn all_format_conversion_paths() -> Vec<FormatConversionPath> {
 // -----------------------------------------------------------------------------
 
 /// Get generic text-generation cap from registry.
-pub async fn llm_generate_text_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
+pub async fn llm_generate_text_cap(
+    registry: Arc<FabricRegistry>,
+) -> Result<Cap, FabricRegistryError> {
     let urn = llm_generate_text_urn();
     registry.get_cap(&urn.to_string()).await
 }
@@ -821,13 +829,17 @@ pub async fn llm_generate_text_cap(registry: Arc<FabricRegistry>) -> Result<Cap,
 // -----------------------------------------------------------------------------
 
 /// Get embeddings-dimensions cap from registry
-pub async fn embeddings_dimensions_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
+pub async fn embeddings_dimensions_cap(
+    registry: Arc<FabricRegistry>,
+) -> Result<Cap, FabricRegistryError> {
     let urn = embeddings_dimensions_urn();
     registry.get_cap(&urn.to_string()).await
 }
 
 /// Get text embeddings-generation cap from registry
-pub async fn embeddings_generation_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
+pub async fn embeddings_generation_cap(
+    registry: Arc<FabricRegistry>,
+) -> Result<Cap, FabricRegistryError> {
     let urn = embeddings_generation_urn();
     registry.get_cap(&urn.to_string()).await
 }
@@ -869,7 +881,9 @@ pub async fn model_contents_cap(registry: Arc<FabricRegistry>) -> Result<Cap, Fa
 }
 
 /// Get model availability cap from registry
-pub async fn model_availability_cap(registry: Arc<FabricRegistry>) -> Result<Cap, FabricRegistryError> {
+pub async fn model_availability_cap(
+    registry: Arc<FabricRegistry>,
+) -> Result<Cap, FabricRegistryError> {
     let urn = model_availability_urn();
     registry.get_cap(&urn.to_string()).await
 }
@@ -993,9 +1007,7 @@ pub async fn all_format_conversion_caps(
 mod tests {
     use super::*;
     use crate::standard::media::MEDIA_STRING;
-    use crate::urn::media_urn::{
-        MEDIA_AVAILABILITY_OUTPUT, MEDIA_MODEL_SPEC, MEDIA_PATH_OUTPUT,
-    };
+    use crate::urn::media_urn::{MEDIA_AVAILABILITY_OUTPUT, MEDIA_MODEL_SPEC, MEDIA_PATH_OUTPUT};
 
     // TEST307: Test model_availability_urn builds valid cap URN with correct op and media defs
     #[test]
@@ -1304,7 +1316,10 @@ mod tests {
         assert!(cap.args[0].required, "The input arg must be required");
 
         // Must have output
-        let output = cap.output.as_ref().expect("Adapter selection cap must have output");
+        let output = cap
+            .output
+            .as_ref()
+            .expect("Adapter selection cap must have output");
         assert_eq!(
             output.media_urn,
             crate::urn::media_urn::MEDIA_ADAPTER_SELECTION

@@ -140,8 +140,14 @@ impl fmt::Display for ValidationError {
                 actual_value,
                 schema_errors,
             } => {
-                write!(f, "Cap '{}' output expects media_def '{}' but validation failed for value {}: {}",
-                       cap_urn, expected_media_def, actual_value, schema_errors.join(", "))
+                write!(
+                    f,
+                    "Cap '{}' output expects media_def '{}' but validation failed for value {}: {}",
+                    cap_urn,
+                    expected_media_def,
+                    actual_value,
+                    schema_errors.join(", ")
+                )
             }
             ValidationError::OutputMediaDefValidationFailed {
                 cap_urn,
@@ -381,16 +387,13 @@ impl InputValidator {
         // Resolve the spec ID from the argument definition. Caps no
         // longer carry inline media defs; the registry is the only source.
         let _ = cap;
-        let resolved = resolve_media_urn(
-            &arg_def.media_urn,
-            &self.fabric_registry,
-        )
-        .await
-        .map_err(|e| ValidationError::InvalidMediaDef {
-            cap_urn: cap_urn.clone(),
-            field_name: arg_def.media_urn.clone(),
-            error: e.to_string(),
-        })?;
+        let resolved = resolve_media_urn(&arg_def.media_urn, &self.fabric_registry)
+            .await
+            .map_err(|e| ValidationError::InvalidMediaDef {
+                cap_urn: cap_urn.clone(),
+                field_name: arg_def.media_urn.clone(),
+                error: e.to_string(),
+            })?;
 
         // For binary media types, we expect a base64-encoded string - no profile validation
         if resolved.is_binary() {
@@ -651,16 +654,13 @@ impl OutputValidator {
         // Resolve the spec ID from the output definition. Caps no longer
         // carry inline media defs; the registry is the only source.
         let _ = cap;
-        let resolved = resolve_media_urn(
-            &output_def.media_urn,
-            &self.fabric_registry,
-        )
-        .await
-        .map_err(|e| ValidationError::InvalidMediaDef {
-            cap_urn: cap_urn.clone(),
-            field_name: "output".to_string(),
-            error: e.to_string(),
-        })?;
+        let resolved = resolve_media_urn(&output_def.media_urn, &self.fabric_registry)
+            .await
+            .map_err(|e| ValidationError::InvalidMediaDef {
+                cap_urn: cap_urn.clone(),
+                field_name: "output".to_string(),
+                error: e.to_string(),
+            })?;
 
         // For binary media types, we expect a base64-encoded string - no profile validation
         if resolved.is_binary() {
@@ -1847,10 +1847,7 @@ pub async fn validate_media_urn_references(
 
     // Validate each media URN using the single resolution path
     for (location, media_urn) in urns_to_check {
-        if let Err(_) =
-            crate::media::spec::resolve_media_urn(&media_urn, registry)
-                .await
-        {
+        if let Err(_) = crate::media::spec::resolve_media_urn(&media_urn, registry).await {
             return Err(ValidationError::UnresolvableMediaUrn {
                 cap_urn: cap_urn.clone(),
                 media_urn,

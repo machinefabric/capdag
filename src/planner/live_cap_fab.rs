@@ -468,13 +468,8 @@ impl LiveCapFab {
             let resolved_cap = match matching_cap_owned {
                 Some(cap) => Some(cap),
                 None => {
-                    // The registry's snapshot didn't contain this cap. Ask
-                    // `get_cached_cap` for it — that triggers the registry's
-                    // 500 ms sync-fetch path (and enqueues for background
-                    // fetch on miss), so a cap published in the catalogue
-                    // but not yet in cache gets pulled in on demand instead
-                    // of being silently dropped from the graph.
-                    registry.get_cached_cap(&cap_urn_str)
+                    registry.request_cap_cache_hydration(cap_urn_str);
+                    registry.get_cached_cap_in_memory(cap_urn_str)
                 }
             };
 
@@ -489,12 +484,11 @@ impl LiveCapFab {
                     // narrow window where a cartridge advertises a
                     // cap before the registry has finished hydrating
                     // its in-memory cache from disk + R2. The cap
-                    // is dropped from THIS LiveCapFab pass but the
+                    // is dropped from THIS LiveCapFab pass, but the
                     // registry's background fetcher will pick it up
-                    // and the next refresh will land it. Keeping it
-                    // at warn keeps the diagnostic visible without
-                    // dirtying the engine's error stream during the
-                    // expected startup race.
+                    // and cache-revision subscribers will rebuild the
+                    // graph when it lands. This path must remain
+                    // instantaneous for the Finder transmute menu.
                     tracing::warn!(
                         cap_urn = %cap_urn,
                         cap_urn_raw = cap_urn_str,
@@ -1794,10 +1788,9 @@ mod tests {
         let media_thumbnail = MediaUrn::from_string("media:thumbnail").unwrap();
         let media_textable = MediaUrn::from_string("media:textable").unwrap();
         assert!(
-            png_targets.iter().any(|t| t
-                .media_def
-                .is_equivalent(&media_thumbnail)
-                .unwrap_or(false)),
+            png_targets
+                .iter()
+                .any(|t| t.media_def.is_equivalent(&media_thumbnail).unwrap_or(false)),
             "PNG should reach thumbnail"
         );
         assert!(
@@ -1817,10 +1810,9 @@ mod tests {
             "PDF should reach textable"
         );
         assert!(
-            !pdf_targets.iter().any(|t| t
-                .media_def
-                .is_equivalent(&media_thumbnail)
-                .unwrap_or(false)),
+            !pdf_targets
+                .iter()
+                .any(|t| t.media_def.is_equivalent(&media_thumbnail).unwrap_or(false)),
             "PDF should NOT reach thumbnail"
         );
     }
@@ -1831,7 +1823,12 @@ mod tests {
     fn test781_find_paths_respects_type_chain() {
         let mut graph = LiveCapFab::new();
 
-        let resize_png = make_test_cap("media:image;png", "media:resized-png", "resize", "Resize PNG");
+        let resize_png = make_test_cap(
+            "media:image;png",
+            "media:resized-png",
+            "resize",
+            "Resize PNG",
+        );
         let to_thumb = make_test_cap(
             "media:resized-png",
             "media:thumbnail",
@@ -2468,13 +2465,16 @@ mod tests {
         let targets = graph.get_reachable_targets(&source, false, 5);
 
         // Source should be reachable (via textable→integer→textable)
-        let has_self = targets.iter().any(|t| {
-            t.media_def.is_equivalent(&source).unwrap_or(false)
-        });
+        let has_self = targets
+            .iter()
+            .any(|t| t.media_def.is_equivalent(&source).unwrap_or(false));
         assert!(
             has_self,
             "BFS must find source as reachable target in round-trip graph. Found: {:?}",
-            targets.iter().map(|t| t.media_def.to_string()).collect::<Vec<_>>()
+            targets
+                .iter()
+                .map(|t| t.media_def.to_string())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -2577,10 +2577,13 @@ mod tests {
 
         // BFS should find source as reachable (via A→B→C→A)
         let bfs_targets = graph.get_reachable_targets(&source, false, 5);
-        let bfs_has_self = bfs_targets.iter().any(|t| {
-            t.media_def.is_equivalent(&source).unwrap_or(false)
-        });
-        assert!(bfs_has_self, "BFS must find A reachable from A in cyclic graph");
+        let bfs_has_self = bfs_targets
+            .iter()
+            .any(|t| t.media_def.is_equivalent(&source).unwrap_or(false));
+        assert!(
+            bfs_has_self,
+            "BFS must find A reachable from A in cyclic graph"
+        );
 
         // IDDFS must also find paths
         let target = MediaUrn::from_string("media:a").unwrap();

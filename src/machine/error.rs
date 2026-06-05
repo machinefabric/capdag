@@ -156,7 +156,9 @@ mod tests {
     fn test1134_all_abstraction_error_variants_are_machine_abstraction_error() {
         let variants: Vec<MachineAbstractionError> = vec![
             MachineAbstractionError::NoCapabilitySteps,
-            MachineAbstractionError::UnknownCap { cap_urn: "cap:x".to_string() },
+            MachineAbstractionError::UnknownCap {
+                cap_urn: "cap:x".to_string(),
+            },
             MachineAbstractionError::UnmatchedSourceInCapArgs {
                 strand_index: 0,
                 cap_urn: "cap:x".to_string(),

@@ -1022,7 +1022,9 @@ impl OutputStream {
                         break;
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        let n = tick_counter_for_ticker.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        let n = tick_counter_for_ticker
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                            + 1;
                         let mut frame = Frame::progress(ticker_rid.clone(), progress, &ticker_msg);
                         frame.routing_id = ticker_xid.clone();
                         if ticker_sender.send(&frame).is_err() {
@@ -1755,10 +1757,7 @@ fn extract_effective_payload(
         };
 
         let arg_urn = MediaUrn::from_string(&urn_str).map_err(|e| {
-            RuntimeError::Handler(format!(
-                "Invalid argument media URN '{}': {}",
-                urn_str, e
-            ))
+            RuntimeError::Handler(format!("Invalid argument media URN '{}': {}", urn_str, e))
         })?;
 
         if !file_path_base
@@ -1809,28 +1808,16 @@ fn extract_effective_payload(
                     e
                 ))
             })?;
-            replace_arg_value(
-                arg_map,
-                ciborium::Value::Bytes(bytes),
-                stdin_target.clone(),
-            );
+            replace_arg_value(arg_map, ciborium::Value::Bytes(bytes), stdin_target.clone());
         } else {
             let mut items: Vec<ciborium::Value> = Vec::with_capacity(paths.len());
             for p in &paths {
                 let bytes = std::fs::read(p).map_err(|e| {
-                    RuntimeError::Handler(format!(
-                        "Failed to read file '{}': {}",
-                        p.display(),
-                        e
-                    ))
+                    RuntimeError::Handler(format!("Failed to read file '{}': {}", p.display(), e))
                 })?;
                 items.push(ciborium::Value::Bytes(bytes));
             }
-            replace_arg_value(
-                arg_map,
-                ciborium::Value::Array(items),
-                stdin_target.clone(),
-            );
+            replace_arg_value(arg_map, ciborium::Value::Array(items), stdin_target.clone());
         }
     }
 
@@ -1928,9 +1915,8 @@ fn build_cli_foreach_iterations(
     raw_payload: &[u8],
     cap: &Cap,
 ) -> Result<Vec<Vec<u8>>, RuntimeError> {
-    let file_path_base = MediaUrn::from_string("media:file-path").map_err(|e| {
-        RuntimeError::Handler(format!("Invalid file-path base pattern: {}", e))
-    })?;
+    let file_path_base = MediaUrn::from_string("media:file-path")
+        .map_err(|e| RuntimeError::Handler(format!("Invalid file-path base pattern: {}", e)))?;
 
     let cbor_value: ciborium::Value = ciborium::from_reader(raw_payload)
         .map_err(|e| RuntimeError::Deserialize(format!("Failed to parse CBOR arguments: {}", e)))?;
@@ -2074,7 +2060,9 @@ fn expand_file_path_value(
             for item in arr {
                 match item {
                     ciborium::Value::Text(s) => paths.push(s.clone()),
-                    ciborium::Value::Bytes(b) => paths.push(String::from_utf8_lossy(b).into_owned()),
+                    ciborium::Value::Bytes(b) => {
+                        paths.push(String::from_utf8_lossy(b).into_owned())
+                    }
                     other => {
                         return Err(RuntimeError::Handler(format!(
                             "File-path arg '{}' array contained an unsupported CBOR item: {:?}",
@@ -2429,7 +2417,8 @@ fn demux_multi_stream(
                             let mut resolved: Vec<std::path::PathBuf> = Vec::new();
                             let mut expansion_error: Option<String> = None;
                             for raw in &candidates {
-                                let is_glob = raw.contains('*') || raw.contains('?') || raw.contains('[');
+                                let is_glob =
+                                    raw.contains('*') || raw.contains('?') || raw.contains('[');
                                 if is_glob {
                                     match glob::glob(raw) {
                                         Ok(paths) => {
@@ -2439,25 +2428,35 @@ fn demux_multi_stream(
                                                     Ok(p) if p.is_file() => resolved.push(p),
                                                     Ok(_) => {}
                                                     Err(e) => {
-                                                        expansion_error = Some(format!("Glob error: {}", e));
+                                                        expansion_error =
+                                                            Some(format!("Glob error: {}", e));
                                                         break;
                                                     }
                                                 }
                                             }
-                                            if expansion_error.is_none() && resolved.len() == before {
-                                                expansion_error = Some(format!("No files matched glob pattern '{}'", raw));
+                                            if expansion_error.is_none() && resolved.len() == before
+                                            {
+                                                expansion_error = Some(format!(
+                                                    "No files matched glob pattern '{}'",
+                                                    raw
+                                                ));
                                             }
                                         }
                                         Err(e) => {
-                                            expansion_error = Some(format!("Invalid glob pattern '{}': {}", raw, e));
+                                            expansion_error = Some(format!(
+                                                "Invalid glob pattern '{}': {}",
+                                                raw, e
+                                            ));
                                         }
                                     }
                                 } else {
                                     let p = std::path::PathBuf::from(raw);
                                     if !p.exists() {
-                                        expansion_error = Some(format!("File not found: '{}'", raw));
+                                        expansion_error =
+                                            Some(format!("File not found: '{}'", raw));
                                     } else if !p.is_file() {
-                                        expansion_error = Some(format!("Path is not a regular file: '{}'", raw));
+                                        expansion_error =
+                                            Some(format!("Path is not a regular file: '{}'", raw));
                                     } else {
                                         resolved.push(p);
                                     }
@@ -2486,7 +2485,10 @@ fn demux_multi_stream(
                             for path in &resolved {
                                 match std::fs::read(path) {
                                     Ok(bytes) => {
-                                        if chunk_tx.send(Ok((ciborium::Value::Bytes(bytes), None))).is_err() {
+                                        if chunk_tx
+                                            .send(Ok((ciborium::Value::Bytes(bytes), None)))
+                                            .is_err()
+                                        {
                                             send_failed = true;
                                             break;
                                         }
@@ -3196,10 +3198,7 @@ impl CartridgeRuntime {
                         "value" => {
                             let mut cbor_bytes = Vec::new();
                             ciborium::into_writer(&v, &mut cbor_bytes).map_err(|e| {
-                                RuntimeError::Serialize(format!(
-                                    "Failed to encode value: {}",
-                                    e
-                                ))
+                                RuntimeError::Serialize(format!("Failed to encode value: {}", e))
                             })?;
                             value_bytes = Some(cbor_bytes);
                         }
@@ -3212,15 +3211,10 @@ impl CartridgeRuntime {
                 continue;
             };
             let stream_id = uuid::Uuid::new_v4().to_string();
-            let start_frame = Frame::stream_start(
-                request_id.clone(),
-                stream_id.clone(),
-                urn.clone(),
-                None,
-            );
-            tx.send(start_frame).map_err(|_| {
-                RuntimeError::Handler("Failed to send STREAM_START".to_string())
-            })?;
+            let start_frame =
+                Frame::stream_start(request_id.clone(), stream_id.clone(), urn.clone(), None);
+            tx.send(start_frame)
+                .map_err(|_| RuntimeError::Handler("Failed to send STREAM_START".to_string()))?;
 
             let chunk_count = if bytes.is_empty() {
                 let checksum = Frame::compute_checksum(&[]);
@@ -3232,9 +3226,8 @@ impl CartridgeRuntime {
                     0,
                     checksum,
                 );
-                tx.send(chunk_frame).map_err(|_| {
-                    RuntimeError::Handler("Failed to send CHUNK".to_string())
-                })?;
+                tx.send(chunk_frame)
+                    .map_err(|_| RuntimeError::Handler("Failed to send CHUNK".to_string()))?;
                 1
             } else {
                 let mut offset = 0;
@@ -3251,20 +3244,17 @@ impl CartridgeRuntime {
                         chunk_index,
                         checksum,
                     );
-                    tx.send(chunk_frame).map_err(|_| {
-                        RuntimeError::Handler("Failed to send CHUNK".to_string())
-                    })?;
+                    tx.send(chunk_frame)
+                        .map_err(|_| RuntimeError::Handler("Failed to send CHUNK".to_string()))?;
                     offset += chunk_size;
                     chunk_index += 1;
                 }
                 chunk_index
             };
 
-            let end_frame =
-                Frame::stream_end(request_id.clone(), stream_id.clone(), chunk_count);
-            tx.send(end_frame).map_err(|_| {
-                RuntimeError::Handler("Failed to send STREAM_END".to_string())
-            })?;
+            let end_frame = Frame::stream_end(request_id.clone(), stream_id.clone(), chunk_count);
+            tx.send(end_frame)
+                .map_err(|_| RuntimeError::Handler("Failed to send STREAM_END".to_string()))?;
         }
 
         let end_frame = Frame::end(request_id.clone(), None);
@@ -3295,7 +3285,10 @@ impl CartridgeRuntime {
         manifest: &'a CapManifest,
         command_name: &str,
     ) -> Option<&'a Cap> {
-        manifest.all_caps().into_iter().find(|cap| cap.command == command_name)
+        manifest
+            .all_caps()
+            .into_iter()
+            .find(|cap| cap.command == command_name)
     }
 
     /// Build payload from streaming stdin (CLI mode with piped binary).
@@ -3551,11 +3544,17 @@ impl CartridgeRuntime {
                 serde_json::Value::String(s) => s.as_bytes().to_vec(),
                 serde_json::Value::Number(n) => n.to_string().into_bytes(),
                 serde_json::Value::Bool(b) => {
-                    if *b { b"true".to_vec() } else { b"false".to_vec() }
+                    if *b {
+                        b"true".to_vec()
+                    } else {
+                        b"false".to_vec()
+                    }
                 }
                 serde_json::Value::Null => Vec::new(),
-                serde_json::Value::Array(_) | serde_json::Value::Object(_) => serde_json::to_vec(default)
-                    .map_err(|e| RuntimeError::Serialize(e.to_string()))?,
+                serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+                    serde_json::to_vec(default)
+                        .map_err(|e| RuntimeError::Serialize(e.to_string()))?
+                }
             };
             return Ok((Some(bytes), false));
         }
@@ -3762,9 +3761,10 @@ impl CartridgeRuntime {
         if handshake_fd < 0 {
             return Err(RuntimeError::Io(std::io::Error::last_os_error()));
         }
-        let handshake_stdout = tokio::net::unix::pipe::Sender::from_owned_fd(
-            unsafe { OwnedFd::from_raw_fd(handshake_fd) }
-        ).map_err(RuntimeError::Io)?;
+        let handshake_stdout = tokio::net::unix::pipe::Sender::from_owned_fd(unsafe {
+            OwnedFd::from_raw_fd(handshake_fd)
+        })
+        .map_err(RuntimeError::Io)?;
 
         let reader = BufReader::new(stdin);
 
@@ -3811,16 +3811,17 @@ impl CartridgeRuntime {
         let fwd_tx = output_tx_sync.clone();
         tokio::spawn(async move {
             while let Some(frame) = output_rx.recv().await {
-                if fwd_tx.send(frame).is_err() { break; }
+                if fwd_tx.send(frame).is_err() {
+                    break;
+                }
             }
         });
 
         // Spawn writer thread on a plain OS thread — immune to tokio/Metal/GCD.
         let writer_limits = negotiated_limits.clone();
         let writer_handle = std::thread::spawn(move || {
-            let mut writer = std::io::BufWriter::new(unsafe {
-                std::fs::File::from_raw_fd(safe_fd)
-            });
+            let mut writer =
+                std::io::BufWriter::new(unsafe { std::fs::File::from_raw_fd(safe_fd) });
             let mut seq_assigner = SeqAssigner::new();
             while let Ok(mut frame) = output_rx_sync.recv() {
                 seq_assigner.assign(&mut frame);
@@ -4266,7 +4267,10 @@ impl CartridgeRuntime {
         let _ = reader_handle.await;
         drop(output_tx);
 
-        let _ = tokio::task::spawn_blocking(move || { let _ = writer_handle.join(); }).await;
+        let _ = tokio::task::spawn_blocking(move || {
+            let _ = writer_handle.join();
+        })
+        .await;
 
         for (_, handle) in active_handlers {
             let _ = handle.await;
@@ -4766,8 +4770,7 @@ mod tests {
     ) -> CapManifest {
         // Always append CAP_IDENTITY at the end - cartridges must declare it
         // (Appending instead of prepending to avoid breaking tests that reference caps[0])
-        let identity_urn =
-            crate::CapUrn::from_string(crate::standard::caps::CAP_IDENTITY).unwrap();
+        let identity_urn = crate::CapUrn::from_string(crate::standard::caps::CAP_IDENTITY).unwrap();
         let identity_cap = Cap::new(identity_urn, "Identity".to_string(), "identity".to_string());
         caps.push(identity_cap);
 
@@ -5031,7 +5034,11 @@ mod tests {
             "TEST_MANIFEST must parse: cap:in=media:;out=media:;test is valid (in/out default to media:)"
         );
         let manifest = runtime_basic.manifest.unwrap();
-        assert_eq!(manifest.all_caps().len(), 2, "Two caps declared: identity + test");
+        assert_eq!(
+            manifest.all_caps().len(),
+            2,
+            "Two caps declared: identity + test"
+        );
 
         // VALID_MANIFEST has proper in/out specs
         let runtime_valid = CartridgeRuntime::with_manifest_json(VALID_MANIFEST);
@@ -5258,13 +5265,9 @@ mod tests {
     async fn test270_multiple_handlers() {
         let mut runtime = CartridgeRuntime::new(TEST_MANIFEST.as_bytes());
 
-        runtime.register_op("cap:alpha", || {
-            Box::new(EchoTagOp { tag: b"a".to_vec() })
-        });
+        runtime.register_op("cap:alpha", || Box::new(EchoTagOp { tag: b"a".to_vec() }));
         runtime.register_op("cap:beta", || Box::new(EchoTagOp { tag: b"b".to_vec() }));
-        runtime.register_op("cap:gamma", || {
-            Box::new(EchoTagOp { tag: b"g".to_vec() })
-        });
+        runtime.register_op("cap:gamma", || Box::new(EchoTagOp { tag: b"g".to_vec() }));
 
         let f_alpha = runtime.find_handler("cap:alpha").unwrap();
         let input = test_input_package(&[("media:", b"")]);
@@ -6920,9 +6923,7 @@ mod tests {
         // CLI mode: pass file path as positional argument
         let cli_args = vec![test_file.to_string_lossy().to_string()];
         let cap = runtime.manifest.as_ref().unwrap().all_caps()[0].clone();
-        let payload = runtime
-            .build_payload_from_cli(&cap, &cli_args)
-            .unwrap();
+        let payload = runtime.build_payload_from_cli(&cap, &cli_args).unwrap();
 
         // Verify payload is CBOR array with file-path argument
         let cbor_val: ciborium::Value = ciborium::from_reader(&payload[..]).unwrap();

@@ -563,9 +563,7 @@ pub async fn resolve_media_urn(
 ///
 /// # Errors
 /// Returns `MediaDefError::DuplicateMediaUrn` if any URN appears more than once.
-pub fn validate_media_defs_no_duplicates(
-    media_defs: &[MediaDef],
-) -> Result<(), MediaDefError> {
+pub fn validate_media_defs_no_duplicates(media_defs: &[MediaDef]) -> Result<(), MediaDefError> {
     let mut seen = std::collections::HashSet::new();
     for spec in media_defs {
         if !seen.insert(&spec.urn) {
@@ -699,11 +697,8 @@ mod tests {
     async fn test093_resolve_unresolvable_fails_hard() {
         let registry = test_registry().await;
         registry.set_offline(true);
-        let result = resolve_media_urn(
-            "media:completely-unknown-urn-not-in-registry",
-            &registry,
-        )
-        .await;
+        let result =
+            resolve_media_urn("media:completely-unknown-urn-not-in-registry", &registry).await;
         assert!(result.is_err(), "unknown URN must produce an error");
         if let Err(MediaDefError::UnresolvableMediaUrn(msg)) = result {
             assert!(
@@ -973,12 +968,9 @@ mod tests {
             extensions: Vec::new(),
         });
 
-        let resolved = resolve_media_urn(
-            "media:bounded-number;numeric",
-            &registry,
-        )
-        .await
-        .unwrap();
+        let resolved = resolve_media_urn("media:bounded-number;numeric", &registry)
+            .await
+            .unwrap();
 
         // Verify validation
         assert!(resolved.validation.is_some());

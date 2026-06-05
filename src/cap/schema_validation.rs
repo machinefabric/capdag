@@ -77,8 +77,7 @@ impl SchemaValidator {
         // Validate positional arguments
         for (arg_def, position) in positional_args {
             if let Some(arg_value) = arguments.get(position) {
-                self.validate_argument(arg_def, arg_value, registry)
-                    .await?;
+                self.validate_argument(arg_def, arg_value, registry).await?;
             }
         }
 
@@ -115,13 +114,12 @@ impl SchemaValidator {
         value: &JsonValue,
         registry: &FabricRegistry,
     ) -> Result<(), SchemaValidationError> {
-        let resolved =
-            resolve_media_urn(&output_def.media_urn, registry)
-                .await
-                .map_err(|e| SchemaValidationError::MediaUrnNotResolved {
-                    media_urn: output_def.media_urn.clone(),
-                    error: e.to_string(),
-                })?;
+        let resolved = resolve_media_urn(&output_def.media_urn, registry)
+            .await
+            .map_err(|e| SchemaValidationError::MediaUrnNotResolved {
+                media_urn: output_def.media_urn.clone(),
+                error: e.to_string(),
+            })?;
 
         // If no schema in the resolved spec, skip validation
         let schema = match resolved.schema {
@@ -390,9 +388,7 @@ mod tests {
         );
 
         let value = json!("test");
-        let result = validator
-            .validate_argument(&arg, &value, &registry)
-            .await;
+        let result = validator.validate_argument(&arg, &value, &registry).await;
         assert!(result.is_err());
 
         if let Err(SchemaValidationError::MediaUrnNotResolved { media_urn, .. }) = result {

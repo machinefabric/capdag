@@ -309,9 +309,7 @@ pub async fn detect_file_confirmed(
     let mut all_returned_urns: Vec<(String, String)> = Vec::new(); // (urn_str, cartridge_id)
 
     for (cartridge_id, _adapter_urn) in &adapters {
-        let result = invoker
-            .invoke_adapter_selection(cartridge_id, path)
-            .await?;
+        let result = invoker.invoke_adapter_selection(cartridge_id, path).await?;
 
         if let Some(media_urns) = result {
             for urn_str in media_urns {
@@ -338,15 +336,14 @@ pub async fn detect_file_confirmed(
     let mut parsed_urns: Vec<(MediaUrn, String, String)> = Vec::new(); // (urn, urn_str, cartridge_id)
 
     for (urn_str, cartridge_id) in &all_returned_urns {
-        let urn = MediaUrn::from_string(urn_str).map_err(|e| {
-            InputResolverError::InspectionFailed {
+        let urn =
+            MediaUrn::from_string(urn_str).map_err(|e| InputResolverError::InspectionFailed {
                 path: path.to_path_buf(),
                 reason: format!(
                     "Cartridge '{}' returned invalid media URN '{}': {}",
                     cartridge_id, urn_str, e
                 ),
-            }
-        })?;
+            })?;
         parsed_urns.push((urn, urn_str.clone(), cartridge_id.clone()));
     }
 
@@ -369,8 +366,7 @@ pub async fn detect_file_confirmed(
         let mut real_ties: Vec<&(MediaUrn, String, String)> = Vec::new();
         for tie in &ties {
             let dominated = ties.iter().any(|other| {
-                std::ptr::eq(*tie, *other) == false
-                    && tie.0.conforms_to(&other.0).unwrap_or(false)
+                std::ptr::eq(*tie, *other) == false && tie.0.conforms_to(&other.0).unwrap_or(false)
             });
             if !dominated {
                 real_ties.push(tie);
@@ -573,7 +569,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.files.len(), 2);
-        assert!(result.is_sequence, "multiple files must be is_sequence=true");
+        assert!(
+            result.is_sequence,
+            "multiple files must be is_sequence=true"
+        );
     }
 
     // TEST1093: 1 dir with 1 file → is_sequence=false
@@ -586,7 +585,10 @@ mod tests {
         let result = resolve_paths(&[dir.path().to_str().unwrap()], &registry).unwrap();
 
         assert_eq!(result.files.len(), 1);
-        assert!(!result.is_sequence, "directory with single file must be is_sequence=false");
+        assert!(
+            !result.is_sequence,
+            "directory with single file must be is_sequence=false"
+        );
     }
 
     // TEST1094: 1 dir with 3 files → is_sequence=true
@@ -601,7 +603,10 @@ mod tests {
         let result = resolve_paths(&[dir.path().to_str().unwrap()], &registry).unwrap();
 
         assert_eq!(result.files.len(), 3);
-        assert!(result.is_sequence, "directory with multiple files must be is_sequence=true");
+        assert!(
+            result.is_sequence,
+            "directory with multiple files must be is_sequence=true"
+        );
     }
 
     // TEST977: OS files excluded in resolve_paths
@@ -678,7 +683,9 @@ mod tests {
             "media:textable",
         );
         assert!(
-            !survivors_prose.iter().any(|u| u == "media:model-spec;textable"),
+            !survivors_prose
+                .iter()
+                .any(|u| u == "media:model-spec;textable"),
             "prose must NOT survive, got: {:?}",
             survivors_prose
         );
@@ -710,16 +717,28 @@ mod tests {
     #[test]
     fn test1288_structure_from_marker_tags() {
         let scalar_opaque = MediaUrn::from_string("media:pdf").unwrap();
-        assert_eq!(structure_from_marker_tags(&scalar_opaque), ContentStructure::ScalarOpaque);
+        assert_eq!(
+            structure_from_marker_tags(&scalar_opaque),
+            ContentStructure::ScalarOpaque
+        );
 
         let scalar_record = MediaUrn::from_string("media:json;record;textable").unwrap();
-        assert_eq!(structure_from_marker_tags(&scalar_record), ContentStructure::ScalarRecord);
+        assert_eq!(
+            structure_from_marker_tags(&scalar_record),
+            ContentStructure::ScalarRecord
+        );
 
         let list_opaque = MediaUrn::from_string("media:list;textable").unwrap();
-        assert_eq!(structure_from_marker_tags(&list_opaque), ContentStructure::ListOpaque);
+        assert_eq!(
+            structure_from_marker_tags(&list_opaque),
+            ContentStructure::ListOpaque
+        );
 
         let list_record = MediaUrn::from_string("media:json;list;record;textable").unwrap();
-        assert_eq!(structure_from_marker_tags(&list_record), ContentStructure::ListRecord);
+        assert_eq!(
+            structure_from_marker_tags(&list_record),
+            ContentStructure::ListRecord
+        );
     }
 
     // =========================================================================
@@ -760,18 +779,14 @@ mod tests {
             response: Some(vec!["media:json;record;textable".to_string()]),
         };
 
-        let result = resolve_inputs_confirmed(
-            vec![InputItem::File(path)],
-            &adapter_registry,
-            &invoker,
-        )
-        .await
-        .expect("resolve_inputs_confirmed must succeed when adapter returns a URN");
+        let result =
+            resolve_inputs_confirmed(vec![InputItem::File(path)], &adapter_registry, &invoker)
+                .await
+                .expect("resolve_inputs_confirmed must succeed when adapter returns a URN");
 
         assert_eq!(result.files.len(), 1);
         assert_eq!(
-            result.files[0].media_urn,
-            "media:json;record;textable",
+            result.files[0].media_urn, "media:json;record;textable",
             "resolved URN must match what the adapter returned"
         );
     }
@@ -810,11 +825,7 @@ mod tests {
 
         // Register an adapter for media:json
         adapter_registry
-            .register_cap_group(
-                "test-group",
-                &["media:json".to_string()],
-                "test-cartridge",
-            )
+            .register_cap_group("test-group", &["media:json".to_string()], "test-cartridge")
             .unwrap();
 
         let invoker = MockInvoker {
@@ -822,7 +833,11 @@ mod tests {
         };
 
         let result = detect_file_confirmed(&path, &adapter_registry, &invoker).await;
-        assert!(result.is_ok(), "Must succeed when adapter returns URNs: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Must succeed when adapter returns URNs: {:?}",
+            result.err()
+        );
 
         let resolved = result.unwrap();
         assert!(
@@ -843,11 +858,7 @@ mod tests {
         let mut adapter_registry = MediaAdapterRegistry::new(fabric_registry);
 
         adapter_registry
-            .register_cap_group(
-                "test-group",
-                &["media:json".to_string()],
-                "test-cartridge",
-            )
+            .register_cap_group("test-group", &["media:json".to_string()], "test-cartridge")
             .unwrap();
 
         // Invoker returns None (empty END — no match)

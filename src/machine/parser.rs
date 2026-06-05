@@ -468,12 +468,13 @@ pub async fn parse_machine_with_node_names_async(
 ) -> Result<(Machine, Vec<StrandNodeNames>), MachineParseError> {
     let cap_urns = extract_header_cap_urns(input)?;
     for urn in &cap_urns {
-        registry.get_cap(urn).await.map_err(|e| {
-            MachineSyntaxError::InvalidCapUrn {
+        registry
+            .get_cap(urn)
+            .await
+            .map_err(|e| MachineSyntaxError::InvalidCapUrn {
                 alias: urn.clone(),
                 details: format!("registry could not resolve cap: {}", e),
-            }
-        })?;
+            })?;
     }
     parse_machine_with_node_names(input, registry)
 }
@@ -833,7 +834,10 @@ mod tests {
         let notation = "[doc -> undefined_alias -> text]";
         let err = parse_machine(notation, &registry).unwrap_err();
         assert!(
-            matches!(err, MachineParseError::Syntax(MachineSyntaxError::UndefinedAlias { .. })),
+            matches!(
+                err,
+                MachineParseError::Syntax(MachineSyntaxError::UndefinedAlias { .. })
+            ),
             "undefined alias must produce a MachineParseError::Syntax(UndefinedAlias), got {:?}",
             err
         );

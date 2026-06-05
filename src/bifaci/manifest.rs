@@ -114,8 +114,7 @@ impl<'de> Deserialize<'de> for CapManifest {
             #[serde(default)]
             page_url: Option<String>,
         }
-        let inner =
-            serde_json::from_value::<CapManifestInner>(value).map_err(D::Error::custom)?;
+        let inner = serde_json::from_value::<CapManifestInner>(value).map_err(D::Error::custom)?;
         Ok(CapManifest {
             name: inner.name,
             version: inner.version,
@@ -264,7 +263,11 @@ mod tests {
     #[test]
     fn test148_cap_manifest_creation() {
         let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
-        let cap = Cap::new(urn, "Extract Metadata".to_string(), "extract-metadata".to_string());
+        let cap = Cap::new(
+            urn,
+            "Extract Metadata".to_string(),
+            "extract-metadata".to_string(),
+        );
 
         let manifest = CapManifest::new(
             "TestComponent".to_string(),
@@ -290,7 +293,11 @@ mod tests {
     #[test]
     fn test117_cap_manifest_channel_roundtrip() {
         let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
-        let cap = Cap::new(urn, "Extract Metadata".to_string(), "extract-metadata".to_string());
+        let cap = Cap::new(
+            urn,
+            "Extract Metadata".to_string(),
+            "extract-metadata".to_string(),
+        );
 
         let manifest = CapManifest::new(
             "TestComponent".to_string(),
@@ -311,9 +318,7 @@ mod tests {
         // time, so a single byte of drift here would silently break
         // discovery.
         assert!(
-            json.contains(
-                "\"registry_url\":\"https://cartridges.machinefabric.com/manifest\""
-            ),
+            json.contains("\"registry_url\":\"https://cartridges.machinefabric.com/manifest\""),
             "expected verbatim registry_url in serialized form, got: {}",
             json
         );
@@ -386,7 +391,11 @@ mod tests {
     #[test]
     fn test149_cap_manifest_with_author() {
         let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
-        let cap = Cap::new(urn, "Extract Metadata".to_string(), "extract-metadata".to_string());
+        let cap = Cap::new(
+            urn,
+            "Extract Metadata".to_string(),
+            "extract-metadata".to_string(),
+        );
 
         let manifest = CapManifest::new(
             "TestComponent".to_string(),
@@ -407,11 +416,17 @@ mod tests {
         use crate::{ArgSource, CapArg};
 
         let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
-        let mut cap = Cap::new(urn, "Extract Metadata".to_string(), "extract-metadata".to_string());
+        let mut cap = Cap::new(
+            urn,
+            "Extract Metadata".to_string(),
+            "extract-metadata".to_string(),
+        );
         cap.add_arg(CapArg::new(
             "media:pdf",
             true,
-            vec![ArgSource::Stdin { stdin: "media:pdf".to_string() }],
+            vec![ArgSource::Stdin {
+                stdin: "media:pdf".to_string(),
+            }],
         ));
         cap.add_arg(CapArg::with_full_definition(
             "media:chunk-size;textable;numeric",
@@ -457,9 +472,18 @@ mod tests {
         assert_eq!(deserialized.name, manifest.name);
         assert_eq!(deserialized.all_caps().len(), manifest.all_caps().len());
         let decoded_cap = &deserialized.all_caps()[0];
-        assert_eq!(decoded_cap.args[1].default_value, Some(serde_json::json!(400)));
-        assert_eq!(decoded_cap.args[1].metadata, Some(serde_json::json!({"unit": "words"})));
-        assert_eq!(decoded_cap.args[2].default_value, Some(serde_json::json!(false)));
+        assert_eq!(
+            decoded_cap.args[1].default_value,
+            Some(serde_json::json!(400))
+        );
+        assert_eq!(
+            decoded_cap.args[1].metadata,
+            Some(serde_json::json!({"unit": "words"}))
+        );
+        assert_eq!(
+            decoded_cap.args[2].default_value,
+            Some(serde_json::json!(false))
+        );
     }
 
     // TEST151: Missing required fields fail
@@ -474,12 +498,21 @@ mod tests {
     #[test]
     fn test152_cap_manifest_with_multiple_caps() {
         let id1 = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
-        let cap1 = Cap::new(id1, "Extract Metadata".to_string(), "extract-metadata".to_string());
+        let cap1 = Cap::new(
+            id1,
+            "Extract Metadata".to_string(),
+            "extract-metadata".to_string(),
+        );
 
         let id2 = CapUrn::from_string(&test_urn("extract;target=outline")).unwrap();
         let mut metadata = HashMap::new();
         metadata.insert("supports_outline".to_string(), "true".to_string());
-        let cap2 = Cap::with_metadata(id2, "Extract Outline".to_string(), "extract-outline".to_string(), metadata);
+        let cap2 = Cap::with_metadata(
+            id2,
+            "Extract Outline".to_string(),
+            "extract-outline".to_string(),
+            metadata,
+        );
 
         let manifest = CapManifest::new(
             "MultiCapComponent".to_string(),
@@ -582,7 +615,10 @@ mod tests {
             "Test".to_string(),
             vec![default_group(vec![cap])],
         );
-        assert!(manifest.validate().is_ok(), "Manifest with CAP_IDENTITY must validate");
+        assert!(
+            manifest.validate().is_ok(),
+            "Manifest with CAP_IDENTITY must validate"
+        );
     }
 
     // TEST476: validate() fails without CAP_IDENTITY
@@ -599,7 +635,10 @@ mod tests {
             vec![default_group(vec![cap])],
         );
         let result = manifest.validate();
-        assert!(result.is_err(), "Manifest without CAP_IDENTITY must fail validation");
+        assert!(
+            result.is_err(),
+            "Manifest without CAP_IDENTITY must fail validation"
+        );
         assert!(result.unwrap_err().contains("CAP_IDENTITY"));
     }
 

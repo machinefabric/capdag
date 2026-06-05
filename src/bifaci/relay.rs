@@ -685,9 +685,7 @@ mod tests {
             assert_eq!(f1.frame_type, FrameType::RelayNotify);
             assert_eq!(
                 f1.relay_notify_manifest(),
-                Some(
-                    b"{\"caps\":[\"cap:in=\"media:void\";test;out=\"media:void\"\"]}".as_slice()
-                )
+                Some(b"{\"caps\":[\"cap:in=\"media:void\";test;out=\"media:void\"\"]}".as_slice())
             );
 
             // Read CHUNK (passed through)

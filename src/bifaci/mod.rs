@@ -7,8 +7,8 @@
 
 pub mod cartridge_json;
 pub mod cartridge_repo;
-pub mod cartridge_slug;
 pub mod cartridge_runtime;
+pub mod cartridge_slug;
 pub mod frame;
 pub mod host_runtime;
 pub mod in_process_host;

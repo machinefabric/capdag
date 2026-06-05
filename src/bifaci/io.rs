@@ -2166,29 +2166,62 @@ mod tests {
         let id = MessageId::new_uuid();
         let stream_id = "resp-1".to_string();
         let media_urn = "media:".to_string();
-        let limits = Limits { max_frame: 1_000_000, max_chunk: 100, max_reorder_buffer: 48 };
+        let limits = Limits {
+            max_frame: 1_000_000,
+            max_chunk: 100,
+            max_reorder_buffer: 48,
+        };
         let data: Vec<u8> = (0u8..=249).collect(); // 250 bytes → 3 chunks of 100/100/50
 
         let (client, server) = tokio::io::duplex(64 * 1024);
         let mut writer = FrameWriter::with_limits(client, limits);
 
         // Write protocol v2 sequence manually (mirrors what write_stream_chunked helpers do)
-        writer.write(&Frame::stream_start(id.clone(), stream_id.clone(), media_urn.clone(), None)).await.unwrap();
+        writer
+            .write(&Frame::stream_start(
+                id.clone(),
+                stream_id.clone(),
+                media_urn.clone(),
+                None,
+            ))
+            .await
+            .unwrap();
         let mut offset = 0usize;
         let mut chunk_index = 0u64;
         while offset < data.len() {
             let chunk_size = (limits.max_chunk as usize).min(data.len() - offset);
             let chunk_data = data[offset..offset + chunk_size].to_vec();
             let checksum = Frame::compute_checksum(&chunk_data);
-            writer.write(&Frame::chunk(id.clone(), stream_id.clone(), 0, chunk_data, chunk_index, checksum)).await.unwrap();
+            writer
+                .write(&Frame::chunk(
+                    id.clone(),
+                    stream_id.clone(),
+                    0,
+                    chunk_data,
+                    chunk_index,
+                    checksum,
+                ))
+                .await
+                .unwrap();
             offset += chunk_size;
             chunk_index += 1;
         }
-        writer.write(&Frame::stream_end(id.clone(), stream_id.clone(), chunk_index)).await.unwrap();
+        writer
+            .write(&Frame::stream_end(
+                id.clone(),
+                stream_id.clone(),
+                chunk_index,
+            ))
+            .await
+            .unwrap();
         writer.write(&Frame::end(id.clone(), None)).await.unwrap();
         drop(writer);
 
-        let read_limits = Limits { max_frame: 1_000_000, max_chunk: 1_000_000, max_reorder_buffer: 48 };
+        let read_limits = Limits {
+            max_frame: 1_000_000,
+            max_chunk: 1_000_000,
+            max_reorder_buffer: 48,
+        };
         let mut reader = FrameReader::with_limits(server, read_limits);
 
         let f0 = reader.read().await.unwrap().unwrap();
@@ -2217,7 +2250,10 @@ mod tests {
         assert_eq!(end_frame.frame_type, FrameType::End);
 
         assert_eq!(seen_chunks, 3, "250 bytes / 100 max_chunk = 3 chunks");
-        assert_eq!(reassembled, data, "reassembled chunks must equal original data");
+        assert_eq!(
+            reassembled, data,
+            "reassembled chunks must equal original data"
+        );
     }
 
     // TEST1141: write_stream_chunked with data exactly equal to max_chunk produces exactly one CHUNK
@@ -2225,20 +2261,49 @@ mod tests {
     async fn test1141_write_stream_chunked_exact_fit_produces_single_chunk() {
         let id = MessageId::new_uuid();
         let stream_id = "resp-exact".to_string();
-        let limits = Limits { max_frame: 1_000_000, max_chunk: 100, max_reorder_buffer: 48 };
+        let limits = Limits {
+            max_frame: 1_000_000,
+            max_chunk: 100,
+            max_reorder_buffer: 48,
+        };
         let data: Vec<u8> = vec![0xAB; 100];
 
         let (client, server) = tokio::io::duplex(64 * 1024);
         let mut writer = FrameWriter::with_limits(client, limits);
 
-        writer.write(&Frame::stream_start(id.clone(), stream_id.clone(), "media:".to_string(), None)).await.unwrap();
+        writer
+            .write(&Frame::stream_start(
+                id.clone(),
+                stream_id.clone(),
+                "media:".to_string(),
+                None,
+            ))
+            .await
+            .unwrap();
         let checksum = Frame::compute_checksum(&data);
-        writer.write(&Frame::chunk(id.clone(), stream_id.clone(), 0, data.clone(), 0, checksum)).await.unwrap();
-        writer.write(&Frame::stream_end(id.clone(), stream_id.clone(), 1)).await.unwrap();
+        writer
+            .write(&Frame::chunk(
+                id.clone(),
+                stream_id.clone(),
+                0,
+                data.clone(),
+                0,
+                checksum,
+            ))
+            .await
+            .unwrap();
+        writer
+            .write(&Frame::stream_end(id.clone(), stream_id.clone(), 1))
+            .await
+            .unwrap();
         writer.write(&Frame::end(id.clone(), None)).await.unwrap();
         drop(writer);
 
-        let read_limits = Limits { max_frame: 1_000_000, max_chunk: 1_000_000, max_reorder_buffer: 48 };
+        let read_limits = Limits {
+            max_frame: 1_000_000,
+            max_chunk: 1_000_000,
+            max_reorder_buffer: 48,
+        };
         let mut reader = FrameReader::with_limits(server, read_limits);
 
         let f0 = reader.read().await.unwrap().unwrap();
@@ -2246,7 +2311,11 @@ mod tests {
 
         let f1 = reader.read().await.unwrap().unwrap();
         assert_eq!(f1.frame_type, FrameType::Chunk);
-        assert_eq!(f1.payload.as_deref(), Some(data.as_slice()), "single chunk must carry full payload");
+        assert_eq!(
+            f1.payload.as_deref(),
+            Some(data.as_slice()),
+            "single chunk must carry full payload"
+        );
 
         let f2 = reader.read().await.unwrap().unwrap();
         assert_eq!(f2.frame_type, FrameType::StreamEnd);

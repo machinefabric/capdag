@@ -577,11 +577,7 @@ impl ManagedCartridge {
     /// If the cartridge had no resolvable identity (bad directory hash,
     /// unparseable binary name), we synthesize a minimum identity so the
     /// failure is still reportable to the UI.
-    fn record_attachment_error(
-        &mut self,
-        kind: CartridgeAttachmentErrorKind,
-        message: String,
-    ) {
+    fn record_attachment_error(&mut self, kind: CartridgeAttachmentErrorKind, message: String) {
         self.hello_failed = true;
         let detected_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -618,7 +614,6 @@ impl ManagedCartridge {
         }
     }
 }
-
 
 /// Compute identity for a standalone binary cartridge (probe-based discovery path).
 /// Parses id and version from the binary filename, hashes the binary content.
@@ -878,10 +873,7 @@ impl CartridgeHostRuntime {
         // back under the soft watermark. Bounded loop — runs at
         // most a couple of iterations even at pathological growth.
         while primary.len() >= Self::ROUTING_TABLE_HARD_CAP {
-            let extra_evict = std::cmp::max(
-                1,
-                primary.len() - Self::ROUTING_TABLE_SOFT_WATERMARK,
-            );
+            let extra_evict = std::cmp::max(1, primary.len() - Self::ROUTING_TABLE_SOFT_WATERMARK);
             let mut extras: Vec<(K, u64)> = primary
                 .keys()
                 .map(|k| (k.clone(), touched.get(k).copied().unwrap_or(0)))
@@ -1064,7 +1056,8 @@ impl CartridgeHostRuntime {
         // Start reader task
         let rh = Self::start_reader_task(cartridge_idx, reader, self.event_tx.clone());
 
-        let mut cartridge = ManagedCartridge::new_attached(result.manifest, result.limits, cap_groups);
+        let mut cartridge =
+            ManagedCartridge::new_attached(result.manifest, result.limits, cap_groups);
         cartridge.writer_tx = Some(writer_tx);
         cartridge.reader_handle = Some(rh);
         cartridge.writer_handle = Some(wh);
@@ -1319,10 +1312,7 @@ impl CartridgeHostRuntime {
                             let mut err = Frame::err(
                                 frame.id.clone(),
                                 "CARTRIDGE_NOT_FOUND",
-                                &format!(
-                                    "Cartridge '{}' not found on this host",
-                                    target_id
-                                ),
+                                &format!("Cartridge '{}' not found on this host", target_id),
                             );
                             err.routing_id = frame.routing_id.clone();
                             outbound_tx
@@ -1369,8 +1359,7 @@ impl CartridgeHostRuntime {
 
                 // Record in List 2: INCOMING_RXIDS (XID, RID) → cartridge_idx
                 let rxid_key = (xid.clone(), frame.id.clone());
-                self.incoming_rxids
-                    .insert(rxid_key.clone(), cartridge_idx);
+                self.incoming_rxids.insert(rxid_key.clone(), cartridge_idx);
                 self.touch_incoming_rxid(&rxid_key);
                 self.gc_routing_tables_if_needed();
 
@@ -1880,7 +1869,13 @@ impl CartridgeHostRuntime {
         let dying_rxids_keys: Vec<(MessageId, MessageId)> = self
             .incoming_rxids
             .iter()
-            .filter_map(|(k, &idx)| if idx == cartridge_idx { Some(k.clone()) } else { None })
+            .filter_map(|(k, &idx)| {
+                if idx == cartridge_idx {
+                    Some(k.clone())
+                } else {
+                    None
+                }
+            })
             .collect();
         for k in &dying_rxids_keys {
             self.incoming_rxids.remove(k);
@@ -2100,11 +2095,8 @@ impl CartridgeHostRuntime {
         let mut reader = FrameReader::new(stdout);
         let mut writer = FrameWriter::new(stdin);
 
-        let hs_outcome = tokio::time::timeout(
-            HELLO_TIMEOUT,
-            handshake(&mut reader, &mut writer),
-        )
-        .await;
+        let hs_outcome =
+            tokio::time::timeout(HELLO_TIMEOUT, handshake(&mut reader, &mut writer)).await;
         let handshake_result = match hs_outcome {
             Ok(Ok(result)) => result,
             Ok(Err(e)) => {
@@ -2511,7 +2503,8 @@ impl CartridgeHostRuntime {
             *peer_counts.entry(idx).or_insert(0) += 1;
         }
 
-        let result: Vec<InstalledCartridgeRecord> = self.cartridges
+        let result: Vec<InstalledCartridgeRecord> = self
+            .cartridges
             .iter()
             .enumerate()
             .filter_map(|(_idx, cartridge)| {
@@ -3246,9 +3239,27 @@ mod tests {
     #[test]
     fn test119_cartridge_response_concatenated_and_final_payload_diverge_for_multi_chunk() {
         let chunks = vec![
-            ResponseChunk { payload: b"AAAA".to_vec(), seq: 0, offset: None, len: None, is_eof: false },
-            ResponseChunk { payload: b"BBBB".to_vec(), seq: 1, offset: None, len: None, is_eof: false },
-            ResponseChunk { payload: b"CCCC".to_vec(), seq: 2, offset: None, len: None, is_eof: true },
+            ResponseChunk {
+                payload: b"AAAA".to_vec(),
+                seq: 0,
+                offset: None,
+                len: None,
+                is_eof: false,
+            },
+            ResponseChunk {
+                payload: b"BBBB".to_vec(),
+                seq: 1,
+                offset: None,
+                len: None,
+                is_eof: false,
+            },
+            ResponseChunk {
+                payload: b"CCCC".to_vec(),
+                seq: 2,
+                offset: None,
+                len: None,
+                is_eof: true,
+            },
         ];
         let response = CartridgeResponse::Streaming(chunks);
 
@@ -3395,7 +3406,10 @@ mod tests {
             .run(runtime_read_half, runtime_write_half, || vec![])
             .await;
 
-        assert!(result.is_err(), "Should fail because entry point is not executable");
+        assert!(
+            result.is_err(),
+            "Should fail because entry point is not executable"
+        );
         let err = result.unwrap_err();
         let err_str = format!("{}", err);
         assert!(
@@ -4060,11 +4074,8 @@ mod tests {
         // advertised, but is still locally routable.)
         let expected_urn = CapUrn::from_string("cap:in=\"media:void\";die;out=\"media:void\"")
             .expect("Expected URN should parse");
-        let cap_table_urns: Vec<String> = runtime
-            .cap_table
-            .iter()
-            .map(|(u, _)| u.clone())
-            .collect();
+        let cap_table_urns: Vec<String> =
+            runtime.cap_table.iter().map(|(u, _)| u.clone()).collect();
         let found = cap_table_urns.iter().any(|urn_str| {
             CapUrn::from_string(urn_str)
                 .map(|u| expected_urn.is_comparable(&u))
@@ -4092,11 +4103,8 @@ mod tests {
         // caps (derived from its `cap_groups`, which survive the
         // process). Dead cartridges keep their routing entries so
         // on-demand spawn can dispatch a fresh REQ to them.
-        let cap_table_urns_after: Vec<String> = runtime
-            .cap_table
-            .iter()
-            .map(|(u, _)| u.clone())
-            .collect();
+        let cap_table_urns_after: Vec<String> =
+            runtime.cap_table.iter().map(|(u, _)| u.clone()).collect();
         let found_after = cap_table_urns_after.iter().any(|urn_str| {
             CapUrn::from_string(urn_str)
                 .map(|u| expected_urn.is_comparable(&u))
@@ -4612,9 +4620,7 @@ mod tests {
             .flat_map(|g| g.caps.iter())
             .collect();
         assert!(
-            parsed_caps
-                .iter()
-                .any(|c| identity_urn.conforms_to(&c.urn)),
+            parsed_caps.iter().any(|c| identity_urn.conforms_to(&c.urn)),
             "Must have identity cap"
         );
         assert_eq!(parsed_caps.len(), 2, "Must have both caps");
@@ -4883,11 +4889,8 @@ mod tests {
         // the registered cartridge (with identity) AND the attached
         // cartridge (without identity). The running cartridge's
         // manifest caps (uppercase) must be routable.
-        let cap_table_urns: Vec<String> = runtime
-            .cap_table
-            .iter()
-            .map(|(u, _)| u.clone())
-            .collect();
+        let cap_table_urns: Vec<String> =
+            runtime.cap_table.iter().map(|(u, _)| u.clone()).collect();
         assert!(
             cap_table_urns.iter().any(|s| s.contains("uppercase")),
             "Running cartridge's manifest cap must be in cap_table. Got: {:?}",
@@ -5385,7 +5388,8 @@ mod tests {
             (pre_count as f64 * CartridgeHostRuntime::ROUTING_TABLE_GC_EVICTION_FRACTION) as usize,
         );
         assert_eq!(
-            runtime.routing_gc_evicted_total as usize, expected_evicted,
+            runtime.routing_gc_evicted_total as usize,
+            expected_evicted,
             "GC pass evicted {} entries; expected {} (eviction fraction {} of pre_count {}).",
             runtime.routing_gc_evicted_total,
             expected_evicted,
@@ -5471,7 +5475,9 @@ mod tests {
         // eviction fraction doesn't accidentally make the test
         // pass via the primary pass alone.
         let one_minus_fraction = 1.0 - CartridgeHostRuntime::ROUTING_TABLE_GC_EVICTION_FRACTION;
-        let pre_count = (CartridgeHostRuntime::ROUTING_TABLE_HARD_CAP as f64 / one_minus_fraction).ceil() as usize + 256;
+        let pre_count = (CartridgeHostRuntime::ROUTING_TABLE_HARD_CAP as f64 / one_minus_fraction)
+            .ceil() as usize
+            + 256;
         seed_incoming_rxids_for_test(&mut runtime, pre_count);
         assert!(
             runtime.incoming_rxids.len() >= CartridgeHostRuntime::ROUTING_TABLE_HARD_CAP,
@@ -5494,9 +5500,8 @@ mod tests {
         // but does not increment `routing_gc_runs_total`. We
         // verify the eviction count instead, which must exceed
         // one full eviction-fraction pass over the pre-count.
-        let single_pass_max = (pre_count as f64
-            * CartridgeHostRuntime::ROUTING_TABLE_GC_EVICTION_FRACTION)
-            as u64;
+        let single_pass_max =
+            (pre_count as f64 * CartridgeHostRuntime::ROUTING_TABLE_GC_EVICTION_FRACTION) as u64;
         assert!(
             runtime.routing_gc_evicted_total > single_pass_max,
             "Total evicted {} should exceed single-pass max {} (the secondary pass \

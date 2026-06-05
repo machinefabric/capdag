@@ -289,8 +289,7 @@ pub async fn send_one_stream(
             ciborium::into_writer(&cbor_value, &mut cbor_payload)
                 .map_err(|e| StreamIoError::CborEncode(format!("{}", e)))?;
             let checksum = Frame::compute_checksum(&cbor_payload);
-            let chunk =
-                Frame::chunk(rid.clone(), stream_id.clone(), 0, cbor_payload, 0, checksum);
+            let chunk = Frame::chunk(rid.clone(), stream_id.clone(), 0, cbor_payload, 0, checksum);
             switch
                 .send_to_master(chunk, None)
                 .await
@@ -363,9 +362,8 @@ pub fn decode_terminal_output(
         let mut output_bytes = Vec::new();
         let mut cursor = std::io::Cursor::new(response_chunks);
         while (cursor.position() as usize) < response_chunks.len() {
-            let value: ciborium::Value = ciborium::from_reader(&mut cursor).map_err(|e| {
-                StreamIoError::CborDecode(format!("terminal response: {}", e))
-            })?;
+            let value: ciborium::Value = ciborium::from_reader(&mut cursor)
+                .map_err(|e| StreamIoError::CborDecode(format!("terminal response: {}", e)))?;
             let raw = unwrap_cbor_value(value, 0)?;
             output_bytes.extend(raw);
         }
@@ -377,7 +375,10 @@ pub fn decode_terminal_output(
 ///
 /// Bytes → inner bytes, Text → UTF-8 bytes. Anything else is a
 /// protocol error.
-pub fn unwrap_cbor_value(value: ciborium::Value, item_index: usize) -> Result<Vec<u8>, StreamIoError> {
+pub fn unwrap_cbor_value(
+    value: ciborium::Value,
+    item_index: usize,
+) -> Result<Vec<u8>, StreamIoError> {
     match value {
         ciborium::Value::Bytes(b) => Ok(b),
         ciborium::Value::Text(t) => Ok(t.into_bytes()),
@@ -479,10 +480,9 @@ pub async fn collect_terminal_output(
                                 Some(code) => format!("exit_code={}", code),
                                 None => "exit_code absent (cartridge likely crashed)".to_string(),
                             };
-                            let details =
-                                format!("END without success: {}", detail);
+                            let details = format!("END without success: {}", detail);
                             if let Some(lfn) = &log_fn {
-                            lfn(cap_urn, "error", &details, None, body_index);
+                                lfn(cap_urn, "error", &details, None, body_index);
                             }
                             return Err(StreamIoError::Terminal {
                                 cap_urn: cap_urn.to_string(),

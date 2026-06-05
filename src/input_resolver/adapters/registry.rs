@@ -120,13 +120,10 @@ impl MediaAdapterRegistry {
         // Check each new adapter against all existing registered adapters
         for (new_urn, new_str) in &new_adapters {
             for existing in &self.registered_adapters {
-                let new_conforms_to_existing = new_urn
-                    .conforms_to(&existing.media_urn)
-                    .unwrap_or(false);
-                let existing_conforms_to_new = existing
-                    .media_urn
-                    .conforms_to(new_urn)
-                    .unwrap_or(false);
+                let new_conforms_to_existing =
+                    new_urn.conforms_to(&existing.media_urn).unwrap_or(false);
+                let existing_conforms_to_new =
+                    existing.media_urn.conforms_to(new_urn).unwrap_or(false);
 
                 if new_conforms_to_existing || existing_conforms_to_new {
                     return Err(AdapterRegistrationError {
@@ -268,13 +265,14 @@ mod tests {
 
         let result = registry.register_cap_group(
             "text-formats",
-            &[
-                "media:json".to_string(),
-                "media:yaml".to_string(),
-            ],
+            &["media:json".to_string(), "media:yaml".to_string()],
             "txtcartridge",
         );
-        assert!(result.is_ok(), "Non-conflicting adapters must register: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Non-conflicting adapters must register: {:?}",
+            result.err()
+        );
         assert_eq!(registry.registered_adapters.len(), 2);
     }
 
@@ -298,8 +296,14 @@ mod tests {
         assert!(result.is_err(), "Conforming overlap must be rejected");
 
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("group-b"), "Error must name the rejected group");
-        assert!(err.to_string().contains("group-a"), "Error must name the conflicting group");
+        assert!(
+            err.to_string().contains("group-b"),
+            "Error must name the rejected group"
+        );
+        assert!(
+            err.to_string().contains("group-a"),
+            "Error must name the conflicting group"
+        );
     }
 
     // TEST1278: Registration rejects the entire group — no partial registration
@@ -317,9 +321,9 @@ mod tests {
         let result = registry.register_cap_group(
             "group-b",
             &[
-                "media:yaml".to_string(),        // ok
+                "media:yaml".to_string(),          // ok
                 "media:json;textable".to_string(), // conflicts with media:json
-                "media:csv".to_string(),          // ok
+                "media:csv".to_string(),           // ok
             ],
             "cartridge-b",
         );
