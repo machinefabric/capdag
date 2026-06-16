@@ -472,6 +472,7 @@ fn collect_files(
 mod tests {
     use super::*;
     use crate::bifaci::cartridge_slug::{slug_for, DEV_SLUG};
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     const TEST_REGISTRY: &str = "https://cartridges.machinefabric.com/manifest";
@@ -703,6 +704,7 @@ mod tests {
 
     // TEST1246: Cartridge entry points cannot escape the cartridge directory with relative paths.
     #[test]
+    #[cfg(unix)]
     fn test1246_read_from_dir_rejects_path_escape() {
         let dir = tempfile::tempdir().unwrap();
 
@@ -735,6 +737,7 @@ mod tests {
 
     // TEST1247: Valid cartridge directories load successfully and resolve their entry point.
     #[test]
+    #[cfg(unix)]
     fn test1247_read_from_dir_succeeds_with_valid_cartridge() {
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("mycartridge");
@@ -768,6 +771,7 @@ mod tests {
     // slug. The error names both slugs so the operator can tell at
     // a glance which side is wrong.
     #[test]
+    #[cfg(unix)]
     fn test1509_read_from_dir_rejects_slug_mismatch() {
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("mycartridge");
@@ -812,6 +816,7 @@ mod tests {
     // refuses because the binary was never built/signed for that
     // registry.
     #[test]
+    #[cfg(unix)]
     fn test1510_read_from_dir_rejects_dev_in_registry_folder() {
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("mycartridge");
@@ -846,6 +851,7 @@ mod tests {
     // explicitly the only place a null `registry_url` is allowed,
     // so a non-null one here means the layout is corrupted.
     #[test]
+    #[cfg(unix)]
     fn test1511_read_from_dir_rejects_registry_in_dev_folder() {
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("mycartridge");
@@ -879,6 +885,7 @@ mod tests {
     // dev install; together with 1510/1511 it pins the rule that
     // dev provenance and the dev folder are an inseparable pair.
     #[test]
+    #[cfg(unix)]
     fn test1512_read_from_dir_accepts_dev_in_dev_folder() {
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("mycartridge");

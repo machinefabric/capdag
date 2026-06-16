@@ -1614,8 +1614,8 @@ mod tests {
     // TEST230: Test async handshake exchanges HELLO frames and negotiates minimum limits
     #[tokio::test]
     async fn test230_async_handshake() {
-        let (host_to_cartridge, cartridge_from_host) = tokio::net::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = tokio::net::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = b"{\"name\":\"Test\",\"version\":\"1.0\",\"caps\":[]}";
         let manifest_clone = manifest.to_vec();
@@ -1649,8 +1649,8 @@ mod tests {
     // TEST231: Test handshake fails when peer sends non-HELLO frame
     #[tokio::test]
     async fn test231_handshake_rejects_non_hello() {
-        let (host_to_cartridge, cartridge_from_host) = tokio::net::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = tokio::net::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         // Cartridge side: send a REQ frame instead of HELLO
         let cartridge_handle = tokio::spawn(async move {
@@ -1684,8 +1684,8 @@ mod tests {
     // TEST232: Test handshake fails when cartridge HELLO is missing required manifest
     #[tokio::test]
     async fn test232_handshake_rejects_missing_manifest() {
-        let (host_to_cartridge, cartridge_from_host) = tokio::net::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = tokio::net::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         // Cartridge side: send HELLO without manifest
         let cartridge_handle = tokio::spawn(async move {
@@ -2014,8 +2014,8 @@ mod tests {
     /// Simulate cartridge side: handshake_accept, then handle one identity REQ
     /// by echoing back the payload (like the standard identity handler).
     async fn run_cartridge_identity_echo(
-        from_host: tokio::net::UnixStream,
-        to_host: tokio::net::UnixStream,
+        from_host: crate::bifaci::local_socket::UnixStream,
+        to_host: crate::bifaci::local_socket::UnixStream,
         manifest: &[u8],
     ) {
         let mut reader = FrameReader::new(TokioBufReader::new(from_host));
@@ -2062,8 +2062,8 @@ mod tests {
     // TEST481: verify_identity succeeds with standard identity echo handler
     #[tokio::test]
     async fn test481_verify_identity_succeeds() {
-        let (host_to_cartridge, cartridge_from_host) = tokio::net::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = tokio::net::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         // Cartridge side runs async in a spawned task
         let manifest = IDENTITY_MANIFEST.as_bytes().to_vec();
@@ -2089,8 +2089,8 @@ mod tests {
     // TEST482: verify_identity fails when cartridge returns ERR on identity call
     #[tokio::test]
     async fn test482_verify_identity_fails_on_err() {
-        let (host_to_cartridge, cartridge_from_host) = tokio::net::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = tokio::net::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = IDENTITY_MANIFEST.as_bytes().to_vec();
         let cartridge_handle = tokio::spawn(async move {
@@ -2129,8 +2129,8 @@ mod tests {
     // TEST483: verify_identity fails when connection closes before response
     #[tokio::test]
     async fn test483_verify_identity_fails_on_close() {
-        let (host_to_cartridge, cartridge_from_host) = tokio::net::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = tokio::net::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = IDENTITY_MANIFEST.as_bytes().to_vec();
         let cartridge_handle = tokio::spawn(async move {

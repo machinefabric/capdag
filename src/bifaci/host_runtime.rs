@@ -2780,11 +2780,11 @@ fn parse_cap_groups_from_manifest(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bifaci::local_socket::UnixStream;
     use crate::standard::caps::CAP_IDENTITY;
     use crate::CapUrn;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::{BufReader, BufWriter};
-    use tokio::net::UnixStream;
 
     /// Build a single synthetic CapGroup whose `caps` list mirrors the
     /// given flat cap-URN slice. Tests use this to satisfy the
@@ -3366,19 +3366,10 @@ mod tests {
         );
 
         // Create relay pipe pair
-        let (relay_runtime_read, relay_engine_write) =
-            std::os::unix::net::UnixStream::pair().unwrap();
-        let (relay_engine_read, relay_runtime_write) =
-            std::os::unix::net::UnixStream::pair().unwrap();
-
-        relay_runtime_read.set_nonblocking(true).unwrap();
-        relay_runtime_write.set_nonblocking(true).unwrap();
-        relay_engine_write.set_nonblocking(true).unwrap();
-        relay_engine_read.set_nonblocking(true).unwrap();
-
-        let runtime_read = tokio::net::UnixStream::from_std(relay_runtime_read).unwrap();
-        let runtime_write = tokio::net::UnixStream::from_std(relay_runtime_write).unwrap();
-        let engine_write_stream = tokio::net::UnixStream::from_std(relay_engine_write).unwrap();
+        let (runtime_read, engine_write_stream) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (_engine_read, runtime_write) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let (runtime_read_half, _) = runtime_read.into_split();
         let (_, runtime_write_half) = runtime_write.into_split();

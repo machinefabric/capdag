@@ -941,7 +941,7 @@ mod tests {
     use crate::bifaci::io::{FrameReader, FrameWriter};
     use crate::Cap;
     use tokio::io::{BufReader, BufWriter};
-    use tokio::net::UnixStream;
+    use crate::bifaci::local_socket::UnixStream;
 
     /// Echo handler: accumulates input, echoes raw bytes back.
     #[derive(Debug)]
