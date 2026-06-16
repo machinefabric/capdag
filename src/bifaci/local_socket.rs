@@ -290,7 +290,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test]
-    async fn local_socket_pair_round_trips_in_both_directions() {
+    async fn test999_local_socket_pair_round_trips_in_both_directions() {
         let (left, right) = UnixStream::pair().expect("create AF_UNIX stream pair");
         let (mut left_read, mut left_write) = left.into_split();
         let (mut right_read, mut right_write) = right.into_split();
