@@ -50,7 +50,6 @@ use async_trait::async_trait;
 use ops::{DryContext, Op, OpError, OpMetadata, OpResult, WetContext};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Read, Write};
-use std::os::unix::io::{FromRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -107,6 +106,151 @@ pub enum RuntimeError {
 
     #[error("Stream error: {0}")]
     Stream(#[from] StreamError),
+}
+
+#[cfg(unix)]
+type HandshakeStdout = tokio::net::unix::pipe::Sender;
+
+#[cfg(windows)]
+type HandshakeStdout = tokio::fs::File;
+
+struct CborStdout {
+    handshake_stdout: HandshakeStdout,
+    frame_stdout: FrameStdout,
+}
+
+#[cfg(unix)]
+struct FrameStdout {
+    safe_fd: std::os::fd::RawFd,
+}
+
+#[cfg(windows)]
+struct FrameStdout {
+    file: std::fs::File,
+}
+
+#[cfg(unix)]
+fn prepare_cbor_stdout() -> io::Result<CborStdout> {
+    use std::os::fd::{FromRawFd, OwnedFd};
+
+    let safe_fd = unsafe { libc::dup(libc::STDOUT_FILENO) };
+    if safe_fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let redirect_rc = unsafe { libc::dup2(libc::STDERR_FILENO, libc::STDOUT_FILENO) };
+    if redirect_rc < 0 {
+        let err = io::Error::last_os_error();
+        unsafe {
+            libc::close(safe_fd);
+        }
+        return Err(err);
+    }
+
+    let handshake_fd = unsafe { libc::dup(safe_fd) };
+    if handshake_fd < 0 {
+        let err = io::Error::last_os_error();
+        unsafe {
+            libc::close(safe_fd);
+        }
+        return Err(err);
+    }
+
+    let handshake_stdout = tokio::net::unix::pipe::Sender::from_owned_fd(unsafe {
+        OwnedFd::from_raw_fd(handshake_fd)
+    })?;
+
+    Ok(CborStdout {
+        handshake_stdout,
+        frame_stdout: FrameStdout { safe_fd },
+    })
+}
+
+#[cfg(windows)]
+fn prepare_cbor_stdout() -> io::Result<CborStdout> {
+    use std::os::windows::io::FromRawHandle;
+    use windows_sys::Win32::Foundation::{
+        DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE, INVALID_HANDLE_VALUE,
+    };
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    fn invalid_handle(handle: HANDLE) -> bool {
+        handle.is_null() || handle == INVALID_HANDLE_VALUE
+    }
+
+    fn duplicate_handle(handle: HANDLE) -> io::Result<HANDLE> {
+        let current_process = unsafe { GetCurrentProcess() };
+        let mut duplicated: HANDLE = std::ptr::null_mut();
+        let ok = unsafe {
+            DuplicateHandle(
+                current_process,
+                handle,
+                current_process,
+                &mut duplicated,
+                0,
+                0,
+                DUPLICATE_SAME_ACCESS,
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(duplicated)
+    }
+
+    let stdout = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+    if invalid_handle(stdout) {
+        return Err(io::Error::last_os_error());
+    }
+    let stderr = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
+    if invalid_handle(stderr) {
+        return Err(io::Error::last_os_error());
+    }
+
+    let frame_handle = duplicate_handle(stdout)?;
+    let handshake_handle = duplicate_handle(stdout)?;
+    let redirected_stdout = duplicate_handle(stderr)?;
+    if unsafe { SetStdHandle(STD_OUTPUT_HANDLE, redirected_stdout) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let handshake_file = unsafe { std::fs::File::from_raw_handle(handshake_handle.cast()) };
+    let frame_file = unsafe { std::fs::File::from_raw_handle(frame_handle.cast()) };
+
+    Ok(CborStdout {
+        handshake_stdout: tokio::fs::File::from_std(handshake_file),
+        frame_stdout: FrameStdout { file: frame_file },
+    })
+}
+
+#[cfg(unix)]
+impl FrameStdout {
+    fn into_file(self) -> io::Result<std::fs::File> {
+        use std::os::fd::FromRawFd;
+
+        let flags = unsafe { libc::fcntl(self.safe_fd, libc::F_GETFL) };
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if flags & libc::O_NONBLOCK != 0 {
+            let rc = unsafe { libc::fcntl(self.safe_fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) };
+            if rc < 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+
+        Ok(unsafe { std::fs::File::from_raw_fd(self.safe_fd) })
+    }
+}
+
+#[cfg(windows)]
+impl FrameStdout {
+    fn into_file(self) -> io::Result<std::fs::File> {
+        Ok(self.file)
+    }
 }
 
 // =============================================================================
@@ -3603,7 +3747,6 @@ impl CartridgeRuntime {
     /// Returns None immediately if stdin is a terminal or no data is ready.
     fn read_stdin_if_available(&self) -> Result<Option<Vec<u8>>, RuntimeError> {
         use std::io::IsTerminal;
-        use std::os::fd::AsRawFd;
 
         let stdin = io::stdin();
 
@@ -3615,6 +3758,7 @@ impl CartridgeRuntime {
         // Non-blocking check: use poll() to see if data is ready (Unix only for now)
         #[cfg(unix)]
         {
+            use std::os::fd::AsRawFd;
             use std::time::Duration;
             let fd = stdin.as_raw_fd();
 
@@ -3648,11 +3792,19 @@ impl CartridgeRuntime {
             }
         }
 
-        // Windows fallback: just try is_terminal check
-        #[cfg(not(unix))]
+        #[cfg(windows)]
         {
-            // On Windows, if not a terminal, assume no data for CLI mode
-            // This is conservative but prevents hangs
+            let mut data = Vec::new();
+            stdin.lock().read_to_end(&mut data)?;
+            if data.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(data))
+            }
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
             Ok(None)
         }
     }
@@ -3730,41 +3882,10 @@ impl CartridgeRuntime {
     /// channel (created on REQ) until the handler's demux drains them.
     async fn run_cbor_mode(&self) -> Result<(), RuntimeError> {
         let stdin = tokio::io::stdin();
-
-        // Duplicate stdout so CBOR frame I/O is immune to anything that
-        // writes to or closes the original FD 1 (e.g. a native library
-        // writing to stdout, Metal shader compilation).  The duplicated FD
-        // points to the same pipe but lives at a different descriptor number.
-        let safe_fd = unsafe { libc::dup(libc::STDOUT_FILENO) };
-        if safe_fd < 0 {
-            return Err(RuntimeError::Io(std::io::Error::last_os_error()));
-        }
-        // Redirect FD 1 → stderr so any stray stdout writes end up in the
-        // log instead of injecting non-CBOR bytes into the frame pipe.
-        unsafe {
-            libc::dup2(libc::STDERR_FILENO, libc::STDOUT_FILENO);
-        }
-        // The handshake needs an async writer (so handshake_accept's tokio
-        // I/O works), but after handshake the writer thread takes over with
-        // blocking sync writes. We dup safe_fd to get an independent fd for
-        // the async handshake writer; that fd is closed when the OwnedFd
-        // wrapper drops at end of handshake.
-        //
-        // CRITICAL: tokio::net::unix::pipe::Sender::from_owned_fd flips the
-        // underlying *file description* to O_NONBLOCK. Because dup'd fds
-        // share their file description (and therefore status flags), this
-        // *also* puts safe_fd into non-blocking mode. After we drop the
-        // async sender, blocking sync writes on safe_fd would return
-        // EAGAIN (WouldBlock) on a full pipe — silently breaking the
-        // writer thread. We restore blocking mode on safe_fd below.
-        let handshake_fd = unsafe { libc::dup(safe_fd) };
-        if handshake_fd < 0 {
-            return Err(RuntimeError::Io(std::io::Error::last_os_error()));
-        }
-        let handshake_stdout = tokio::net::unix::pipe::Sender::from_owned_fd(unsafe {
-            OwnedFd::from_raw_fd(handshake_fd)
-        })
-        .map_err(RuntimeError::Io)?;
+        let CborStdout {
+            handshake_stdout,
+            frame_stdout,
+        } = prepare_cbor_stdout().map_err(RuntimeError::Io)?;
 
         let reader = BufReader::new(stdin);
 
@@ -3780,21 +3901,7 @@ impl CartridgeRuntime {
         drop(hs_frame_writer);
         hs_async_writer.flush().await.map_err(RuntimeError::Io)?;
         drop(hs_async_writer);
-
-        // Restore blocking mode on safe_fd. The async pipe::Sender above
-        // set O_NONBLOCK on the shared file description; if we leave it
-        // that way, std::io blocking writes return EAGAIN as soon as the
-        // pipe fills, and the writer thread silently breaks.
-        let flags = unsafe { libc::fcntl(safe_fd, libc::F_GETFL) };
-        if flags < 0 {
-            return Err(RuntimeError::Io(std::io::Error::last_os_error()));
-        }
-        if flags & libc::O_NONBLOCK != 0 {
-            let rc = unsafe { libc::fcntl(safe_fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) };
-            if rc < 0 {
-                return Err(RuntimeError::Io(std::io::Error::last_os_error()));
-            }
-        }
+        let frame_stdout = frame_stdout.into_file().map_err(RuntimeError::Io)?;
 
         // Create output channel using std::sync::mpsc so the writer thread is
         // completely decoupled from tokio. Metal/GCD on macOS can steal all
@@ -3820,8 +3927,7 @@ impl CartridgeRuntime {
         // Spawn writer thread on a plain OS thread — immune to tokio/Metal/GCD.
         let writer_limits = negotiated_limits.clone();
         let writer_handle = std::thread::spawn(move || {
-            let mut writer =
-                std::io::BufWriter::new(unsafe { std::fs::File::from_raw_fd(safe_fd) });
+            let mut writer = std::io::BufWriter::new(frame_stdout);
             let mut seq_assigner = SeqAssigner::new();
             while let Ok(mut frame) = output_rx_sync.recv() {
                 seq_assigner.assign(&mut frame);

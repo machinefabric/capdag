@@ -8,7 +8,6 @@ use capdag::{CapProgressFn, CartridgeChannel, FabricRegistry, PipelineLogFn, Str
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
@@ -31,25 +30,11 @@ fn expand_dev_binary_path(path: &str) -> Vec<PathBuf> {
     } else if path_buf.is_dir() {
         // Find all executable files in directory
         match fs::read_dir(&path_buf) {
-            Ok(entries) => {
-                entries
-                    .filter_map(|e| e.ok())
-                    .map(|e| e.path())
-                    .filter(|p| {
-                        if !p.is_file() {
-                            return false;
-                        }
-                        // Check if executable (unix)
-                        if let Ok(meta) = p.metadata() {
-                            let mode = meta.permissions().mode();
-                            // Check if any execute bit is set
-                            mode & 0o111 != 0
-                        } else {
-                            false
-                        }
-                    })
-                    .collect()
-            }
+            Ok(entries) => entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| is_executable_file(p))
+                .collect(),
             Err(e) => {
                 eprintln!("Error reading dev-bins directory '{}': {}", path, e);
                 vec![]
@@ -59,6 +44,33 @@ fn expand_dev_binary_path(path: &str) -> Vec<PathBuf> {
         eprintln!("Dev binary path does not exist: {}", path);
         vec![]
     }
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &PathBuf) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    if !path.is_file() {
+        return false;
+    }
+    match path.metadata() {
+        Ok(meta) => meta.permissions().mode() & 0o111 != 0,
+        Err(_) => false,
+    }
+}
+
+#[cfg(windows)]
+fn is_executable_file(path: &PathBuf) -> bool {
+    path.is_file()
+        && path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn is_executable_file(_path: &PathBuf) -> bool {
+    false
 }
 
 /// Find input nodes in the machine notation (root sources with no incoming edges).

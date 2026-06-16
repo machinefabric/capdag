@@ -342,7 +342,7 @@ mod tests {
     use crate::bifaci::frame::{FlowKey, Frame, FrameType, Limits, MessageId, SeqAssigner};
     use crate::bifaci::io::{FrameReader, FrameWriter};
     use tokio::io::{BufReader, BufWriter};
-    use tokio::net::UnixStream;
+    use crate::bifaci::local_socket::UnixStream;
 
     /// Create an async pipe pair using Unix sockets.
     /// Returns (read_end, write_end) for each direction.

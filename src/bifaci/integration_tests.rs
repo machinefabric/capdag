@@ -91,51 +91,37 @@ mod tests {
 
     /// Helper: create async socket pairs for relay (engine↔runtime).
     fn create_relay_pair() -> (
-        tokio::net::UnixStream,
-        tokio::net::UnixStream,
-        tokio::net::UnixStream,
-        tokio::net::UnixStream,
+        crate::bifaci::local_socket::UnixStream,
+        crate::bifaci::local_socket::UnixStream,
+        crate::bifaci::local_socket::UnixStream,
+        crate::bifaci::local_socket::UnixStream,
     ) {
-        let (relay_rt_read_std, relay_eng_write_std) =
-            std::os::unix::net::UnixStream::pair().unwrap();
-        let (relay_eng_read_std, relay_rt_write_std) =
-            std::os::unix::net::UnixStream::pair().unwrap();
-        for s in [
-            &relay_rt_read_std,
-            &relay_rt_write_std,
-            &relay_eng_write_std,
-            &relay_eng_read_std,
-        ] {
-            s.set_nonblocking(true).unwrap();
-        }
-        let rt_read = tokio::net::UnixStream::from_std(relay_rt_read_std).unwrap();
-        let rt_write = tokio::net::UnixStream::from_std(relay_rt_write_std).unwrap();
-        let eng_write = tokio::net::UnixStream::from_std(relay_eng_write_std).unwrap();
-        let eng_read = tokio::net::UnixStream::from_std(relay_eng_read_std).unwrap();
+        let (rt_read, eng_write) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (eng_read, rt_write) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         (rt_read, rt_write, eng_write, eng_read)
     }
 
     /// Helper: create async socket pairs for cartridge↔runtime.
     fn create_cartridge_pair() -> (
-        tokio::net::UnixStream,
-        tokio::net::UnixStream,
-        tokio::net::UnixStream,
-        tokio::net::UnixStream,
+        crate::bifaci::local_socket::UnixStream,
+        crate::bifaci::local_socket::UnixStream,
+        crate::bifaci::local_socket::UnixStream,
+        crate::bifaci::local_socket::UnixStream,
     ) {
-        let (c_to_rt, rt_from_c) = tokio::net::UnixStream::pair().unwrap();
-        let (rt_to_c, c_from_rt) = tokio::net::UnixStream::pair().unwrap();
+        let (c_to_rt, rt_from_c) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (rt_to_c, c_from_rt) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
         (rt_from_c, rt_to_c, c_from_rt, c_to_rt)
     }
 
     /// Helper: do handshake only on cartridge side (for raw frame tests using `handshake()`).
     async fn cartridge_handshake(
-        from_runtime: tokio::net::UnixStream,
-        to_runtime: tokio::net::UnixStream,
+        from_runtime: crate::bifaci::local_socket::UnixStream,
+        to_runtime: crate::bifaci::local_socket::UnixStream,
         manifest: &[u8],
     ) -> (
-        FrameReader<BufReader<tokio::net::UnixStream>>,
-        FrameWriter<BufWriter<tokio::net::UnixStream>>,
+        FrameReader<BufReader<crate::bifaci::local_socket::UnixStream>>,
+        FrameWriter<BufWriter<crate::bifaci::local_socket::UnixStream>>,
     ) {
         let mut reader = FrameReader::new(BufReader::new(from_runtime));
         let mut writer = FrameWriter::new(BufWriter::new(to_runtime));
@@ -149,12 +135,12 @@ mod tests {
 
     /// Helper: do handshake + handle identity verification (for tests using `attach_cartridge()`).
     async fn cartridge_handshake_with_identity(
-        from_runtime: tokio::net::UnixStream,
-        to_runtime: tokio::net::UnixStream,
+        from_runtime: crate::bifaci::local_socket::UnixStream,
+        to_runtime: crate::bifaci::local_socket::UnixStream,
         manifest: &[u8],
     ) -> (
-        FrameReader<BufReader<tokio::net::UnixStream>>,
-        FrameWriter<BufWriter<tokio::net::UnixStream>>,
+        FrameReader<BufReader<crate::bifaci::local_socket::UnixStream>>,
+        FrameWriter<BufWriter<crate::bifaci::local_socket::UnixStream>>,
     ) {
         let (mut reader, mut writer) =
             cartridge_handshake(from_runtime, to_runtime, manifest).await;
@@ -944,7 +930,7 @@ mod tests {
         use crate::bifaci::io::{handshake, handshake_accept};
 
         // Single bidirectional socket pair - each end can read and write
-        let (host_sock, cartridge_sock) = tokio::net::UnixStream::pair().unwrap();
+        let (host_sock, cartridge_sock) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         // Split each socket into read/write halves
         let (host_read, host_write) = host_sock.into_split();
@@ -978,8 +964,10 @@ mod tests {
     // TEST285: Simple request-response flow (REQ → END with payload)
     #[tokio::test]
     async fn test285_request_response_simple() {
-        let (cartridge_from_host, host_to_cartridge) = tokio::net::UnixStream::pair().unwrap();
-        let (host_from_cartridge, cartridge_to_host) = tokio::net::UnixStream::pair().unwrap();
+        let (cartridge_from_host, host_to_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_from_cartridge, cartridge_to_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
         let cartridge_handle = tokio::spawn(async move {
@@ -1026,8 +1014,10 @@ mod tests {
     // TEST286: Streaming response with multiple CHUNK frames
     #[tokio::test]
     async fn test286_streaming_chunks() {
-        let (cartridge_from_host, host_to_cartridge) = tokio::net::UnixStream::pair().unwrap();
-        let (host_from_cartridge, cartridge_to_host) = tokio::net::UnixStream::pair().unwrap();
+        let (cartridge_from_host, host_to_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_from_cartridge, cartridge_to_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
         let cartridge_handle = tokio::spawn(async move {
@@ -1106,8 +1096,10 @@ mod tests {
     // TEST287: Host-initiated heartbeat
     #[tokio::test]
     async fn test287_heartbeat_from_host() {
-        let (cartridge_from_host, host_to_cartridge) = tokio::net::UnixStream::pair().unwrap();
-        let (host_from_cartridge, cartridge_to_host) = tokio::net::UnixStream::pair().unwrap();
+        let (cartridge_from_host, host_to_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_from_cartridge, cartridge_to_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
         let cartridge_handle = tokio::spawn(async move {
@@ -1148,8 +1140,10 @@ mod tests {
     async fn test290_limits_negotiation() {
         use crate::bifaci::io::{handshake, handshake_accept};
 
-        let (cartridge_from_host, host_to_cartridge) = tokio::net::UnixStream::pair().unwrap();
-        let (host_from_cartridge, cartridge_to_host) = tokio::net::UnixStream::pair().unwrap();
+        let (cartridge_from_host, host_to_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_from_cartridge, cartridge_to_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
         let cartridge_handle = tokio::spawn(async move {
@@ -1176,8 +1170,10 @@ mod tests {
     // TEST291: Binary payload roundtrip (all 256 byte values)
     #[tokio::test]
     async fn test291_binary_payload_roundtrip() {
-        let (cartridge_from_host, host_to_cartridge) = tokio::net::UnixStream::pair().unwrap();
-        let (host_from_cartridge, cartridge_to_host) = tokio::net::UnixStream::pair().unwrap();
+        let (cartridge_from_host, host_to_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_from_cartridge, cartridge_to_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let binary_data: Vec<u8> = (0u16..=255).map(|i| i as u8).collect();
         let binary_clone = binary_data.clone();
@@ -1236,8 +1232,10 @@ mod tests {
     async fn test292_message_id_uniqueness() {
         use std::sync::{Arc, Mutex};
 
-        let (cartridge_from_host, host_to_cartridge) = tokio::net::UnixStream::pair().unwrap();
-        let (host_from_cartridge, cartridge_to_host) = tokio::net::UnixStream::pair().unwrap();
+        let (cartridge_from_host, host_to_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_from_cartridge, cartridge_to_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let received_ids = Arc::new(Mutex::new(Vec::new()));
         let received_ids_clone = Arc::clone(&received_ids);
@@ -1293,8 +1291,10 @@ mod tests {
     // TEST299: Empty payload request/response roundtrip
     #[tokio::test]
     async fn test299_empty_payload_roundtrip() {
-        let (cartridge_from_host, host_to_cartridge) = tokio::net::UnixStream::pair().unwrap();
-        let (host_from_cartridge, cartridge_to_host) = tokio::net::UnixStream::pair().unwrap();
+        let (cartridge_from_host, host_to_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_from_cartridge, cartridge_to_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = TEST_MANIFEST.as_bytes().to_vec();
         let cartridge_handle = tokio::spawn(async move {

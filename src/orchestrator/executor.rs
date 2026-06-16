@@ -27,7 +27,6 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -55,6 +54,14 @@ fn detect_platform() -> String {
     format!("{}-{}", os, arch_normalized)
 }
 
+fn platform_binary_name(cartridge_id: &str) -> String {
+    if cfg!(target_os = "windows") {
+        format!("{cartridge_id}.exe")
+    } else {
+        cartridge_id.to_string()
+    }
+}
+
 /// Default cap-level activity timeout in seconds.
 /// If a cartridge sends no frames (Chunk, Log, progress, peer requests) for this
 /// duration, the executor aborts with `ExecutionError::ActivityTimeout`.
@@ -62,8 +69,8 @@ const DEFAULT_ACTIVITY_TIMEOUT_SECS: u64 = 120;
 
 /// Cap metadata key for per-cap activity timeout override.
 const ACTIVITY_TIMEOUT_METADATA_KEY: &str = "activity_timeout_secs";
+use crate::bifaci::local_socket::UnixStream;
 use tokio::io::{BufReader, BufWriter};
-use tokio::net::UnixStream;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
@@ -795,13 +802,18 @@ impl CartridgeManager {
             .join(&cartridge_info.version);
         fs::create_dir_all(&version_dir)?;
 
-        let binary_name = cartridge_id;
-        let binary_path = version_dir.join(binary_name);
+        let binary_name = platform_binary_name(cartridge_id);
+        let binary_path = version_dir.join(&binary_name);
         fs::write(&binary_path, &bytes)?;
 
-        let mut perms = fs::metadata(&binary_path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&binary_path, perms)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut perms = fs::metadata(&binary_path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&binary_path, perms)?;
+        }
 
         // Write cartridge.json. `registry_url` is verbatim
         // `self.registry_url`; the cartridge was downloaded from

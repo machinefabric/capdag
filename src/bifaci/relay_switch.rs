@@ -63,8 +63,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::{BufReader, BufWriter};
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::UnixStream;
+use crate::bifaci::local_socket::{OwnedReadHalf, OwnedWriteHalf, UnixStream};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{error, info, warn};
 
@@ -3579,7 +3578,7 @@ mod tests {
     use super::*;
     use crate::bifaci::frame::{Frame, SeqAssigner};
     use crate::standard::caps::CAP_IDENTITY;
-    use tokio::net::UnixStream;
+    use crate::bifaci::local_socket::UnixStream;
 
     /// Create a test FabricRegistry for use in tests. Tests that need
     /// bookend-eligible URNs should populate via
@@ -3700,8 +3699,8 @@ mod tests {
         caps_json: &serde_json::Value,
         limits: &Limits,
     ) -> (
-        FrameReader<BufReader<tokio::net::unix::OwnedReadHalf>>,
-        FrameWriter<BufWriter<tokio::net::unix::OwnedWriteHalf>>,
+        FrameReader<BufReader<crate::bifaci::local_socket::OwnedReadHalf>>,
+        FrameWriter<BufWriter<crate::bifaci::local_socket::OwnedWriteHalf>>,
     ) {
         let (read_half, write_half) = socket.into_split();
         let mut reader = FrameReader::new(BufReader::new(read_half));
