@@ -30,6 +30,7 @@
 
 pub mod bifaci;
 pub mod cap;
+pub mod cartridge_discovery;
 pub mod fabric;
 pub mod fabric_manifest_version;
 pub mod input_resolver;
@@ -119,6 +120,11 @@ pub use bifaci::cartridge_json::{
 
 // Registry slug — deterministic on-disk folder name for a registry URL.
 pub use bifaci::cartridge_slug::{is_registry_slug, slug_for, DEV_SLUG, SLUG_HEX_LEN};
+
+// Shared cartridge discovery (engine + machfab-daemon)
+pub use cartridge_discovery::{
+    discover_cartridges, probe_cartridge_cap_groups, DiscoveredCartridge, DiscoveryIdentity,
+};
 
 // Relay exports
 pub use bifaci::in_process_host::{
