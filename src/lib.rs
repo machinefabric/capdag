@@ -110,7 +110,9 @@ pub use bifaci::host_runtime::AsyncHostError;
 pub use bifaci::host_runtime::CartridgeHostRuntime;
 
 // Cartridge process monitoring
-pub use bifaci::host_runtime::{CartridgeProcessHandle, CartridgeProcessInfo, HostCommand};
+pub use bifaci::host_runtime::{
+    CartridgeHostObserver, CartridgeProcessHandle, CartridgeProcessInfo, HostCommand,
+};
 
 // Cartridge install metadata
 pub use bifaci::cartridge_json::{
