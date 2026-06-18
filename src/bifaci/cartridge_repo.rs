@@ -203,15 +203,6 @@ pub struct RegistryCapGroup {
     pub adapter_urns: Vec<String>,
 }
 
-/// A cartridge version's package info (legacy alias retained for callers
-/// that referenced it; the actual wire type is `CartridgeDistributionInfo`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CartridgePackageInfo {
-    pub name: String,
-    pub sha256: String,
-    pub size: u64,
-}
-
 /// A cartridge entry as returned by /api/cartridges.
 ///
 /// Top-level fields are camelCased on the wire; `cap_groups` is the only
@@ -272,11 +263,33 @@ pub struct CartridgeRegistryResponse {
     pub cartridges: Vec<CartridgeInfo>,
 }
 
-/// A platform-specific build within a version.
+/// A platform-specific build within a version. A platform may ship more than one
+/// installer format (e.g. linux-x86_64 → `.deb` + `.rpm`), so `packages` is a
+/// list; consumers pick the format the host can run via [`Self::primary_package`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CartridgeBuild {
     pub platform: String,
-    pub package: CartridgeDistributionInfo,
+    pub packages: Vec<CartridgeDistributionInfo>,
+}
+
+impl CartridgeBuild {
+    /// The installer package the host should use, preferring the platform's
+    /// native format. Returns `None` only when the build ships no packages.
+    pub fn primary_package(&self) -> Option<&CartridgeDistributionInfo> {
+        let os = self.platform.split('-').next().unwrap_or("");
+        let preference: &[&str] = match os {
+            "darwin" => &["pkg"],
+            "linux" => &["deb", "rpm"],
+            "windows" => &["msi", "exe"],
+            _ => &[],
+        };
+        for format in preference {
+            if let Some(pkg) = self.packages.iter().find(|p| p.format == *format) {
+                return Some(pkg);
+            }
+        }
+        self.packages.first()
+    }
 }
 
 /// A cartridge version's data (v5.0 schema).
@@ -307,6 +320,8 @@ pub struct CartridgeDistributionInfo {
     pub sha256: String,
     pub size: u64,
     pub url: String,
+    /// Installer format: "pkg" (macOS), "deb"/"rpm" (Linux), "msi"/"exe" (Windows).
+    pub format: String,
 }
 
 /// A cartridge entry in the source-of-truth registry (nested
@@ -910,11 +925,25 @@ impl CartridgeRepoServer {
                     id, version, i
                 )));
             }
-            if build.package.name.is_empty() {
+            if build.packages.is_empty() {
                 return Err(CartridgeRepoError::ParseError(format!(
-                    "Cartridge {} v{}: build[{}] ({}) missing package.name",
+                    "Cartridge {} v{}: build[{}] ({}) ships no packages",
                     id, version, i, build.platform
                 )));
+            }
+            for (j, package) in build.packages.iter().enumerate() {
+                if package.name.is_empty() {
+                    return Err(CartridgeRepoError::ParseError(format!(
+                        "Cartridge {} v{}: build[{}] ({}) package[{}] missing name",
+                        id, version, i, build.platform, j
+                    )));
+                }
+                if package.format.is_empty() {
+                    return Err(CartridgeRepoError::ParseError(format!(
+                        "Cartridge {} v{}: build[{}] ({}) package[{}] ({}) missing format",
+                        id, version, i, build.platform, j, package.name
+                    )));
+                }
             }
         }
         Ok(())
@@ -1138,12 +1167,13 @@ mod tests {
             min_app_version: String::new(),
             builds: vec![CartridgeBuild {
                 platform: "darwin-arm64".to_string(),
-                package: CartridgeDistributionInfo {
+                packages: vec![CartridgeDistributionInfo {
                     name: pkg_name.to_string(),
                     sha256: "abc123".to_string(),
                     size: 1000,
                     url: format!("https://cartridges.machinefabric.com/{}", pkg_name),
-                },
+                    format: "pkg".to_string(),
+                }],
             }],
             notes_url: None,
         }
@@ -1506,7 +1536,7 @@ mod tests {
 
         let build = cartridge.build_for_platform("darwin-arm64");
         assert!(build.is_some());
-        assert_eq!(build.unwrap().package.name, "testcartridge-1.0.0.pkg");
+        assert_eq!(build.unwrap().primary_package().unwrap().name, "testcartridge-1.0.0.pkg");
 
         let no_build = cartridge.build_for_platform("linux-x86_64");
         assert!(no_build.is_none());
