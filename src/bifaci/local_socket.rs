@@ -3,6 +3,35 @@ pub use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 #[cfg(unix)]
 pub use tokio::net::UnixStream;
 
+/// A cross-platform AF_UNIX listener.
+///
+/// The macOS XPC service listens on a Unix socket the engine connects to; on
+/// Linux/Windows the cartridge host daemon plays that role. `accept` yields the
+/// same [`UnixStream`] the engine connects with (`UnixStream::connect`), so the
+/// listener side and the connector side share one stream type on both platforms.
+#[cfg(unix)]
+pub struct LocalListener {
+    inner: tokio::net::UnixListener,
+}
+
+#[cfg(unix)]
+impl LocalListener {
+    /// Bind a listening AF_UNIX socket at `path`. The path must not already
+    /// exist — callers own relay-socket hygiene (removing a stale file) so a
+    /// genuine bind conflict surfaces rather than being papered over here.
+    pub fn bind(path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
+        Ok(Self {
+            inner: tokio::net::UnixListener::bind(path)?,
+        })
+    }
+
+    /// Await the next inbound connection.
+    pub async fn accept(&self) -> std::io::Result<UnixStream> {
+        let (stream, _addr) = self.inner.accept().await?;
+        Ok(stream)
+    }
+}
+
 #[cfg(windows)]
 mod windows {
     use socket2::{Domain, SockAddr, Socket, Type};
@@ -99,6 +128,33 @@ mod windows {
         let addr = SockAddr::unix(path)?;
         socket.connect(&addr)?;
         Ok(UnixStream::from_socket(socket))
+    }
+
+    /// AF_UNIX listener (Windows 10+ supports AF_UNIX). Mirrors the Unix
+    /// `LocalListener`: the engine connects to this socket via `UnixStream`.
+    /// `accept` blocks, so it runs on a blocking task.
+    pub struct LocalListener {
+        listener: std::sync::Arc<Socket>,
+    }
+
+    impl LocalListener {
+        pub fn bind(path: impl AsRef<Path>) -> io::Result<Self> {
+            let addr = SockAddr::unix(path.as_ref())?;
+            let listener = Socket::new(Domain::UNIX, Type::STREAM, None)?;
+            listener.bind(&addr)?;
+            listener.listen(128)?;
+            Ok(Self {
+                listener: std::sync::Arc::new(listener),
+            })
+        }
+
+        pub async fn accept(&self) -> io::Result<UnixStream> {
+            let listener = self.listener.clone();
+            let (socket, _addr) = tokio::task::spawn_blocking(move || listener.accept())
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??;
+            Ok(UnixStream::from_socket(socket))
+        }
     }
 
     fn unique_socket_path() -> io::Result<PathBuf> {
@@ -282,7 +338,7 @@ mod windows {
 }
 
 #[cfg(windows)]
-pub use windows::{OwnedReadHalf, OwnedWriteHalf, UnixStream};
+pub use windows::{LocalListener, OwnedReadHalf, OwnedWriteHalf, UnixStream};
 
 #[cfg(test)]
 mod tests {
