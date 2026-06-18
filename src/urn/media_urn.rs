@@ -136,7 +136,7 @@ pub const MEDIA_XML: &str = "media:ext=xml;textable";
 /// Media URN for JSON data - has record marker (structured key-value)
 pub const MEDIA_JSON: &str = "media:json;record;textable";
 /// Media URN for JSON with schema constraint (input for structured queries)
-pub const MEDIA_JSON_SCHEMA: &str = "media:ext=json-schema;json;record;textable";
+pub const MEDIA_JSON_SCHEMA: &str = "media:json;json-schema;record;textable";
 /// Media URN for YAML data - has record marker (structured key-value)
 pub const MEDIA_YAML: &str = "media:record;textable;yaml";
 
