@@ -1702,7 +1702,7 @@ mod tests {
     // TEST1192: Parsing a simple header and wiring produces a valid AST with both statements.
     #[test]
     fn test1192_parse_simple_header_and_wiring() {
-        let input = r#"[extract cap:in="media:pdf";extract;out="media:txt;textable"]
+        let input = r#"[extract cap:in="media:pdf";extract;out="media:textable;txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
 

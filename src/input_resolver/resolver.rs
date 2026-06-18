@@ -474,6 +474,7 @@ mod tests {
 
         // PDF
         registry.insert_cached_media_def_for_test(StoredMediaDef {
+            version: 0,
             urn: "media:pdf".to_string(),
             media_type: "application/pdf".to_string(),
             title: "PDF".to_string(),
@@ -488,6 +489,7 @@ mod tests {
 
         // JSON family
         registry.insert_cached_media_def_for_test(StoredMediaDef {
+            version: 0,
             urn: "media:json;record;textable".to_string(),
             media_type: "application/json".to_string(),
             title: "JSON".to_string(),
@@ -502,6 +504,7 @@ mod tests {
 
         // Plain text
         registry.insert_cached_media_def_for_test(StoredMediaDef {
+            version: 0,
             urn: "media:list;textable;txt".to_string(),
             media_type: "text/plain".to_string(),
             title: "Text".to_string(),
@@ -520,6 +523,7 @@ mod tests {
         // matches the canonical `family:model:variant` shape so plain
         // prose is filtered out.
         registry.insert_cached_media_def_for_test(StoredMediaDef {
+            version: 0,
             urn: "media:model-spec;textable".to_string(),
             media_type: "text/plain".to_string(),
             title: "Model spec".to_string(),

@@ -751,7 +751,7 @@ mod tests {
         // single pair.
         let sources = vec![media("media:pdf")];
         let args = vec![media("media:pdf")];
-        let cap_urn = cap("cap:in=media:pdf;extract;out=\"media:txt;textable\"");
+        let cap_urn = cap("cap:in=media:pdf;extract;out=\"media:textable;txt\"");
         let pairs = match_sources_to_args(&sources, &args, &cap_urn, 0)
             .expect("trivial single-source match must succeed");
         assert_eq!(pairs.len(), 1);
@@ -888,18 +888,18 @@ mod tests {
     #[test]
     fn test1184_resolve_strand_single_cap_produces_one_edge() {
         let extract_cap = build_cap(
-            "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
+            "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
             "extract",
             &["media:pdf"],
-            "media:txt;textable",
+            "media:textable;txt",
         );
         let registry = registry_with(vec![extract_cap]);
         let strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
+                "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
                 "extract",
                 "media:pdf",
-                "media:txt;textable",
+                "media:textable;txt",
             )],
             "pdf to txt",
         );
@@ -922,7 +922,7 @@ mod tests {
         assert_eq!(outputs.len(), 1);
         assert!(inputs[0].is_equivalent(&media("media:pdf")).unwrap());
         assert!(outputs[0]
-            .is_equivalent(&media("media:txt;textable"))
+            .is_equivalent(&media("media:textable;txt"))
             .unwrap());
     }
 
@@ -935,10 +935,10 @@ mod tests {
         // intern these as the SAME NodeId, so the strand has
         // exactly three node positions, not four.
         let extract = build_cap(
-            "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
+            "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
             "extract",
             &["media:pdf"],
-            "media:txt;textable",
+            "media:textable;txt",
         );
         let embed = build_cap(
             "cap:in=media:textable;embed;out=\"media:vec;record\"",
@@ -951,15 +951,15 @@ mod tests {
         let strand = strand_from_steps(
             vec![
                 cap_step(
-                    "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
+                    "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
                     "extract",
                     "media:pdf",
-                    "media:txt;textable",
+                    "media:textable;txt",
                 ),
                 cap_step(
                     "cap:in=media:textable;embed;out=\"media:vec;record\"",
                     "embed",
-                    "media:txt;textable",
+                    "media:textable;txt",
                     "media:vec;record",
                 ),
             ],
@@ -1083,10 +1083,10 @@ mod tests {
         let registry = registry_with(vec![]);
         let strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
+                "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
                 "extract",
                 "media:pdf",
-                "media:txt;textable",
+                "media:textable;txt",
             )],
             "pdf to txt with empty registry",
         );
@@ -1113,18 +1113,18 @@ mod tests {
         // positions must produce byte-identical canonical
         // anchor URN order. This pins the structural sort.
         let extract = build_cap(
-            "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
+            "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
             "extract",
             &["media:pdf"],
-            "media:txt;textable",
+            "media:textable;txt",
         );
         let registry = registry_with(vec![extract]);
         let strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
+                "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
                 "extract",
                 "media:pdf",
-                "media:txt;textable",
+                "media:textable;txt",
             )],
             "pdf to txt",
         );
@@ -1275,10 +1275,10 @@ mod tests {
         // Cap with two stdin args: textable (later alphabetically) and pdf (earlier).
         // Args are listed in reverse order so the test fails if sorting is skipped.
         let merge_cap = build_cap(
-            "cap:in=media:pdf;merge;out=\"media:txt;textable\"",
+            "cap:in=media:pdf;merge;out=\"media:textable;txt\"",
             "merge",
             &["media:textable", "media:pdf"],
-            "media:txt;textable",
+            "media:textable;txt",
         );
         let registry = registry_with(vec![merge_cap]);
 
@@ -1286,10 +1286,10 @@ mod tests {
         let nodes = vec![
             media("media:pdf"),
             media("media:textable"),
-            media("media:txt;textable"),
+            media("media:textable;txt"),
         ];
         let cap_urn =
-            CapUrn::from_string("cap:in=media:pdf;merge;out=\"media:txt;textable\"").unwrap();
+            CapUrn::from_string("cap:in=media:pdf;merge;out=\"media:textable;txt\"").unwrap();
         let wirings = vec![PreInternedWiring {
             cap_urn,
             source_node_ids: vec![0, 1], // pdf first, textable second

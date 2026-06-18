@@ -971,6 +971,7 @@ mod tests {
     fn make_test_cap(urn_str: &str) -> Cap {
         Cap {
             urn: CapUrn::from_string(urn_str).unwrap(),
+            version: 1,
             title: "test".to_string(),
             cap_description: None,
             documentation: None,

@@ -31,6 +31,7 @@
 pub mod bifaci;
 pub mod cap;
 pub mod fabric;
+pub mod fabric_manifest_version;
 pub mod input_resolver;
 pub mod machine;
 pub mod media;
@@ -59,6 +60,9 @@ pub use media::spec::*;
 
 // Unified fabric registry — caps + media defs in one type
 pub use fabric::registry::{FabricRegistry, FabricRegistryError, RegistryConfig, StoredMediaDef};
+
+// Build-time-baked fabric manifest version (see capdag/build.rs).
+pub use fabric_manifest_version::FABRIC_MANIFEST_VERSION;
 
 // Standard caps and media
 pub use standard::*;

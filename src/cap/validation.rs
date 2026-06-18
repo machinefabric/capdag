@@ -1225,11 +1225,7 @@ mod tests {
                 .await
                 .expect("Failed to create schema registry"),
         );
-        let fabric_registry = Arc::new(
-            FabricRegistry::new()
-                .await
-                .expect("Failed to create media registry"),
-        );
+        let fabric_registry = Arc::new(FabricRegistry::new_for_test());
         (schema_registry, fabric_registry)
     }
 
@@ -1237,6 +1233,21 @@ mod tests {
     #[tokio::test]
     async fn test051_input_validation_success() {
         let (schema_registry, fabric_registry) = test_registries().await;
+        // Seed MEDIA_STRING so the validator can resolve the cap's arg
+        // URN to a media def under the test registry's empty manifest.
+        fabric_registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
+            urn: MEDIA_STRING.to_string(),
+            media_type: "text/plain".to_string(),
+            title: "String".to_string(),
+            profile_uri: None,
+            schema: None,
+            description: None,
+            documentation: None,
+            validation: None,
+            metadata: None,
+            extensions: Vec::new(),
+        });
         let validator = InputValidator::new(schema_registry, fabric_registry);
 
         let urn = CapUrn::from_string(&test_urn("type=test;cap")).unwrap();
@@ -1311,6 +1322,7 @@ mod tests {
         // Seed the registry with the schema-bearing media def; caps no
         // longer carry inline media defs.
         fabric_registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: MEDIA_INTEGER.to_string(),
             media_type: "text/plain".to_string(),
             title: "Integer".to_string(),
@@ -1415,7 +1427,7 @@ mod tests {
                 MEDIA_STRING,
                 true,
                 vec![ArgSource::Stdin {
-                    stdin: "media:txt;textable".to_string(),
+                    stdin: "media:textable;txt".to_string(),
                 }],
             ),
             CapArg::new(
@@ -1440,14 +1452,14 @@ mod tests {
                 MEDIA_STRING,
                 true,
                 vec![ArgSource::Stdin {
-                    stdin: "media:txt;textable".to_string(),
+                    stdin: "media:textable;txt".to_string(),
                 }],
             ),
             CapArg::new(
                 MEDIA_INTEGER,
                 true,
                 vec![ArgSource::Stdin {
-                    stdin: "media:txt;textable".to_string(),
+                    stdin: "media:textable;txt".to_string(),
                 }],
             ),
         ]);
@@ -1622,7 +1634,7 @@ mod tests {
                 vec![
                     ArgSource::Position { position: 0 },
                     ArgSource::Stdin {
-                        stdin: "media:txt;textable".to_string(),
+                        stdin: "media:textable;txt".to_string(),
                     },
                 ],
             ),

@@ -103,9 +103,28 @@ pub struct CartridgeJson {
     /// Size in bytes of the original package.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub package_size: u64,
+    /// Fabric registry manifest version this cartridge was built against.
+    ///
+    /// 0 (the default for absent / legacy cartridge.json files) means
+    /// the cartridge predates the fabric registry's versioning protocol
+    /// and only understands the frozen flat-path v0 registry layout.
+    /// >= 1 means the cartridge was built against manifest version N
+    /// of the fabric registry and resolves URNs via the versioned-path
+    /// layout strictly pinned at N.
+    ///
+    /// The host engine pins to its own baked-in `FABRIC_MANIFEST_VERSION`
+    /// at build time and only attaches cartridges whose `fabric_manifest_version`
+    /// equals its own. A mismatch surfaces the cartridge as
+    /// "discovered but incompatible" without loading it.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub fabric_manifest_version: u32,
 }
 
 fn is_zero(v: &u64) -> bool {
+    *v == 0
+}
+
+fn is_zero_u32(v: &u32) -> bool {
     *v == 0
 }
 
@@ -151,6 +170,8 @@ impl<'de> Deserialize<'de> for CartridgeJson {
             package_sha256: String,
             #[serde(default)]
             package_size: u64,
+            #[serde(default)]
+            fabric_manifest_version: u32,
         }
         let inner =
             serde_json::from_value::<CartridgeJsonInner>(value).map_err(D::Error::custom)?;
@@ -165,6 +186,7 @@ impl<'de> Deserialize<'de> for CartridgeJson {
             source_url: inner.source_url,
             package_sha256: inner.package_sha256,
             package_size: inner.package_size,
+            fabric_manifest_version: inner.fabric_manifest_version,
         })
     }
 }
@@ -497,6 +519,7 @@ mod tests {
                     .to_string(),
             package_sha256: "abc123".to_string(),
             package_size: 12345,
+            fabric_manifest_version: 0,
         };
 
         let json = serde_json::to_string_pretty(&cj).unwrap();
@@ -528,6 +551,7 @@ mod tests {
             source_url: "https://cartridges.machinefabric.com/nightly/pdfcartridge/0.168.411/pdfcartridge-0.168.411.pkg".to_string(),
             package_sha256: "abc123".to_string(),
             package_size: 12345,
+            fabric_manifest_version: 0,
         };
         let json = serde_json::to_string(&cj).unwrap();
         // Wire form is lowercase (matches CartridgeChannel's
@@ -601,6 +625,7 @@ mod tests {
             source_url: String::new(),
             package_sha256: String::new(),
             package_size: 0,
+            fabric_manifest_version: 0,
         };
 
         let json = serde_json::to_string(&cj).unwrap();
@@ -661,6 +686,7 @@ mod tests {
             source_url: String::new(),
             package_sha256: String::new(),
             package_size: 0,
+            fabric_manifest_version: 0,
         };
         let serialized = serde_json::to_string(&cj).unwrap();
         assert!(
@@ -694,6 +720,7 @@ mod tests {
             source_url: String::new(),
             package_sha256: String::new(),
             package_size: 0,
+            fabric_manifest_version: 0,
         };
         let json = serde_json::to_string_pretty(&cj).unwrap();
         std::fs::write(dir.path().join("cartridge.json"), &json).unwrap();
@@ -724,6 +751,7 @@ mod tests {
             source_url: String::new(),
             package_sha256: String::new(),
             package_size: 0,
+            fabric_manifest_version: 0,
         };
         let json = serde_json::to_string_pretty(&cj).unwrap();
         std::fs::write(dir.path().join("cartridge.json"), &json).unwrap();
@@ -755,6 +783,7 @@ mod tests {
             source_url: String::new(),
             package_sha256: String::new(),
             package_size: 0,
+            fabric_manifest_version: 0,
         };
         cj.write_to_dir(dir.path()).unwrap();
 
@@ -789,6 +818,7 @@ mod tests {
             source_url: String::new(),
             package_sha256: String::new(),
             package_size: 0,
+            fabric_manifest_version: 0,
         };
         cj.write_to_dir(dir.path()).unwrap();
 
@@ -834,6 +864,7 @@ mod tests {
             source_url: String::new(),
             package_sha256: String::new(),
             package_size: 0,
+            fabric_manifest_version: 0,
         };
         cj.write_to_dir(dir.path()).unwrap();
 
@@ -869,6 +900,7 @@ mod tests {
             source_url: String::new(),
             package_sha256: String::new(),
             package_size: 0,
+            fabric_manifest_version: 0,
         };
         cj.write_to_dir(dir.path()).unwrap();
 
@@ -903,6 +935,7 @@ mod tests {
             source_url: String::new(),
             package_sha256: String::new(),
             package_size: 0,
+            fabric_manifest_version: 0,
         };
         cj.write_to_dir(dir.path()).unwrap();
 

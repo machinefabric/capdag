@@ -69,9 +69,9 @@ pub const MEDIA_OBJECT_LIST: &str = "media:list;record";
 
 // Semantic media types for specialized content
 /// Media URN for PNG image data
-pub const MEDIA_PNG: &str = "media:image;png";
+pub const MEDIA_PNG: &str = "media:ext=png;image";
 /// Media URN for audio data (wav, mp3, flac, etc.)
-pub const MEDIA_AUDIO: &str = "media:wav;audio";
+pub const MEDIA_AUDIO: &str = "media:audio;ext=wav";
 /// Media URN for video data (mp4, webm, mov, etc.)
 pub const MEDIA_VIDEO: &str = "media:video";
 
@@ -79,31 +79,31 @@ pub const MEDIA_VIDEO: &str = "media:video";
 // URNs published to the registry. Tagged-URN normalization makes the
 // declared and normalized forms equivalent under the parser, but matching
 // the canonical form exactly avoids surprising any code that prints URNs.
-pub const MEDIA_JPEG: &str = "media:jpeg;image";
-pub const MEDIA_GIF: &str = "media:gif;image";
-pub const MEDIA_BMP: &str = "media:bmp;image";
-pub const MEDIA_TIFF: &str = "media:tiff;image";
-pub const MEDIA_WEBP: &str = "media:webp;image";
+pub const MEDIA_JPEG: &str = "media:ext=jpeg;image";
+pub const MEDIA_GIF: &str = "media:ext=gif;image";
+pub const MEDIA_BMP: &str = "media:ext=bmp;image";
+pub const MEDIA_TIFF: &str = "media:ext=tiff;image";
+pub const MEDIA_WEBP: &str = "media:ext=webp;image";
 
 // Audio container formats. Conversion caps live in audiocartridge.
-pub const MEDIA_MP3: &str = "media:mp3;audio";
-pub const MEDIA_WAV: &str = "media:wav;audio";
-pub const MEDIA_FLAC: &str = "media:flac;audio";
-pub const MEDIA_OGG: &str = "media:ogg;audio";
-pub const MEDIA_AAC: &str = "media:aac;audio";
-pub const MEDIA_M4A: &str = "media:m4a;audio";
-pub const MEDIA_AIFF: &str = "media:aiff;audio";
-pub const MEDIA_OPUS: &str = "media:opus;audio";
+pub const MEDIA_MP3: &str = "media:audio;ext=mp3";
+pub const MEDIA_WAV: &str = "media:audio;ext=wav";
+pub const MEDIA_FLAC: &str = "media:audio;ext=flac";
+pub const MEDIA_OGG: &str = "media:audio;ext=ogg";
+pub const MEDIA_AAC: &str = "media:audio;ext=aac";
+pub const MEDIA_M4A: &str = "media:audio;ext=m4a";
+pub const MEDIA_AIFF: &str = "media:audio;ext=aiff";
+pub const MEDIA_OPUS: &str = "media:audio;ext=opus";
 
 // Video container formats. Conversion caps live in videocartridge.
-pub const MEDIA_MP4: &str = "media:mp4;video";
-pub const MEDIA_MOV: &str = "media:mov;video";
-pub const MEDIA_WEBM: &str = "media:webm;video";
-pub const MEDIA_MKV: &str = "media:mkv;video";
+pub const MEDIA_MP4: &str = "media:ext=mp4;video";
+pub const MEDIA_MOV: &str = "media:ext=mov;video";
+pub const MEDIA_WEBM: &str = "media:ext=webm;video";
+pub const MEDIA_MKV: &str = "media:ext=mkv;video";
 
 // Semantic AI input types - distinguished by their purpose/context
 /// Media URN for audio input containing speech for transcription (Whisper)
-pub const MEDIA_AUDIO_SPEECH: &str = "media:audio;wav;speech";
+pub const MEDIA_AUDIO_SPEECH: &str = "media:audio;ext=wav;speech";
 /// Media URN for extracted page text
 /// Media URN for a single page of finalised plain text extracted from a
 /// multi-page document (e.g. `cap:disbind-pdf`'s output, one item per page).
@@ -112,31 +112,31 @@ pub const MEDIA_AUDIO_SPEECH: &str = "media:audio;wav;speech";
 /// `plain-text` (the finalised-text marker that opts into
 /// `cap:save-as-txt`'s persistence path), and `file-type=txt` (binds the
 /// URN to the `.txt` extension at the registry).
-pub const MEDIA_TEXTABLE_PAGE: &str = "media:page;plain-text;textable;txt";
+pub const MEDIA_TEXTABLE_PAGE: &str = "media:ext=txt;page;plain-text;textable";
 
 // Document types (PRIMARY naming - type IS the format)
 /// Media URN for PDF documents
-pub const MEDIA_PDF: &str = "media:pdf";
+pub const MEDIA_PDF: &str = "media:ext=pdf";
 /// Media URN for EPUB documents
-pub const MEDIA_EPUB: &str = "media:epub";
+pub const MEDIA_EPUB: &str = "media:ext=epub";
 
 // Text format types (PRIMARY naming - type IS the format)
 /// Media URN for Markdown text
-pub const MEDIA_MD: &str = "media:md;textable";
+pub const MEDIA_MD: &str = "media:ext=md;textable";
 /// Media URN for plain text
-pub const MEDIA_TXT: &str = "media:txt;textable";
+pub const MEDIA_TXT: &str = "media:ext=txt;textable";
 /// Media URN for reStructuredText
-pub const MEDIA_RST: &str = "media:rst;textable";
+pub const MEDIA_RST: &str = "media:ext=rst;textable";
 /// Media URN for log files
-pub const MEDIA_LOG: &str = "media:log;textable";
+pub const MEDIA_LOG: &str = "media:ext=log;textable";
 /// Media URN for HTML documents
-pub const MEDIA_HTML: &str = "media:html;textable";
+pub const MEDIA_HTML: &str = "media:ext=html;textable";
 /// Media URN for XML documents
-pub const MEDIA_XML: &str = "media:xml;textable";
+pub const MEDIA_XML: &str = "media:ext=xml;textable";
 /// Media URN for JSON data - has record marker (structured key-value)
 pub const MEDIA_JSON: &str = "media:json;record;textable";
 /// Media URN for JSON with schema constraint (input for structured queries)
-pub const MEDIA_JSON_SCHEMA: &str = "media:json;json-schema;record;textable";
+pub const MEDIA_JSON_SCHEMA: &str = "media:ext=json-schema;json;record;textable";
 /// Media URN for YAML data - has record marker (structured key-value)
 pub const MEDIA_YAML: &str = "media:record;textable;yaml";
 
@@ -158,9 +158,9 @@ pub const MEDIA_YAML_LIST: &str = "media:list;textable;yaml";
 /// Media URN for a YAML sequence of mappings (list of records)
 pub const MEDIA_YAML_LIST_RECORD: &str = "media:list;record;textable;yaml";
 /// Media URN for CSV data — by definition a list of records (header row + data rows)
-pub const MEDIA_CSV: &str = "media:csv;list;record;textable";
+pub const MEDIA_CSV: &str = "media:ext=csv;list;record;textable";
 /// Media URN for single-column CSV — list of values without record structure
-pub const MEDIA_CSV_LIST: &str = "media:csv;list;record;textable";
+pub const MEDIA_CSV_LIST: &str = "media:ext=csv;list;record;textable";
 
 // File path type — for arguments that represent filesystem paths.
 // There is a single media URN; cardinality lives on `is_sequence`, not on
@@ -336,7 +336,7 @@ pub const MEDIA_EMBEDDING_VECTOR: &str = "media:embedding-vector;record;textable
 /// (the finalised-text marker that opts into `cap:save-as-txt`'s persistence
 /// path), and `file-type=txt` (binds the URN to the `.txt` extension at the
 /// registry).
-pub const MEDIA_IMAGE_DESCRIPTION: &str = "media:image-description;plain-text;textable;txt";
+pub const MEDIA_IMAGE_DESCRIPTION: &str = "media:ext=txt;image-description;plain-text;textable";
 /// Media URN for OCR output — verbatim text extracted from an image, scalar by default.
 /// Distinct from `MEDIA_IMAGE_DESCRIPTION` (which is a generated caption / answer about
 /// the image) — `extracted-text` carries text that is *present* in the image.
@@ -344,12 +344,12 @@ pub const MEDIA_IMAGE_DESCRIPTION: &str = "media:image-description;plain-text;te
 /// The composite URN carries `extracted-text` (the OCR-specific marker), `plain-text`
 /// (the finalised-text marker that opts into `cap:save-as-txt`'s persistence path),
 /// and `file-type=txt` (binds the URN to the `.txt` extension at the registry).
-pub const MEDIA_EXTRACTED_TEXT: &str = "media:extracted-text;plain-text;textable;txt";
+pub const MEDIA_EXTRACTED_TEXT: &str = "media:ext=txt;extracted-text;plain-text;textable";
 /// Media URN for finalised plain text — the canonical input/output of `cap:save-as-txt`.
 /// Producers of user-facing prose (LLM text-generation, OCR's extracted text,
 /// summarisation) declare this URN as their `out` so the planner restricts the
 /// `.txt` persistence path to those caps. See `fabric/media/plain-text.toml`.
-pub const MEDIA_PLAIN_TEXT: &str = "media:plain-text;textable;txt";
+pub const MEDIA_PLAIN_TEXT: &str = "media:ext=txt;plain-text;textable";
 /// Media URN for transcription output - has record marker
 pub const MEDIA_TRANSCRIPTION_OUTPUT: &str = "media:record;textable;transcription";
 /// Media URN for decision output — JSON object with identifier and boolean value
@@ -376,6 +376,15 @@ pub const MEDIA_CAP_URN: &str = "media:cap-urn;textable";
 /// the `MediaUrn` parser; consumers re-parse it through
 /// `MediaUrn::from_string` before any comparison or dispatch decision.
 pub const MEDIA_MEDIA_URN: &str = "media:media-urn;textable";
+
+/// Media URN for a fabric registry per-definition version (defver).
+///
+/// Carried as data alongside a URN when a cap looks up a definition
+/// pinned to a specific manifest snapshot. Value is the UTF-8 string
+/// representation of a non-negative integer. Absent ⇒ defver 0 (legacy
+/// v0 flat-path lookup); present ⇒ the engine has resolved the URN
+/// against its pinned manifest and is asking for that exact defver.
+pub const MEDIA_FABRIC_DEFVER: &str = "media:defver;textable";
 
 /// Media URN for the full flattened cap definition published by the registry.
 ///
@@ -835,10 +844,10 @@ mod tests {
     fn test061_is_binary() {
         // Binary types: no textable tag
         assert!(MediaUrn::from_string(MEDIA_IDENTITY).unwrap().is_binary()); // "media:"
-        assert!(MediaUrn::from_string(MEDIA_PNG).unwrap().is_binary()); // "media:image;png"
-        assert!(MediaUrn::from_string(MEDIA_PDF).unwrap().is_binary()); // "media:pdf"
+        assert!(MediaUrn::from_string(MEDIA_PNG).unwrap().is_binary()); // "media:ext=png;image"
+        assert!(MediaUrn::from_string(MEDIA_PDF).unwrap().is_binary()); // "media:ext=pdf"
         assert!(MediaUrn::from_string("media:video").unwrap().is_binary());
-        assert!(MediaUrn::from_string("media:epub").unwrap().is_binary());
+        assert!(MediaUrn::from_string("media:ext=epub").unwrap().is_binary());
         // Textable types: is_binary is false
         assert!(!MediaUrn::from_string("media:textable").unwrap().is_binary());
         assert!(!MediaUrn::from_string("media:textable;record")
@@ -940,7 +949,7 @@ mod tests {
         assert!(MediaUrn::from_string(MEDIA_JSON).unwrap().is_text()); // "media:json;record;textable"
                                                                        // Without textable tag, is_text is false
         assert!(!MediaUrn::from_string(MEDIA_IDENTITY).unwrap().is_text()); // "media:"
-        assert!(!MediaUrn::from_string(MEDIA_PNG).unwrap().is_text()); // "media:image;png"
+        assert!(!MediaUrn::from_string(MEDIA_PNG).unwrap().is_text()); // "media:ext=png;image"
         assert!(!MediaUrn::from_string(MEDIA_OBJECT).unwrap().is_text()); // "media:record" (no textable)
     }
 
@@ -1022,15 +1031,15 @@ mod tests {
     fn test074_media_urn_matching() {
         // PDF listing conforms to PDF requirement (PRIMARY type naming)
         // A more specific URN (media:pdf) conforms to a less specific requirement (media:pdf)
-        let pdf_listing = MediaUrn::from_string(MEDIA_PDF).unwrap(); // "media:pdf"
-        let pdf_requirement = MediaUrn::from_string("media:pdf").unwrap();
+        let pdf_listing = MediaUrn::from_string(MEDIA_PDF).unwrap(); // "media:ext=pdf"
+        let pdf_requirement = MediaUrn::from_string("media:ext=pdf").unwrap();
         assert!(pdf_listing
             .conforms_to(&pdf_requirement)
             .expect("MediaUrn prefix mismatch impossible"));
 
         // Markdown listing conforms to md requirement (PRIMARY type naming)
-        let md_listing = MediaUrn::from_string(MEDIA_MD).unwrap(); // "media:md;textable"
-        let md_requirement = MediaUrn::from_string("media:md").unwrap();
+        let md_listing = MediaUrn::from_string(MEDIA_MD).unwrap(); // "media:ext=md;textable"
+        let md_requirement = MediaUrn::from_string("media:ext=md").unwrap();
         assert!(md_listing
             .conforms_to(&md_requirement)
             .expect("MediaUrn prefix mismatch impossible"));
@@ -1194,7 +1203,7 @@ mod debug_tests {
         assert!(MediaUrn::from_string(MEDIA_AUDIO_SPEECH)
             .unwrap()
             .is_audio());
-        assert!(MediaUrn::from_string("media:audio;mp3").unwrap().is_audio());
+        assert!(MediaUrn::from_string("media:audio;ext=mp3").unwrap().is_audio());
         // Non-audio types
         assert!(!MediaUrn::from_string(MEDIA_VIDEO).unwrap().is_audio());
         assert!(!MediaUrn::from_string(MEDIA_PNG).unwrap().is_audio());
@@ -1205,7 +1214,7 @@ mod debug_tests {
     #[test]
     fn test548_is_video() {
         assert!(MediaUrn::from_string(MEDIA_VIDEO).unwrap().is_video());
-        assert!(MediaUrn::from_string("media:video;mp4").unwrap().is_video());
+        assert!(MediaUrn::from_string("media:ext=mp4;video").unwrap().is_video());
         // Non-video types
         assert!(!MediaUrn::from_string(MEDIA_AUDIO).unwrap().is_video());
         assert!(!MediaUrn::from_string(MEDIA_PNG).unwrap().is_video());
@@ -1345,7 +1354,7 @@ mod debug_tests {
     // TEST852: LUB of identical URNs returns the same URN
     #[test]
     fn test852_lub_identical() {
-        let pdf = MediaUrn::from_string("media:pdf").unwrap();
+        let pdf = MediaUrn::from_string("media:ext=pdf").unwrap();
         let lub = MediaUrn::least_upper_bound(&[pdf.clone(), pdf.clone()]);
         assert!(lub.is_equivalent(&pdf).unwrap());
     }
@@ -1353,8 +1362,8 @@ mod debug_tests {
     // TEST853: LUB of URNs with no common tags returns media: (universal)
     #[test]
     fn test853_lub_no_common_tags() {
-        let pdf = MediaUrn::from_string("media:pdf").unwrap();
-        let png = MediaUrn::from_string("media:image;png").unwrap();
+        let pdf = MediaUrn::from_string("media:ext=pdf").unwrap();
+        let png = MediaUrn::from_string("media:ext=png;image").unwrap();
         let lub = MediaUrn::least_upper_bound(&[pdf, png]);
         let universal = MediaUrn::from_string("media:").unwrap();
         assert!(
@@ -1368,7 +1377,7 @@ mod debug_tests {
     #[test]
     fn test854_lub_partial_overlap() {
         let json_text = MediaUrn::from_string("media:json;textable").unwrap();
-        let csv_text = MediaUrn::from_string("media:csv;textable").unwrap();
+        let csv_text = MediaUrn::from_string("media:ext=csv;textable").unwrap();
         let lub = MediaUrn::least_upper_bound(&[json_text, csv_text]);
         let expected = MediaUrn::from_string("media:textable").unwrap();
         assert!(
@@ -1403,7 +1412,7 @@ mod debug_tests {
     // TEST857: LUB of single input returns that input
     #[test]
     fn test857_lub_single() {
-        let pdf = MediaUrn::from_string("media:pdf").unwrap();
+        let pdf = MediaUrn::from_string("media:ext=pdf").unwrap();
         let lub = MediaUrn::least_upper_bound(&[pdf.clone()]);
         assert!(lub.is_equivalent(&pdf).unwrap());
     }
@@ -1412,7 +1421,7 @@ mod debug_tests {
     #[test]
     fn test858_lub_three_inputs() {
         let a = MediaUrn::from_string("media:json;list;record;textable").unwrap();
-        let b = MediaUrn::from_string("media:csv;list;record;textable").unwrap();
+        let b = MediaUrn::from_string("media:ext=csv;list;record;textable").unwrap();
         let c = MediaUrn::from_string("media:ndjson;list;textable").unwrap();
         let lub = MediaUrn::least_upper_bound(&[a, b, c]);
         let expected = MediaUrn::from_string("media:list;textable").unwrap();
@@ -1483,7 +1492,7 @@ mod debug_tests {
         // a key=value tag like `reason=warmup`.
         let bad_inputs = [
             "media:void;text",
-            "media:void;pdf",
+            "media:ext=pdf;void",
             "media:void;audio",
             "media:void;reason=warmup",
             "media:void;heartbeat",

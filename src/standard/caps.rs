@@ -15,6 +15,7 @@ use crate::urn::media_urn::{
     MEDIA_DOWNLOAD_OUTPUT,
     MEDIA_EMBEDDING_VECTOR,
     MEDIA_EPUB,
+    MEDIA_FABRIC_DEFVER,
     MEDIA_IDENTITY,
     MEDIA_INTEGER,
     MEDIA_JSON,
@@ -138,6 +139,21 @@ pub fn lookup_cap_fabric_cap() -> Cap {
             ],
             "Canonical cap URN to look up.".to_string(),
         ));
+    // Optional per-def version under the caller's pinned manifest. The
+    // engine resolves the URN → defver against its manifest before
+    // invoking and passes the result via this stream. Absent ⇒ defver 0
+    // (legacy v0 flat-path lookup).
+    cap.args
+        .push(crate::cap::definition::CapArg::with_description(
+            MEDIA_FABRIC_DEFVER,
+            false,
+            vec![crate::cap::definition::ArgSource::CliFlag {
+                cli_flag: "--defver".to_string(),
+            }],
+            "Per-definition version under the caller's manifest snapshot. \
+             Absent ⇒ defver 0 (legacy v0 flat-path lookup)."
+                .to_string(),
+        ));
     cap.set_output(crate::cap::definition::CapOutput::new(
         MEDIA_CAP_DEFINITION,
         "Full flattened cap definition as published in the registry.",
@@ -169,6 +185,17 @@ pub fn lookup_media_def_fabric_cap() -> Cap {
                 crate::cap::definition::ArgSource::Position { position: 0 },
             ],
             "Canonical media URN to look up.".to_string(),
+        ));
+    cap.args
+        .push(crate::cap::definition::CapArg::with_description(
+            MEDIA_FABRIC_DEFVER,
+            false,
+            vec![crate::cap::definition::ArgSource::CliFlag {
+                cli_flag: "--defver".to_string(),
+            }],
+            "Per-definition version under the caller's manifest snapshot. \
+             Absent ⇒ defver 0 (legacy v0 flat-path lookup)."
+                .to_string(),
         ));
     cap.set_output(crate::cap::definition::CapOutput::new(
         MEDIA_MEDIA_DEFINITION,

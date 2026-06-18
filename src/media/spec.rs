@@ -256,7 +256,7 @@ impl MediaValidation {
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaDef {
-    /// The media URN identifier (e.g., "media:pdf;binary")
+    /// The media URN identifier (e.g., "media:binary;pdf")
     pub urn: String,
     /// The MIME media type (e.g., "application/json", "text/plain")
     pub media_type: String,
@@ -625,9 +625,7 @@ mod tests {
     // through the registry's `insert_cached_media_def_for_test` helper —
     // there is no longer any cap-local media_defs override path.
     async fn test_registry() -> crate::media::registry::FabricRegistry {
-        crate::media::registry::FabricRegistry::new()
-            .await
-            .expect("Failed to create test registry")
+        crate::media::registry::FabricRegistry::new_for_test()
     }
 
     // TEST088: Resolving a media URN seeded into the registry returns
@@ -638,6 +636,7 @@ mod tests {
     async fn test088_resolve_seeded_spec() {
         let registry = test_registry().await;
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "media:textable".to_string(),
             media_type: "text/plain".to_string(),
             title: "Textable".to_string(),
@@ -667,6 +666,7 @@ mod tests {
             "properties": { "name": { "type": "string" } }
         });
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "media:json;output-spec;record".to_string(),
             media_type: "application/json".to_string(),
             title: "Output Spec".to_string(),
@@ -917,6 +917,7 @@ mod tests {
     async fn test105_metadata_propagation() {
         let registry = test_registry().await;
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "media:custom-setting".to_string(),
             media_type: "text/plain".to_string(),
             title: "Custom Setting".to_string(),
@@ -946,6 +947,7 @@ mod tests {
     async fn test106_metadata_with_validation() {
         let registry = test_registry().await;
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "media:bounded-number;numeric".to_string(),
             media_type: "text/plain".to_string(),
             title: "Bounded Number".to_string(),
@@ -993,6 +995,7 @@ mod tests {
     async fn test107_extensions_propagation() {
         let registry = test_registry().await;
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "media:custom-pdf".to_string(),
             media_type: "application/pdf".to_string(),
             title: "PDF Document".to_string(),
@@ -1039,6 +1042,7 @@ mod tests {
     async fn test893_extensions_with_metadata_and_validation() {
         let registry = test_registry().await;
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "media:custom-output;json".to_string(),
             media_type: "application/json".to_string(),
             title: "Custom Output".to_string(),
@@ -1075,6 +1079,7 @@ mod tests {
     async fn test894_multiple_extensions() {
         let registry = test_registry().await;
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "media:image;jpeg".to_string(),
             media_type: "image/jpeg".to_string(),
             title: "JPEG Image".to_string(),
@@ -1108,6 +1113,7 @@ mod tests {
         let registry = test_registry().await;
         let body = "## Markdown body\n\nWith `code` and a [link](https://example.com).";
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "media:doc-test;textable".to_string(),
             media_type: "text/plain".to_string(),
             title: "Documented".to_string(),

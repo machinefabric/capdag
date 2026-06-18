@@ -1436,7 +1436,7 @@ mod tests {
                         {
                             "name": "image-formats",
                             "caps": [
-                                {"urn": "cap:in=\"media:image;jpeg\";convert-image;out=\"media:image;png\"", "title": "Convert JPEG to PNG", "command": "convert-image"}
+                                {"urn": "cap:in=\"media:convert-image;image;jpeg;png\";out=\"media:image\"", "title": "Convert JPEG to PNG", "command": "convert-image"}
                             ],
                             "adapter_urns": ["media:bmp;image", "media:image;jpeg", "media:image;png", "media:image;tiff", "media:image;webp", "media:gif;image"]
                         }
@@ -1955,7 +1955,7 @@ mod tests {
         let repo = CartridgeRepo::new(3600);
         let cap1 = "cap:in=\"media:pdf\";disbind;out=\"media:disbound-page;textable;list\"";
         let cap2 =
-            "cap:in=\"media:txt;textable\";disbind;out=\"media:disbound-page;textable;list\"";
+            "cap:in=\"media:textable;txt\";disbind;out=\"media:disbound-page;textable;list\"";
 
         let registry = CartridgeRegistryResponse {
             cartridges: vec![
