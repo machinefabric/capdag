@@ -757,7 +757,12 @@ impl CartridgeManager {
                 ))
             })?;
 
-        let package = &build.package;
+        let package = build.primary_package().ok_or_else(|| {
+            ExecutionError::CartridgeDownloadFailed(format!(
+                "Cartridge {} v{} build for '{}' ships no installer packages",
+                cartridge_id, cartridge_info.version, platform
+            ))
+        })?;
 
         // The v5 manifest carries the absolute URL on the package itself.
         // No URL derivation: if the manifest's URL is wrong, we want to fail

@@ -92,7 +92,7 @@ pub use bifaci::manifest::*;
 pub use async_trait::async_trait;
 pub use bifaci::cartridge_repo::{
     CartridgeBuild, CartridgeChannel, CartridgeChannelEntries, CartridgeDistributionInfo,
-    CartridgeInfo, CartridgePackageInfo, CartridgeRegistry, CartridgeRegistryChannels,
+    CartridgeInfo, CartridgeRegistry, CartridgeRegistryChannels,
     CartridgeRegistryEntry, CartridgeRegistryResponse, CartridgeRepo, CartridgeRepoError,
     CartridgeSuggestion, CartridgeVersionData, RegistryArgSource, RegistryCap, RegistryCapArg,
     RegistryCapGroup, RegistryCapOutput,
