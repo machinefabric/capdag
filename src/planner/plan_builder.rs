@@ -870,7 +870,7 @@ mod tests {
             )?,
             make_test_cap(
                 "extract_metadata",
-                "media:txt;textable",
+                "media:textable;txt",
                 "media:file-metadata;textable;record",
                 "Extract TXT Metadata",
             )?,

@@ -1352,6 +1352,7 @@ mod tests {
 
         Cap {
             urn: cap_urn,
+            version: 1,
             title: title.to_string(),
             cap_description: None,
             documentation: None,
@@ -1385,6 +1386,7 @@ mod tests {
 
         Cap {
             urn: cap_urn,
+            version: 1,
             title: title.to_string(),
             cap_description: None,
             documentation: None,
@@ -2363,7 +2365,7 @@ mod tests {
         registry.add_caps_to_cache(vec![cap]);
 
         let cap_urn =
-            CapUrn::from_string("cap:extract;in=media:pdf;out=\"media:txt;textable\"").unwrap();
+            CapUrn::from_string("cap:extract;in=media:pdf;out=\"media:textable;txt\"").unwrap();
         let strand = Strand {
             steps: vec![StrandStep {
                 step_type: StrandStepType::Cap {
@@ -2374,10 +2376,10 @@ mod tests {
                     output_is_sequence: false,
                 },
                 from_spec: MediaUrn::from_string("media:pdf").unwrap(),
-                to_spec: MediaUrn::from_string("media:txt;textable").unwrap(),
+                to_spec: MediaUrn::from_string("media:textable;txt").unwrap(),
             }],
             source_media_urn: MediaUrn::from_string("media:pdf").unwrap(),
-            target_media_urn: MediaUrn::from_string("media:txt;textable").unwrap(),
+            target_media_urn: MediaUrn::from_string("media:textable;txt").unwrap(),
             total_steps: 1,
             cap_step_count: 1,
             description: "pdf to txt".to_string(),
@@ -2409,7 +2411,7 @@ mod tests {
         // Note: no caps added to the registry.
 
         let cap_urn =
-            CapUrn::from_string("cap:ghost;in=media:pdf;out=\"media:txt;textable\"").unwrap();
+            CapUrn::from_string("cap:ghost;in=media:pdf;out=\"media:textable;txt\"").unwrap();
         let strand = Strand {
             steps: vec![StrandStep {
                 step_type: StrandStepType::Cap {
@@ -2420,10 +2422,10 @@ mod tests {
                     output_is_sequence: false,
                 },
                 from_spec: MediaUrn::from_string("media:pdf").unwrap(),
-                to_spec: MediaUrn::from_string("media:txt;textable").unwrap(),
+                to_spec: MediaUrn::from_string("media:textable;txt").unwrap(),
             }],
             source_media_urn: MediaUrn::from_string("media:pdf").unwrap(),
-            target_media_urn: MediaUrn::from_string("media:txt;textable").unwrap(),
+            target_media_urn: MediaUrn::from_string("media:textable;txt").unwrap(),
             total_steps: 1,
             cap_step_count: 1,
             description: "ghost strand".to_string(),

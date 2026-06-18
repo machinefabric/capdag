@@ -616,10 +616,10 @@ mod tests {
 
     fn pdf_extract_embed_registry() -> FabricRegistry {
         let extract = build_cap(
-            "cap:in=media:pdf;extract;out=\"media:txt;textable\"",
+            "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
             "extract",
             &["media:pdf"],
-            "media:txt;textable",
+            "media:textable;txt",
         );
         let embed = build_cap(
             "cap:in=media:textable;embed;out=\"media:vec;record\"",

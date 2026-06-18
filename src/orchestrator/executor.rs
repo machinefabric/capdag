@@ -323,6 +323,11 @@ pub struct CartridgeManager {
     /// install/run cartridges that match its channel — release builds
     /// never touch nightly artefacts and vice versa.
     channel: crate::bifaci::cartridge_repo::CartridgeChannel,
+    /// Fabric registry manifest version stamped into every cartridge.json
+    /// this manager writes. Typically the engine's build-time-baked
+    /// `capdag::FABRIC_MANIFEST_VERSION`; passed in at construction so
+    /// tests can write provenance at arbitrary versions.
+    fabric_manifest_version: u32,
     dev_cartridges: HashMap<PathBuf, CapManifest>,
 }
 
@@ -331,6 +336,7 @@ impl CartridgeManager {
         cartridge_dir: PathBuf,
         registry_url: String,
         channel: crate::bifaci::cartridge_repo::CartridgeChannel,
+        fabric_manifest_version: u32,
         dev_binaries: Vec<PathBuf>,
     ) -> Self {
         use crate::bifaci::cartridge_json::CartridgeJson;
@@ -388,6 +394,7 @@ impl CartridgeManager {
             cartridge_dir,
             registry_url,
             channel,
+            fabric_manifest_version,
             dev_cartridges: resolved
                 .into_iter()
                 .map(|p| {
@@ -836,6 +843,7 @@ impl CartridgeManager {
             source_url: download_url.to_string(),
             package_sha256: package.sha256.clone(),
             package_size: package.size,
+            fabric_manifest_version: self.fabric_manifest_version,
         };
         cj.write_to_dir(&version_dir).map_err(|e| {
             ExecutionError::CartridgeDownloadFailed(format!(
@@ -1530,6 +1538,7 @@ pub async fn execute_dag(
     cartridge_dir: PathBuf,
     registry_url: String,
     channel: crate::bifaci::cartridge_repo::CartridgeChannel,
+    fabric_manifest_version: u32,
     initial_inputs: HashMap<String, NodeData>,
     initial_is_sequence: HashMap<String, bool>,
     dev_binaries: Vec<PathBuf>,
@@ -1539,8 +1548,13 @@ pub async fn execute_dag(
     node_values: &HashMap<String, HashMap<String, serde_json::Value>>,
 ) -> Result<HashMap<String, NodeData>, ExecutionError> {
     // 1. Initialize cartridge manager and discover/download all needed cartridges
-    let mut cartridge_manager =
-        CartridgeManager::new(cartridge_dir, registry_url, channel, dev_binaries);
+    let mut cartridge_manager = CartridgeManager::new(
+        cartridge_dir,
+        registry_url,
+        channel,
+        fabric_manifest_version,
+        dev_binaries,
+    );
     cartridge_manager.init().await?;
 
     let cap_urns: Vec<&str> = graph.edges.iter().map(|e| e.cap_urn.as_str()).collect();

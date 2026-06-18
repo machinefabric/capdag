@@ -486,6 +486,7 @@ async fn main() {
             cartridge_dir.clone(),
             registry_url.clone(),
             BUILD_CHANNEL,
+            capdag::FABRIC_MANIFEST_VERSION,
             initial_inputs,
             initial_is_sequence,
             dev_binaries.clone(),

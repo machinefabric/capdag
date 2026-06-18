@@ -210,6 +210,7 @@ mod tests {
             let out_spec = cap_urn.out_spec().to_string();
             caps.push(Cap {
                 urn: cap_urn,
+                version: 1,
                 title: "Test Cap".to_string(),
                 cap_description: None,
                 documentation: None,

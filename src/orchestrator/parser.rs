@@ -60,7 +60,7 @@ fn check_structure_compatibility(
 /// Machine notation format (both forms are equally valid):
 ///
 /// ```text
-/// extract cap:in="media:pdf";extract;out="media:txt;textable"
+/// extract cap:in="media:pdf";extract;out="media:textable;txt"
 /// doc -> extract -> text
 /// ```
 ///
@@ -278,6 +278,7 @@ mod tests {
                 .collect();
             cap_values.push(Cap {
                 urn: cap_urn,
+                version: 1,
                 title: "Test Cap".to_string(),
                 cap_description: None,
                 documentation: None,
@@ -308,7 +309,7 @@ mod tests {
         let registry = build_test_registry(&[(
             r#"cap:in="media:pdf";extract;out="media:txt;textable""#,
             &["media:pdf"],
-            "media:txt;textable",
+            "media:textable;txt",
         )]);
 
         let notation = concat!(
@@ -333,7 +334,7 @@ mod tests {
         );
 
         let node_b = MediaUrn::from_string(graph.nodes.get("B").unwrap()).unwrap();
-        let expected_b = MediaUrn::from_string("media:txt;textable").unwrap();
+        let expected_b = MediaUrn::from_string("media:textable;txt").unwrap();
         assert!(
             node_b.is_equivalent(&expected_b).unwrap(),
             "Node B: expected media:txt;textable, got {}",
@@ -348,11 +349,11 @@ mod tests {
             (
                 r#"cap:in="media:pdf";extract;out="media:txt;textable""#,
                 &["media:pdf"],
-                "media:txt;textable",
+                "media:textable;txt",
             ),
             (
                 r#"cap:in="media:txt;textable";embed;out="media:embedding-vector;record;textable""#,
-                &["media:txt;textable"],
+                &["media:textable;txt"],
                 "media:embedding-vector;record;textable",
             ),
         ]);
@@ -373,7 +374,7 @@ mod tests {
 
         // Verify the intermediate node B has the correct media type
         let node_b = MediaUrn::from_string(graph.nodes.get("B").unwrap()).unwrap();
-        let expected_b = MediaUrn::from_string("media:txt;textable").unwrap();
+        let expected_b = MediaUrn::from_string("media:textable;txt").unwrap();
         assert!(
             node_b.is_equivalent(&expected_b).unwrap(),
             "Intermediate node B should be media:txt;textable, got {}",
@@ -480,7 +481,7 @@ mod tests {
         let registry = build_test_registry(&[(
             r#"cap:in="media:disbound-page;textable";page-to-text;out="media:txt;textable""#,
             &["media:disbound-page;textable"],
-            "media:txt;textable",
+            "media:textable;txt",
         )]);
 
         let notation = concat!(
@@ -549,8 +550,8 @@ mod tests {
     async fn test1263_cycle_detection() {
         let registry = build_test_registry(&[(
             r#"cap:in="media:txt;textable";process;out="media:txt;textable""#,
-            &["media:txt;textable"],
-            "media:txt;textable",
+            &["media:textable;txt"],
+            "media:textable;txt",
         )]);
 
         // A -> B -> C -> A creates a cycle (three wirings
@@ -591,7 +592,7 @@ mod tests {
             (
                 r#"cap:in="media:audio;wav";transcribe;out="media:txt;textable""#,
                 &["media:audio;wav"],
-                "media:txt;textable",
+                "media:textable;txt",
             ),
         ]);
 
@@ -634,7 +635,7 @@ mod tests {
             ),
             (
                 r#"cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;record;textable""#,
-                &["media:image;png;bytes"],
+                &["media:bytes;image;png"],
                 "media:embedding-vector;record;textable",
             ),
         ]);
@@ -679,7 +680,7 @@ mod tests {
             (
                 r#"cap:in="media:json;textable";process;out="media:txt;textable""#,
                 &["media:json;textable"],
-                "media:txt;textable",
+                "media:textable;txt",
             ),
         ]);
 
@@ -752,7 +753,7 @@ mod tests {
             (
                 r#"cap:in="media:json;textable";format;out="media:txt;textable""#,
                 &["media:json;textable"],
-                "media:txt;textable",
+                "media:textable;txt",
             ),
         ]);
 
@@ -781,7 +782,7 @@ mod tests {
         let registry = build_test_registry(&[(
             r#"cap:in="media:pdf";extract;out="media:txt;textable""#,
             &["media:pdf"],
-            "media:txt;textable",
+            "media:textable;txt",
         )]);
 
         let notation = r#"

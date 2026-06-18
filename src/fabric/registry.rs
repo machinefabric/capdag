@@ -34,6 +34,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, watch};
 
 const DEFAULT_REGISTRY_BASE_URL: &str = "https://fabric.capdag.com";
+
+/// Wall-clock TTL retained only for the v0 (legacy, flat-path) resolution
+/// mode. Versioned objects at v >= 1 are immutable by protocol — once a
+/// definition is published at `caps/<sha>/<defver>.json`, its bytes
+/// never change — so versioned cache entries never expire.
 const CACHE_DURATION_HOURS: u64 = 24;
 
 /// Hard wall-clock budget for the synchronous fetch attempt that
@@ -97,9 +102,14 @@ impl RegistryConfig {
 // =============================================================================
 
 /// Stored media def format (matches registry API response)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StoredMediaDef {
     pub urn: String,
+    /// Per-definition version. 0 ⇒ v0 (frozen flat-path); >= 1 ⇒ pinned
+    /// at `media/<sha256-of-urn>/<version>.json` and referenced by a
+    /// manifest at that defver.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub version: u32,
     pub media_type: String,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,6 +126,10 @@ pub struct StoredMediaDef {
     pub metadata: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<String>,
+}
+
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 impl StoredMediaDef {
@@ -195,11 +209,46 @@ fn normalize_media_urn(urn: &str) -> String {
     }
 }
 
-/// Distinguishes domain on the background-fetch queue.
+/// Distinguishes domain on the background-fetch queue. Pairs URN with
+/// defver so the consumer always hits the right R2 path.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum FetchKey {
-    Cap(String),
-    Media(String),
+    Cap { urn: String, defver: u32 },
+    Media { urn: String, defver: u32 },
+}
+
+/// A versioned registry snapshot. Mirrors `fabric/manifest.schema.json`
+/// on the wire.
+///
+/// v0 (the implicit pre-versioning state) has no manifest object — the
+/// registry resolves URNs via the frozen flat R2 paths in that mode.
+/// Manifests at version >= 1 explicitly name every URN that belongs to
+/// the snapshot, paired with the defver at which it is published.
+///
+/// A defver of 0 in this manifest's `caps` or `media` map means the
+/// entry resolves through the legacy flat path; that is allowed by the
+/// wire schema even though no source TOML produces a v0 def.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Manifest {
+    pub version: u32,
+    pub previous: u32,
+    #[serde(default)]
+    pub caps: HashMap<String, u32>,
+    #[serde(default)]
+    pub media: HashMap<String, u32>,
+}
+
+impl Manifest {
+    /// Build an empty manifest pinned at `version`. `previous` is set to
+    /// `version - 1` so re-publishing the same content stays byte-stable.
+    pub fn empty(version: u32) -> Self {
+        Self {
+            version,
+            previous: version.saturating_sub(1),
+            caps: HashMap::new(),
+            media: HashMap::new(),
+        }
+    }
 }
 
 // =============================================================================
@@ -211,13 +260,27 @@ pub struct FabricRegistry {
     client: reqwest::Client,
     /// Root cache directory. Caps and media defs live in `caps/` and
     /// `media/` subdirectories respectively, mirroring the registry's
-    /// own URL layout.
+    /// own URL layout. v0 entries live at `caps/<sha>.json` and
+    /// `media/<sha>.json`; v >= 1 entries live at `caps/<sha>/<defver>.json`
+    /// and `media/<sha>/<defver>.json`. Manifests live in `manifests/<N>.json`.
     cache_dir: PathBuf,
     cached_caps: Arc<Mutex<HashMap<String, Cap>>>,
     cached_media_defs: Arc<Mutex<HashMap<String, StoredMediaDef>>>,
     /// Lower-case extension → list of canonical media URNs.
     extension_index: Arc<Mutex<HashMap<String, Vec<String>>>>,
     config: RegistryConfig,
+    /// Fabric manifest version this registry is pinned to. 0 means
+    /// legacy v0 / flat-path resolution (the implicit pre-versioning
+    /// mode). >= 1 means manifest-driven resolution. Set at construction
+    /// from the caller (engine bakes `capdag::FABRIC_MANIFEST_VERSION`).
+    manifest_version: u32,
+    /// Live snapshot of the registry pinned at `manifest_version`. For
+    /// v0 this is an `empty(0)` placeholder and never consulted for
+    /// resolution. For v >= 1 every URN lookup hits this map first to
+    /// turn the URN into a `(urn, defver)` pair before fetching.
+    /// Wrapped in Mutex because test helpers like `add_caps_to_cache`
+    /// mutate it.
+    manifest: Arc<Mutex<Manifest>>,
     offline_flag: Arc<AtomicBool>,
     fetch_queue_tx: Option<mpsc::UnboundedSender<FetchKey>>,
     fetch_in_queue: Arc<Mutex<HashSet<FetchKey>>>,
@@ -225,17 +288,43 @@ pub struct FabricRegistry {
 }
 
 impl FabricRegistry {
-    /// Create a new fabric registry with default configuration.
+    /// Create a new fabric registry pinned at the workspace-baked
+    /// `capdag::FABRIC_MANIFEST_VERSION`. Standard entry point — engine
+    /// code that doesn't specifically need a different version uses this.
     pub async fn new() -> Result<Self, FabricRegistryError> {
-        Self::with_config(RegistryConfig::default()).await
+        Self::with_config_and_manifest_version(
+            RegistryConfig::default(),
+            crate::FABRIC_MANIFEST_VERSION,
+        )
+        .await
     }
 
-    /// Create a new fabric registry with custom configuration.
+    /// Create a new fabric registry with custom configuration, pinned at
+    /// the workspace-baked manifest version.
     pub async fn with_config(config: RegistryConfig) -> Result<Self, FabricRegistryError> {
+        Self::with_config_and_manifest_version(config, crate::FABRIC_MANIFEST_VERSION).await
+    }
+
+    /// Full constructor: custom config + explicit pinned manifest version.
+    ///
+    /// `manifest_version == 0` → legacy v0 / flat-path mode. No manifest
+    /// fetch is performed; resolution falls through to the frozen flat
+    /// R2 paths.
+    ///
+    /// `manifest_version >= 1` → manifest-driven. The constructor
+    /// **blocks** on a network round-trip to fetch `manifest/<N>.json`
+    /// if no local cache copy is present. If neither local cache nor
+    /// network can provide it, the constructor returns
+    /// `FabricRegistryError::NotFound`. There is no fallback to v0.
+    pub async fn with_config_and_manifest_version(
+        config: RegistryConfig,
+        manifest_version: u32,
+    ) -> Result<Self, FabricRegistryError> {
         let cache_dir = Self::default_cache_root()?;
         let caps_dir = cache_dir.join("caps");
         let media_dir = cache_dir.join("media");
-        for d in [&caps_dir, &media_dir] {
+        let manifests_dir = cache_dir.join("manifests");
+        for d in [&caps_dir, &media_dir, &manifests_dir] {
             fs::create_dir_all(d).map_err(|e| {
                 FabricRegistryError::CacheError(format!(
                     "Failed to create cache directory {:?}: {}",
@@ -251,13 +340,38 @@ impl FabricRegistry {
                 FabricRegistryError::HttpError(format!("Failed to create HTTP client: {}", e))
             })?;
 
-        let cached_caps_map = Self::load_all_cached_caps(&caps_dir)?;
-        let cached_specs_map = Self::load_all_cached_media_defs(&media_dir)?;
+        // Bootstrap the manifest before loading on-disk caches so the
+        // cache loaders can hydrate the in-memory map with entries
+        // matching the manifest's pinned defvers (rather than blindly
+        // pulling in stale v0 flat-path bytes that may belong to a
+        // different snapshot).
+        let manifest = if manifest_version == 0 {
+            Manifest::empty(0)
+        } else {
+            load_or_fetch_manifest(&manifests_dir, &client, &config, manifest_version).await?
+        };
+
+        let mut cached_caps_map = Self::load_all_cached_caps(&caps_dir)?;
+        let mut cached_specs_map = Self::load_all_cached_media_defs(&media_dir)?;
+        // Filter loaded caches by manifest pin: only retain entries
+        // whose URN's defver in the manifest matches the cached entry's
+        // own version. At v0 the manifest is empty and we retain
+        // everything (the load function only walks flat paths anyway
+        // because no versioned subdirs are written under v0 mode).
+        if manifest_version >= 1 {
+            cached_caps_map.retain(|urn, cap| {
+                manifest.caps.get(urn).copied().unwrap_or(0) == cap.version
+            });
+            cached_specs_map.retain(|urn, spec| {
+                manifest.media.get(urn).copied().unwrap_or(0) == spec.version
+            });
+        }
         let extension_index_map = Self::build_extension_index(&cached_specs_map);
 
         let cached_caps = Arc::new(Mutex::new(cached_caps_map));
         let cached_media_defs = Arc::new(Mutex::new(cached_specs_map));
         let extension_index = Arc::new(Mutex::new(extension_index_map));
+        let manifest_arc = Arc::new(Mutex::new(manifest));
         let fetch_in_queue = Arc::new(Mutex::new(HashSet::new()));
         let offline_flag = Arc::new(AtomicBool::new(false));
         let (cache_revision_tx, _) = watch::channel(0u64);
@@ -272,6 +386,7 @@ impl FabricRegistry {
                     Arc::clone(&cached_caps),
                     Arc::clone(&cached_media_defs),
                     Arc::clone(&extension_index),
+                    Arc::clone(&manifest_arc),
                     Arc::clone(&fetch_in_queue),
                     Arc::clone(&offline_flag),
                     config.clone(),
@@ -289,6 +404,8 @@ impl FabricRegistry {
             cached_media_defs,
             extension_index,
             config,
+            manifest_version,
+            manifest: manifest_arc,
             offline_flag,
             fetch_queue_tx,
             fetch_in_queue,
@@ -303,6 +420,11 @@ impl FabricRegistry {
         registry.ensure_identity_cap();
 
         Ok(registry)
+    }
+
+    /// Returns the manifest version this registry is pinned to.
+    pub fn manifest_version(&self) -> u32 {
+        self.manifest_version
     }
 
     pub fn config(&self) -> &RegistryConfig {
@@ -327,12 +449,25 @@ impl FabricRegistry {
 
     fn ensure_identity_cap(&self) {
         use crate::standard::caps::identity_cap;
-        let identity = identity_cap();
+        // STANDARD_CAPS travel with the manifest: their per-def version
+        // is always the registry's pinned manifest version. The
+        // publisher applies the same rule on the wire so the bytes on
+        // R2 carry `version = manifestVersion` for every snapshot.
+        let mut identity = identity_cap();
+        identity.version = self.manifest_version;
         let urn = identity.urn_string();
         let normalized_urn = normalize_cap_urn(&urn);
         if let Ok(mut cached_caps) = self.cached_caps.lock() {
             if !cached_caps.contains_key(&normalized_urn) {
-                cached_caps.insert(normalized_urn, identity);
+                cached_caps.insert(normalized_urn.clone(), identity);
+            }
+        }
+        // Record the identity cap's defver in the manifest so any
+        // resolution that consults the manifest finds it. At v0 this is
+        // a no-op (manifest is `empty(0)`, never consulted).
+        if self.manifest_version >= 1 {
+            if let Ok(mut m) = self.manifest.lock() {
+                m.caps.insert(normalized_urn, self.manifest_version);
             }
         }
     }
@@ -354,18 +489,70 @@ impl FabricRegistry {
         {
             return Ok(cap);
         }
+        let defver = self.cap_defver(&normalized_urn)?;
         fetch_one_cap_atomic(
             &self.client,
             &self.cache_dir,
             &self.cached_caps,
             &self.cached_media_defs,
             &self.extension_index,
+            &self.manifest,
             &self.offline_flag,
             &self.config,
+            self.manifest_version,
             &self.cache_revision_tx,
             &normalized_urn,
+            defver,
         )
         .await
+    }
+
+    /// Resolve a normalized cap URN to its defver under the pinned
+    /// manifest. At v0 this is unconditionally 0 (flat path). At v >= 1
+    /// the URN must be in the manifest's `caps` map; if absent the
+    /// caller has asked for a URN that is not part of the snapshot and
+    /// we surface that as `NotFound` rather than silently fetching from
+    /// flat paths (which would mix snapshot versions).
+    fn cap_defver(&self, normalized_urn: &str) -> Result<u32, FabricRegistryError> {
+        if self.manifest_version == 0 {
+            return Ok(0);
+        }
+        let m = self.manifest.lock().map_err(|e| {
+            FabricRegistryError::CacheError(format!("Failed to lock manifest: {}", e))
+        })?;
+        m.caps.get(normalized_urn).copied().ok_or_else(|| {
+            FabricRegistryError::NotFound(format!(
+                "cap '{}' is not part of manifest v{}",
+                normalized_urn, self.manifest_version
+            ))
+        })
+    }
+
+    /// Resolve a normalized media URN to its defver under the pinned
+    /// manifest. Same rules as `cap_defver`.
+    fn media_defver(&self, normalized_urn: &str) -> Result<u32, FabricRegistryError> {
+        if self.manifest_version == 0 {
+            return Ok(0);
+        }
+        // The empty / wildcard URN `media:` is a sentinel — caps use it
+        // to denote "any media", and it has no published spec. Anywhere
+        // we resolve a URN to a defver we must skip it; the upstream
+        // fetch path already special-cases it for fetching, so we just
+        // mirror that here by returning 0 (which would map to a flat
+        // path that doesn't exist, but the caller never reaches the
+        // fetch with this URN).
+        if normalized_urn == "media:" {
+            return Ok(0);
+        }
+        let m = self.manifest.lock().map_err(|e| {
+            FabricRegistryError::CacheError(format!("Failed to lock manifest: {}", e))
+        })?;
+        m.media.get(normalized_urn).copied().ok_or_else(|| {
+            FabricRegistryError::NotFound(format!(
+                "media def '{}' is not part of manifest v{}",
+                normalized_urn, self.manifest_version
+            ))
+        })
     }
 
     /// Get multiple caps at once - fails if any cap is not available.
@@ -396,12 +583,18 @@ impl FabricRegistry {
         {
             return Some(cap);
         }
+        // If the URN is not in the manifest under v >= 1, there's
+        // nothing to fetch — return None without enqueuing.
+        let defver = self.cap_defver(&normalized_urn).ok()?;
         let runtime = tokio::runtime::Handle::try_current().ok()?;
         if !matches!(
             runtime.runtime_flavor(),
             tokio::runtime::RuntimeFlavor::MultiThread
         ) {
-            self.enqueue_for_background_fetch(FetchKey::Cap(normalized_urn));
+            self.enqueue_for_background_fetch(FetchKey::Cap {
+                urn: normalized_urn,
+                defver,
+            });
             return None;
         }
         let sync_attempt = tokio::task::block_in_place(|| {
@@ -414,10 +607,13 @@ impl FabricRegistry {
                         &self.cached_caps,
                         &self.cached_media_defs,
                         &self.extension_index,
+                        &self.manifest,
                         &self.offline_flag,
                         &self.config,
+                        self.manifest_version,
                         &self.cache_revision_tx,
                         &normalized_urn,
+                        defver,
                     ),
                 )
                 .await
@@ -440,7 +636,10 @@ impl FabricRegistry {
                 );
             }
         }
-        self.enqueue_for_background_fetch(FetchKey::Cap(normalized_urn));
+        self.enqueue_for_background_fetch(FetchKey::Cap {
+            urn: normalized_urn,
+            defver,
+        });
         None
     }
 
@@ -460,7 +659,13 @@ impl FabricRegistry {
 
     /// Request asynchronous hydration of a cap definition without waiting.
     pub fn request_cap_cache_hydration(&self, urn: &str) {
-        self.enqueue_for_background_fetch(FetchKey::Cap(normalize_cap_urn(urn)));
+        let normalized_urn = normalize_cap_urn(urn);
+        if let Ok(defver) = self.cap_defver(&normalized_urn) {
+            self.enqueue_for_background_fetch(FetchKey::Cap {
+                urn: normalized_urn,
+                defver,
+            });
+        }
     }
 
     /// Validate a local cap against its canonical definition.
@@ -489,16 +694,33 @@ impl FabricRegistry {
     }
 
     /// Add caps to the in-memory cache. Test helper.
+    ///
+    /// Each cap is recorded in the manifest. If the cap's own
+    /// `version` is 0, it is stamped to the registry's pinned manifest
+    /// version (since v0 in this context means "the test forgot to set
+    /// it" and the natural assignment is the snapshot we belong to).
+    /// An explicitly-non-zero version is honored as-is — test fixtures
+    /// can simulate cross-snapshot scenarios when they need to.
     pub fn add_caps_to_cache(&self, caps: Vec<Cap>) {
         let mut changed = false;
+        let pin = self.manifest_version;
+        let mut manifest_guard = self.manifest.lock().ok();
         if let Ok(mut cached_caps) = self.cached_caps.lock() {
-            for cap in caps {
+            for mut cap in caps {
                 let urn = cap.urn_string();
                 let normalized_urn = normalize_cap_urn(&urn);
+                if cap.version == 0 && pin >= 1 {
+                    cap.version = pin;
+                }
+                let cap_version = cap.version;
+                if let Some(m) = manifest_guard.as_mut() {
+                    m.caps.insert(normalized_urn.clone(), cap_version);
+                }
                 cached_caps.insert(normalized_urn, cap);
                 changed = true;
             }
         }
+        drop(manifest_guard);
         if changed {
             publish_cache_revision(&self.cache_revision_tx);
         }
@@ -519,6 +741,7 @@ impl FabricRegistry {
         {
             return Ok(spec);
         }
+        let defver = self.media_defver(&normalized)?;
         fetch_one_media_def(
             &self.client,
             &self.cache_dir,
@@ -528,6 +751,7 @@ impl FabricRegistry {
             &self.config,
             &self.cache_revision_tx,
             &normalized,
+            defver,
         )
         .await
     }
@@ -563,12 +787,16 @@ impl FabricRegistry {
         {
             return Some(spec);
         }
+        let defver = self.media_defver(&normalized).ok()?;
         let runtime = tokio::runtime::Handle::try_current().ok()?;
         if !matches!(
             runtime.runtime_flavor(),
             tokio::runtime::RuntimeFlavor::MultiThread
         ) {
-            self.enqueue_for_background_fetch(FetchKey::Media(normalized));
+            self.enqueue_for_background_fetch(FetchKey::Media {
+                urn: normalized,
+                defver,
+            });
             return None;
         }
         let sync_attempt = tokio::task::block_in_place(|| {
@@ -584,6 +812,7 @@ impl FabricRegistry {
                         &self.config,
                         &self.cache_revision_tx,
                         &normalized,
+                        defver,
                     ),
                 )
                 .await
@@ -606,7 +835,10 @@ impl FabricRegistry {
                 );
             }
         }
-        self.enqueue_for_background_fetch(FetchKey::Media(normalized));
+        self.enqueue_for_background_fetch(FetchKey::Media {
+            urn: normalized,
+            defver,
+        });
         None
     }
 
@@ -660,10 +892,20 @@ impl FabricRegistry {
     }
 
     /// Insert a media def into the in-memory cache. Test helper.
-    pub fn insert_cached_media_def_for_test(&self, spec: StoredMediaDef) {
+    ///
+    /// Records the media def in the manifest. If the spec's own
+    /// `version` is 0, it is stamped to the registry's pinned manifest
+    /// version (same "test forgot to set it" handling as
+    /// `add_caps_to_cache`).
+    pub fn insert_cached_media_def_for_test(&self, mut spec: StoredMediaDef) {
         let normalized = normalize_media_urn(&spec.urn);
+        let pin = self.manifest_version;
+        if spec.version == 0 && pin >= 1 {
+            spec.version = pin;
+        }
+        let spec_version = spec.version;
         if let Ok(mut cache) = self.cached_media_defs.lock() {
-            cache.insert(normalized, spec.clone());
+            cache.insert(normalized.clone(), spec.clone());
         }
         if let Ok(mut idx) = self.extension_index.lock() {
             for ext in &spec.extensions {
@@ -673,6 +915,9 @@ impl FabricRegistry {
                     urns.push(spec.urn.clone());
                 }
             }
+        }
+        if let Ok(mut m) = self.manifest.lock() {
+            m.media.insert(normalized, spec_version);
         }
         publish_cache_revision(&self.cache_revision_tx);
     }
@@ -686,7 +931,9 @@ impl FabricRegistry {
     // SHARED ADMIN API
     // -------------------------------------------------------------------------
 
-    /// Clear both caches (in-memory and on disk).
+    /// Clear both caches (in-memory and on disk). The manifest snapshot
+    /// is preserved — clearing the byte caches is the natural way to
+    /// force re-fetch under the same snapshot, not to switch snapshots.
     pub fn clear_cache(&self) -> Result<(), FabricRegistryError> {
         if let Ok(mut g) = self.cached_caps.lock() {
             g.clear();
@@ -701,7 +948,7 @@ impl FabricRegistry {
             fs::remove_dir_all(&self.cache_dir).map_err(|e| {
                 FabricRegistryError::CacheError(format!("Failed to clear cache directory: {}", e))
             })?;
-            for sub in ["caps", "media"] {
+            for sub in ["caps", "media", "manifests"] {
                 fs::create_dir_all(self.cache_dir.join(sub)).map_err(|e| {
                     FabricRegistryError::CacheError(format!(
                         "Failed to recreate cache directory: {}",
@@ -716,6 +963,20 @@ impl FabricRegistry {
     // -------------------------------------------------------------------------
     // QUEUE
     // -------------------------------------------------------------------------
+
+    /// Look up an arbitrary URN's pinned defver under this registry's
+    /// manifest. Public so external callers (e.g. fetchcartridge) can
+    /// resolve URN → (urn, defver) before issuing a network request.
+    pub fn cap_defver_for(&self, urn: &str) -> Result<u32, FabricRegistryError> {
+        let normalized = normalize_cap_urn(urn);
+        self.cap_defver(&normalized)
+    }
+
+    /// As `cap_defver_for` but for media URNs.
+    pub fn media_defver_for(&self, urn: &str) -> Result<u32, FabricRegistryError> {
+        let normalized = normalize_media_urn(urn);
+        self.media_defver(&normalized)
+    }
 
     fn enqueue_for_background_fetch(&self, key: FetchKey) {
         let Some(tx) = self.fetch_queue_tx.as_ref() else {
@@ -742,50 +1003,70 @@ impl FabricRegistry {
     // DISK LOAD
     // -------------------------------------------------------------------------
 
+    /// Walk the cap cache directory recursively, picking up both v0 flat
+    /// files (`caps/<sha>.json`) and v >= 1 versioned files
+    /// (`caps/<sha>/<defver>.json`). TTL applies only to v0 entries —
+    /// v >= 1 entries are immutable by protocol so no expiry pass.
     fn load_all_cached_caps(caps_dir: &Path) -> Result<HashMap<String, Cap>, FabricRegistryError> {
         let mut caps = HashMap::new();
         if !caps_dir.exists() {
             return Ok(caps);
         }
-        for entry in fs::read_dir(caps_dir).map_err(|e| {
-            FabricRegistryError::CacheError(format!("Failed to read cap cache directory: {}", e))
-        })? {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(e) => {
-                    tracing::warn!("Failed to read cap cache entry: {}", e);
+        let mut stack: Vec<PathBuf> = vec![caps_dir.to_path_buf()];
+        let mut is_v0_layer = true;
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(&dir).map_err(|e| {
+                FabricRegistryError::CacheError(format!(
+                    "Failed to read cap cache directory {:?}: {}",
+                    dir, e
+                ))
+            })? {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(e) => {
+                        tracing::warn!("Failed to read cap cache entry: {}", e);
+                        continue;
+                    }
+                };
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
                     continue;
                 }
-            };
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("json") {
-                continue;
-            }
-            let content = match fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!("Failed to read cap cache file {:?}: {}", path, e);
+                if path.extension().and_then(|s| s.to_str()) != Some("json") {
                     continue;
                 }
-            };
-            let cache_entry: CapCacheEntry = match serde_json::from_str(&content) {
-                Ok(e) => e,
-                Err(e) => {
-                    tracing::warn!("Failed to parse cap cache file {:?}: {}", path, e);
+                let content = match fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("Failed to read cap cache file {:?}: {}", path, e);
+                        continue;
+                    }
+                };
+                let cache_entry: CapCacheEntry = match serde_json::from_str(&content) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse cap cache file {:?}: {}", path, e);
+                        let _ = fs::remove_file(&path);
+                        continue;
+                    }
+                };
+                // TTL applies only to v0 (flat) entries. Versioned
+                // entries are immutable by protocol.
+                if cache_entry.definition.version == 0 && cache_entry.is_expired() {
                     let _ = fs::remove_file(&path);
                     continue;
                 }
-            };
-            if cache_entry.is_expired() {
-                let _ = fs::remove_file(&path);
-                continue;
+                let urn = cache_entry.definition.urn_string();
+                caps.insert(normalize_cap_urn(&urn), cache_entry.definition);
             }
-            let urn = cache_entry.definition.urn_string();
-            caps.insert(normalize_cap_urn(&urn), cache_entry.definition);
+            let _ = is_v0_layer;
+            is_v0_layer = false;
         }
         Ok(caps)
     }
 
+    /// Same recursive walk as `load_all_cached_caps`, for media defs.
     fn load_all_cached_media_defs(
         media_dir: &Path,
     ) -> Result<HashMap<String, StoredMediaDef>, FabricRegistryError> {
@@ -793,40 +1074,50 @@ impl FabricRegistry {
         if !media_dir.exists() {
             return Ok(specs);
         }
-        for entry in fs::read_dir(media_dir).map_err(|e| {
-            FabricRegistryError::CacheError(format!("Failed to read media cache directory: {}", e))
-        })? {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(e) => {
-                    tracing::warn!("Failed to read media cache entry: {}", e);
+        let mut stack: Vec<PathBuf> = vec![media_dir.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(&dir).map_err(|e| {
+                FabricRegistryError::CacheError(format!(
+                    "Failed to read media cache directory {:?}: {}",
+                    dir, e
+                ))
+            })? {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(e) => {
+                        tracing::warn!("Failed to read media cache entry: {}", e);
+                        continue;
+                    }
+                };
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
                     continue;
                 }
-            };
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("json") {
-                continue;
-            }
-            let content = match fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!("Failed to read media cache file {:?}: {}", path, e);
+                if path.extension().and_then(|s| s.to_str()) != Some("json") {
                     continue;
                 }
-            };
-            let cache_entry: MediaCacheEntry = match serde_json::from_str(&content) {
-                Ok(e) => e,
-                Err(e) => {
-                    tracing::warn!("Failed to parse media cache file {:?}: {}", path, e);
+                let content = match fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("Failed to read media cache file {:?}: {}", path, e);
+                        continue;
+                    }
+                };
+                let cache_entry: MediaCacheEntry = match serde_json::from_str(&content) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse media cache file {:?}: {}", path, e);
+                        let _ = fs::remove_file(&path);
+                        continue;
+                    }
+                };
+                if cache_entry.spec.version == 0 && cache_entry.is_expired() {
                     let _ = fs::remove_file(&path);
                     continue;
                 }
-            };
-            if cache_entry.is_expired() {
-                let _ = fs::remove_file(&path);
-                continue;
+                specs.insert(normalize_media_urn(&cache_entry.spec.urn), cache_entry.spec);
             }
-            specs.insert(normalize_media_urn(&cache_entry.spec.urn), cache_entry.spec);
         }
         Ok(specs)
     }
@@ -848,20 +1139,34 @@ impl FabricRegistry {
     // TEST HELPERS
     // -------------------------------------------------------------------------
 
-    /// Synchronous test constructor with a fresh empty cache. Spawns a
-    /// fetch consumer when called inside a tokio runtime; otherwise leaves
-    /// the queue inert.
+    /// Synchronous test constructor with a fresh empty cache. Pins the
+    /// registry at v1 with an empty manifest, so test helpers like
+    /// `add_caps_to_cache` flow caps into the manifest at their declared
+    /// version. Spawns a fetch consumer when called inside a tokio
+    /// runtime; otherwise leaves the queue inert.
     pub fn new_for_test() -> Self {
         Self::new_for_test_with_config(RegistryConfig::default())
     }
 
+    /// Test constructor with custom config; pins at v1.
     pub fn new_for_test_with_config(config: RegistryConfig) -> Self {
+        Self::new_for_test_with_config_and_version(config, 1)
+    }
+
+    /// Full test constructor: custom config + explicit pinned manifest
+    /// version. Builds an empty manifest at that version; no network.
+    pub fn new_for_test_with_config_and_version(
+        config: RegistryConfig,
+        manifest_version: u32,
+    ) -> Self {
         let cache_dir = PathBuf::from("/tmp/capdag-test-cache");
         let _ = fs::create_dir_all(cache_dir.join("caps"));
         let _ = fs::create_dir_all(cache_dir.join("media"));
+        let _ = fs::create_dir_all(cache_dir.join("manifests"));
         let cached_caps = Arc::new(Mutex::new(HashMap::new()));
         let cached_media_defs = Arc::new(Mutex::new(HashMap::new()));
         let extension_index = Arc::new(Mutex::new(HashMap::new()));
+        let manifest_arc = Arc::new(Mutex::new(Manifest::empty(manifest_version)));
         let fetch_in_queue = Arc::new(Mutex::new(HashSet::new()));
         let offline_flag = Arc::new(AtomicBool::new(false));
         let client = reqwest::Client::new();
@@ -877,6 +1182,7 @@ impl FabricRegistry {
                     Arc::clone(&cached_caps),
                     Arc::clone(&cached_media_defs),
                     Arc::clone(&extension_index),
+                    Arc::clone(&manifest_arc),
                     Arc::clone(&fetch_in_queue),
                     Arc::clone(&offline_flag),
                     config.clone(),
@@ -894,6 +1200,8 @@ impl FabricRegistry {
             cached_media_defs,
             extension_index,
             config,
+            manifest_version,
+            manifest: manifest_arc,
             offline_flag,
             fetch_queue_tx,
             fetch_in_queue,
@@ -908,19 +1216,88 @@ impl FabricRegistry {
 // ATOMIC FETCH HELPERS (free functions)
 // =============================================================================
 
+/// Build the R2 URL for a per-cap object at the given defver. defver==0
+/// addresses the frozen v0 flat path; defver>=1 addresses the versioned
+/// subpath. The cache file path mirrors the URL structure.
+fn cap_url_and_cache_path(
+    cache_dir: &Path,
+    config: &RegistryConfig,
+    normalized_urn: &str,
+    defver: u32,
+) -> (String, PathBuf) {
+    let mut hasher = Sha256::new();
+    hasher.update(normalized_urn.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    if defver == 0 {
+        (
+            format!("{}/caps/{}", config.registry_base_url, hash),
+            cache_dir.join("caps").join(format!("{}.json", hash)),
+        )
+    } else {
+        (
+            format!(
+                "{}/caps/{}/{}.json",
+                config.registry_base_url, hash, defver
+            ),
+            cache_dir
+                .join("caps")
+                .join(&hash)
+                .join(format!("{}.json", defver)),
+        )
+    }
+}
+
+/// Build the R2 URL for a per-media object at the given defver.
+fn media_url_and_cache_path(
+    cache_dir: &Path,
+    config: &RegistryConfig,
+    normalized_urn: &str,
+    defver: u32,
+) -> (String, PathBuf) {
+    let mut hasher = Sha256::new();
+    hasher.update(normalized_urn.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    if defver == 0 {
+        (
+            format!("{}/media/{}", config.registry_base_url, hash),
+            cache_dir.join("media").join(format!("{}.json", hash)),
+        )
+    } else {
+        (
+            format!(
+                "{}/media/{}/{}.json",
+                config.registry_base_url, hash, defver
+            ),
+            cache_dir
+                .join("media")
+                .join(&hash)
+                .join(format!("{}.json", defver)),
+        )
+    }
+}
+
 /// Atomic cap fetcher. Fetches the cap body, then ensures every media URN
 /// it references is in the media cache. Caches the cap only on full
 /// success; otherwise returns `Err` and writes nothing.
+///
+/// At pin >= 1 the referenced media URN footprint is resolved against
+/// the manifest so each referenced URN is fetched at its pinned defver.
+/// If a referenced URN is absent from the manifest the fetch fails —
+/// snapshots are required to be self-consistent.
+#[allow(clippy::too_many_arguments)]
 async fn fetch_one_cap_atomic(
     client: &reqwest::Client,
     cache_dir: &Path,
     cached_caps: &Arc<Mutex<HashMap<String, Cap>>>,
     cached_media_defs: &Arc<Mutex<HashMap<String, StoredMediaDef>>>,
     extension_index: &Arc<Mutex<HashMap<String, Vec<String>>>>,
+    manifest: &Arc<Mutex<Manifest>>,
     offline_flag: &Arc<AtomicBool>,
     config: &RegistryConfig,
+    manifest_version: u32,
     cache_revision_tx: &watch::Sender<u64>,
     normalized_urn: &str,
+    defver: u32,
 ) -> Result<Cap, FabricRegistryError> {
     if offline_flag.load(Ordering::Relaxed) {
         return Err(FabricRegistryError::NetworkBlocked(format!(
@@ -929,10 +1306,7 @@ async fn fetch_one_cap_atomic(
         )));
     }
 
-    let mut hasher = Sha256::new();
-    hasher.update(normalized_urn.as_bytes());
-    let hash = format!("{:x}", hasher.finalize());
-    let url = format!("{}/caps/{}", config.registry_base_url, hash);
+    let (url, cache_file) = cap_url_and_cache_path(cache_dir, config, normalized_urn, defver);
 
     let response = client
         .get(&url)
@@ -941,9 +1315,11 @@ async fn fetch_one_cap_atomic(
         .map_err(|e| FabricRegistryError::HttpError(format!("Failed to fetch cap: {}", e)))?;
     if !response.status().is_success() {
         return Err(FabricRegistryError::NotFound(format!(
-            "Cap '{}' not found in registry (HTTP {})",
+            "Cap '{}' (defver {}) not found in registry (HTTP {}) at {}",
             normalized_urn,
-            response.status()
+            defver,
+            response.status(),
+            url
         )));
     }
     let cap: Cap = response.json().await.map_err(|e| {
@@ -983,6 +1359,29 @@ async fn fetch_one_cap_atomic(
         if already_cached {
             continue;
         }
+        // Resolve the referenced media URN's defver under the manifest.
+        // At v0 every URN maps to defver 0 (flat path).
+        let media_defver = if manifest_version == 0 {
+            0
+        } else {
+            match manifest.lock() {
+                Ok(m) => match m.media.get(media_urn).copied() {
+                    Some(v) => v,
+                    None => {
+                        return Err(FabricRegistryError::NotFound(format!(
+                            "cap '{}' references media URN '{}' which is not in manifest v{}",
+                            normalized_urn, media_urn, manifest_version
+                        )));
+                    }
+                },
+                Err(e) => {
+                    return Err(FabricRegistryError::CacheError(format!(
+                        "failed to lock manifest while resolving referenced media: {}",
+                        e
+                    )));
+                }
+            }
+        };
         if let Err(e) = fetch_one_media_def(
             client,
             cache_dir,
@@ -992,6 +1391,7 @@ async fn fetch_one_cap_atomic(
             config,
             cache_revision_tx,
             media_urn,
+            media_defver,
         )
         .await
         {
@@ -1019,7 +1419,14 @@ async fn fetch_one_cap_atomic(
             .as_secs(),
         ttl_hours: CACHE_DURATION_HOURS,
     };
-    let cache_file = cache_dir.join("caps").join(format!("{}.json", hash));
+    if let Some(parent) = cache_file.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            FabricRegistryError::CacheError(format!(
+                "Failed to create cap cache parent directory {:?}: {}",
+                parent, e
+            ))
+        })?;
+    }
     let content = serde_json::to_string_pretty(&cache_entry).map_err(|e| {
         FabricRegistryError::CacheError(format!("Failed to serialize cap cache entry: {}", e))
     })?;
@@ -1036,6 +1443,7 @@ async fn fetch_one_cap_atomic(
 }
 
 /// Atomic media-def fetcher.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn fetch_one_media_def(
     client: &reqwest::Client,
     cache_dir: &Path,
@@ -1045,6 +1453,7 @@ pub(crate) async fn fetch_one_media_def(
     config: &RegistryConfig,
     cache_revision_tx: &watch::Sender<u64>,
     normalized_urn: &str,
+    defver: u32,
 ) -> Result<StoredMediaDef, FabricRegistryError> {
     if offline_flag.load(Ordering::Relaxed) {
         return Err(FabricRegistryError::NetworkBlocked(format!(
@@ -1053,10 +1462,7 @@ pub(crate) async fn fetch_one_media_def(
         )));
     }
 
-    let mut hasher = Sha256::new();
-    hasher.update(normalized_urn.as_bytes());
-    let hash = format!("{:x}", hasher.finalize());
-    let url = format!("{}/media/{}", config.registry_base_url, hash);
+    let (url, cache_file) = media_url_and_cache_path(cache_dir, config, normalized_urn, defver);
 
     let response =
         client.get(&url).send().await.map_err(|e| {
@@ -1064,9 +1470,11 @@ pub(crate) async fn fetch_one_media_def(
         })?;
     if !response.status().is_success() {
         return Err(FabricRegistryError::NotFound(format!(
-            "Media def '{}' not found in registry (HTTP {})",
+            "Media def '{}' (defver {}) not found in registry (HTTP {}) at {}",
             normalized_urn,
-            response.status()
+            defver,
+            response.status(),
+            url
         )));
     }
     let spec: StoredMediaDef = response.json().await.map_err(|e| {
@@ -1084,7 +1492,14 @@ pub(crate) async fn fetch_one_media_def(
             .as_secs(),
         ttl_hours: CACHE_DURATION_HOURS,
     };
-    let cache_file = cache_dir.join("media").join(format!("{}.json", hash));
+    if let Some(parent) = cache_file.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            FabricRegistryError::CacheError(format!(
+                "Failed to create media cache parent directory {:?}: {}",
+                parent, e
+            ))
+        })?;
+    }
     let content = serde_json::to_string_pretty(&cache_entry).map_err(|e| {
         FabricRegistryError::CacheError(format!("Failed to serialize media cache entry: {}", e))
     })?;
@@ -1108,6 +1523,83 @@ pub(crate) async fn fetch_one_media_def(
     Ok(spec)
 }
 
+/// Manifest bootstrap. Tries the local cache first; falls back to a
+/// blocking network GET; if neither produces a manifest, returns an
+/// error — there is no v0 fallback (caller chose v >= 1 explicitly).
+async fn load_or_fetch_manifest(
+    manifests_dir: &Path,
+    client: &reqwest::Client,
+    config: &RegistryConfig,
+    version: u32,
+) -> Result<Manifest, FabricRegistryError> {
+    let cache_file = manifests_dir.join(format!("{}.json", version));
+    if cache_file.exists() {
+        let content = fs::read_to_string(&cache_file).map_err(|e| {
+            FabricRegistryError::CacheError(format!(
+                "Failed to read cached manifest at {:?}: {}",
+                cache_file, e
+            ))
+        })?;
+        match serde_json::from_str::<Manifest>(&content) {
+            Ok(m) => {
+                if m.version != version {
+                    return Err(FabricRegistryError::ParseError(format!(
+                        "Cached manifest at {:?} reports version {} but file is {}.json",
+                        cache_file, m.version, version
+                    )));
+                }
+                return Ok(m);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Cached manifest at {:?} did not parse: {}; re-fetching from network",
+                    cache_file,
+                    e
+                );
+                let _ = fs::remove_file(&cache_file);
+            }
+        }
+    }
+
+    let url = format!("{}/manifest/{}.json", config.registry_base_url, version);
+    let response = client.get(&url).send().await.map_err(|e| {
+        FabricRegistryError::HttpError(format!(
+            "Failed to fetch manifest v{} at {}: {}",
+            version, url, e
+        ))
+    })?;
+    if !response.status().is_success() {
+        return Err(FabricRegistryError::NotFound(format!(
+            "Manifest v{} not found in registry (HTTP {}) at {}",
+            version,
+            response.status(),
+            url
+        )));
+    }
+    let body = response.text().await.map_err(|e| {
+        FabricRegistryError::HttpError(format!(
+            "Failed to read manifest v{} body: {}",
+            version, e
+        ))
+    })?;
+    let manifest: Manifest = serde_json::from_str(&body).map_err(|e| {
+        FabricRegistryError::ParseError(format!("Failed to parse manifest v{}: {}", version, e))
+    })?;
+    if manifest.version != version {
+        return Err(FabricRegistryError::ParseError(format!(
+            "Manifest fetched as v{} reports version {}",
+            version, manifest.version
+        )));
+    }
+    fs::write(&cache_file, &body).map_err(|e| {
+        FabricRegistryError::CacheError(format!(
+            "Failed to write manifest cache to {:?}: {}",
+            cache_file, e
+        ))
+    })?;
+    Ok(manifest)
+}
+
 fn publish_cache_revision(tx: &watch::Sender<u64>) {
     let next = {
         let current = *tx.borrow();
@@ -1117,7 +1609,9 @@ fn publish_cache_revision(tx: &watch::Sender<u64>) {
 }
 
 /// Single shared background fetch consumer for both cap and media URNs.
-/// Drains the queue serially; failures are logged and dropped.
+/// Drains the queue serially; failures are logged and dropped. The
+/// queue keys carry both URN and defver, so the consumer never needs to
+/// re-resolve through the manifest.
 #[allow(clippy::too_many_arguments)]
 async fn run_fetch_consumer(
     mut rx: mpsc::UnboundedReceiver<FetchKey>,
@@ -1126,14 +1620,19 @@ async fn run_fetch_consumer(
     cached_caps: Arc<Mutex<HashMap<String, Cap>>>,
     cached_media_defs: Arc<Mutex<HashMap<String, StoredMediaDef>>>,
     extension_index: Arc<Mutex<HashMap<String, Vec<String>>>>,
+    manifest: Arc<Mutex<Manifest>>,
     fetch_in_queue: Arc<Mutex<HashSet<FetchKey>>>,
     offline_flag: Arc<AtomicBool>,
     config: RegistryConfig,
     cache_revision_tx: watch::Sender<u64>,
 ) {
+    let manifest_version = manifest.lock().map(|m| m.version).unwrap_or(0);
     while let Some(key) = rx.recv().await {
         match &key {
-            FetchKey::Cap(normalized_urn) => {
+            FetchKey::Cap {
+                urn: normalized_urn,
+                defver,
+            } => {
                 let already_cached = cached_caps
                     .lock()
                     .ok()
@@ -1146,31 +1645,37 @@ async fn run_fetch_consumer(
                         &cached_caps,
                         &cached_media_defs,
                         &extension_index,
+                        &manifest,
                         &offline_flag,
                         &config,
+                        manifest_version,
                         &cache_revision_tx,
                         normalized_urn,
+                        *defver,
                     )
                     .await
                     {
                         Ok(_) => {
                             tracing::debug!(
                                 target: "capdag::fabric::registry::fetch_consumer",
-                                urn = %normalized_urn,
+                                urn = %normalized_urn, defver = %defver,
                                 "Background-fetched cap; cache is now warm."
                             );
                         }
                         Err(e) => {
                             tracing::warn!(
                                 target: "capdag::fabric::registry::fetch_consumer",
-                                urn = %normalized_urn, error = %e,
+                                urn = %normalized_urn, defver = %defver, error = %e,
                                 "Background cap fetch failed; URN dropped from queue (no retry)."
                             );
                         }
                     }
                 }
             }
-            FetchKey::Media(normalized_urn) => {
+            FetchKey::Media {
+                urn: normalized_urn,
+                defver,
+            } => {
                 let already_cached = cached_media_defs
                     .lock()
                     .ok()
@@ -1186,20 +1691,21 @@ async fn run_fetch_consumer(
                         &config,
                         &cache_revision_tx,
                         normalized_urn,
+                        *defver,
                     )
                     .await
                     {
                         Ok(_) => {
                             tracing::debug!(
                                 target: "capdag::fabric::registry::fetch_consumer",
-                                urn = %normalized_urn,
+                                urn = %normalized_urn, defver = %defver,
                                 "Background-fetched media def; cache is now warm."
                             );
                         }
                         Err(e) => {
                             tracing::warn!(
                                 target: "capdag::fabric::registry::fetch_consumer",
-                                urn = %normalized_urn, error = %e,
+                                urn = %normalized_urn, defver = %defver, error = %e,
                                 "Background media-def fetch failed; URN dropped from queue (no retry)."
                             );
                         }

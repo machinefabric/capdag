@@ -243,6 +243,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let registry = FabricRegistry::new_for_test();
         registry.insert_cached_media_def_for_test(StoredMediaDef {
+            version: 0,
             urn: "media:json;record;textable".to_string(),
             media_type: "application/json".to_string(),
             title: "JSON".to_string(),

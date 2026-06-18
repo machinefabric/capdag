@@ -194,6 +194,18 @@ pub enum CartridgeAttachmentErrorKind {
     /// verdict map; the XPC service is sandboxed and cannot fetch
     /// registries directly.
     RegistryUnreachable,
+    /// The cartridge was built against a different fabric registry
+    /// manifest version than this engine is pinned to. Both engine
+    /// and cartridge bake their fabric manifest version at build
+    /// time from `MFR_FABRIC_MANIFEST_VERSION` (sourced from
+    /// `fabric/manifest-version.txt`); the engine refuses to load
+    /// any cartridge whose baked version does not match its own.
+    /// Recovery action is "rebuild the cartridge against the
+    /// engine's fabric manifest version" — there is no in-engine
+    /// fallback because URN resolution between mismatched versions
+    /// is fundamentally unsafe (cap and media definitions may have
+    /// changed shape across manifest versions).
+    FabricManifestVersionMismatch,
 }
 
 /// In-progress lifecycle phases that run BEFORE a cartridge becomes
@@ -3607,6 +3619,7 @@ mod tests {
         extensions: &[&str],
     ) -> crate::fabric::registry::StoredMediaDef {
         crate::fabric::registry::StoredMediaDef {
+            version: 0,
             urn: urn.to_string(),
             media_type: urn.to_string(),
             title: title.to_string(),
@@ -4565,7 +4578,7 @@ mod tests {
 
         // Preference for an unrelated cap — no equivalent match, falls back to closest-specificity
         let unrelated =
-            "cap:in=\"media:txt;textable\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:textable;txt\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
         assert_eq!(
             switch.find_master_for_cap(request, Some(unrelated)).await,
             Some(0)
@@ -4900,6 +4913,7 @@ mod tests {
         let cap_urn_str = "cap:in=\"media:text\";echo;out=\"media:text\"";
         let cap = Cap {
             urn: crate::CapUrn::from_string(cap_urn_str).unwrap(),
+            version: 1,
             title: "echo".to_string(),
             cap_description: None,
             documentation: None,
@@ -5105,6 +5119,7 @@ mod tests {
             vec![(
                 "alpha".to_string(),
                 vec![Cap {
+                    version: 1,
                     urn: crate::CapUrn::from_string(cap_a).unwrap(),
                     title: "alpha".to_string(),
                     cap_description: None,
@@ -5138,6 +5153,7 @@ mod tests {
             vec![(
                 "beta".to_string(),
                 vec![Cap {
+                    version: 1,
                     urn: crate::CapUrn::from_string(cap_b).unwrap(),
                     title: "beta".to_string(),
                     cap_description: None,
@@ -5498,6 +5514,7 @@ mod tests {
             vec![(
                 "exact".to_string(),
                 vec![Cap {
+                    version: 1,
                     urn: crate::CapUrn::from_string(cap_exact).unwrap(),
                     title: "exact".to_string(),
                     cap_description: None,
@@ -5522,6 +5539,7 @@ mod tests {
             vec![(
                 "extra".to_string(),
                 vec![Cap {
+                    version: 1,
                     urn: crate::CapUrn::from_string(cap_extra).unwrap(),
                     title: "extra".to_string(),
                     cap_description: None,
@@ -5849,6 +5867,10 @@ mod tests {
                 CartridgeAttachmentErrorKind::RegistryUnreachable,
                 "registry_unreachable",
             ),
+            (
+                CartridgeAttachmentErrorKind::FabricManifestVersionMismatch,
+                "fabric_manifest_version_mismatch",
+            ),
         ];
         for (variant, expected) in cases {
             let json = serde_json::to_string(&variant).expect("variant must serialize");
@@ -5873,7 +5895,7 @@ mod tests {
     #[test]
     fn test1721_kind_decodes_wire_format_into_expected_variants() {
         use super::CartridgeAttachmentErrorKind;
-        let cases: [(&str, CartridgeAttachmentErrorKind); 9] = [
+        let cases: [(&str, CartridgeAttachmentErrorKind); 10] = [
             ("incompatible", CartridgeAttachmentErrorKind::Incompatible),
             (
                 "manifest_invalid",
@@ -5900,6 +5922,10 @@ mod tests {
             (
                 "registry_unreachable",
                 CartridgeAttachmentErrorKind::RegistryUnreachable,
+            ),
+            (
+                "fabric_manifest_version_mismatch",
+                CartridgeAttachmentErrorKind::FabricManifestVersionMismatch,
             ),
         ];
         for (raw, expected_variant) in cases {

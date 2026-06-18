@@ -224,9 +224,7 @@ mod tests {
 
     // Helper to create a test registry
     async fn test_registry() -> FabricRegistry {
-        FabricRegistry::new()
-            .await
-            .expect("Failed to create test registry")
+        FabricRegistry::new_for_test()
     }
 
     // TEST163: Test argument schema validation succeeds with valid JSON matching schema
@@ -247,6 +245,7 @@ mod tests {
         // Seed the registry with the schema-bearing media def; caps no
         // longer carry inline media defs.
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "my:user-data.v1".to_string(),
             media_type: "application/json".to_string(),
             title: "User Data".to_string(),
@@ -289,6 +288,7 @@ mod tests {
         // Seed the registry with the schema-bearing media def; caps no
         // longer carry inline media defs.
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "my:user-data.v1".to_string(),
             media_type: "application/json".to_string(),
             title: "User Data".to_string(),
@@ -332,6 +332,7 @@ mod tests {
         // Seed the registry with the schema-bearing media def; caps no
         // longer carry inline media defs.
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
             urn: "my:query-result.v1".to_string(),
             media_type: "application/json".to_string(),
             title: "Query Result".to_string(),
@@ -358,6 +359,23 @@ mod tests {
     async fn test166_skip_validation_without_schema() {
         let registry = test_registry().await;
         let mut validator = SchemaValidator::new();
+
+        // Seed MEDIA_STRING into the test registry with no schema; the
+        // validator should resolve the URN and short-circuit on
+        // "no schema → nothing to enforce".
+        registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
+            urn: MEDIA_STRING.to_string(),
+            media_type: "text/plain".to_string(),
+            title: "String".to_string(),
+            profile_uri: None,
+            schema: None,
+            description: None,
+            documentation: None,
+            validation: None,
+            metadata: None,
+            extensions: Vec::new(),
+        });
 
         // Argument using built-in spec ID (should resolve from registry, no schema)
         let arg = CapArg::new(

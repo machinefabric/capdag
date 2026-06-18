@@ -295,6 +295,12 @@ pub struct Cap {
     /// Tags can include `op`, `in`, `out` (which should be media URNs)
     pub urn: CapUrn,
 
+    /// Per-definition version. 0 means v0 (the implicit pre-versioning
+    /// state at the frozen flat R2 path). >= 1 means the cap is published
+    /// at `caps/<sha256-of-urn>/<version>.json` and pinned by the manifest
+    /// at that defver. Source TOMLs always declare >= 1.
+    pub version: u32,
+
     /// Human-readable title of the capability (required)
     pub title: String,
 
@@ -350,10 +356,16 @@ impl Serialize for Cap {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("Cap", 11)?;
+        let mut state = serializer.serialize_struct("Cap", 12)?;
 
         // Serialize urn as canonical string format
         state.serialize_field("urn", &self.urn.to_string())?;
+
+        // Emit version only when non-zero; absent ⇒ 0 in the wire form
+        // (matches the wire-schema's optional integer-with-default-0 rule).
+        if self.version != 0 {
+            state.serialize_field("version", &self.version)?;
+        }
 
         state.serialize_field("title", &self.title)?;
         state.serialize_field("command", &self.command)?;
@@ -406,6 +418,8 @@ impl<'de> Deserialize<'de> for Cap {
         #[derive(Deserialize)]
         struct CapWire {
             urn: serde_json::Value,
+            #[serde(default)]
+            version: u32,
             title: String,
             cap_description: Option<String>,
             documentation: Option<String>,
@@ -435,6 +449,7 @@ impl<'de> Deserialize<'de> for Cap {
 
         Ok(Cap {
             urn,
+            version: wire.version,
             title: wire.title,
             cap_description: wire.cap_description,
             documentation: wire.documentation,
@@ -455,6 +470,7 @@ impl Cap {
     pub fn new(urn: CapUrn, title: String, command: String) -> Self {
         Self {
             urn,
+            version: 0,
             title,
             cap_description: None,
             documentation: None,
@@ -478,6 +494,7 @@ impl Cap {
     ) -> Self {
         Self {
             urn,
+            version: 0,
             title,
             cap_description: Some(description),
             documentation: None,
@@ -501,6 +518,7 @@ impl Cap {
     ) -> Self {
         Self {
             urn,
+            version: 0,
             title,
             cap_description: None,
             documentation: None,
@@ -525,6 +543,7 @@ impl Cap {
     ) -> Self {
         Self {
             urn,
+            version: 0,
             title,
             cap_description: Some(description),
             documentation: None,
@@ -543,6 +562,7 @@ impl Cap {
     pub fn with_args(urn: CapUrn, title: String, command: String, args: Vec<CapArg>) -> Self {
         Self {
             urn,
+            version: 0,
             title,
             cap_description: None,
             documentation: None,
@@ -570,6 +590,7 @@ impl Cap {
     ) -> Self {
         Self {
             urn,
+            version: 0,
             title,
             cap_description: description,
             documentation: None,

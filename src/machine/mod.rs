@@ -19,7 +19,7 @@
 //! Machine notation has two equally valid surface forms:
 //!
 //! ```text
-//! [extract cap:in="media:pdf";extract-text;out="media:txt;textable"]
+//! [extract cap:in="media:pdf";extract-text;out="media:textable;txt"]
 //! [embed cap:in="media:textable";generate-embeddings;out="media:embedding-vector;record;textable"]
 //! [doc -> extract -> text]
 //! [text -> embed -> vectors]
