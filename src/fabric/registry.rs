@@ -564,6 +564,165 @@ impl FabricRegistry {
         Ok(caps)
     }
 
+    /// Warm the in-memory cap cache for every cap in the pinned manifest
+    /// that is not already cached, fetching concurrently.
+    ///
+    /// The manifest IS the authoritative list of cap definitions the
+    /// snapshot contains, so this is the complete set of caps any attached
+    /// cartridge could legitimately advertise. Running this once during
+    /// engine startup — before cartridges attach and the first
+    /// `LiveCapFab` pass runs — means the synchronous `is_equivalent`
+    /// lookup in `LiveCapFab` finds every cap already resident, instead of
+    /// dropping it (with a warning) and deferring to the background
+    /// fetcher. On a fresh install or after a manifest bump this collapses
+    /// thousands of "no equivalent in the registry yet" warnings and the
+    /// staggered graph rebuilds that follow into one upfront warm-up.
+    ///
+    /// At v0 (manifest_version == 0) the manifest is empty, so this is a
+    /// no-op — legacy flat-path resolution is unchanged. Individual fetch
+    /// failures are logged and counted but do not abort the warm-up: a
+    /// missing or unreachable cap still hits the existing on-demand
+    /// background path later.
+    pub async fn prefetch_manifest_caps(&self) {
+        if self.manifest_version == 0 {
+            return;
+        }
+
+        // Snapshot the manifest URNs and the already-cached set under their
+        // locks, then release before doing any network work.
+        let to_fetch: Vec<String> = {
+            let manifest = match self.manifest.lock() {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::error!(error = %e, "[prefetch] failed to lock manifest");
+                    return;
+                }
+            };
+            let cached = self.cached_caps.lock().ok();
+            manifest
+                .caps
+                .keys()
+                .filter(|urn| {
+                    cached
+                        .as_ref()
+                        .map(|c| !c.contains_key(*urn))
+                        .unwrap_or(true)
+                })
+                .cloned()
+                .collect()
+        };
+
+        if to_fetch.is_empty() {
+            return;
+        }
+
+        let total = to_fetch.len();
+        tracing::info!(
+            count = total,
+            manifest_version = self.manifest_version,
+            "[prefetch] warming cap cache from manifest before LiveCapFab builds"
+        );
+
+        // Bounded concurrency: drive the network directly through the same
+        // atomic fetcher `get_cap` uses (which caches the cap and its
+        // referenced media defs on success), but cap the in-flight requests
+        // to avoid a thundering-herd of connections against R2.
+        const MAX_IN_FLIGHT: usize = 16;
+        let mut warmed = 0usize;
+        let mut failed = 0usize;
+        let mut set: tokio::task::JoinSet<(String, Result<Cap, FabricRegistryError>)> =
+            tokio::task::JoinSet::new();
+        let mut iter = to_fetch.into_iter();
+
+        // Prime up to MAX_IN_FLIGHT tasks, then refill one-for-one as each
+        // completes so at most MAX_IN_FLIGHT fetches are ever in flight.
+        for _ in 0..MAX_IN_FLIGHT {
+            if let Some(urn) = iter.next() {
+                self.spawn_cap_warm(&mut set, urn);
+            }
+        }
+        while let Some(joined) = set.join_next().await {
+            match joined {
+                Ok((_, Ok(_))) => warmed += 1,
+                Ok((urn, Err(e))) => {
+                    failed += 1;
+                    tracing::warn!(
+                        cap_urn = %urn,
+                        error = %e,
+                        "[prefetch] failed to warm cap; on-demand background fetch will retry later"
+                    );
+                }
+                Err(e) => {
+                    failed += 1;
+                    tracing::warn!(error = %e, "[prefetch] cap warm task panicked");
+                }
+            }
+            if let Some(urn) = iter.next() {
+                self.spawn_cap_warm(&mut set, urn);
+            }
+        }
+
+        tracing::info!(
+            warmed,
+            failed,
+            total,
+            "[prefetch] cap cache warm-up complete"
+        );
+    }
+
+    /// Spawn a single cap warm-up task onto `set`, cloning the `Arc` handles
+    /// the atomic fetcher needs so it can run independently of `&self`.
+    fn spawn_cap_warm(
+        &self,
+        set: &mut tokio::task::JoinSet<(String, Result<Cap, FabricRegistryError>)>,
+        urn: String,
+    ) {
+        let client = self.client.clone();
+        let cache_dir = self.cache_dir.clone();
+        let cached_caps = Arc::clone(&self.cached_caps);
+        let cached_media_defs = Arc::clone(&self.cached_media_defs);
+        let extension_index = Arc::clone(&self.extension_index);
+        let manifest = Arc::clone(&self.manifest);
+        let offline_flag = Arc::clone(&self.offline_flag);
+        let config = self.config.clone();
+        let manifest_version = self.manifest_version;
+        let cache_revision_tx = self.cache_revision_tx.clone();
+        set.spawn(async move {
+            let normalized_urn = normalize_cap_urn(&urn);
+            let defver = match {
+                let m = manifest.lock();
+                m.ok().and_then(|m| m.caps.get(&normalized_urn).copied())
+            } {
+                Some(d) => d,
+                None => {
+                    return (
+                        urn,
+                        Err(FabricRegistryError::NotFound(format!(
+                            "cap '{}' is not part of manifest v{}",
+                            normalized_urn, manifest_version
+                        ))),
+                    )
+                }
+            };
+            let result = fetch_one_cap_atomic(
+                &client,
+                &cache_dir,
+                &cached_caps,
+                &cached_media_defs,
+                &extension_index,
+                &manifest,
+                &offline_flag,
+                &config,
+                manifest_version,
+                &cache_revision_tx,
+                &normalized_urn,
+                defver,
+            )
+            .await;
+            (urn, result)
+        });
+    }
+
     /// Get all currently cached caps from in-memory cache.
     pub async fn get_cached_caps(&self) -> Result<Vec<Cap>, FabricRegistryError> {
         let cached_caps = self.cached_caps.lock().map_err(|e| {
