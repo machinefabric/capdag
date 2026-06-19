@@ -269,12 +269,26 @@ pub struct CartridgeRegistryResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CartridgeBuild {
     pub platform: String,
+    /// Per-format installer list (`.pkg`/`.deb`/`.rpm`/`.msi`/`.exe`).
+    /// `#[serde(default)]` so a registry manifest published before
+    /// `packages[]` existed (which carries only the legacy singular
+    /// `package`) still deserializes instead of failing the whole parse.
+    #[serde(default)]
     pub packages: Vec<CartridgeDistributionInfo>,
+    /// Legacy singular installer (`{name,url,sha256,size}`, no `format`).
+    /// Required-forever on the wire for already-installed macOS apps; read
+    /// here only as a fallback when `packages[]` is absent, so a registry
+    /// not yet republished with the dual-write keeps installing. See the
+    /// cartridge-package compat seam in MACHINEFABRIC.md.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<CartridgeDistributionInfo>,
 }
 
 impl CartridgeBuild {
     /// The installer package the host should use, preferring the platform's
-    /// native format. Returns `None` only when the build ships no packages.
+    /// native format. Falls back to the legacy singular `package` when
+    /// `packages[]` is empty (pre-dual-write manifests). Returns `None` only
+    /// when the build ships no installer at all.
     pub fn primary_package(&self) -> Option<&CartridgeDistributionInfo> {
         let os = self.platform.split('-').next().unwrap_or("");
         let preference: &[&str] = match os {
@@ -288,7 +302,7 @@ impl CartridgeBuild {
                 return Some(pkg);
             }
         }
-        self.packages.first()
+        self.packages.first().or(self.package.as_ref())
     }
 }
 
@@ -321,6 +335,9 @@ pub struct CartridgeDistributionInfo {
     pub size: u64,
     pub url: String,
     /// Installer format: "pkg" (macOS), "deb"/"rpm" (Linux), "msi"/"exe" (Windows).
+    /// `#[serde(default)]` + skip-when-empty so the legacy singular `package`
+    /// (which has no `format`) round-trips through this same struct.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub format: String,
 }
 
@@ -926,10 +943,25 @@ impl CartridgeRepoServer {
                 )));
             }
             if build.packages.is_empty() {
-                return Err(CartridgeRepoError::ParseError(format!(
-                    "Cartridge {} v{}: build[{}] ({}) ships no packages",
-                    id, version, i, build.platform
-                )));
+                // A manifest published before `packages[]` existed carries
+                // only the legacy singular `package`. Accept it (read as a
+                // fallback by primary_package); reject only a build with no
+                // installer at all. The legacy object has no `format`.
+                match &build.package {
+                    Some(legacy) if !legacy.name.is_empty() => {}
+                    Some(_) => {
+                        return Err(CartridgeRepoError::ParseError(format!(
+                            "Cartridge {} v{}: build[{}] ({}) legacy package missing name",
+                            id, version, i, build.platform
+                        )));
+                    }
+                    None => {
+                        return Err(CartridgeRepoError::ParseError(format!(
+                            "Cartridge {} v{}: build[{}] ({}) ships no packages",
+                            id, version, i, build.platform
+                        )));
+                    }
+                }
             }
             for (j, package) in build.packages.iter().enumerate() {
                 if package.name.is_empty() {
@@ -1174,6 +1206,7 @@ mod tests {
                     url: format!("https://cartridges.machinefabric.com/{}", pkg_name),
                     format: "pkg".to_string(),
                 }],
+                package: None,
             }],
             notes_url: None,
         }
@@ -1493,6 +1526,50 @@ mod tests {
             .unwrap();
         assert_eq!(img.cap_groups.len(), 1);
         assert_eq!(img.cap_groups[0].adapter_urns.len(), 6);
+    }
+
+    // TEST1847: A build from a registry manifest published BEFORE `packages[]`
+    // existed carries only the legacy singular `package` (no `format`). It must
+    // still deserialize (a missing `packages` must not fail the whole parse) and
+    // `primary_package()` must fall back to that legacy package, so a registry
+    // not yet republished with the dual-write keeps installing. When `packages[]`
+    // is present it is preferred over the legacy field.
+    #[test]
+    fn test1847_cartridge_build_legacy_package_fallback() {
+        // Legacy-only: `package`, no `packages`.
+        let legacy_json = r#"{
+            "platform": "linux-x86_64",
+            "package": {
+                "name": "imagecartridge-1.0.0.pkg",
+                "url": "https://cartridges.machinefabric.com/imagecartridge-1.0.0.pkg",
+                "sha256": "abc123",
+                "size": 1000
+            }
+        }"#;
+        let legacy: CartridgeBuild = serde_json::from_str(legacy_json).unwrap();
+        assert!(legacy.packages.is_empty());
+        let primary = legacy
+            .primary_package()
+            .expect("legacy package must be read as a fallback");
+        assert_eq!(primary.name, "imagecartridge-1.0.0.pkg");
+        assert_eq!(primary.format, ""); // legacy object has no format
+        assert!(primary.url.ends_with("imagecartridge-1.0.0.pkg"));
+
+        // packages[] present: preferred over the legacy field, native format wins.
+        let modern_json = r#"{
+            "platform": "linux-x86_64",
+            "package": {
+                "name": "legacy.pkg", "url": "https://x/legacy.pkg",
+                "sha256": "dead", "size": 1
+            },
+            "packages": [
+                {"name": "c.rpm", "url": "https://x/c.rpm", "sha256": "a", "size": 2, "format": "rpm"},
+                {"name": "c.deb", "url": "https://x/c.deb", "sha256": "b", "size": 3, "format": "deb"}
+            ]
+        }"#;
+        let modern: CartridgeBuild = serde_json::from_str(modern_json).unwrap();
+        // linux prefers deb over rpm; the legacy `package` is ignored.
+        assert_eq!(modern.primary_package().unwrap().name, "c.deb");
     }
 
     // ----------------------------------------------------------------------
