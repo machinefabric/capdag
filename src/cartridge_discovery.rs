@@ -419,7 +419,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn absent_scan_root_yields_empty_roster() {
+    async fn test999_absent_scan_root_yields_empty_roster() {
         let root = tempdir().unwrap();
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
             .await
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_cartridge_json_is_manifest_invalid() {
+    async fn test999_missing_cartridge_json_is_manifest_invalid() {
         let root = tempdir().unwrap();
         install_fixture(root.path(), "dev", "nightly", "cart", "1.0.0", None, "cart");
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn channel_mismatch_is_bad_installation() {
+    async fn test999_channel_mismatch_is_bad_installation() {
         let root = tempdir().unwrap();
         // Declares release but lives under nightly/ — host is nightly.
         let json = dev_cartridge_json("release", 1);
@@ -450,7 +450,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fabric_manifest_mismatch_is_flagged() {
+    async fn test999_fabric_manifest_mismatch_is_flagged() {
         let root = tempdir().unwrap();
         let json = dev_cartridge_json("nightly", 999);
         install_fixture(root.path(), "dev", "nightly", "cart", "1.0.0", Some(&json), "cart");
@@ -461,7 +461,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn registry_url_under_dev_slug_is_rejected() {
+    async fn test999_registry_url_under_dev_slug_is_rejected() {
         let root = tempdir().unwrap();
         // A non-null registry_url placed under the reserved dev slug violates the
         // three-place rule — read_from_dir rejects it before any host check.
