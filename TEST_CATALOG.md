@@ -1,12 +1,12 @@
 # Rust Test Catalog
 
-**Total Tests:** 1105
+**Total Tests:** 1111
 
-**Numbered Tests:** 1097
+**Numbered Tests:** 1103
 
 **Unnumbered Tests:** 8
 
-**Numbered Tests Missing Descriptions:** 3
+**Numbered Tests Missing Descriptions:** 8
 
 **Numbering Mismatches:** 0
 
@@ -255,7 +255,7 @@ This catalog lists all tests in the Rust codebase.
 | test292 | `test292_message_id_uniqueness` | TEST292: Sequential requests get distinct MessageIds | src/bifaci/integration_tests.rs:1232 |
 | test293 | `test293_cartridge_runtime_handler_registration` | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN | src/bifaci/integration_tests.rs:21 |
 | test299 | `test299_empty_payload_roundtrip` | TEST299: Empty payload request/response roundtrip | src/bifaci/integration_tests.rs:1293 |
-| test300 | `test300_get_cartridge_by_id_channel_isolation` | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. | src/bifaci/cartridge_repo.rs:1662 |
+| test300 | `test300_get_cartridge_by_id_channel_isolation` | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. | src/bifaci/cartridge_repo.rs:1769 |
 | test304 | `test304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | src/urn/media_urn.rs:1138 |
 | test305 | `test305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | src/urn/media_urn.rs:1156 |
 | test306 | `test306_availability_and_path_output_distinct` | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs | src/urn/media_urn.rs:1170 |
@@ -264,23 +264,23 @@ This catalog lists all tests in the Rust codebase.
 | test309 | `test309_model_availability_and_path_are_distinct` | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs | src/standard/caps.rs:1073 |
 | test310 | `test310_llm_generate_text_urn_shape` | TEST310: llm_generate_text_urn() produces a valid cap URN with a textable input and plain-text terminal output. | src/standard/caps.rs:1086 |
 | test312 | `test312_all_urn_builders_produce_valid_urns` | TEST312: Test all URN builders produce parseable cap URNs | src/standard/caps.rs:1118 |
-| test319 | `test319_update_cache_rejects_malformed_cap_urn` | TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. | src/bifaci/cartridge_repo.rs:2045 |
-| test320 | `test320_cartridge_info_construction` | TEST320: Construct CartridgeInfo and verify round-trip of fields. | src/bifaci/cartridge_repo.rs:1474 |
-| test321 | `test321_cartridge_info_is_signed` | TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty. | src/bifaci/cartridge_repo.rs:1489 |
-| test322 | `test322_cartridge_info_build_for_platform` | TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise. | src/bifaci/cartridge_repo.rs:1504 |
-| test323 | `test323_cartridge_repo_server_validate_registry` | TEST323: CartridgeRepoServer requires schema 5.0 and rejects older. | src/bifaci/cartridge_repo.rs:1562 |
-| test324 | `test324_cartridge_repo_server_transform_to_array` | TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim. | src/bifaci/cartridge_repo.rs:1577 |
-| test325 | `test325_cartridge_repo_server_get_cartridges` | TEST325: get_cartridges() wraps the transformed array in the response envelope. | src/bifaci/cartridge_repo.rs:1604 |
-| test326 | `test326_cartridge_repo_server_get_cartridge_by_id` | TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces. | src/bifaci/cartridge_repo.rs:1628 |
-| test327 | `test327_cartridge_repo_server_search_cartridges` | TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings. | src/bifaci/cartridge_repo.rs:1717 |
-| test328 | `test328_cartridge_repo_server_get_by_category` | TEST328: get_cartridges_by_category filters on the categories string list. | src/bifaci/cartridge_repo.rs:1752 |
-| test329 | `test329_cartridge_repo_server_get_by_cap` | TEST329: get_cartridges_by_cap parses the input URN and matches each cartridge cap via tagged-URN equivalence — not string ==. This proves a request URN whose tags appear in a different order than the cap's declared form still resolves. | src/bifaci/cartridge_repo.rs:1785 |
-| test330 | `test330_cartridge_repo_client_update_cache` | TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridge index keyed by normalized URNs. | src/bifaci/cartridge_repo.rs:1827 |
-| test331 | `test331_cartridge_repo_client_get_suggestions` | TEST331: get_suggestions_for_cap returns a suggestion when the cache has a cartridge whose cap is tagged-URN equivalent to the request, even if declared with different tag order. | src/bifaci/cartridge_repo.rs:1868 |
-| test332 | `test332_cartridge_repo_client_get_cartridge` | TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss. | src/bifaci/cartridge_repo.rs:1906 |
-| test333 | `test333_cartridge_repo_client_get_all_caps` | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. | src/bifaci/cartridge_repo.rs:1954 |
-| test334 | `test334_cartridge_repo_client_needs_sync` | TEST334: needs_sync returns true on an empty cache, false right after a successful update. | src/bifaci/cartridge_repo.rs:1994 |
-| test335 | `test335_cartridge_repo_server_client_integration` | TEST335: A v4.0 nested registry round-trips through Server → CartridgeInfo → fingerprint, preserving the cap_groups structure and the signed flag. | src/bifaci/cartridge_repo.rs:2012 |
+| test319 | `test319_update_cache_rejects_malformed_cap_urn` | TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. | src/bifaci/cartridge_repo.rs:2152 |
+| test320 | `test320_cartridge_info_construction` | TEST320: Construct CartridgeInfo and verify round-trip of fields. | src/bifaci/cartridge_repo.rs:1581 |
+| test321 | `test321_cartridge_info_is_signed` | TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty. | src/bifaci/cartridge_repo.rs:1596 |
+| test322 | `test322_cartridge_info_build_for_platform` | TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise. | src/bifaci/cartridge_repo.rs:1611 |
+| test323 | `test323_cartridge_repo_server_validate_registry` | TEST323: CartridgeRepoServer requires schema 5.0 and rejects older. | src/bifaci/cartridge_repo.rs:1669 |
+| test324 | `test324_cartridge_repo_server_transform_to_array` | TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim. | src/bifaci/cartridge_repo.rs:1684 |
+| test325 | `test325_cartridge_repo_server_get_cartridges` | TEST325: get_cartridges() wraps the transformed array in the response envelope. | src/bifaci/cartridge_repo.rs:1711 |
+| test326 | `test326_cartridge_repo_server_get_cartridge_by_id` | TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces. | src/bifaci/cartridge_repo.rs:1735 |
+| test327 | `test327_cartridge_repo_server_search_cartridges` | TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings. | src/bifaci/cartridge_repo.rs:1824 |
+| test328 | `test328_cartridge_repo_server_get_by_category` | TEST328: get_cartridges_by_category filters on the categories string list. | src/bifaci/cartridge_repo.rs:1859 |
+| test329 | `test329_cartridge_repo_server_get_by_cap` | TEST329: get_cartridges_by_cap parses the input URN and matches each cartridge cap via tagged-URN equivalence — not string ==. This proves a request URN whose tags appear in a different order than the cap's declared form still resolves. | src/bifaci/cartridge_repo.rs:1892 |
+| test330 | `test330_cartridge_repo_client_update_cache` | TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridge index keyed by normalized URNs. | src/bifaci/cartridge_repo.rs:1934 |
+| test331 | `test331_cartridge_repo_client_get_suggestions` | TEST331: get_suggestions_for_cap returns a suggestion when the cache has a cartridge whose cap is tagged-URN equivalent to the request, even if declared with different tag order. | src/bifaci/cartridge_repo.rs:1975 |
+| test332 | `test332_cartridge_repo_client_get_cartridge` | TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss. | src/bifaci/cartridge_repo.rs:2013 |
+| test333 | `test333_cartridge_repo_client_get_all_caps` | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. | src/bifaci/cartridge_repo.rs:2061 |
+| test334 | `test334_cartridge_repo_client_needs_sync` | TEST334: needs_sync returns true on an empty cache, false right after a successful update. | src/bifaci/cartridge_repo.rs:2101 |
+| test335 | `test335_cartridge_repo_server_client_integration` | TEST335: A v4.0 nested registry round-trips through Server → CartridgeInfo → fingerprint, preserving the cap_groups structure and the signed flag. | src/bifaci/cartridge_repo.rs:2119 |
 | test336 | `test336_file_path_reads_file_passes_bytes` | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler | src/bifaci/cartridge_runtime.rs:5620 |
 | test337 | `test337_file_path_without_stdin_passes_string` | TEST337: file-path arg without stdin source passes path as string (no conversion) | src/bifaci/cartridge_runtime.rs:5693 |
 | test338 | `test338_file_path_via_cli_flag` | TEST338: file-path arg reads file via --file CLI flag | src/bifaci/cartridge_runtime.rs:5730 |
@@ -517,14 +517,14 @@ This catalog lists all tests in the Rust codebase.
 | test627 | `test627_insert_schema_rejects_invalid_schema` | TEST627: insert_schema rejects malformed JSON Schemas instead of caching them. A registry that silently accepted invalid schemas would hide compilation problems until the first validation call. | src/media/profile.rs:686 |
 | test628 | `test628_media_urn_constants_format` | TEST628: Verify media URN constants all start with "media:" prefix | src/standard/media.rs:119 |
 | test629 | `test629_profile_constants_format` | TEST629: Verify profile URL constants all start with capdag.com schema prefix | src/standard/media.rs:129 |
-| test630 | `test630_cartridge_repo_creation` | TEST630: CartridgeRepo creation starts with empty cartridge list. | src/bifaci/cartridge_repo.rs:1242 |
-| test631 | `test631_needs_sync_empty_cache` | TEST631: needs_sync returns true with empty cache and non-empty URLs. | src/bifaci/cartridge_repo.rs:1249 |
-| test632 | `test632_deserialize_minimal_registry_cap` | TEST632: A registry cap with only the three required fields parses. | src/bifaci/cartridge_repo.rs:1263 |
-| test633 | `test633_deserialize_rich_registry_cap` | TEST633: A registry cap with cap_description, args, output all parses. | src/bifaci/cartridge_repo.rs:1276 |
-| test634 | `test634_deserialize_cap_group` | TEST634: A registry cap_group parses with caps + adapter_urns. | src/bifaci/cartridge_repo.rs:1315 |
-| test635 | `test635_deserialize_cartridge_info_wire_shape` | TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields fall back to empty. | src/bifaci/cartridge_repo.rs:1333 |
-| test636 | `test636_deserialize_cartridge_info_with_null_strings` | TEST636: CartridgeInfo with null version/description/author still deserializes (the null_as_empty_string deserializer is the only tolerated coercion — every other malformed input is a hard error). | src/bifaci/cartridge_repo.rs:1375 |
-| test637 | `test637_deserialize_full_registry_response` | TEST637: A full /api/cartridges-shaped response with two cartridges and nested cap_groups round-trips through the response wrapper. | src/bifaci/cartridge_repo.rs:1397 |
+| test630 | `test630_cartridge_repo_creation` | TEST630: CartridgeRepo creation starts with empty cartridge list. | src/bifaci/cartridge_repo.rs:1305 |
+| test631 | `test631_needs_sync_empty_cache` | TEST631: needs_sync returns true with empty cache and non-empty URLs. | src/bifaci/cartridge_repo.rs:1312 |
+| test632 | `test632_deserialize_minimal_registry_cap` | TEST632: A registry cap with only the three required fields parses. | src/bifaci/cartridge_repo.rs:1326 |
+| test633 | `test633_deserialize_rich_registry_cap` | TEST633: A registry cap with cap_description, args, output all parses. | src/bifaci/cartridge_repo.rs:1339 |
+| test634 | `test634_deserialize_cap_group` | TEST634: A registry cap_group parses with caps + adapter_urns. | src/bifaci/cartridge_repo.rs:1378 |
+| test635 | `test635_deserialize_cartridge_info_wire_shape` | TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields fall back to empty. | src/bifaci/cartridge_repo.rs:1396 |
+| test636 | `test636_deserialize_cartridge_info_with_null_strings` | TEST636: CartridgeInfo with null version/description/author still deserializes (the null_as_empty_string deserializer is the only tolerated coercion — every other malformed input is a hard error). | src/bifaci/cartridge_repo.rs:1438 |
+| test637 | `test637_deserialize_full_registry_response` | TEST637: A full /api/cartridges-shaped response with two cartridges and nested cap_groups round-trips through the response wrapper. | src/bifaci/cartridge_repo.rs:1460 |
 | test638 | `test638_no_peer_router_rejects_all` | TEST638: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported | src/bifaci/router.rs:95 |
 | test639 | `test639_wildcard_001_empty_cap_is_illegal` | TEST639: bare/default top-to-top declared form is illegal | src/urn/cap_urn.rs:2592 |
 | test640 | `test640_wildcard_002_in_only_is_illegal` | TEST640: cap:in defaults to the same illegal bare top form | src/urn/cap_urn.rs:2601 |
@@ -742,14 +742,14 @@ This catalog lists all tests in the Rust codebase.
 | test904 | `test904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | src/bifaci/frame.rs:1744 |
 | test905 | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:4879 |
 | test906 | `test906_full_path_identity_verification` | TEST906: Full path identity verification: engine → host (attach_cartridge) → cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests. | src/bifaci/integration_tests.rs:1350 |
-| test910 | `test910_map_progress_monotonic` | TEST910: map_progress output is monotonic for monotonically increasing input | src/orchestrator/executor.rs:1711 |
-| test911 | `test911_map_progress_bounded` | TEST911: map_progress output is bounded within [base, base+weight] | src/orchestrator/executor.rs:1729 |
-| test912 | `test912_progress_mapper_reports_through_parent` | TEST912: ProgressMapper correctly maps through a CapProgressFn | src/orchestrator/executor.rs:1750 |
-| test913 | `test913_progress_mapper_as_cap_progress_fn` | TEST913: ProgressMapper.as_cap_progress_fn produces same mapping | src/orchestrator/executor.rs:1774 |
-| test914 | `test914_progress_mapper_sub_mapper` | TEST914: ProgressMapper.sub_mapper chains correctly | src/orchestrator/executor.rs:1797 |
-| test915 | `test915_per_group_subdivision_monotonic_bounded` | TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding. | src/orchestrator/executor.rs:1824 |
-| test916 | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:1881 |
-| test917 | `test917_high_frequency_progress_bounded` | TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded) | src/orchestrator/executor.rs:1945 |
+| test910 | `test910_map_progress_monotonic` | TEST910: map_progress output is monotonic for monotonically increasing input | src/orchestrator/executor.rs:1716 |
+| test911 | `test911_map_progress_bounded` | TEST911: map_progress output is bounded within [base, base+weight] | src/orchestrator/executor.rs:1734 |
+| test912 | `test912_progress_mapper_reports_through_parent` | TEST912: ProgressMapper correctly maps through a CapProgressFn | src/orchestrator/executor.rs:1755 |
+| test913 | `test913_progress_mapper_as_cap_progress_fn` | TEST913: ProgressMapper.as_cap_progress_fn produces same mapping | src/orchestrator/executor.rs:1779 |
+| test914 | `test914_progress_mapper_sub_mapper` | TEST914: ProgressMapper.sub_mapper chains correctly | src/orchestrator/executor.rs:1802 |
+| test915 | `test915_per_group_subdivision_monotonic_bounded` | TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding. | src/orchestrator/executor.rs:1829 |
+| test916 | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:1886 |
+| test917 | `test917_high_frequency_progress_bounded` | TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded) | src/orchestrator/executor.rs:1950 |
 | test919 | `test919_parse_simple_testcartridge_graph` | TEST919: Parse simple machine notation graph with test-edge1 | tests/orchestrator_integration.rs:343 |
 | test920 | `test920_single_cap_plan` | TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node | src/planner/plan.rs:1035 |
 | test921 | `test921_linear_chain_plan` | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order | src/planner/plan.rs:1051 |
@@ -874,8 +874,8 @@ This catalog lists all tests in the Rust codebase.
 | test1122 | `test1122_full_path_engine_req_to_cartridge_response` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | src/bifaci/integration_tests.rs:194 |
 | test1123 | `test1123_cartridge_error_flows_to_engine` | TEST1123: Cartridge ERR frame flows back to engine through relay | src/bifaci/integration_tests.rs:313 |
 | test1124 | `test1124_cbor_rejects_stream_end_without_chunk_count` | TEST1124: CBOR decode REJECTS STREAM_END frame missing chunk_count field | src/bifaci/frame.rs:2368 |
-| test1125 | `test1125_map_progress_basic_mapping` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | src/orchestrator/executor.rs:1682 |
-| test1126 | `test1126_map_progress_deterministic` | TEST1126: map_progress is deterministic — same inputs always produce same output | src/orchestrator/executor.rs:1700 |
+| test1125 | `test1125_map_progress_basic_mapping` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | src/orchestrator/executor.rs:1687 |
+| test1126 | `test1126_map_progress_deterministic` | TEST1126: map_progress is deterministic — same inputs always produce same output | src/orchestrator/executor.rs:1705 |
 | test1127 | `test1127_cap_documentation_round_trip_with_markdown_body` | TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capfab side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't. | src/cap/definition.rs:1253 |
 | test1128 | `test1128_cap_documentation_omitted_when_none` | TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's "if present" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `"documentation":null` and break consumers that distinguish between absent and explicit null. | src/cap/definition.rs:1293 |
 | test1129 | `test1129_cap_documentation_parses_from_capfab_json` | TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming. | src/cap/definition.rs:1320 |
@@ -1079,6 +1079,7 @@ This catalog lists all tests in the Rust codebase.
 | test1844 | `test1844_axis_weighting_out_dominates` | TEST1844: Cap-URN axis weighting is lexicographic. A cap with greater out-axis specificity always outranks one with greater in-axis specificity, regardless of y-axis. | src/urn/cap_urn.rs:3719 |
 | test1845 | `test1845_axis_weighting_in_dominates_y` | TEST1845: With equal out-axis, in-axis dominates over y-axis. | src/urn/cap_urn.rs:3735 |
 | test1846 | `test1846_axis_weighting_decoded_layout` | TEST1846: Specificity composes uniformly across all three axes. For a fully-loaded cap with one of each form per axis, the total reads as out_score, in_score, y_score in distinct digit slots. | src/urn/cap_urn.rs:3754 |
+| test1847 | `test1847_cartridge_build_legacy_package_fallback` | TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and `primary_package()` must fall back to that legacy package, so a registry not yet republished with the dual-write keeps installing. When `packages[]` is present it is preferred over the legacy field. | src/bifaci/cartridge_repo.rs:1538 |
 | | | | |
 | test489 ⚠ | `test489_add_master_dynamic` | TEST489: add_master dynamically connects new host to running switch | src/bifaci/relay_switch.rs:5053 |
 | test489 ⚠ | `test489_runtime_identity_probe_required_on_empty_to_nonempty_transition` | TEST489: When a master initially advertises empty caps (so `add_master` skips the identity probe) and later sends a RelayNotify update with non-empty caps, the relay must run an end-to-end identity probe before the new caps become routable. A master that fails to answer the runtime probe with the expected nonce echo must end up unhealthy with `last_error` populated, and its caps must NOT appear in the cap_table. This test guards the wire-protocol regression where the RelayNotify-update path published caps without re-verifying identity end-to-end. Removing the runtime probe re-introduces the hole; this test fails loudly when that happens. | src/bifaci/relay_switch.rs:4753 |
@@ -1092,20 +1093,25 @@ This catalog lists all tests in the Rust codebase.
 | test656 ⚠ | `test656_no_handler_returns_err` | TEST656: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | src/bifaci/in_process_host.rs:1159 |
 | test657 ⚠ | `test657_effect_dispatch_requires_explicit_wildcard` | TEST657: omitted effect means declared; unconstrained effect must be explicit | src/urn/cap_urn.rs:2809 |
 | test657 ⚠ | `test657_manifest_includes_all_caps` | TEST657: InProcessCartridgeHost manifest includes identity cap and handler caps | src/bifaci/in_process_host.rs:1198 |
+| test999 ⚠ | `test999_absent_scan_root_yields_empty_roster` |  | src/cartridge_discovery.rs:422 |
 | test999 ⚠ | `test999_all_rich_numeric_params_conform_to_their_bare_pattern` | / Symmetric: same shape for every numeric parameter the LLM caps / declare. Catching one but not the others would mean some params / land on the prompt path and others don't. | tests/cap_arg_stream_dispatch.rs:109 |
 | test999 ⚠ | `test999_bare_textable_does_not_conform_to_plain_text` | / **Core regression guard.** Bare `media:textable` does NOT conform / to `media:plain-text;textable;txt`. This is the relation that / keeps `cap:save-as-txt` from accidentally accepting every textable / cap's output as a feeder. If this assertion ever flips to `true`, / the wizard's recommended-paths surface will fill with bogus chains / where any textable producer reaches `.txt` persistence. | tests/plain_text_terminal_binding.rs:79 |
+| test999 ⚠ | `test999_channel_mismatch_is_bad_installation` |  | src/cartridge_discovery.rs:441 |
 | test999 ⚠ | `test999_disbind_page_refines_plain_text` | / Disbind-pdf emits `media:page;plain-text;textable;txt` per page. Each / page item must be persistable as `.txt` — that's the user-visible / reason for the marker (per-page save in the Finder). If a regression / drops the `plain-text` marker from the disbind output URN, this test / flips and the Finder loses its save-each-page-as-txt path. | tests/plain_text_terminal_binding.rs:155 |
 | test999 ⚠ | `test999_every_textable_tagged_urn_conforms_to_bare_textable` | / The catch-all for the prompt body uses `conforms_to(&textable)`. / This test pins what such a check accepts: every textable-tagged / URN — including parameter streams, the system prompt, and the / model spec — conforms. That's WHY the if-chain in the cartridge / handler must check specific patterns BEFORE the textable / catch-all, otherwise the catch-all would swallow them. | tests/cap_arg_stream_dispatch.rs:143 |
 | test999 ⚠ | `test999_extracted_text_refines_plain_text` | / OCR's narrowed output URN refines plain-text. Both carry the / `plain-text` marker, the `textable` coercion, and `file-type=txt`; / extracted-text adds the OCR-specific marker on top. Save-as-txt's / `in = media:plain-text;textable;txt` therefore accepts OCR output / without further intermediation. | tests/plain_text_terminal_binding.rs:93 |
+| test999 ⚠ | `test999_fabric_manifest_mismatch_is_flagged` |  | src/cartridge_discovery.rs:453 |
 | test999 ⚠ | `test999_gc_evicts_oldest_entries_by_touch_sequence` | / Contract #2 — the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one — / the more dangerous bug because it silently drops / in-flight continuation frames. | src/bifaci/host_runtime.rs:5404 |
 | test999 ⚠ | `test999_image_description_refines_plain_text` | / Vision describe caps emit `media:image-description;plain-text;textable;txt`. / The composite carries the vision-specific `image-description` marker so / downstream caption-aware tools can match on the narrower URN, AND the / `plain-text` marker so `cap:save-as-txt` accepts captions as a feeder. / This test pins the second relation — drop it and vision output stops / being savable to `.txt`, defeating the parity with OCR. | tests/plain_text_terminal_binding.rs:141 |
-| test999 ⚠ | `test999_local_socket_pair_round_trips_in_both_directions` |  | src/bifaci/local_socket.rs:293 |
+| test999 ⚠ | `test999_local_socket_pair_round_trips_in_both_directions` |  | src/bifaci/local_socket.rs:349 |
+| test999 ⚠ | `test999_missing_cartridge_json_is_manifest_invalid` |  | src/cartridge_discovery.rs:431 |
 | test999 ⚠ | `test999_model_spec_does_not_conform_to_any_numeric_parameter` | / The model-spec URN is rich but has its own dedicated branch / because the handler knows the canonical full URN. Verify it / doesn't accidentally conform to any of the parameter patterns / (which would route the model-spec content into a numeric slot). | tests/cap_arg_stream_dispatch.rs:216 |
 | test999 ⚠ | `test999_numeric_params_do_not_cross_match` | / Cross-axis: a rich numeric param does NOT conform to any other / rich numeric param's bare pattern. Without this property the / dispatch would pick the wrong branch (e.g. send a temperature / stream to the max-tokens slot). | tests/cap_arg_stream_dispatch.rs:167 |
 | test999 ⚠ | `test999_page_text_only_matches_textable_catch_all` | / The actual upstream prompt URN (PDF page text) does not conform / to any specific cap-arg pattern — it falls through to the / textable catch-all, where it correctly lands as the prompt body. | tests/cap_arg_stream_dispatch.rs:181 |
 | test999 ⚠ | `test999_plain_text_conforms_to_itself` | / `media:plain-text;textable;txt` conforms to itself — basic / reflexivity sanity. If this fails the canonical parser is broken. | tests/plain_text_terminal_binding.rs:51 |
 | test999 ⚠ | `test999_plain_text_does_not_refine_extracted_text` | / Plain-text does NOT refine extracted-text — extracted-text is a / strict subset of plain-text (OCR-marker added). A consumer that / asked specifically for OCR output should NOT silently get any / other plain-text. This is the order-theoretic complement of the / previous test and catches a regression where the markers on / extracted-text get dropped. | tests/plain_text_terminal_binding.rs:108 |
 | test999 ⚠ | `test999_plain_text_refines_bare_textable` | / A concrete plain-text URN refines bare textable. The relation is / directional — refinement, not equivalence — so a generic textable / CONSUMER cap declaring `in = media:textable` would correctly / accept a plain-text producer's output (any subtype). This is fine / in the consumer direction; the regression we guard against below / is in the producer direction. | tests/plain_text_terminal_binding.rs:65 |
+| test999 ⚠ | `test999_registry_url_under_dev_slug_is_rejected` |  | src/cartridge_discovery.rs:464 |
 | test999 ⚠ | `test999_rich_max_tokens_conforms_to_bare_max_tokens` | / The dispatch contract: the rich cap-arg URN MUST conform to the / bare handler pattern. This is what makes / `stream_urn.conforms_to(&max_tokens_pattern)` correctly route the / rich form to the max-tokens branch. | tests/cap_arg_stream_dispatch.rs:97 |
 | test999 ⚠ | `test999_rich_max_tokens_does_not_equal_bare_max_tokens` | / **Core regression guard.** The rich and bare numeric URNs are / SEMANTICALLY the same parameter but their tag sets differ. A / handler that used `is_equivalent` here would miss the rich form / and route the parameter stream to the textable catch-all, / overwriting the prompt with `"512"`. | tests/cap_arg_stream_dispatch.rs:84 |
 | test999 ⚠ | `test999_system_prompt_must_be_matched_before_textable_catch_all` | / The system-prompt URN must be matched BEFORE the textable / catch-all; otherwise the prompt body would be the system / prompt's content and the actual upstream text would be / discarded. This test pins the conformance both ways: system / prompt conforms to textable (so the catch-all WOULD swallow it), / AND system prompt conforms to its own marker (so the dedicated / branch matches when it runs first). | tests/cap_arg_stream_dispatch.rs:199 |
@@ -1173,29 +1179,34 @@ The following test numbers are assigned to more than one function. Keep the firs
 
 **Suggested free number(s):** test684
 
-### test999 (19 occurrences)
+### test999 (24 occurrences)
 
+- `test999_absent_scan_root_yields_empty_roster` — src/cartridge_discovery.rs:422
 - `test999_all_rich_numeric_params_conform_to_their_bare_pattern` — tests/cap_arg_stream_dispatch.rs:109
 - `test999_bare_textable_does_not_conform_to_plain_text` — tests/plain_text_terminal_binding.rs:79
+- `test999_channel_mismatch_is_bad_installation` — src/cartridge_discovery.rs:441
 - `test999_disbind_page_refines_plain_text` — tests/plain_text_terminal_binding.rs:155
 - `test999_every_textable_tagged_urn_conforms_to_bare_textable` — tests/cap_arg_stream_dispatch.rs:143
 - `test999_extracted_text_refines_plain_text` — tests/plain_text_terminal_binding.rs:93
+- `test999_fabric_manifest_mismatch_is_flagged` — src/cartridge_discovery.rs:453
 - `test999_gc_evicts_oldest_entries_by_touch_sequence` — src/bifaci/host_runtime.rs:5404
 - `test999_image_description_refines_plain_text` — tests/plain_text_terminal_binding.rs:141
-- `test999_local_socket_pair_round_trips_in_both_directions` — src/bifaci/local_socket.rs:293
+- `test999_local_socket_pair_round_trips_in_both_directions` — src/bifaci/local_socket.rs:349
+- `test999_missing_cartridge_json_is_manifest_invalid` — src/cartridge_discovery.rs:431
 - `test999_model_spec_does_not_conform_to_any_numeric_parameter` — tests/cap_arg_stream_dispatch.rs:216
 - `test999_numeric_params_do_not_cross_match` — tests/cap_arg_stream_dispatch.rs:167
 - `test999_page_text_only_matches_textable_catch_all` — tests/cap_arg_stream_dispatch.rs:181
 - `test999_plain_text_conforms_to_itself` — tests/plain_text_terminal_binding.rs:51
 - `test999_plain_text_does_not_refine_extracted_text` — tests/plain_text_terminal_binding.rs:108
 - `test999_plain_text_refines_bare_textable` — tests/plain_text_terminal_binding.rs:65
+- `test999_registry_url_under_dev_slug_is_rejected` — src/cartridge_discovery.rs:464
 - `test999_rich_max_tokens_conforms_to_bare_max_tokens` — tests/cap_arg_stream_dispatch.rs:97
 - `test999_rich_max_tokens_does_not_equal_bare_max_tokens` — tests/cap_arg_stream_dispatch.rs:84
 - `test999_system_prompt_must_be_matched_before_textable_catch_all` — tests/cap_arg_stream_dispatch.rs:199
 - `test999_textable_txt_without_plain_text_marker_does_not_satisfy` — tests/plain_text_terminal_binding.rs:124
 - `test999_transcription_does_not_refine_plain_text` — tests/plain_text_terminal_binding.rs:172
 
-**Suggested free number(s):** test986, test985, test984, test983, test982, test981, test980, test979, test978, test976, test1030, test1031, test1032, test1033, test1034, test1035, test1036, test1037
+**Suggested free number(s):** test986, test985, test984, test983, test982, test981, test980, test979, test978, test976, test1030, test1031, test1032, test1033, test1034, test1035, test1036, test1037, test1038, test1039, test1040, test1041, test1042
 
 ### test1294 (2 occurrences)
 
@@ -1232,15 +1243,20 @@ The following tests are cataloged but do not currently participate in numeric te
 
 These tests still participate in numeric indexing, but the cataloger did not find an authoritative immediate comment/docstring description for them. This is reported explicitly so intentional blank-description parity and accidental comment drift are both visible.
 
-- `test999` / `test999_local_socket_pair_round_trips_in_both_directions` — src/bifaci/local_socket.rs:293
+- `test999` / `test999_absent_scan_root_yields_empty_roster` — src/cartridge_discovery.rs:422
+- `test999` / `test999_channel_mismatch_is_bad_installation` — src/cartridge_discovery.rs:441
+- `test999` / `test999_fabric_manifest_mismatch_is_flagged` — src/cartridge_discovery.rs:453
+- `test999` / `test999_local_socket_pair_round_trips_in_both_directions` — src/bifaci/local_socket.rs:349
+- `test999` / `test999_missing_cartridge_json_is_manifest_invalid` — src/cartridge_discovery.rs:431
+- `test999` / `test999_registry_url_under_dev_slug_is_rejected` — src/cartridge_discovery.rs:464
 - `test1294` / `test1294_step_title_query_filters_paths_server_side` — src/planner/live_cap_fab.rs:2625
 - `test1295` / `test1295_step_title_query_constrains_streaming_progress_counts` — src/planner/live_cap_fab.rs:2666
 
 ---
 
 *Generated from Rust source tree*
-*Total tests: 1105*
-*Total numbered tests: 1097*
+*Total tests: 1111*
+*Total numbered tests: 1103*
 *Total unnumbered tests: 8*
-*Total numbered tests missing descriptions: 3*
+*Total numbered tests missing descriptions: 8*
 *Total numbering mismatches: 0*
