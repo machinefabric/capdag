@@ -34,24 +34,10 @@ use std::time::Duration;
 use thiserror::Error;
 
 /// Detect the current platform in the format used by the registry (e.g., "darwin-arm64").
+/// Thin alias over the shared [`crate::host_platform`] — the single source of
+/// truth for the host {os}-{arch} string.
 fn detect_platform() -> String {
-    let os = if cfg!(target_os = "macos") {
-        "darwin"
-    } else if cfg!(target_os = "linux") {
-        "linux"
-    } else if cfg!(target_os = "windows") {
-        "windows"
-    } else {
-        std::env::consts::OS
-    };
-
-    let arch = std::env::consts::ARCH; // "aarch64", "x86_64", etc.
-    let arch_normalized = match arch {
-        "aarch64" => "arm64",
-        other => other,
-    };
-
-    format!("{}-{}", os, arch_normalized)
+    crate::host_platform()
 }
 
 fn platform_binary_name(cartridge_id: &str) -> String {

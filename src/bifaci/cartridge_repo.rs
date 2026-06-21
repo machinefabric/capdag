@@ -306,6 +306,132 @@ impl CartridgeBuild {
     }
 }
 
+/// The platform string ({os}-{arch}) of the binary that calls this, in the
+/// exact form the registry uses (`darwin-arm64`, `darwin-x86_64`,
+/// `linux-x86_64`, `windows-x86_64`). Derived from `cfg!`/`std::env::consts`
+/// at compile time — the engine binary literally runs on this platform, so
+/// this is the authoritative host string for compatibility resolution.
+/// Single source of truth: every consumer that needs "what am I running on?"
+/// calls this rather than re-deriving the os/arch mapping.
+pub fn host_platform() -> String {
+    let os = if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        std::env::consts::OS
+    };
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        other => other,
+    };
+    format!("{os}-{arch}")
+}
+
+/// Host-compatibility status of a registry cartridge, resolved against a
+/// specific host platform string and the engine's baked fabric manifest
+/// version. Mirrors the proto `CartridgeCompatibilityStatus`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompatStatus {
+    /// The latest version has a build for this host platform — install as-is.
+    Compatible,
+    /// The latest version has no host build, but an older version does;
+    /// `resolved_version` names that older version. Install it, mark outdated.
+    CompatibleOutdated,
+    /// No version has a build for this host platform. Nothing to install.
+    Incompatible,
+}
+
+/// The resolved verdict the engine attaches to an available cartridge: which
+/// version/package the host should install (if any) and a human reason when
+/// it is not the latest-and-greatest. Computed once server-side so both
+/// clients render identically without re-deriving platform/version logic.
+#[derive(Debug, Clone)]
+pub struct CartridgeCompatibilityResolution {
+    pub status: CompatStatus,
+    pub host_platform: String,
+    /// Newest version that has a build for this host (None when Incompatible).
+    pub resolved_version: Option<String>,
+    /// Host-preferred installer package within `resolved_version` (None when
+    /// Incompatible). Cloned from the registry data.
+    pub resolved_package: Option<CartridgeDistributionInfo>,
+    /// Explanation, set whenever status is not `Compatible`.
+    pub reason: Option<String>,
+}
+
+impl CartridgeInfo {
+    /// Find this cartridge's build for `host_platform` within a given version,
+    /// if any. The host package within it is then chosen by
+    /// [`CartridgeBuild::primary_package`].
+    fn build_for_host<'a>(&'a self, version: &str, host_platform: &str) -> Option<&'a CartridgeBuild> {
+        self.versions
+            .get(version)
+            .and_then(|v| v.builds.iter().find(|b| b.platform == host_platform))
+    }
+
+    /// Resolve which version/package this host should install, scanning
+    /// versions newest-first (`available_versions` is the authoritative
+    /// newest-first ordering). The newest version with a host build wins:
+    ///   * it IS the latest version → `Compatible`
+    ///   * it is older than the latest → `CompatibleOutdated`
+    ///   * no version has a host build → `Incompatible`
+    ///
+    /// `host_platform` is normally [`host_platform()`]; passed in so the
+    /// resolution is unit-testable for arbitrary hosts.
+    ///
+    /// "Latest" is `self.version` — the same field [`Self::build_for_platform`]
+    /// trusts — not `available_versions.first()`. They must agree; if they do
+    /// not, that is a registry transformer bug, and the host build found at
+    /// `self.version` still classifies as `Compatible` while any other found
+    /// version classifies as `CompatibleOutdated`. We do not paper over a
+    /// `self.version` with no host build by silently calling it latest.
+    pub fn resolve_for_host(&self, host_platform: &str) -> CartridgeCompatibilityResolution {
+        let latest = self.version.as_str();
+
+        for ver in &self.available_versions {
+            let Some(build) = self.build_for_host(ver, host_platform) else {
+                continue;
+            };
+            // primary_package() returns None only when the build ships no
+            // installer at all — a build entry with an empty packages[] and no
+            // legacy package. That is a malformed registry build; skip it
+            // rather than resolve to a version the host cannot actually
+            // download, and keep scanning older versions for a usable one.
+            let Some(pkg) = build.primary_package().cloned() else {
+                continue;
+            };
+            if ver == latest {
+                return CartridgeCompatibilityResolution {
+                    status: CompatStatus::Compatible,
+                    host_platform: host_platform.to_string(),
+                    resolved_version: Some(ver.clone()),
+                    resolved_package: Some(pkg),
+                    reason: None,
+                };
+            }
+            return CartridgeCompatibilityResolution {
+                status: CompatStatus::CompatibleOutdated,
+                host_platform: host_platform.to_string(),
+                resolved_version: Some(ver.clone()),
+                resolved_package: Some(pkg),
+                reason: Some(format!(
+                    "Latest {latest} has no {host_platform} build; newest compatible is {ver}"
+                )),
+            };
+        }
+
+        CartridgeCompatibilityResolution {
+            status: CompatStatus::Incompatible,
+            host_platform: host_platform.to_string(),
+            resolved_version: None,
+            resolved_package: None,
+            reason: Some(format!("No installable {host_platform} build available in any version")),
+        }
+    }
+}
+
 /// A cartridge version's data (v5.0 schema).
 /// Each version has one or more platform-specific builds.
 ///
@@ -1621,6 +1747,203 @@ mod tests {
         let mut empty_cartridge = build_cartridge_info("empty", "Empty", vec![]);
         empty_cartridge.versions = HashMap::new();
         assert!(empty_cartridge.build_for_platform("darwin-arm64").is_none());
+    }
+
+    // ----------------------------------------------------------------------
+    // Host-compatibility resolution (resolve_for_host).
+    // ----------------------------------------------------------------------
+
+    /// One platform build carrying a single native-format package, so a
+    /// resolution test can assert exactly which package URL the host gets.
+    fn build_for_platform_with_format(
+        platform: &str,
+        format: &str,
+        pkg_name: &str,
+    ) -> CartridgeBuild {
+        CartridgeBuild {
+            platform: platform.to_string(),
+            packages: vec![CartridgeDistributionInfo {
+                name: pkg_name.to_string(),
+                sha256: "deadbeef".to_string(),
+                size: 4242,
+                url: format!("https://cartridges.machinefabric.com/{pkg_name}"),
+                format: format.to_string(),
+            }],
+            package: None,
+        }
+    }
+
+    /// Construct a cartridge whose versions/platform-builds are fully
+    /// specified by the caller. `versions` is given newest-first; `version`
+    /// (the "latest" field) is set to the first entry. Each version lists the
+    /// (platform, format, pkg_name) builds it ships.
+    fn cartridge_with_versions(
+        id: &str,
+        versions: Vec<(&str, Vec<(&str, &str, &str)>)>,
+    ) -> CartridgeInfo {
+        let mut version_map = HashMap::new();
+        let mut available = Vec::new();
+        for (ver, builds) in &versions {
+            available.push(ver.to_string());
+            version_map.insert(
+                ver.to_string(),
+                CartridgeVersionData {
+                    release_date: "2026-02-07".to_string(),
+                    changelog: vec![],
+                    min_app_version: String::new(),
+                    builds: builds
+                        .iter()
+                        .map(|(plat, fmt, name)| build_for_platform_with_format(plat, fmt, name))
+                        .collect(),
+                    notes_url: None,
+                },
+            );
+        }
+        let latest = versions
+            .first()
+            .map(|(v, _)| v.to_string())
+            .unwrap_or_default();
+        CartridgeInfo {
+            id: id.to_string(),
+            name: id.to_string(),
+            version: latest,
+            description: String::new(),
+            author: String::new(),
+            team_id: "TEAM123".to_string(),
+            signed_at: "2026-02-07T00:00:00Z".to_string(),
+            min_app_version: String::new(),
+            page_url: String::new(),
+            categories: vec![],
+            tags: vec![],
+            cap_groups: vec![],
+            versions: version_map,
+            available_versions: available,
+            channel: CartridgeChannel::Release,
+            registry_url: "https://example.com/cartridges".to_string(),
+        }
+    }
+
+    // TEST1849: latest version has a host build → Compatible, resolving to the
+    // latest version and that platform's native-format package.
+    #[test]
+    fn test1849_resolve_for_host_compatible_latest() {
+        let cartridge = cartridge_with_versions(
+            "c",
+            vec![
+                (
+                    "1.2.0",
+                    vec![
+                        ("darwin-arm64", "pkg", "c-1.2.0.pkg"),
+                        ("linux-x86_64", "deb", "c-1.2.0.deb"),
+                    ],
+                ),
+                ("1.1.0", vec![("darwin-arm64", "pkg", "c-1.1.0.pkg")]),
+            ],
+        );
+
+        let r = cartridge.resolve_for_host("linux-x86_64");
+        assert_eq!(r.status, CompatStatus::Compatible);
+        assert_eq!(r.resolved_version.as_deref(), Some("1.2.0"));
+        assert_eq!(r.resolved_package.as_ref().unwrap().name, "c-1.2.0.deb");
+        assert_eq!(r.resolved_package.as_ref().unwrap().format, "deb");
+        assert!(r.reason.is_none(), "Compatible carries no reason");
+        assert_eq!(r.host_platform, "linux-x86_64");
+    }
+
+    // TEST1850: the latest version lacks a host build but an older version has
+    // one → CompatibleOutdated, resolving to the older version with a reason
+    // naming both the latest and the resolved version.
+    #[test]
+    fn test1850_resolve_for_host_compatible_outdated() {
+        let cartridge = cartridge_with_versions(
+            "c",
+            vec![
+                // Latest 1.3.0 ships only macOS.
+                ("1.3.0", vec![("darwin-arm64", "pkg", "c-1.3.0.pkg")]),
+                // 1.2.0 still shipped Linux.
+                (
+                    "1.2.0",
+                    vec![
+                        ("darwin-arm64", "pkg", "c-1.2.0.pkg"),
+                        ("linux-x86_64", "deb", "c-1.2.0.deb"),
+                    ],
+                ),
+                ("1.1.0", vec![("linux-x86_64", "deb", "c-1.1.0.deb")]),
+            ],
+        );
+
+        let r = cartridge.resolve_for_host("linux-x86_64");
+        assert_eq!(r.status, CompatStatus::CompatibleOutdated);
+        // Newest-with-host-build is 1.2.0, NOT the oldest 1.1.0 that also has it.
+        assert_eq!(r.resolved_version.as_deref(), Some("1.2.0"));
+        assert_eq!(r.resolved_package.as_ref().unwrap().name, "c-1.2.0.deb");
+        let reason = r.reason.expect("outdated carries a reason");
+        assert!(reason.contains("1.3.0"), "reason names the latest: {reason}");
+        assert!(reason.contains("1.2.0"), "reason names the resolved: {reason}");
+    }
+
+    // TEST1851: no version ships a host build → Incompatible, no resolved
+    // version/package, reason states the host platform.
+    #[test]
+    fn test1851_resolve_for_host_incompatible() {
+        let cartridge = cartridge_with_versions(
+            "c",
+            vec![
+                ("1.2.0", vec![("darwin-arm64", "pkg", "c-1.2.0.pkg")]),
+                ("1.1.0", vec![("darwin-arm64", "pkg", "c-1.1.0.pkg")]),
+            ],
+        );
+
+        let r = cartridge.resolve_for_host("windows-x86_64");
+        assert_eq!(r.status, CompatStatus::Incompatible);
+        assert!(r.resolved_version.is_none());
+        assert!(r.resolved_package.is_none());
+        assert!(r
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("windows-x86_64"));
+    }
+
+    // TEST1852: a host build whose packages[] is empty AND has no legacy
+    // `package` ships no installer; resolution must SKIP it (not resolve to an
+    // un-downloadable version) and fall through to an older usable version.
+    #[test]
+    fn test1852_resolve_for_host_skips_build_with_no_installer() {
+        let mut cartridge = cartridge_with_versions(
+            "c",
+            vec![
+                // Latest has a linux build entry but we strip its installer below.
+                ("2.0.0", vec![("linux-x86_64", "deb", "c-2.0.0.deb")]),
+                ("1.0.0", vec![("linux-x86_64", "deb", "c-1.0.0.deb")]),
+            ],
+        );
+        // Make 2.0.0's linux build ship nothing installable.
+        let v2 = cartridge.versions.get_mut("2.0.0").unwrap();
+        v2.builds[0].packages.clear();
+        v2.builds[0].package = None;
+
+        let r = cartridge.resolve_for_host("linux-x86_64");
+        // 2.0.0 is skipped (no installer); newest USABLE host build is 1.0.0.
+        assert_eq!(r.status, CompatStatus::CompatibleOutdated);
+        assert_eq!(r.resolved_version.as_deref(), Some("1.0.0"));
+        assert_eq!(r.resolved_package.as_ref().unwrap().name, "c-1.0.0.deb");
+    }
+
+    // TEST1853: host_platform() returns a normalized {os}-{arch} string with
+    // arch aarch64 mapped to arm64 — the exact form the registry uses.
+    #[test]
+    fn test1853_host_platform_normalized_form() {
+        let p = host_platform();
+        let (os, arch) = p
+            .split_once('-')
+            .unwrap_or_else(|| panic!("host_platform must be os-arch, got {p}"));
+        assert!(
+            matches!(os, "darwin" | "linux" | "windows") || !os.is_empty(),
+            "os segment present: {os}"
+        );
+        // The registry never uses the raw "aarch64"; it must be normalized.
+        assert_ne!(arch, "aarch64", "arch must be normalized to arm64");
     }
 
     // ----------------------------------------------------------------------
