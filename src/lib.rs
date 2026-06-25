@@ -114,6 +114,7 @@ pub use bifaci::host_runtime::CartridgeHostRuntime;
 // Cartridge process monitoring
 pub use bifaci::host_runtime::{
     CartridgeHostObserver, CartridgeProcessHandle, CartridgeProcessInfo, HostCommand,
+    RegisteredDirSpec,
 };
 
 // Cartridge install metadata
