@@ -1,8 +1,8 @@
 # Rust Test Catalog
 
-**Total Tests:** 1116
+**Total Tests:** 1119
 
-**Numbered Tests:** 1108
+**Numbered Tests:** 1111
 
 **Unnumbered Tests:** 8
 
@@ -1085,6 +1085,9 @@ This catalog lists all tests in the Rust codebase.
 | test1851 | `test1851_resolve_for_host_incompatible` | TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform. | src/bifaci/cartridge_repo.rs:1888 |
 | test1852 | `test1852_resolve_for_host_skips_build_with_no_installer` | TEST1852: a host build whose packages[] is empty AND has no legacy `package` ships no installer; resolution must SKIP it (not resolve to an un-downloadable version) and fall through to an older usable version. | src/bifaci/cartridge_repo.rs:1912 |
 | test1853 | `test1853_host_platform_normalized_form` | TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses. | src/bifaci/cartridge_repo.rs:1936 |
+| test1872 | `test1872_registry_url_from_build_env_passes_through_nonempty` | TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with. | src/bifaci/manifest.rs:680 |
+| test1873 | `test1873_registry_url_from_build_env_none_for_dev` | TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row. | src/bifaci/manifest.rs:690 |
+| test1874 | `test1874_registry_url_from_build_env_rejects_empty_string` | TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship. | src/bifaci/manifest.rs:700 |
 | | | | |
 | test489 ⚠ | `test489_add_master_dynamic` | TEST489: add_master dynamically connects new host to running switch | src/bifaci/relay_switch.rs:5053 |
 | test489 ⚠ | `test489_runtime_identity_probe_required_on_empty_to_nonempty_transition` | TEST489: When a master initially advertises empty caps (so `add_master` skips the identity probe) and later sends a RelayNotify update with non-empty caps, the relay must run an end-to-end identity probe before the new caps become routable. A master that fails to answer the runtime probe with the expected nonce echo must end up unhealthy with `last_error` populated, and its caps must NOT appear in the cap_table. This test guards the wire-protocol regression where the RelayNotify-update path published caps without re-verifying identity end-to-end. Removing the runtime probe re-introduces the hole; this test fails loudly when that happens. | src/bifaci/relay_switch.rs:4753 |
@@ -1260,8 +1263,8 @@ These tests still participate in numeric indexing, but the cataloger did not fin
 ---
 
 *Generated from Rust source tree*
-*Total tests: 1116*
-*Total numbered tests: 1108*
+*Total tests: 1119*
+*Total numbered tests: 1111*
 *Total unnumbered tests: 8*
 *Total numbered tests missing descriptions: 8*
 *Total numbering mismatches: 0*
