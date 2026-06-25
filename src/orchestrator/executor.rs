@@ -1533,6 +1533,7 @@ pub async fn execute_dag(
     initial_inputs: HashMap<String, NodeData>,
     initial_is_sequence: HashMap<String, bool>,
     dev_binaries: Vec<PathBuf>,
+    bundled_providers_dir: Option<PathBuf>,
     fabric_registry: Arc<FabricRegistry>,
     progress_fn: Option<&CapProgressFn>,
     log_fn: &PipelineLogFn,
@@ -1541,7 +1542,7 @@ pub async fn execute_dag(
     // 1. Initialize cartridge manager and discover/download all needed cartridges
     let mut cartridge_manager = CartridgeManager::new(
         cartridge_dir,
-        registry_url,
+        registry_url.clone(),
         channel,
         fabric_manifest_version,
         dev_binaries,
@@ -1549,7 +1550,38 @@ pub async fn execute_dag(
     cartridge_manager.init().await?;
 
     let cap_urns: Vec<&str> = graph.edges.iter().map(|e| e.cap_urn.as_str()).collect();
-    let cartridges = cartridge_manager.resolve_cartridges(&cap_urns).await?;
+    let mut cartridges = cartridge_manager.resolve_cartridges(&cap_urns).await?;
+
+    // 1b. Discover the host's BUNDLED providers (shipped beside the executor,
+    // e.g. the capdag CLI's own `providers/` tree). Uses the shared
+    // `discover_cartridges`, so they pass the same identity + bundled-hash
+    // integrity checks the engine applies, then register alongside the dev/
+    // registry cartridges. Each `Incompatible` entry is logged and skipped
+    // (discovery already surfaced the reason). Absent dir ⇒ no bundled providers.
+    if let Some(providers_dir) = bundled_providers_dir {
+        let identity = crate::cartridge_discovery::DiscoveryIdentity {
+            channel,
+            registry_url: if registry_url.is_empty() { None } else { Some(registry_url.clone()) },
+            fabric_manifest_version,
+        };
+        for discovered in crate::cartridge_discovery::discover_cartridges(&providers_dir, &identity).await
+            .map_err(|e| ExecutionError::HostError(format!("bundled provider discovery failed: {e}")))?
+        {
+            match discovered {
+                crate::cartridge_discovery::DiscoveredCartridge::Directory {
+                    entry_point, id, channel: cart_channel, version, cap_groups, ..
+                } => {
+                    cartridges.push((entry_point, Some((id, version, cart_channel)), cap_groups));
+                }
+                crate::cartridge_discovery::DiscoveredCartridge::Incompatible { id, version, error, .. } => {
+                    tracing::error!(
+                        provider = %id, version = %version, reason = %error.message,
+                        "bundled provider rejected at discovery — not hosted"
+                    );
+                }
+            }
+        }
+    }
 
     // 2. Create execution context and add cartridge host as master
     let mut ctx = ExecutionContext::new(fabric_registry).await?;

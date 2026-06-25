@@ -38,13 +38,14 @@ pub struct DiscoveryIdentity {
 }
 
 impl DiscoveryIdentity {
-    /// On-disk top-level slug for this identity (`dev` when `registry_url` is None).
+    /// On-disk top-level slug for THIS host's own baked registry (`dev` when
+    /// `registry_url` is None). Discovery no longer restricts scanning to this
+    /// slug — it enumerates every slug folder on disk (full macOS parity) and
+    /// validates each cartridge against the folder it sits under. Retained as a
+    /// public helper for callers that need the host's own slug (e.g. to locate
+    /// where this build's bundled providers were staged).
     pub fn slug(&self) -> String {
         slug_for(self.registry_url.as_deref())
-    }
-
-    fn dev_mode(&self) -> bool {
-        self.registry_url.is_none()
     }
 }
 
@@ -146,15 +147,64 @@ pub async fn discover_cartridges(
     cartridges_root: &Path,
     identity: &DiscoveryIdentity,
 ) -> anyhow::Result<Vec<DiscoveredCartridge>> {
-    let slug = identity.slug();
-    let scan_root = cartridges_root.join(&slug).join(identity.channel.as_str());
-
     let mut discovered: Vec<DiscoveredCartridge> = Vec::new();
-    if !scan_root.is_dir() {
+    if !cartridges_root.is_dir() {
         return Ok(discovered);
     }
 
-    let name_entries = std::fs::read_dir(&scan_root)
+    // Scan EVERY slug folder present on disk — full macOS parity. The host's
+    // baked `identity.registry_url` does NOT restrict which slugs are scanned;
+    // each cartridge is instead validated in place against the slug folder it
+    // sits under (the three-place rule in `read_from_dir`), so a registry-
+    // installed cartridge (under its registry's slug), the reserved `dev/` slot
+    // (unpublished user cartridges, null registry_url), and the engine's bundled
+    // providers (under the build's registry slug, `installed_from: "bundle"`,
+    // integrity-checked by baked hash) all coexist and load together. The
+    // channel folder IS still pinned to the host's channel — release and nightly
+    // artefacts never mix. Registry-listing validation (is this version listed
+    // upstream?) is the verdict layer's job, applied after discovery.
+    let slug_entries = std::fs::read_dir(cartridges_root)
+        .map_err(|e| anyhow::anyhow!("read_dir({}): {}", cartridges_root.display(), e))?;
+
+    for slug_entry in slug_entries {
+        let slug_entry =
+            slug_entry.map_err(|e| anyhow::anyhow!("read_dir entry in {}: {}", cartridges_root.display(), e))?;
+        let slug_dir = slug_entry.path();
+        if !slug_dir.is_dir() {
+            let file_name = slug_dir.file_name().unwrap_or_default().to_string_lossy();
+            if file_name != ".DS_Store" {
+                error!(path = %slug_dir.display(), "Unmanaged file in cartridges root — only registry-slug / dev directories belong here");
+            }
+            continue;
+        }
+        let expected_slug = slug_dir
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let scan_root = slug_dir.join(identity.channel.as_str());
+        if !scan_root.is_dir() {
+            // This slug has no subtree for the host's channel — nothing to do.
+            // (A slug folder may legitimately hold only the other channel.)
+            continue;
+        }
+        scan_channel_root(&scan_root, &expected_slug, identity, &mut discovered).await?;
+    }
+
+    Ok(discovered)
+}
+
+/// Scan one `{slug}/{channel}/` root: classify each cartridge name directory's
+/// newest version against the host identity and the slug folder it sits under.
+/// `expected_slug` is the on-disk slug folder name — passed to
+/// `read_from_dir` so the three-place rule (folder slug ⇔ `slug_for(registry_url)`)
+/// is enforced per cartridge. Appends results to `discovered`.
+async fn scan_channel_root(
+    scan_root: &Path,
+    expected_slug: &str,
+    identity: &DiscoveryIdentity,
+    discovered: &mut Vec<DiscoveredCartridge>,
+) -> anyhow::Result<()> {
+    let name_entries = std::fs::read_dir(scan_root)
         .map_err(|e| anyhow::anyhow!("read_dir({}): {}", scan_root.display(), e))?;
 
     for entry in name_entries {
@@ -214,10 +264,28 @@ pub async fn discover_cartridges(
 
         let detected_at = unix_seconds_now();
 
-        let cj = match CartridgeJson::read_from_dir(version_dir, &slug) {
+        // `read_from_dir` enforces the three-place rule against the ACTUAL slug
+        // folder (`expected_slug`): the cartridge's declared `registry_url` must
+        // hash to it. A non-null registry_url under `dev/` (or any slug≠
+        // slug_for(registry_url)) fails here as a slug mismatch — surfaced
+        // incompatible and logged, never hosted. A null registry_url is valid
+        // only under the reserved `dev/` slot.
+        let cj = match CartridgeJson::read_from_dir(version_dir, expected_slug) {
             Ok(cj) => cj,
             Err(e) => {
-                error!(dir = %version_dir.display(), error = %e, "cartridge.json invalid — surfacing as incompatible");
+                // A slug mismatch (declared registry_url doesn't hash to this
+                // folder — e.g. a registry-defined url placed under `dev/`, or a
+                // cartridge hand-copied between registry slugs) is a bad
+                // INSTALL CONTEXT, distinct from an unreadable/garbage
+                // cartridge.json (ManifestInvalid). Both are surfaced + logged,
+                // never hosted.
+                let kind = match &e {
+                    crate::bifaci::cartridge_json::CartridgeJsonError::RegistrySlugMismatch { .. } => {
+                        CartridgeAttachmentErrorKind::BadInstallation
+                    }
+                    _ => CartridgeAttachmentErrorKind::ManifestInvalid,
+                };
+                error!(dir = %version_dir.display(), slug = %expected_slug, error = %e, "cartridge.json invalid or mis-placed — surfacing as incompatible");
                 discovered.push(DiscoveredCartridge::Incompatible {
                     version_dir: version_dir.clone(),
                     id: path_derived_name.clone(),
@@ -225,8 +293,8 @@ pub async fn discover_cartridges(
                     registry_url: identity.registry_url.clone(),
                     version: path_derived_version.clone(),
                     error: CartridgeAttachmentError {
-                        kind: CartridgeAttachmentErrorKind::ManifestInvalid,
-                        message: format!("cartridge.json failed to load: {}", e),
+                        kind,
+                        message: format!("cartridge.json failed to load under slug '{}': {}", expected_slug, e),
                         detected_at_unix_seconds: detected_at,
                     },
                 });
@@ -253,27 +321,18 @@ pub async fn discover_cartridges(
             continue;
         }
 
-        if cj.registry_url.as_deref() != identity.registry_url.as_deref() {
-            discovered.push(DiscoveredCartridge::Incompatible {
-                version_dir: version_dir.clone(),
-                id: cj.name.clone(),
-                channel: cj.channel,
-                registry_url: cj.registry_url.clone(),
-                version: cj.version.clone(),
-                error: CartridgeAttachmentError {
-                    kind: CartridgeAttachmentErrorKind::BadInstallation,
-                    message: format!(
-                        "registry_url mismatch: cartridge declares {:?} but host is pinned to {:?}. Cartridges from a different registry are a separate identity.",
-                        cj.registry_url, identity.registry_url
-                    ),
-                    detected_at_unix_seconds: detected_at,
-                },
-            });
-            continue;
-        }
+        // NO registry pin: the host's baked registry does NOT restrict which
+        // registries' cartridges are discovered. A self-consistent cartridge
+        // (its registry_url hashes to its slug folder, validated above) from any
+        // registry present on disk is accepted; whether its version is actually
+        // LISTED upstream is the verdict layer's call, applied after discovery.
 
+        // Scheme check is per-cartridge: a dev cartridge (null registry_url)
+        // never reaches here; a registry cartridge must use https (dev_mode=false
+        // for the scheme relaxation, which only ever applied to null-registry
+        // dev cartridges).
         if let Some(url) = cj.registry_url.as_deref() {
-            match validate_registry_url_scheme(url, identity.dev_mode()) {
+            match validate_registry_url_scheme(url, false) {
                 RegistryUrlSchemeResult::Ok => {}
                 RegistryUrlSchemeResult::NonHttps { scheme } => {
                     discovered.push(DiscoveredCartridge::Incompatible {
@@ -330,6 +389,56 @@ pub async fn discover_cartridges(
             continue;
         }
 
+        // Bundled-provider integrity. A cartridge marked `installed_from: bundle`
+        // is shipped INSIDE this build (the engine/daemon/capdag-CLI's own
+        // providers/ tree), not user-installed, and has no upstream registry to
+        // verify against — so it needs its own integrity proof. The mechanism is
+        // platform-split by necessity:
+        //
+        // - macOS: the OS code-signature IS the guard. Every bundled provider
+        //   binary is signed (hardened runtime, secure timestamp, launch
+        //   constraints) and the whole .app is notarized; a tampered binary
+        //   fails Gatekeeper before the engine ever runs. A content hash would
+        //   also be re-broken by Apple's (re)signing of the .app, so macOS does
+        //   NOT bake or verify hashes. We log that we are trusting the signature
+        //   — an explicit, visible rule, not a silent skip.
+        // - Linux/Windows: binaries are unsigned, so the integrity proof is a
+        //   content hash baked into the engine at build time
+        //   (BUNDLED_PROVIDER_HASHES, codegen'd by build.rs from
+        //   MFR_BUNDLED_PROVIDER_HASHES). The on-disk directory must hash to the
+        //   baked value; a mismatch or an entry absent from the baked set means
+        //   the shipped provider was tampered with or the build failed to record
+        //   it — surfaced incompatible + logged, never hosted. This is additive
+        //   to the slug/channel/scheme/fabric-version checks above.
+        if cj.installed_from == Some(crate::bifaci::cartridge_json::CartridgeInstallSource::Bundle) {
+            #[cfg(target_os = "macos")]
+            {
+                tracing::info!(
+                    cartridge = %version_dir.display(), name = %cj.name, version = %cj.version,
+                    "bundled provider integrity on macOS is the OS code-signature (notarized .app); baked-hash verification is intentionally skipped"
+                );
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                if let Err(reason) = verify_bundled_provider_hash(&cj.name, &cj.version, version_dir) {
+                    error!(cartridge = %version_dir.display(), name = %cj.name, version = %cj.version, reason = %reason, "bundled provider hash verification failed — surfacing as incompatible");
+                    discovered.push(DiscoveredCartridge::Incompatible {
+                        version_dir: version_dir.clone(),
+                        id: cj.name.clone(),
+                        channel: cj.channel,
+                        registry_url: cj.registry_url.clone(),
+                        version: cj.version.clone(),
+                        error: CartridgeAttachmentError {
+                            kind: CartridgeAttachmentErrorKind::BadInstallation,
+                            message: format!("bundled provider integrity check failed: {}", reason),
+                            detected_at_unix_seconds: detected_at,
+                        },
+                    });
+                    continue;
+                }
+            }
+        }
+
         let entry_point = cj.resolve_entry_point(version_dir);
         match probe_cartridge_cap_groups(&entry_point).await {
             Ok(cap_groups) => {
@@ -361,7 +470,47 @@ pub async fn discover_cartridges(
         }
     }
 
-    Ok(discovered)
+    Ok(())
+}
+
+/// Verify a bundled provider's on-disk content against the hash baked into this
+/// binary at build time. `Ok(())` when the directory hashes to the expected
+/// value for `(name, version)`; `Err(reason)` when the pair is absent from the
+/// baked set or the hash differs (tamper / corruption / unrecorded build).
+///
+/// Non-macOS only: macOS bundled-provider integrity is the OS code-signature
+/// (see the discovery call site), so the engine there neither bakes nor checks
+/// these hashes.
+#[cfg(not(target_os = "macos"))]
+fn verify_bundled_provider_hash(name: &str, version: &str, version_dir: &Path) -> Result<(), String> {
+    let expected = bundled_provider_expected_hash(name, version).ok_or_else(|| {
+        format!(
+            "no baked hash for bundled provider {name} {version} — this build did not record it (MFR_BUNDLED_PROVIDER_HASHES)"
+        )
+    })?;
+    let actual = crate::bifaci::cartridge_json::hash_cartridge_directory(version_dir)
+        .map_err(|e| format!("failed to hash bundled provider directory: {e}"))?;
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "content hash mismatch — baked {expected}, on-disk {actual}; the shipped provider differs from what this build was compiled to ship"
+        ))
+    }
+}
+
+/// Look up the baked expected directory hash for a bundled provider, or `None`
+/// if `(name, version)` was not recorded at build time. Backed by the
+/// `BUNDLED_PROVIDER_HASHES` const codegen'd by `build.rs` from
+/// `MFR_BUNDLED_PROVIDER_HASHES` (empty when no providers were bundled).
+///
+/// Non-macOS only (see `verify_bundled_provider_hash`).
+#[cfg(not(target_os = "macos"))]
+fn bundled_provider_expected_hash(name: &str, version: &str) -> Option<&'static str> {
+    crate::BUNDLED_PROVIDER_HASHES
+        .iter()
+        .find(|(n, v, _)| *n == name && *v == version)
+        .map(|(_, _, h)| *h)
 }
 
 #[cfg(test)]
@@ -464,12 +613,124 @@ mod tests {
     async fn test999_registry_url_under_dev_slug_is_rejected() {
         let root = tempdir().unwrap();
         // A non-null registry_url placed under the reserved dev slug violates the
-        // three-place rule — read_from_dir rejects it before any host check.
+        // three-place rule — read_from_dir rejects it as a bad install context
+        // (BadInstallation), surfaced + logged, never hosted. This is the
+        // "registry-defined url under dev/ is invalid" rule.
         let json = r#"{"name":"cart","version":"1.0.0","channel":"nightly","registry_url":"https://cartridges.example.com/manifest","entry":"cart","installed_at":"2024-01-01T00:00:00Z","fabric_manifest_version":1}"#;
         install_fixture(root.path(), "dev", "nightly", "cart", "1.0.0", Some(json), "cart");
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
             .await
             .unwrap();
-        expect_incompatible(&out, CartridgeAttachmentErrorKind::ManifestInvalid);
+        expect_incompatible(&out, CartridgeAttachmentErrorKind::BadInstallation);
+    }
+
+    // The registry slug for a fixed URL, so tests can place a registry cartridge
+    // under the folder that matches its declared registry_url (three-place rule).
+    fn registry_slug_for(url: &str) -> String {
+        crate::bifaci::cartridge_slug::slug_for(Some(url))
+    }
+
+    fn registry_cartridge_json(url: &str, channel: &str, fmv: u32) -> String {
+        format!(
+            r#"{{"name":"cart","version":"1.0.0","channel":"{channel}","registry_url":"{url}","entry":"cart","installed_at":"2024-01-01T00:00:00Z","fabric_manifest_version":{fmv}}}"#
+        )
+    }
+
+    // TEST1875: scan-all — a registry slug folder AND the dev slot present on
+    // disk are BOTH scanned, regardless of the host's own baked registry. The
+    // dev cartridge (null registry under dev/) and the registry cartridge (its
+    // url hashing to its slug folder) each reach their probe. Both fixtures lack
+    // a real bifaci binary, so both end at HandshakeFailed — proving discovery
+    // REACHED them (was not filtered out by a registry pin), which is the
+    // behavior under test. A registry-pin rejection would instead surface
+    // BadInstallation and never probe.
+    #[tokio::test]
+    async fn test1875_scan_all_reaches_both_dev_and_registry_slugs() {
+        let root = tempdir().unwrap();
+        let url = "https://cartridges.example.com/manifest";
+        let rslug = registry_slug_for(url);
+        // Host baked for a DIFFERENT registry than the on-disk registry cartridge.
+        let host = DiscoveryIdentity {
+            channel: CartridgeChannel::Nightly,
+            registry_url: Some("https://other.example.com/manifest".to_string()),
+            fabric_manifest_version: 1,
+        };
+        install_fixture(root.path(), "dev", "nightly", "devcart", "1.0.0", Some(&dev_cartridge_json("nightly", 1)), "cart");
+        install_fixture(root.path(), &rslug, "nightly", "regcart", "1.0.0", Some(&registry_cartridge_json(url, "nightly", 1)), "cart");
+        let out = discover_cartridges(root.path(), &host).await.unwrap();
+        assert_eq!(out.len(), 2, "both slugs must be scanned, got: {out:?}");
+        for c in &out {
+            match c {
+                DiscoveredCartridge::Incompatible { error, .. } => {
+                    assert_eq!(
+                        error.kind,
+                        CartridgeAttachmentErrorKind::HandshakeFailed,
+                        "both reached the probe (not registry-pin-rejected): {}",
+                        error.message
+                    );
+                }
+                other => panic!("expected probe-stage Incompatible, got {other:?}"),
+            }
+        }
+    }
+
+    // TEST1876: only the host's channel subtree is scanned. A cartridge under a
+    // slug's `release/` folder is invisible to a nightly host even though the
+    // slug folder is present (its `nightly/` subtree is absent).
+    #[tokio::test]
+    async fn test1876_other_channel_subtree_is_skipped() {
+        let root = tempdir().unwrap();
+        let url = "https://cartridges.example.com/manifest";
+        let rslug = registry_slug_for(url);
+        install_fixture(root.path(), &rslug, "release", "regcart", "1.0.0", Some(&registry_cartridge_json(url, "release", 1)), "cart");
+        let out = discover_cartridges(root.path(), &nightly_dev_identity())
+            .await
+            .unwrap();
+        assert!(out.is_empty(), "a release-only slug must be invisible to a nightly host, got: {out:?}");
+    }
+
+    // TEST1877: a registry cartridge hand-copied under the WRONG registry slug
+    // folder fails the three-place rule (BadInstallation) — scan-all does not
+    // mean "accept anywhere", placement must still be self-consistent.
+    #[tokio::test]
+    async fn test1877_registry_cartridge_under_wrong_slug_is_bad_install() {
+        let root = tempdir().unwrap();
+        let url = "https://cartridges.example.com/manifest";
+        let wrong_slug = registry_slug_for("https://somewhere-else.example.com/manifest");
+        let json = registry_cartridge_json(url, "nightly", 1);
+        install_fixture(root.path(), &wrong_slug, "nightly", "cart", "1.0.0", Some(&json), "cart");
+        let out = discover_cartridges(root.path(), &nightly_dev_identity())
+            .await
+            .unwrap();
+        expect_incompatible(&out, CartridgeAttachmentErrorKind::BadInstallation);
+    }
+
+    // TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in
+    // BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is
+    // rejected as BadInstallation — the bundled-integrity gate fires before the
+    // probe. Proves the verify is wired into discovery; a real bundle build bakes
+    // the hash so the matching directory passes. Non-macOS only: on macOS the
+    // baked-hash path is intentionally absent (OS code-signature is the guard),
+    // so a bundled provider is accepted there and would instead end at the probe.
+    #[cfg(not(target_os = "macos"))]
+    #[tokio::test]
+    async fn test1878_bundled_provider_without_baked_hash_is_rejected() {
+        let root = tempdir().unwrap();
+        // Dev slug (null registry) but installed_from=bundle — placement is
+        // self-consistent (null→dev), so it passes read_from_dir and reaches the
+        // bundled-hash gate, which has no baked entry → BadInstallation.
+        let json = r#"{"name":"cart","version":"1.0.0","channel":"nightly","registry_url":null,"entry":"cart","installed_at":"2024-01-01T00:00:00Z","installed_from":"bundle","fabric_manifest_version":1}"#;
+        install_fixture(root.path(), "dev", "nightly", "cart", "1.0.0", Some(json), "cart");
+        let out = discover_cartridges(root.path(), &nightly_dev_identity())
+            .await
+            .unwrap();
+        expect_incompatible(&out, CartridgeAttachmentErrorKind::BadInstallation);
+        if let DiscoveredCartridge::Incompatible { error, .. } = &out[0] {
+            assert!(
+                error.message.contains("bundled provider integrity"),
+                "message should name the bundled-integrity failure: {}",
+                error.message
+            );
+        }
     }
 }
