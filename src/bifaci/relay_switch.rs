@@ -3633,13 +3633,13 @@ mod tests {
         }
     }
 
-    // TEST490: A cartridge can advertise a cap before the registry cache
+    // TEST0130: A cartridge can advertise a cap before the registry cache
     // has finished hydrating that cap's canonical definition. LiveCapFab
     // must retry the already-advertised aggregate capability set when the
     // registry cache later warms; otherwise the cap remains absent from
     // machine selection until an unrelated cartridge reconnect occurs.
     #[tokio::test]
-    async fn test490_registry_cache_revision_rebuilds_live_cap_fab_without_capability_change() {
+    async fn test0130_registry_cache_revision_rebuilds_live_cap_fab_without_capability_change() {
         let registry = test_fabric_registry();
         registry.insert_cached_media_def_for_test(test_media_def(
             "media:test-source;textable",
@@ -4737,7 +4737,7 @@ mod tests {
         );
     }
 
-    // TEST489: When a master initially advertises empty caps (so
+    // TEST0131: When a master initially advertises empty caps (so
     // `add_master` skips the identity probe) and later sends a
     // RelayNotify update with non-empty caps, the relay must run an
     // end-to-end identity probe before the new caps become routable.
@@ -4750,7 +4750,7 @@ mod tests {
     // identity end-to-end. Removing the runtime probe re-introduces
     // the hole; this test fails loudly when that happens.
     #[tokio::test]
-    async fn test489_runtime_identity_probe_required_on_empty_to_nonempty_transition() {
+    async fn test0131_runtime_identity_probe_required_on_empty_to_nonempty_transition() {
         let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
 
         tokio::spawn(async move {
@@ -5048,9 +5048,9 @@ mod tests {
         drop(host_task);
     }
 
-    // TEST489: add_master dynamically connects new host to running switch
+    // TEST0132: add_master dynamically connects new host to running switch
     #[tokio::test]
-    async fn test489_add_master_dynamic() {
+    async fn test0132_add_master_dynamic() {
         use crate::bifaci::cartridge_runtime::PeerInvoker;
         use crate::bifaci::in_process_host::{
             FrameHandler, InProcessCartridgeHost, ResponseWriter,
@@ -5257,7 +5257,7 @@ mod tests {
     /// while the live caps came back at slot 1 — exactly the
     /// observed bug.
     #[tokio::test]
-    async fn test_reattach_by_id_preserves_slot_index() {
+    async fn test0133_reattach_by_id_preserves_slot_index() {
         // Phase 1: build a switch with one slot at id "xpc-service",
         // serviced by a freestanding `slave_notify_with_identity`
         // task. We don't use the full `InProcessCartridgeHost` /
@@ -5363,7 +5363,7 @@ mod tests {
     /// `Protocol` error rather than silently producing a duplicate
     /// slot.
     #[tokio::test]
-    async fn test_add_master_with_duplicate_healthy_id_errors() {
+    async fn test0134_add_master_with_duplicate_healthy_id_errors() {
         let initial_caps = serde_json::json!([
             "cap:effect=none",
             "cap:in=\"media:void\";trivial;out=\"media:void\"",
@@ -5422,7 +5422,7 @@ mod tests {
     /// reattach to whichever slot is found first by the linear
     /// scan, leaving the other slot stuck unhealthy forever.
     #[tokio::test]
-    async fn test_relay_switch_new_rejects_duplicate_ids() {
+    async fn test0135_relay_switch_new_rejects_duplicate_ids() {
         let (sock_a, _sock_a_other) = UnixStream::pair().unwrap();
         let (sock_b, _sock_b_other) = UnixStream::pair().unwrap();
 
@@ -5707,8 +5707,9 @@ mod tests {
         )
     }
 
+    // TEST0136: All masters ready false when expected count unset
     #[tokio::test]
-    async fn test_all_masters_ready_false_when_expected_count_unset() {
+    async fn test0136_all_masters_ready_false_when_expected_count_unset() {
         // Even with a connected, fully-RelayNotify'd master, the
         // predicate must return false until the engine explicitly
         // declares its expected master count via
@@ -5724,8 +5725,9 @@ mod tests {
         );
     }
 
+    // TEST0137: All masters ready false when partially connected
     #[tokio::test]
-    async fn test_all_masters_ready_false_when_partially_connected() {
+    async fn test0137_all_masters_ready_false_when_partially_connected() {
         // 1 master connected, 2 expected. This is the live regression
         // we shipped: the internal master had caps from t=0 but the
         // external-providers master was still spawning cartridges.
@@ -5739,8 +5741,9 @@ mod tests {
         );
     }
 
+    // TEST0138: All masters ready true when expectation met
     #[tokio::test]
-    async fn test_all_masters_ready_true_when_expectation_met() {
+    async fn test0138_all_masters_ready_true_when_expectation_met() {
         // 2 masters connected, 2 expected, both healthy with caps —
         // the only state where readiness should fire.
         let switch = build_switch_with_n_masters(2).await;
@@ -5773,8 +5776,9 @@ mod tests {
         )
     }
 
+    // TEST0139: All masters ready true when masters connected but capless
     #[tokio::test]
-    async fn test_all_masters_ready_true_when_masters_connected_but_capless() {
+    async fn test0139_all_masters_ready_true_when_masters_connected_but_capless() {
         // Cartridges in `.discovered` / `.inspecting` / `.verifying`
         // contribute zero caps to their master's RelayNotify. The
         // engine readiness gate must still fire so the splash screen
@@ -5795,8 +5799,9 @@ mod tests {
         );
     }
 
+    // TEST0140: All masters ready does not overshoot
     #[tokio::test]
-    async fn test_all_masters_ready_does_not_overshoot() {
+    async fn test0140_all_masters_ready_does_not_overshoot() {
         // 2 masters connected, 1 expected. The predicate should
         // still report ready — the engine got more masters than it
         // declared, which is fine; "at least expected" is the

@@ -994,9 +994,9 @@ mod tests {
         buf
     }
 
-    // TEST654: InProcessCartridgeHost routes REQ to matching handler and returns response
+    // TEST0142: InProcessCartridgeHost routes REQ to matching handler and returns response
     #[tokio::test]
-    async fn test654_routes_req_to_handler() {
+    async fn test0142_routes_req_to_handler() {
         let cap_urn = "cap:in=\"media:text\";echo;out=\"media:text\"";
         let cap = make_test_cap(cap_urn);
         let handlers = vec![(
@@ -1084,9 +1084,9 @@ mod tests {
         host_task.await.unwrap().unwrap();
     }
 
-    // TEST655: InProcessCartridgeHost handles identity verification (echo nonce)
+    // TEST0143: InProcessCartridgeHost handles identity verification (echo nonce)
     #[tokio::test]
-    async fn test655_identity_verification() {
+    async fn test0143_identity_verification() {
         let host =
             InProcessCartridgeHost::new(InProcessHostIdentity::for_test("in-process-test"), vec![]);
 
@@ -1154,9 +1154,9 @@ mod tests {
         host_task.await.unwrap().unwrap();
     }
 
-    // TEST656: InProcessCartridgeHost returns NO_HANDLER for unregistered cap
+    // TEST0144: InProcessCartridgeHost returns NO_HANDLER for unregistered cap
     #[tokio::test]
-    async fn test656_no_handler_returns_err() {
+    async fn test0144_no_handler_returns_err() {
         let host =
             InProcessCartridgeHost::new(InProcessHostIdentity::for_test("in-process-test"), vec![]);
 
@@ -1193,9 +1193,9 @@ mod tests {
         host_task.await.unwrap().unwrap();
     }
 
-    // TEST657: InProcessCartridgeHost manifest includes identity cap and handler caps
+    // TEST0145: InProcessCartridgeHost manifest includes identity cap and handler caps
     #[test]
-    fn test657_manifest_includes_all_caps() {
+    fn test0145_manifest_includes_all_caps() {
         let cap_urn = "cap:in=\"media:pdf\";thumbnail;out=\"media:image;png\"";
         let cap = make_test_cap(cap_urn);
         let host = InProcessCartridgeHost::new(

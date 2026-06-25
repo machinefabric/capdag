@@ -48,7 +48,7 @@ const BARE_TEXTABLE: &str = "media:textable";
 /// `media:plain-text;textable;txt` conforms to itself — basic
 /// reflexivity sanity. If this fails the canonical parser is broken.
 #[test]
-fn test999_plain_text_conforms_to_itself() {
+fn test0054_plain_text_conforms_to_itself() {
     assert!(
         conforms(PLAIN_TEXT, PLAIN_TEXT),
         "plain-text must trivially conform to itself"
@@ -62,7 +62,7 @@ fn test999_plain_text_conforms_to_itself() {
 /// in the consumer direction; the regression we guard against below
 /// is in the producer direction.
 #[test]
-fn test999_plain_text_refines_bare_textable() {
+fn test0055_plain_text_refines_bare_textable() {
     assert!(
         conforms(PLAIN_TEXT, BARE_TEXTABLE),
         "plain-text must refine textable (it adds the plain-text marker and the txt file-type tag)"
@@ -76,7 +76,7 @@ fn test999_plain_text_refines_bare_textable() {
 /// the wizard's recommended-paths surface will fill with bogus chains
 /// where any textable producer reaches `.txt` persistence.
 #[test]
-fn test999_bare_textable_does_not_conform_to_plain_text() {
+fn test0056_bare_textable_does_not_conform_to_plain_text() {
     assert!(
         !conforms(BARE_TEXTABLE, PLAIN_TEXT),
         "media:textable must NOT conform to media:plain-text;textable;txt — \
@@ -90,7 +90,7 @@ fn test999_bare_textable_does_not_conform_to_plain_text() {
 /// `in = media:plain-text;textable;txt` therefore accepts OCR output
 /// without further intermediation.
 #[test]
-fn test999_extracted_text_refines_plain_text() {
+fn test0057_extracted_text_refines_plain_text() {
     assert!(
         conforms(EXTRACTED_TEXT, PLAIN_TEXT),
         "extracted-text (OCR) must refine plain-text so cap:save-as-txt \
@@ -105,7 +105,7 @@ fn test999_extracted_text_refines_plain_text() {
 /// previous test and catches a regression where the markers on
 /// extracted-text get dropped.
 #[test]
-fn test999_plain_text_does_not_refine_extracted_text() {
+fn test0058_plain_text_does_not_refine_extracted_text() {
     assert!(
         !conforms(PLAIN_TEXT, EXTRACTED_TEXT),
         "plain-text must NOT refine extracted-text — generic plain text \
@@ -121,7 +121,7 @@ fn test999_plain_text_does_not_refine_extracted_text() {
 /// because the catalog defines `media:textable;txt`, but the
 /// `plain-text` marker is what actually gates the persistence path.
 #[test]
-fn test999_textable_txt_without_plain_text_marker_does_not_satisfy() {
+fn test0059_textable_txt_without_plain_text_marker_does_not_satisfy() {
     assert!(
         !conforms("media:textable;txt", PLAIN_TEXT),
         "media:textable;txt (file-type narrowing only, no plain-text marker) \
@@ -138,7 +138,7 @@ fn test999_textable_txt_without_plain_text_marker_does_not_satisfy() {
 /// This test pins the second relation — drop it and vision output stops
 /// being savable to `.txt`, defeating the parity with OCR.
 #[test]
-fn test999_image_description_refines_plain_text() {
+fn test0069_image_description_refines_plain_text() {
     assert!(
         conforms(IMAGE_DESCRIPTION, PLAIN_TEXT),
         "image-description must refine plain-text so cap:save-as-txt \
@@ -152,7 +152,7 @@ fn test999_image_description_refines_plain_text() {
 /// drops the `plain-text` marker from the disbind output URN, this test
 /// flips and the Finder loses its save-each-page-as-txt path.
 #[test]
-fn test999_disbind_page_refines_plain_text() {
+fn test0070_disbind_page_refines_plain_text() {
     assert!(
         conforms(DISBIND_PAGE, PLAIN_TEXT),
         "disbind-pdf's per-page output must refine plain-text so each \
@@ -169,7 +169,7 @@ fn test999_disbind_page_refines_plain_text() {
 /// test flips, transcription either acquired `plain-text` (a marker
 /// bug) or the conformance relation regressed.
 #[test]
-fn test999_transcription_does_not_refine_plain_text() {
+fn test0079_transcription_does_not_refine_plain_text() {
     assert!(
         !conforms(TRANSCRIPTION, PLAIN_TEXT),
         "transcription is a JSON record — its textable face must NOT \

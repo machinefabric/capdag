@@ -2621,8 +2621,9 @@ mod tests {
         );
     }
 
+    // TEST0121: Step title query filters paths server side
     #[test]
-    fn test1294_step_title_query_filters_paths_server_side() {
+    fn test0121_step_title_query_filters_paths_server_side() {
         let mut graph = LiveCapFab::new();
 
         graph.add_cap(&make_test_cap("media:a", "media:b", "a_to_b", "Resize"));
@@ -2662,8 +2663,9 @@ mod tests {
         );
     }
 
+    // TEST0122: Step title query constrains streaming progress counts
     #[test]
-    fn test1295_step_title_query_constrains_streaming_progress_counts() {
+    fn test0122_step_title_query_constrains_streaming_progress_counts() {
         let mut graph = LiveCapFab::new();
 
         graph.add_cap(&make_test_cap("media:a", "media:b", "a_to_b", "Resize"));
