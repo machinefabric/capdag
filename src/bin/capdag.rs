@@ -223,6 +223,31 @@ async fn main() {
         process::exit(1);
     }
 
+    // `hash-cartridge-dir <dir>` — print the deterministic content hash of a
+    // cartridge version directory and exit. This is the SINGLE source of truth
+    // for cartridge-directory hashing: the bundle build scripts
+    // (build-engine-bundle.sh/.ps1) call this to compute the bundled-provider
+    // hashes they bake into the engine via MFR_BUNDLED_PROVIDER_HASHES, so the
+    // build-time hash is byte-identical to what the engine's discovery computes
+    // at runtime (capdag::hash_cartridge_directory). Never reimplement the walk
+    // in bash/pwsh — it would silently drift.
+    if args[1] == "hash-cartridge-dir" {
+        let Some(dir) = args.get(2) else {
+            eprintln!("Usage: {} hash-cartridge-dir <version-dir>", args[0]);
+            process::exit(2);
+        };
+        match capdag::hash_cartridge_directory(std::path::Path::new(dir)) {
+            Ok(hash) => {
+                println!("{hash}");
+                process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("hash-cartridge-dir: failed to hash '{dir}': {e}");
+                process::exit(1);
+            }
+        }
+    }
+
     // Parse arguments
     let mut dev_binaries = Vec::new();
     let mut mermaid_mode = false;
@@ -398,6 +423,17 @@ async fn main() {
     // Registry URL
     let registry_url = "https://cartridges.machinefabric.com/manifest".to_string();
 
+    // Bundled providers shipped beside this CLI binary (the capdag executor's
+    // own `providers/` tree, staged by its build with baked content hashes —
+    // the same arrangement as the engine). Present only in a packaged build;
+    // absent for a bare `cargo run`, in which case there are no bundled
+    // providers and only ~/.capdag/cartridges + --dev-bins apply. discover_
+    // cartridges verifies each bundled provider against the baked hash.
+    let bundled_providers_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("providers")))
+        .filter(|dir| dir.is_dir());
+
     // Load argument values file
     let node_values: HashMap<String, HashMap<String, serde_json::Value>> =
         if let Some(ref vf) = values_file {
@@ -490,6 +526,7 @@ async fn main() {
             initial_inputs,
             initial_is_sequence,
             dev_binaries.clone(),
+            bundled_providers_dir.clone(),
             registry.clone(),
             Some(&progress),
             &log_fn,

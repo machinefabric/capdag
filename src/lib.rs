@@ -30,6 +30,7 @@
 
 pub mod bifaci;
 pub mod cap;
+pub mod bundled_provider_hashes;
 pub mod cartridge_discovery;
 pub mod fabric;
 pub mod fabric_manifest_version;
@@ -64,6 +65,7 @@ pub use fabric::registry::{FabricRegistry, FabricRegistryError, RegistryConfig, 
 
 // Build-time-baked fabric manifest version (see capdag/build.rs).
 pub use fabric_manifest_version::FABRIC_MANIFEST_VERSION;
+pub use bundled_provider_hashes::BUNDLED_PROVIDER_HASHES;
 
 // Standard caps and media
 pub use standard::*;
