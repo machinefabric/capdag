@@ -123,12 +123,33 @@ pub enum ShutdownReason {
     Cancelled,
 }
 
+/// A directory-registered cartridge in a roster sync. Mirrors the parameters of
+/// [`CartridgeHostRuntime::register_cartridge_dir`] so a caller can describe the
+/// full desired registered-dir set without reaching into runtime internals.
+#[derive(Debug, Clone)]
+pub struct RegisteredDirSpec {
+    pub entry_point: PathBuf,
+    pub version_dir: PathBuf,
+    pub id: String,
+    pub channel: crate::bifaci::cartridge_repo::CartridgeChannel,
+    pub registry_url: Option<String>,
+    pub version: String,
+    pub cap_groups: Vec<crate::bifaci::manifest::CapGroup>,
+}
+
 /// Commands that can be sent to the host runtime from external code.
 pub enum HostCommand {
     /// Kill a cartridge process by PID for memory pressure. The host sets
     /// `shutdown_reason = Some(OomKill)` before killing, so death handling
     /// sends ERR frames with "OOM_KILLED" for all pending requests.
     KillCartridge { pid: u32 },
+    /// Replace the live registered-dir roster with a freshly-discovered set and
+    /// re-publish RelayNotify, so the engine sees added/removed cartridges
+    /// without reconnecting — the equivalent of the macOS XPC service's
+    /// `host.syncDiscoveryOutcomes(...)` after a rescan (e.g. a registry verdict
+    /// flipped a held cartridge to Listed). Running cartridges no longer in the
+    /// set are killed; survivors keep their live process and stats.
+    SyncRoster { cartridges: Vec<RegisteredDirSpec> },
 }
 
 /// Thread-safe handle for querying cartridge process info and sending commands
@@ -144,6 +165,14 @@ impl CartridgeProcessHandle {
     /// Get a snapshot of all managed cartridge processes (running or not).
     pub fn running_cartridges(&self) -> Vec<CartridgeProcessInfo> {
         self.snapshot.read().unwrap().clone()
+    }
+
+    /// Replace the live registered-dir roster (see [`HostCommand::SyncRoster`]).
+    /// Returns `Err(())` if the host's run loop has exited.
+    pub fn sync_roster(&self, cartridges: Vec<RegisteredDirSpec>) -> Result<(), ()> {
+        self.command_tx
+            .send(HostCommand::SyncRoster { cartridges })
+            .map_err(|_| ())
     }
 
     /// Request that the host kill a specific cartridge process by PID.
@@ -547,6 +576,13 @@ impl ManagedCartridge {
 
     fn installed_cartridge_record(&self) -> Option<InstalledCartridgeRecord> {
         self.installed_identity.clone()
+    }
+
+    /// True for a cartridge registered from a version directory (the lazily-
+    /// spawned, dir-backed kind). Distinguishes roster-managed installs from
+    /// attached/internal providers during a `SyncRoster`.
+    fn is_registered_dir(&self) -> bool {
+        self.cartridge_dir.is_some()
     }
 
     /// Flat de-duplicated cap-URN view derived from `cap_groups`.
@@ -2014,7 +2050,93 @@ impl CartridgeHostRuntime {
                     );
                 }
             }
+            HostCommand::SyncRoster { cartridges } => {
+                self.sync_registered_roster(cartridges, outbound_tx).await?;
+            }
         }
+        Ok(())
+    }
+
+    /// Apply a freshly-discovered registered-dir roster to the LIVE host and
+    /// re-publish RelayNotify. Mirrors the macOS XPC `syncDiscoveryOutcomes`:
+    /// the engine's cap inventory updates in place, with no reconnect.
+    ///
+    /// Identity is the `(registry_url, channel, id, version)` 4-tuple (the same
+    /// key the daemon/engine use everywhere). For each desired spec not already
+    /// present we append a registered-dir cartridge (lazily spawned on first
+    /// REQ, exactly like initial registration). For each currently-present
+    /// registered-dir cartridge absent from the desired set we retire it: a
+    /// running one is killed (its death cleanup runs as usual) and it is marked
+    /// `hello_failed` so it drops out of the cap table and the RelayNotify
+    /// inventory. We never physically remove entries from `self.cartridges`,
+    /// because `cap_table` and the in-flight request maps are index-keyed and a
+    /// shift would corrupt routing; marking `hello_failed` + rebuilding the cap
+    /// table is the established "remove from inventory" mechanism (see
+    /// `update_cap_table`).
+    async fn sync_registered_roster(
+        &mut self,
+        desired: Vec<RegisteredDirSpec>,
+        outbound_tx: &mpsc::UnboundedSender<Frame>,
+    ) -> Result<(), AsyncHostError> {
+        fn identity(rec: &InstalledCartridgeRecord) -> (Option<String>, crate::bifaci::cartridge_repo::CartridgeChannel, String, String) {
+            (rec.registry_url.clone(), rec.channel, rec.id.clone(), rec.version.clone())
+        }
+        let desired_keys: std::collections::HashSet<_> = desired
+            .iter()
+            .map(|s| (s.registry_url.clone(), s.channel, s.id.clone(), s.version.clone()))
+            .collect();
+
+        // Retire registered-dir cartridges no longer desired.
+        for idx in 0..self.cartridges.len() {
+            if self.cartridges[idx].hello_failed {
+                continue;
+            }
+            let Some(rec) = self.cartridges[idx].installed_cartridge_record() else {
+                continue; // no resolvable identity (e.g. internal provider) — leave it
+            };
+            // Only retire dir-registered cartridges (those carry a version_dir);
+            // attached/internal providers are not part of a dir roster sync.
+            if !self.cartridges[idx].is_registered_dir() {
+                continue;
+            }
+            if desired_keys.contains(&identity(&rec)) {
+                continue; // still desired — keep, preserving any live process
+            }
+            if self.cartridges[idx].running {
+                self.cartridges[idx].shutdown_reason = Some(ShutdownReason::Cancelled);
+                if let Some(ref mut child) = self.cartridges[idx].process {
+                    let _ = child.kill().await;
+                }
+            }
+            self.cartridges[idx].hello_failed = true; // drop from cap table + inventory
+        }
+
+        // Add newly-desired specs not already registered.
+        let present_keys: std::collections::HashSet<_> = self
+            .cartridges
+            .iter()
+            .filter(|c| !c.hello_failed)
+            .filter_map(|c| c.installed_cartridge_record().map(|r| identity(&r)))
+            .collect();
+        for spec in desired {
+            let key = (spec.registry_url.clone(), spec.channel, spec.id.clone(), spec.version.clone());
+            if present_keys.contains(&key) {
+                continue;
+            }
+            self.register_cartridge_dir(
+                &spec.entry_point,
+                &spec.version_dir,
+                &spec.id,
+                spec.channel,
+                spec.registry_url.as_deref(),
+                &spec.version,
+                &spec.cap_groups,
+            );
+        }
+
+        self.update_cap_table();
+        self.rebuild_capabilities(Some(outbound_tx));
+        self.update_process_snapshot();
         Ok(())
     }
 
@@ -5500,6 +5622,108 @@ mod tests {
              didn't fire.",
             runtime.routing_gc_evicted_total,
             single_pass_max
+        );
+    }
+
+    // TEST1879: SyncRoster updates the LIVE host inventory in place — the engine
+    // sees an added registered-dir cartridge via a fresh RelayNotify without
+    // reconnecting, and a subsequent empty sync removes it. This is the
+    // macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a
+    // registry verdict flips a held cartridge to Listed.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test1879_sync_roster_adds_and_removes_registered_dir_live() {
+        // A valid registered-dir cartridge (hashable dir + cartridge.json).
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("cartridge.json"),
+            r#"{"name":"latejoiner","version":"1.0.0","channel":"release","registry_url":null,"entry":"bin","installed_at":"2026-01-01T00:00:00Z","installed_from":"dev"}"#,
+        )
+        .unwrap();
+        let entry = dir.path().join("bin");
+        std::fs::write(&entry, b"#!/bin/sh\n").unwrap();
+
+        let mut runtime = CartridgeHostRuntime::new();
+        let handle = runtime.process_handle();
+
+        // Relay pipe pair: the engine side reads RelayNotify frames the host emits.
+        let (relay_rt_read, _relay_eng_write) = UnixStream::pair().unwrap();
+        let (relay_eng_read, relay_rt_write) = UnixStream::pair().unwrap();
+        let (rt_read_half, _) = relay_rt_read.into_split();
+        let (_, rt_write_half) = relay_rt_write.into_split();
+        let (eng_read_half, _) = relay_eng_read.into_split();
+
+        // Engine side: collect the cartridge ids advertised across RelayNotify
+        // frames over a short window, sending the two SyncRoster commands between.
+        let entry_clone = entry.clone();
+        let dir_path = dir.path().to_path_buf();
+        let engine_task = tokio::spawn(async move {
+            let mut r = FrameReader::new(eng_read_half);
+
+            async fn read_notify_ids(r: &mut FrameReader<impl AsyncRead + Unpin>) -> Vec<String> {
+                loop {
+                    match r.read().await {
+                        Ok(Some(f)) if f.frame_type == FrameType::RelayNotify => {
+                            let bytes = f.relay_notify_manifest().unwrap_or_default();
+                            let payload: RelayNotifyCapabilitiesPayload =
+                                serde_json::from_slice(bytes).unwrap();
+                            return payload
+                                .installed_cartridges
+                                .iter()
+                                .map(|c| c.id.clone())
+                                .collect();
+                        }
+                        Ok(Some(_)) => continue,
+                        _ => return Vec::new(),
+                    }
+                }
+            }
+
+            // Initial RelayNotify (empty roster).
+            let initial = read_notify_ids(&mut r).await;
+
+            // Add the cartridge live.
+            handle
+                .sync_roster(vec![RegisteredDirSpec {
+                    entry_point: entry_clone,
+                    version_dir: dir_path,
+                    id: "latejoiner".to_string(),
+                    channel: crate::bifaci::cartridge_repo::CartridgeChannel::Release,
+                    registry_url: None,
+                    version: "1.0.0".to_string(),
+                    cap_groups: cap_groups_from_urns(&[
+                        "cap:in=\"media:void\";late;out=\"media:void\"",
+                    ]),
+                }])
+                .unwrap();
+            let after_add = read_notify_ids(&mut r).await;
+
+            // Remove it again (empty roster).
+            handle.sync_roster(vec![]).unwrap();
+            let after_remove = read_notify_ids(&mut r).await;
+
+            (initial, after_add, after_remove)
+        });
+
+        // Drive the host until the engine side drops the relay (it returns after
+        // collecting the three snapshots, which closes eng_read_half's peer).
+        let run_task = tokio::spawn(async move {
+            let _ = runtime.run(rt_read_half, rt_write_half, Vec::new).await;
+        });
+
+        let (initial, after_add, after_remove) = engine_task.await.unwrap();
+        run_task.abort();
+
+        assert!(
+            !initial.contains(&"latejoiner".to_string()),
+            "cartridge must be absent before the sync; got {initial:?}"
+        );
+        assert!(
+            after_add.contains(&"latejoiner".to_string()),
+            "SyncRoster must add the cartridge to the live inventory; got {after_add:?}"
+        );
+        assert!(
+            !after_remove.contains(&"latejoiner".to_string()),
+            "an empty SyncRoster must retire the cartridge; got {after_remove:?}"
         );
     }
 }
