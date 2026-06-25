@@ -671,4 +671,33 @@ mod tests {
         let deserialized: CapManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.cap_groups[0].adapter_urns.len(), 2);
     }
+
+    // TEST1872: `registry_url_from_build_env` passes a non-empty registry URL
+    // through unchanged. This is the function that decides the engine's baked
+    // PRIMARY registry (surfaced over SystemService.HealthStatus); a published
+    // build must report exactly the URL it was compiled with.
+    #[test]
+    fn test1872_registry_url_from_build_env_passes_through_nonempty() {
+        let url = "https://cartridges.machinefabric.com/manifest";
+        assert_eq!(registry_url_from_build_env(Some(url)), Some(url));
+    }
+
+    // TEST1873: an unset env (None) yields None — a dev build has no baked
+    // registry, so the engine reports an empty primary-registry URL and loads
+    // only `dev/` cartridges. This is the dev-engine contract the registry
+    // sheets rely on to omit the read-only "Primary · built-in" row.
+    #[test]
+    fn test1873_registry_url_from_build_env_none_for_dev() {
+        assert_eq!(registry_url_from_build_env(None), None);
+    }
+
+    // TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build
+    // nor a valid identity and MUST fail hard at compile time, so the build can
+    // never silently hash the empty string into a fake registry slug. We assert
+    // the panic rather than letting a bogus empty primary registry ship.
+    #[test]
+    #[should_panic(expected = "MFR_CARTRIDGE_REGISTRY_URL must be unset")]
+    fn test1874_registry_url_from_build_env_rejects_empty_string() {
+        let _ = registry_url_from_build_env(Some(""));
+    }
 }
