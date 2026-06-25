@@ -1,8 +1,8 @@
 # Rust Test Catalog
 
-**Total Tests:** 1119
+**Total Tests:** 1123
 
-**Numbered Tests:** 1111
+**Numbered Tests:** 1115
 
 **Unnumbered Tests:** 8
 
@@ -316,7 +316,7 @@ This catalog lists all tests in the Rust codebase.
 | test368 | `test368_stream_start_with_empty_media_urn` | TEST368: StreamStart frame with empty media_urn still constructs (validation happens elsewhere) | src/bifaci/frame.rs:1603 |
 | test389 | `test389_stream_start_roundtrip` | TEST389: StreamStart encode/decode roundtrip preserves stream_id and media_urn | src/bifaci/io.rs:1782 |
 | test390 | `test390_stream_end_roundtrip` | TEST390: StreamEnd encode/decode roundtrip preserves stream_id, no media_urn | src/bifaci/io.rs:1799 |
-| test394 | `test394_peer_invoke_roundtrip` | TEST394: Test peer invoke round-trip (testcartridge calls itself) Disabled: LocalCartridgeRouter feature not implemented - uses non-existent modules | tests/orchestrator_integration.rs:948 |
+| test394 | `test394_peer_invoke_roundtrip` | TEST394: Test peer invoke round-trip (testcartridge calls itself) Disabled: LocalCartridgeRouter feature not implemented - uses non-existent modules | tests/orchestrator_integration.rs:956 |
 | test395 | `test395_build_payload_small` | TEST395: Small payload (< max_chunk) produces correct CBOR arguments | src/bifaci/cartridge_runtime.rs:7392 |
 | test396 | `test396_build_payload_large` | TEST396: Large payload (> max_chunk) accumulates across chunks correctly | src/bifaci/cartridge_runtime.rs:7438 |
 | test397 | `test397_build_payload_empty` | TEST397: Empty reader produces valid empty CBOR arguments | src/bifaci/cartridge_runtime.rs:7482 |
@@ -725,8 +725,8 @@ This catalog lists all tests in the Rust codebase.
 | test860 | `test860_seq_assigner_same_rid_different_xids_independent` | TEST860: Same RID with different XIDs get independent seq counters | src/bifaci/frame.rs:1879 |
 | test880 | `test880_no_duplicates_with_unique_caps` | TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations | src/planner/plan_builder.rs:762 |
 | test886 | `test886_optional_non_io_arg_with_default_has_default` | TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults | src/planner/plan_builder.rs:1017 |
-| test887 | `test887_execute_with_file_input` | TEST887: Execute with file-path input | tests/orchestrator_integration.rs:470 |
-| test888 | `test888_execute_edge1_to_edge2_chain` | TEST888: Execute two-edge chain (test-edge1 -> test-edge2) | tests/orchestrator_integration.rs:419 |
+| test887 | `test887_execute_with_file_input` | TEST887: Execute with file-path input | tests/orchestrator_integration.rs:472 |
+| test888 | `test888_execute_edge1_to_edge2_chain` | TEST888: Execute two-edge chain (test-edge1 -> test-edge2) | tests/orchestrator_integration.rs:420 |
 | test889 | `test889_execute_single_edge_dag` | TEST889: Execute single-edge DAG (test-edge1) | tests/orchestrator_integration.rs:367 |
 | test890 | `test890_direction_semantic_matching` | TEST890: Semantic direction matching - generic provider matches specific request | src/urn/cap_urn.rs:2470 |
 | test891 | `test891_direction_semantic_specificity` | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3. | src/urn/cap_urn.rs:2547 |
@@ -742,14 +742,14 @@ This catalog lists all tests in the Rust codebase.
 | test904 | `test904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | src/bifaci/frame.rs:1744 |
 | test905 | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:4879 |
 | test906 | `test906_full_path_identity_verification` | TEST906: Full path identity verification: engine → host (attach_cartridge) → cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests. | src/bifaci/integration_tests.rs:1350 |
-| test910 | `test910_map_progress_monotonic` | TEST910: map_progress output is monotonic for monotonically increasing input | src/orchestrator/executor.rs:1702 |
-| test911 | `test911_map_progress_bounded` | TEST911: map_progress output is bounded within [base, base+weight] | src/orchestrator/executor.rs:1720 |
-| test912 | `test912_progress_mapper_reports_through_parent` | TEST912: ProgressMapper correctly maps through a CapProgressFn | src/orchestrator/executor.rs:1741 |
-| test913 | `test913_progress_mapper_as_cap_progress_fn` | TEST913: ProgressMapper.as_cap_progress_fn produces same mapping | src/orchestrator/executor.rs:1765 |
-| test914 | `test914_progress_mapper_sub_mapper` | TEST914: ProgressMapper.sub_mapper chains correctly | src/orchestrator/executor.rs:1788 |
-| test915 | `test915_per_group_subdivision_monotonic_bounded` | TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding. | src/orchestrator/executor.rs:1815 |
-| test916 | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:1872 |
-| test917 | `test917_high_frequency_progress_bounded` | TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded) | src/orchestrator/executor.rs:1936 |
+| test910 | `test910_map_progress_monotonic` | TEST910: map_progress output is monotonic for monotonically increasing input | src/orchestrator/executor.rs:1734 |
+| test911 | `test911_map_progress_bounded` | TEST911: map_progress output is bounded within [base, base+weight] | src/orchestrator/executor.rs:1752 |
+| test912 | `test912_progress_mapper_reports_through_parent` | TEST912: ProgressMapper correctly maps through a CapProgressFn | src/orchestrator/executor.rs:1773 |
+| test913 | `test913_progress_mapper_as_cap_progress_fn` | TEST913: ProgressMapper.as_cap_progress_fn produces same mapping | src/orchestrator/executor.rs:1797 |
+| test914 | `test914_progress_mapper_sub_mapper` | TEST914: ProgressMapper.sub_mapper chains correctly | src/orchestrator/executor.rs:1820 |
+| test915 | `test915_per_group_subdivision_monotonic_bounded` | TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding. | src/orchestrator/executor.rs:1847 |
+| test916 | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:1904 |
+| test917 | `test917_high_frequency_progress_bounded` | TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded) | src/orchestrator/executor.rs:1968 |
 | test919 | `test919_parse_simple_testcartridge_graph` | TEST919: Parse simple machine notation graph with test-edge1 | tests/orchestrator_integration.rs:343 |
 | test920 | `test920_single_cap_plan` | TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node | src/planner/plan.rs:1035 |
 | test921 | `test921_linear_chain_plan` | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order | src/planner/plan.rs:1051 |
@@ -770,16 +770,16 @@ This catalog lists all tests in the Rust codebase.
 | test936 | `test936_has_foreach` | TEST936: has_foreach detects ForEach nodes | src/planner/plan.rs:1726 |
 | test937 | `test937_extract_prefix_to` | TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan | src/planner/plan.rs:1767 |
 | test939 | `test939_cap_urn_canonical_form_drops_wildcard_in_out` | TEST939: The canonical form drops `in=media:` and `out=media:` segments. Every spelling of "the same cap with wildcard in/out" collapses to one byte-identical canonical string. This is the contract that makes registry lookups work: the cap-publisher hashes `<canonical-urn>` to compute the cache key, and every language port (Rust, Go, Python, JS, ObjC) must agree on the canonical form for cross-language lookups to land on the same key. A regression that emitted the wildcard segments would silently move the published cap to a different SHA-256 bucket, 404'ing every reader that hashes the canonical form. | src/urn/cap_urn.rs:1852 |
-| test943 | `test943_same_media_different_names_is_not_a_cycle` | TEST943: Two nodes with the same media type but different names are two distinct graph positions — NOT a loop. The identity cap has `in = out` by type, so its upstream and downstream node carry the same media URN; this must not collapse them into a self-loop. Node identity comes from the user-written name, not the media URN. | tests/orchestrator_integration.rs:655 |
-| test944 | `test944_six_machine` | TEST944: 6-machine: edge1 -> edge2 -> edge7 -> edge8 -> edge9 -> edge10 Full cycle: node1 -> node2 -> node3 -> node6 -> node7 -> node8 -> node1 Completes the round trip: unwrap markers + lowercase | tests/orchestrator_integration.rs:846 |
-| test945 | `test945_five_machine` | TEST945: 5-machine: edge1 -> edge2 -> edge7 -> edge8 -> edge9 node1 -> node2 -> node3 -> node6 -> node7 -> node8 adds <<...>> wrapping around the reversed string | tests/orchestrator_integration.rs:787 |
-| test946 | `test946_four_machine` | TEST946: 4-machine: edge1 -> edge2 -> edge7 -> edge8 node1 -> node2 -> node3 -> node6 -> node7 "hello" -> "[PREPEND]hello" -> "[PREPEND]hello[APPEND]" -> "[PREPEND]HELLO[APPEND]" -> "]DNEPPA[OLLEH]DNEPERP[" | tests/orchestrator_integration.rs:728 |
-| test947 | `test947_cap_not_found` | TEST947: Cap not found in registry | tests/orchestrator_integration.rs:701 |
-| test948 | `test948_invalid_cap_urn` | TEST948: Invalid cap URN in machine notation | tests/orchestrator_integration.rs:690 |
-| test949 | `test949_empty_graph` | TEST949: Empty machine notation (no edges) | tests/orchestrator_integration.rs:672 |
-| test950 | `test950_reject_cycles` | TEST950: Validate that cycles are rejected | tests/orchestrator_integration.rs:629 |
-| test951 | `test951_fan_in_pattern` | TEST951: Multi-input DAG (fan-in pattern) | tests/orchestrator_integration.rs:573 |
-| test952 | `test952_execute_large_payload` | TEST952: Execute large payload (test-large cap) | tests/orchestrator_integration.rs:521 |
+| test943 | `test943_same_media_different_names_is_not_a_cycle` | TEST943: Two nodes with the same media type but different names are two distinct graph positions — NOT a loop. The identity cap has `in = out` by type, so its upstream and downstream node carry the same media URN; this must not collapse them into a self-loop. Node identity comes from the user-written name, not the media URN. | tests/orchestrator_integration.rs:660 |
+| test944 | `test944_six_machine` | TEST944: 6-machine: edge1 -> edge2 -> edge7 -> edge8 -> edge9 -> edge10 Full cycle: node1 -> node2 -> node3 -> node6 -> node7 -> node8 -> node1 Completes the round trip: unwrap markers + lowercase | tests/orchestrator_integration.rs:853 |
+| test945 | `test945_five_machine` | TEST945: 5-machine: edge1 -> edge2 -> edge7 -> edge8 -> edge9 node1 -> node2 -> node3 -> node6 -> node7 -> node8 adds <<...>> wrapping around the reversed string | tests/orchestrator_integration.rs:793 |
+| test946 | `test946_four_machine` | TEST946: 4-machine: edge1 -> edge2 -> edge7 -> edge8 node1 -> node2 -> node3 -> node6 -> node7 "hello" -> "[PREPEND]hello" -> "[PREPEND]hello[APPEND]" -> "[PREPEND]HELLO[APPEND]" -> "]DNEPPA[OLLEH]DNEPERP[" | tests/orchestrator_integration.rs:733 |
+| test947 | `test947_cap_not_found` | TEST947: Cap not found in registry | tests/orchestrator_integration.rs:706 |
+| test948 | `test948_invalid_cap_urn` | TEST948: Invalid cap URN in machine notation | tests/orchestrator_integration.rs:695 |
+| test949 | `test949_empty_graph` | TEST949: Empty machine notation (no edges) | tests/orchestrator_integration.rs:677 |
+| test950 | `test950_reject_cycles` | TEST950: Validate that cycles are rejected | tests/orchestrator_integration.rs:634 |
+| test951 | `test951_fan_in_pattern` | TEST951: Multi-input DAG (fan-in pattern) | tests/orchestrator_integration.rs:577 |
+| test952 | `test952_execute_large_payload` | TEST952: Execute large payload (test-large cap) | tests/orchestrator_integration.rs:524 |
 | test953 | `test953_linear_plan_still_works` | TEST953: Linear plans (no ForEach/Collect) still convert successfully | src/orchestrator/plan_converter.rs:400 |
 | test954 | `test954_standalone_collect_passthrough` | TEST954: Standalone Collect nodes are handled as pass-through Plan: input → cap_0 → Collect → cap_1 → output The standalone Collect is transparent — the resolved edge from Collect to cap_1 should be rewritten to go from cap_0 to cap_1 directly. | src/orchestrator/plan_converter.rs:433 |
 | test955 | `test955_split_map_array` | TEST955: split_cbor_array with nested maps | src/orchestrator/cbor_util.rs:170 |
@@ -874,8 +874,8 @@ This catalog lists all tests in the Rust codebase.
 | test1122 | `test1122_full_path_engine_req_to_cartridge_response` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | src/bifaci/integration_tests.rs:194 |
 | test1123 | `test1123_cartridge_error_flows_to_engine` | TEST1123: Cartridge ERR frame flows back to engine through relay | src/bifaci/integration_tests.rs:313 |
 | test1124 | `test1124_cbor_rejects_stream_end_without_chunk_count` | TEST1124: CBOR decode REJECTS STREAM_END frame missing chunk_count field | src/bifaci/frame.rs:2368 |
-| test1125 | `test1125_map_progress_basic_mapping` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | src/orchestrator/executor.rs:1673 |
-| test1126 | `test1126_map_progress_deterministic` | TEST1126: map_progress is deterministic — same inputs always produce same output | src/orchestrator/executor.rs:1691 |
+| test1125 | `test1125_map_progress_basic_mapping` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | src/orchestrator/executor.rs:1705 |
+| test1126 | `test1126_map_progress_deterministic` | TEST1126: map_progress is deterministic — same inputs always produce same output | src/orchestrator/executor.rs:1723 |
 | test1127 | `test1127_cap_documentation_round_trip_with_markdown_body` | TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capfab side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't. | src/cap/definition.rs:1253 |
 | test1128 | `test1128_cap_documentation_omitted_when_none` | TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's "if present" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `"documentation":null` and break consumers that distinguish between absent and explicit null. | src/cap/definition.rs:1293 |
 | test1129 | `test1129_cap_documentation_parses_from_capfab_json` | TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming. | src/cap/definition.rs:1320 |
@@ -1088,6 +1088,10 @@ This catalog lists all tests in the Rust codebase.
 | test1872 | `test1872_registry_url_from_build_env_passes_through_nonempty` | TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with. | src/bifaci/manifest.rs:680 |
 | test1873 | `test1873_registry_url_from_build_env_none_for_dev` | TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row. | src/bifaci/manifest.rs:690 |
 | test1874 | `test1874_registry_url_from_build_env_rejects_empty_string` | TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship. | src/bifaci/manifest.rs:700 |
+| test1875 | `test1875_scan_all_reaches_both_dev_and_registry_slugs` | TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe. | src/cartridge_discovery.rs:648 |
+| test1876 | `test1876_other_channel_subtree_is_skipped` | TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent). | src/cartridge_discovery.rs:681 |
+| test1877 | `test1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | src/cartridge_discovery.rs:696 |
+| test1878 | `test1878_bundled_provider_without_baked_hash_is_rejected` | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. | src/cartridge_discovery.rs:717 |
 | | | | |
 | test489 ⚠ | `test489_add_master_dynamic` | TEST489: add_master dynamically connects new host to running switch | src/bifaci/relay_switch.rs:5053 |
 | test489 ⚠ | `test489_runtime_identity_probe_required_on_empty_to_nonempty_transition` | TEST489: When a master initially advertises empty caps (so `add_master` skips the identity probe) and later sends a RelayNotify update with non-empty caps, the relay must run an end-to-end identity probe before the new caps become routable. A master that fails to answer the runtime probe with the expected nonce echo must end up unhealthy with `last_error` populated, and its caps must NOT appear in the cap_table. This test guards the wire-protocol regression where the RelayNotify-update path published caps without re-verifying identity end-to-end. Removing the runtime probe re-introduces the hole; this test fails loudly when that happens. | src/bifaci/relay_switch.rs:4753 |
@@ -1101,25 +1105,25 @@ This catalog lists all tests in the Rust codebase.
 | test656 ⚠ | `test656_no_handler_returns_err` | TEST656: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | src/bifaci/in_process_host.rs:1159 |
 | test657 ⚠ | `test657_effect_dispatch_requires_explicit_wildcard` | TEST657: omitted effect means declared; unconstrained effect must be explicit | src/urn/cap_urn.rs:2809 |
 | test657 ⚠ | `test657_manifest_includes_all_caps` | TEST657: InProcessCartridgeHost manifest includes identity cap and handler caps | src/bifaci/in_process_host.rs:1198 |
-| test999 ⚠ | `test999_absent_scan_root_yields_empty_roster` |  | src/cartridge_discovery.rs:422 |
+| test999 ⚠ | `test999_absent_scan_root_yields_empty_roster` |  | src/cartridge_discovery.rs:571 |
 | test999 ⚠ | `test999_all_rich_numeric_params_conform_to_their_bare_pattern` | / Symmetric: same shape for every numeric parameter the LLM caps / declare. Catching one but not the others would mean some params / land on the prompt path and others don't. | tests/cap_arg_stream_dispatch.rs:109 |
 | test999 ⚠ | `test999_bare_textable_does_not_conform_to_plain_text` | / **Core regression guard.** Bare `media:textable` does NOT conform / to `media:plain-text;textable;txt`. This is the relation that / keeps `cap:save-as-txt` from accidentally accepting every textable / cap's output as a feeder. If this assertion ever flips to `true`, / the wizard's recommended-paths surface will fill with bogus chains / where any textable producer reaches `.txt` persistence. | tests/plain_text_terminal_binding.rs:79 |
-| test999 ⚠ | `test999_channel_mismatch_is_bad_installation` |  | src/cartridge_discovery.rs:441 |
+| test999 ⚠ | `test999_channel_mismatch_is_bad_installation` |  | src/cartridge_discovery.rs:590 |
 | test999 ⚠ | `test999_disbind_page_refines_plain_text` | / Disbind-pdf emits `media:page;plain-text;textable;txt` per page. Each / page item must be persistable as `.txt` — that's the user-visible / reason for the marker (per-page save in the Finder). If a regression / drops the `plain-text` marker from the disbind output URN, this test / flips and the Finder loses its save-each-page-as-txt path. | tests/plain_text_terminal_binding.rs:155 |
 | test999 ⚠ | `test999_every_textable_tagged_urn_conforms_to_bare_textable` | / The catch-all for the prompt body uses `conforms_to(&textable)`. / This test pins what such a check accepts: every textable-tagged / URN — including parameter streams, the system prompt, and the / model spec — conforms. That's WHY the if-chain in the cartridge / handler must check specific patterns BEFORE the textable / catch-all, otherwise the catch-all would swallow them. | tests/cap_arg_stream_dispatch.rs:143 |
 | test999 ⚠ | `test999_extracted_text_refines_plain_text` | / OCR's narrowed output URN refines plain-text. Both carry the / `plain-text` marker, the `textable` coercion, and `file-type=txt`; / extracted-text adds the OCR-specific marker on top. Save-as-txt's / `in = media:plain-text;textable;txt` therefore accepts OCR output / without further intermediation. | tests/plain_text_terminal_binding.rs:93 |
-| test999 ⚠ | `test999_fabric_manifest_mismatch_is_flagged` |  | src/cartridge_discovery.rs:453 |
+| test999 ⚠ | `test999_fabric_manifest_mismatch_is_flagged` |  | src/cartridge_discovery.rs:602 |
 | test999 ⚠ | `test999_gc_evicts_oldest_entries_by_touch_sequence` | / Contract #2 — the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one — / the more dangerous bug because it silently drops / in-flight continuation frames. | src/bifaci/host_runtime.rs:5404 |
 | test999 ⚠ | `test999_image_description_refines_plain_text` | / Vision describe caps emit `media:image-description;plain-text;textable;txt`. / The composite carries the vision-specific `image-description` marker so / downstream caption-aware tools can match on the narrower URN, AND the / `plain-text` marker so `cap:save-as-txt` accepts captions as a feeder. / This test pins the second relation — drop it and vision output stops / being savable to `.txt`, defeating the parity with OCR. | tests/plain_text_terminal_binding.rs:141 |
 | test999 ⚠ | `test999_local_socket_pair_round_trips_in_both_directions` |  | src/bifaci/local_socket.rs:349 |
-| test999 ⚠ | `test999_missing_cartridge_json_is_manifest_invalid` |  | src/cartridge_discovery.rs:431 |
+| test999 ⚠ | `test999_missing_cartridge_json_is_manifest_invalid` |  | src/cartridge_discovery.rs:580 |
 | test999 ⚠ | `test999_model_spec_does_not_conform_to_any_numeric_parameter` | / The model-spec URN is rich but has its own dedicated branch / because the handler knows the canonical full URN. Verify it / doesn't accidentally conform to any of the parameter patterns / (which would route the model-spec content into a numeric slot). | tests/cap_arg_stream_dispatch.rs:216 |
 | test999 ⚠ | `test999_numeric_params_do_not_cross_match` | / Cross-axis: a rich numeric param does NOT conform to any other / rich numeric param's bare pattern. Without this property the / dispatch would pick the wrong branch (e.g. send a temperature / stream to the max-tokens slot). | tests/cap_arg_stream_dispatch.rs:167 |
 | test999 ⚠ | `test999_page_text_only_matches_textable_catch_all` | / The actual upstream prompt URN (PDF page text) does not conform / to any specific cap-arg pattern — it falls through to the / textable catch-all, where it correctly lands as the prompt body. | tests/cap_arg_stream_dispatch.rs:181 |
 | test999 ⚠ | `test999_plain_text_conforms_to_itself` | / `media:plain-text;textable;txt` conforms to itself — basic / reflexivity sanity. If this fails the canonical parser is broken. | tests/plain_text_terminal_binding.rs:51 |
 | test999 ⚠ | `test999_plain_text_does_not_refine_extracted_text` | / Plain-text does NOT refine extracted-text — extracted-text is a / strict subset of plain-text (OCR-marker added). A consumer that / asked specifically for OCR output should NOT silently get any / other plain-text. This is the order-theoretic complement of the / previous test and catches a regression where the markers on / extracted-text get dropped. | tests/plain_text_terminal_binding.rs:108 |
 | test999 ⚠ | `test999_plain_text_refines_bare_textable` | / A concrete plain-text URN refines bare textable. The relation is / directional — refinement, not equivalence — so a generic textable / CONSUMER cap declaring `in = media:textable` would correctly / accept a plain-text producer's output (any subtype). This is fine / in the consumer direction; the regression we guard against below / is in the producer direction. | tests/plain_text_terminal_binding.rs:65 |
-| test999 ⚠ | `test999_registry_url_under_dev_slug_is_rejected` |  | src/cartridge_discovery.rs:464 |
+| test999 ⚠ | `test999_registry_url_under_dev_slug_is_rejected` |  | src/cartridge_discovery.rs:613 |
 | test999 ⚠ | `test999_rich_max_tokens_conforms_to_bare_max_tokens` | / The dispatch contract: the rich cap-arg URN MUST conform to the / bare handler pattern. This is what makes / `stream_urn.conforms_to(&max_tokens_pattern)` correctly route the / rich form to the max-tokens branch. | tests/cap_arg_stream_dispatch.rs:97 |
 | test999 ⚠ | `test999_rich_max_tokens_does_not_equal_bare_max_tokens` | / **Core regression guard.** The rich and bare numeric URNs are / SEMANTICALLY the same parameter but their tag sets differ. A / handler that used `is_equivalent` here would miss the rich form / and route the parameter stream to the textable catch-all, / overwriting the prompt with `"512"`. | tests/cap_arg_stream_dispatch.rs:84 |
 | test999 ⚠ | `test999_system_prompt_must_be_matched_before_textable_catch_all` | / The system-prompt URN must be matched BEFORE the textable / catch-all; otherwise the prompt body would be the system / prompt's content and the actual upstream text would be / discarded. This test pins the conformance both ways: system / prompt conforms to textable (so the catch-all WOULD swallow it), / AND system prompt conforms to its own marker (so the dedicated / branch matches when it runs first). | tests/cap_arg_stream_dispatch.rs:199 |
@@ -1189,25 +1193,25 @@ The following test numbers are assigned to more than one function. Keep the firs
 
 ### test999 (24 occurrences)
 
-- `test999_absent_scan_root_yields_empty_roster` — src/cartridge_discovery.rs:422
+- `test999_absent_scan_root_yields_empty_roster` — src/cartridge_discovery.rs:571
 - `test999_all_rich_numeric_params_conform_to_their_bare_pattern` — tests/cap_arg_stream_dispatch.rs:109
 - `test999_bare_textable_does_not_conform_to_plain_text` — tests/plain_text_terminal_binding.rs:79
-- `test999_channel_mismatch_is_bad_installation` — src/cartridge_discovery.rs:441
+- `test999_channel_mismatch_is_bad_installation` — src/cartridge_discovery.rs:590
 - `test999_disbind_page_refines_plain_text` — tests/plain_text_terminal_binding.rs:155
 - `test999_every_textable_tagged_urn_conforms_to_bare_textable` — tests/cap_arg_stream_dispatch.rs:143
 - `test999_extracted_text_refines_plain_text` — tests/plain_text_terminal_binding.rs:93
-- `test999_fabric_manifest_mismatch_is_flagged` — src/cartridge_discovery.rs:453
+- `test999_fabric_manifest_mismatch_is_flagged` — src/cartridge_discovery.rs:602
 - `test999_gc_evicts_oldest_entries_by_touch_sequence` — src/bifaci/host_runtime.rs:5404
 - `test999_image_description_refines_plain_text` — tests/plain_text_terminal_binding.rs:141
 - `test999_local_socket_pair_round_trips_in_both_directions` — src/bifaci/local_socket.rs:349
-- `test999_missing_cartridge_json_is_manifest_invalid` — src/cartridge_discovery.rs:431
+- `test999_missing_cartridge_json_is_manifest_invalid` — src/cartridge_discovery.rs:580
 - `test999_model_spec_does_not_conform_to_any_numeric_parameter` — tests/cap_arg_stream_dispatch.rs:216
 - `test999_numeric_params_do_not_cross_match` — tests/cap_arg_stream_dispatch.rs:167
 - `test999_page_text_only_matches_textable_catch_all` — tests/cap_arg_stream_dispatch.rs:181
 - `test999_plain_text_conforms_to_itself` — tests/plain_text_terminal_binding.rs:51
 - `test999_plain_text_does_not_refine_extracted_text` — tests/plain_text_terminal_binding.rs:108
 - `test999_plain_text_refines_bare_textable` — tests/plain_text_terminal_binding.rs:65
-- `test999_registry_url_under_dev_slug_is_rejected` — src/cartridge_discovery.rs:464
+- `test999_registry_url_under_dev_slug_is_rejected` — src/cartridge_discovery.rs:613
 - `test999_rich_max_tokens_conforms_to_bare_max_tokens` — tests/cap_arg_stream_dispatch.rs:97
 - `test999_rich_max_tokens_does_not_equal_bare_max_tokens` — tests/cap_arg_stream_dispatch.rs:84
 - `test999_system_prompt_must_be_matched_before_textable_catch_all` — tests/cap_arg_stream_dispatch.rs:199
@@ -1251,20 +1255,20 @@ The following tests are cataloged but do not currently participate in numeric te
 
 These tests still participate in numeric indexing, but the cataloger did not find an authoritative immediate comment/docstring description for them. This is reported explicitly so intentional blank-description parity and accidental comment drift are both visible.
 
-- `test999` / `test999_absent_scan_root_yields_empty_roster` — src/cartridge_discovery.rs:422
-- `test999` / `test999_channel_mismatch_is_bad_installation` — src/cartridge_discovery.rs:441
-- `test999` / `test999_fabric_manifest_mismatch_is_flagged` — src/cartridge_discovery.rs:453
+- `test999` / `test999_absent_scan_root_yields_empty_roster` — src/cartridge_discovery.rs:571
+- `test999` / `test999_channel_mismatch_is_bad_installation` — src/cartridge_discovery.rs:590
+- `test999` / `test999_fabric_manifest_mismatch_is_flagged` — src/cartridge_discovery.rs:602
 - `test999` / `test999_local_socket_pair_round_trips_in_both_directions` — src/bifaci/local_socket.rs:349
-- `test999` / `test999_missing_cartridge_json_is_manifest_invalid` — src/cartridge_discovery.rs:431
-- `test999` / `test999_registry_url_under_dev_slug_is_rejected` — src/cartridge_discovery.rs:464
+- `test999` / `test999_missing_cartridge_json_is_manifest_invalid` — src/cartridge_discovery.rs:580
+- `test999` / `test999_registry_url_under_dev_slug_is_rejected` — src/cartridge_discovery.rs:613
 - `test1294` / `test1294_step_title_query_filters_paths_server_side` — src/planner/live_cap_fab.rs:2625
 - `test1295` / `test1295_step_title_query_constrains_streaming_progress_counts` — src/planner/live_cap_fab.rs:2666
 
 ---
 
 *Generated from Rust source tree*
-*Total tests: 1119*
-*Total numbered tests: 1111*
+*Total tests: 1123*
+*Total numbered tests: 1115*
 *Total unnumbered tests: 8*
 *Total numbered tests missing descriptions: 8*
 *Total numbering mismatches: 0*
