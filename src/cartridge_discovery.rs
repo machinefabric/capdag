@@ -567,8 +567,9 @@ mod tests {
         }
     }
 
+    // TEST0090: Absent scan root yields empty roster
     #[tokio::test]
-    async fn test999_absent_scan_root_yields_empty_roster() {
+    async fn test0090_absent_scan_root_yields_empty_roster() {
         let root = tempdir().unwrap();
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
             .await
@@ -576,8 +577,9 @@ mod tests {
         assert!(out.is_empty(), "no install tree must be an empty roster, not an error");
     }
 
+    // TEST0091: Missing cartridge json is manifest invalid
     #[tokio::test]
-    async fn test999_missing_cartridge_json_is_manifest_invalid() {
+    async fn test0091_missing_cartridge_json_is_manifest_invalid() {
         let root = tempdir().unwrap();
         install_fixture(root.path(), "dev", "nightly", "cart", "1.0.0", None, "cart");
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
@@ -586,8 +588,9 @@ mod tests {
         expect_incompatible(&out, CartridgeAttachmentErrorKind::ManifestInvalid);
     }
 
+    // TEST0092: Channel mismatch is bad installation
     #[tokio::test]
-    async fn test999_channel_mismatch_is_bad_installation() {
+    async fn test0092_channel_mismatch_is_bad_installation() {
         let root = tempdir().unwrap();
         // Declares release but lives under nightly/ — host is nightly.
         let json = dev_cartridge_json("release", 1);
@@ -598,8 +601,9 @@ mod tests {
         expect_incompatible(&out, CartridgeAttachmentErrorKind::BadInstallation);
     }
 
+    // TEST0094: Fabric manifest mismatch is flagged
     #[tokio::test]
-    async fn test999_fabric_manifest_mismatch_is_flagged() {
+    async fn test0094_fabric_manifest_mismatch_is_flagged() {
         let root = tempdir().unwrap();
         let json = dev_cartridge_json("nightly", 999);
         install_fixture(root.path(), "dev", "nightly", "cart", "1.0.0", Some(&json), "cart");
@@ -609,8 +613,9 @@ mod tests {
         expect_incompatible(&out, CartridgeAttachmentErrorKind::FabricManifestVersionMismatch);
     }
 
+    // TEST0120: Registry url under dev slug is rejected
     #[tokio::test]
-    async fn test999_registry_url_under_dev_slug_is_rejected() {
+    async fn test0120_registry_url_under_dev_slug_is_rejected() {
         let root = tempdir().unwrap();
         // A non-null registry_url placed under the reserved dev slug violates the
         // three-place rule — read_from_dir rejects it as a bad install context

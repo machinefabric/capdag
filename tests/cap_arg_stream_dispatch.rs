@@ -81,7 +81,7 @@ const BARE_TEXTABLE: &str = "media:textable";
 /// and route the parameter stream to the textable catch-all,
 /// overwriting the prompt with `"512"`.
 #[test]
-fn test999_rich_max_tokens_does_not_equal_bare_max_tokens() {
+fn test0080_rich_max_tokens_does_not_equal_bare_max_tokens() {
     assert!(
         !equivalent(RICH_MAX_TOKENS, BARE_MAX_TOKENS),
         "the rich form has more tags than the bare form so they MUST NOT be equivalent — \
@@ -94,7 +94,7 @@ fn test999_rich_max_tokens_does_not_equal_bare_max_tokens() {
 /// `stream_urn.conforms_to(&max_tokens_pattern)` correctly route the
 /// rich form to the max-tokens branch.
 #[test]
-fn test999_rich_max_tokens_conforms_to_bare_max_tokens() {
+fn test0081_rich_max_tokens_conforms_to_bare_max_tokens() {
     assert!(
         conforms(RICH_MAX_TOKENS, BARE_MAX_TOKENS),
         "rich form must conform to bare form (more tags = more specific) — \
@@ -106,7 +106,7 @@ fn test999_rich_max_tokens_conforms_to_bare_max_tokens() {
 /// declare. Catching one but not the others would mean some params
 /// land on the prompt path and others don't.
 #[test]
-fn test999_all_rich_numeric_params_conform_to_their_bare_pattern() {
+fn test0082_all_rich_numeric_params_conform_to_their_bare_pattern() {
     let pairs: &[(&str, &str)] = &[
         (RICH_MAX_TOKENS, BARE_MAX_TOKENS),
         (RICH_TEMPERATURE, BARE_TEMPERATURE),
@@ -140,7 +140,7 @@ fn test999_all_rich_numeric_params_conform_to_their_bare_pattern() {
 /// handler must check specific patterns BEFORE the textable
 /// catch-all, otherwise the catch-all would swallow them.
 #[test]
-fn test999_every_textable_tagged_urn_conforms_to_bare_textable() {
+fn test0083_every_textable_tagged_urn_conforms_to_bare_textable() {
     let textable_carriers = [
         RICH_MAX_TOKENS,
         RICH_TEMPERATURE,
@@ -164,7 +164,7 @@ fn test999_every_textable_tagged_urn_conforms_to_bare_textable() {
 /// dispatch would pick the wrong branch (e.g. send a temperature
 /// stream to the max-tokens slot).
 #[test]
-fn test999_numeric_params_do_not_cross_match() {
+fn test0084_numeric_params_do_not_cross_match() {
     assert!(!conforms(RICH_TEMPERATURE, BARE_MAX_TOKENS));
     assert!(!conforms(RICH_MAX_TOKENS, BARE_TEMPERATURE));
     assert!(!conforms(RICH_TOP_P, BARE_MAX_TOKENS));
@@ -178,7 +178,7 @@ fn test999_numeric_params_do_not_cross_match() {
 /// to any specific cap-arg pattern — it falls through to the
 /// textable catch-all, where it correctly lands as the prompt body.
 #[test]
-fn test999_page_text_only_matches_textable_catch_all() {
+fn test0085_page_text_only_matches_textable_catch_all() {
     assert!(conforms(PAGE_TEXT, BARE_TEXTABLE));
     assert!(!conforms(PAGE_TEXT, BARE_MAX_TOKENS));
     assert!(!conforms(PAGE_TEXT, BARE_TEMPERATURE));
@@ -196,7 +196,7 @@ fn test999_page_text_only_matches_textable_catch_all() {
 /// AND system prompt conforms to its own marker (so the dedicated
 /// branch matches when it runs first).
 #[test]
-fn test999_system_prompt_must_be_matched_before_textable_catch_all() {
+fn test0086_system_prompt_must_be_matched_before_textable_catch_all() {
     assert!(
         conforms(SYSTEM_PROMPT, BARE_TEXTABLE),
         "system-prompt conforms to textable — confirms the catch-all would swallow it \
@@ -213,7 +213,7 @@ fn test999_system_prompt_must_be_matched_before_textable_catch_all() {
 /// doesn't accidentally conform to any of the parameter patterns
 /// (which would route the model-spec content into a numeric slot).
 #[test]
-fn test999_model_spec_does_not_conform_to_any_numeric_parameter() {
+fn test0087_model_spec_does_not_conform_to_any_numeric_parameter() {
     assert!(!conforms(MODEL_SPEC_GGUF_LLM, BARE_MAX_TOKENS));
     assert!(!conforms(MODEL_SPEC_GGUF_LLM, BARE_TEMPERATURE));
     assert!(!conforms(MODEL_SPEC_GGUF_LLM, BARE_TOP_P));

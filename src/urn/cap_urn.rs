@@ -2762,9 +2762,9 @@ fn test653_effect_none_illegal_declaration_rejected() {
     ));
 }
 
-// TEST654: effect=none preserves runtime media identity
+// TEST0125: effect=none preserves runtime media identity
 #[test]
-fn test654_effect_none_preserves_runtime_media() {
+fn test0125_effect_none_preserves_runtime_media() {
     let decimate = CapUrn::from_string("cap:decimate-sequence;effect=none").unwrap();
     let png = MediaUrn::from_string("media:image;png").unwrap();
     let pdf = MediaUrn::from_string("media:pdf").unwrap();
@@ -2784,9 +2784,9 @@ fn test654_effect_none_preserves_runtime_media() {
     );
 }
 
-// TEST655: default effect=declared uses the declared output
+// TEST0126: default effect=declared uses the declared output
 #[test]
-fn test655_effect_declared_uses_declared_output() {
+fn test0126_effect_declared_uses_declared_output() {
     let resize = CapUrn::from_string("cap:in=media:image;out=media:image;resize").unwrap();
     let png = MediaUrn::from_string("media:image;png;width=4000").unwrap();
     assert_eq!(
@@ -2795,18 +2795,18 @@ fn test655_effect_declared_uses_declared_output() {
     );
 }
 
-// TEST656: invalid effect=none declarations fail hard
+// TEST0127: invalid effect=none declarations fail hard
 #[test]
-fn test656_invalid_effect_none_fails_hard() {
+fn test0127_invalid_effect_none_fails_hard() {
     assert!(matches!(
         CapUrn::from_string("cap:in=media:pdf;out=media:textable;effect=none"),
         Err(CapUrnError::IllegalDeclaration(_))
     ));
 }
 
-// TEST657: omitted effect means declared; unconstrained effect must be explicit
+// TEST0128: omitted effect means declared; unconstrained effect must be explicit
 #[test]
-fn test657_effect_dispatch_requires_explicit_wildcard() {
+fn test0128_effect_dispatch_requires_explicit_wildcard() {
     let none_provider = CapUrn::from_string("cap:effect=none").unwrap();
     let declared_request = CapUrn::from_string("cap:raw").unwrap();
     let any_request = CapUrn::from_string("cap:?effect").unwrap();

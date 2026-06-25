@@ -1488,12 +1488,12 @@ mod tests {
         cartridge_handle.await.unwrap();
     }
 
-    // TEST490: Identity verification with multiple cartridges through single relay
+    // TEST0146: Identity verification with multiple cartridges through single relay
     //
     // Both cartridges must pass identity verification independently before any
     // real requests are routed.
     #[tokio::test]
-    async fn test490_identity_verification_multiple_cartridges() {
+    async fn test0146_identity_verification_multiple_cartridges() {
         use crate::bifaci::host_runtime::CartridgeHostRuntime;
 
         let manifest_a = r#"{"name":"CartridgeA","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge A","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";alpha;out=\"media:void\"","title":"Alpha","command":"alpha","args":[]}]}]}"#;

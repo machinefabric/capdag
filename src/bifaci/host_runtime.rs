@@ -5401,7 +5401,7 @@ mod tests {
     /// the more dangerous bug because it silently drops
     /// in-flight continuation frames.
     #[test]
-    fn test999_gc_evicts_oldest_entries_by_touch_sequence() {
+    fn test0129_gc_evicts_oldest_entries_by_touch_sequence() {
         let mut runtime = CartridgeHostRuntime::new();
         let pre_count = CartridgeHostRuntime::ROUTING_TABLE_SOFT_WATERMARK + 256;
         let eviction_count = std::cmp::max(
