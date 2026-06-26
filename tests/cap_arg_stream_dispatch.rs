@@ -3,10 +3,10 @@
 //! invocation.
 //!
 //! Background: cap TOMLs declare cap-arg URNs with rich dim profiles
-//! (e.g. `media:max-tokens;inference;limit;user;task;textable;numeric`)
+//! (e.g. `media:inference;limit;max-tokens;numeric;task;user`)
 //! that carry catalog-grade semantics. Cartridge handlers, however,
 //! think of arguments in their bare functional shape
-//! (`media:max-tokens;textable;numeric` — "this is a numeric textable
+//! (`media:max-tokens;numeric` — "this is a numeric textable
 //! tagged max-tokens"). The two URNs are semantically the same
 //! parameter but they do NOT have the same tag set — `is_equivalent`
 //! returns false.
@@ -51,27 +51,27 @@ fn equivalent(a: &str, b: &str) -> bool {
 
 // --- Rich cap-arg URNs from the LLM text-generation cap TOMLs -----------------
 
-const RICH_MAX_TOKENS: &str = "media:max-tokens;inference;limit;user;task;textable;numeric";
-const BARE_MAX_TOKENS: &str = "media:max-tokens;textable;numeric";
+const RICH_MAX_TOKENS: &str = "media:inference;limit;max-tokens;numeric;task;user";
+const BARE_MAX_TOKENS: &str = "media:max-tokens;numeric";
 
-const RICH_TEMPERATURE: &str = "media:temperature;inference;sampling;user;task;textable;numeric";
-const BARE_TEMPERATURE: &str = "media:temperature;textable;numeric";
+const RICH_TEMPERATURE: &str = "media:inference;numeric;sampling;task;temperature;user";
+const BARE_TEMPERATURE: &str = "media:numeric;temperature";
 
-const RICH_TOP_P: &str = "media:top-p;inference;sampling;user;task;textable;numeric";
-const BARE_TOP_P: &str = "media:top-p;textable;numeric";
+const RICH_TOP_P: &str = "media:inference;numeric;sampling;task;top-p;user";
+const BARE_TOP_P: &str = "media:numeric;top-p";
 
 const RICH_MAX_CONTEXT: &str =
-    "media:max-context-length;inference;limit;operator;model;textable;numeric";
-const BARE_MAX_CONTEXT: &str = "media:max-context-length;textable;numeric";
+    "media:inference;limit;max-context-length;model;numeric;operator";
+const BARE_MAX_CONTEXT: &str = "media:max-context-length;numeric";
 
-const RICH_BATCH_SIZE: &str = "media:batch-size;inference;limit;operator;task;textable;numeric";
-const BARE_BATCH_SIZE: &str = "media:batch-size;textable;numeric";
+const RICH_BATCH_SIZE: &str = "media:batch-size;inference;limit;numeric;operator;task";
+const BARE_BATCH_SIZE: &str = "media:batch-size;numeric";
 
-const SYSTEM_PROMPT: &str = "media:system-prompt;textable";
-const HF_TOKEN: &str = "media:hf-token;secret;textable";
-const MODEL_SPEC_GGUF_LLM: &str = "media:model-spec;gguf;textable;llm;tokenizer-embedded-gguf";
-const PAGE_TEXT: &str = "media:page;plain-text;textable;txt";
-const BARE_TEXTABLE: &str = "media:textable";
+const SYSTEM_PROMPT: &str = "media:enc=utf-8;system-prompt";
+const HF_TOKEN: &str = "media:enc=utf-8;hf-token;secret";
+const MODEL_SPEC_GGUF_LLM: &str = "media:enc=utf-8;gguf;llm;model-spec;tokenizer-embedded-gguf";
+const PAGE_TEXT: &str = "media:enc=utf-8;ext=txt;page;plain-text";
+const BARE_TEXTABLE: &str = "media:enc=utf-8";
 
 // --- Core regression: rich URN does NOT equal bare URN, but DOES conform ----
 
@@ -153,7 +153,7 @@ fn test0083_every_textable_tagged_urn_conforms_to_bare_textable() {
     for urn in &textable_carriers {
         assert!(
             conforms(urn, BARE_TEXTABLE),
-            "every textable-carrying URN must conform to media:textable — \
+            "every textable-carrying URN must conform to media:enc=utf-8 — \
              this is what makes the catch-all greedy and forces the if-chain order",
         );
     }

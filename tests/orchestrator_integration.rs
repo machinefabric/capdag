@@ -299,35 +299,35 @@ fn create_test_fabric_registry() -> Arc<FabricRegistry> {
     let registry = FabricRegistry::new_for_test();
     let caps = vec![
         build_testcartridge_cap(
-            r#"cap:in="media:node1;textable";test-edge1;out="media:node2;textable""#,
+            r#"cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node2;textable";test-edge2;out="media:node3;textable""#,
+            r#"cap:in="media:enc=utf-8;node2";test-edge2;out="media:enc=utf-8;node3""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node3;textable";test-edge3;out="media:node4;list;textable""#,
+            r#"cap:in="media:enc=utf-8;node3";test-edge3;out="media:enc=utf-8;list;node4""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node4;list;textable";test-edge4;out="media:node5;textable""#,
+            r#"cap:in="media:enc=utf-8;list;node4";test-edge4;out="media:enc=utf-8;node5""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node3;textable";test-edge7;out="media:node6;textable""#,
+            r#"cap:in="media:enc=utf-8;node3";test-edge7;out="media:enc=utf-8;node6""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node6;textable";test-edge8;out="media:node7;textable""#,
+            r#"cap:in="media:enc=utf-8;node6";test-edge8;out="media:enc=utf-8;node7""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node7;textable";test-edge9;out="media:node8;textable""#,
+            r#"cap:in="media:enc=utf-8;node7";test-edge9;out="media:enc=utf-8;node8""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node8;textable";test-edge10;out="media:node1;textable""#,
+            r#"cap:in="media:enc=utf-8;node8";test-edge10;out="media:enc=utf-8;node1""#,
         ),
         build_testcartridge_cap(r#"cap:in="media:void";test-large;out="media:""#),
         build_testcartridge_cap(
-            r#"cap:in="media:node1;textable";test-peer;out="media:node3;textable""#,
+            r#"cap:in="media:enc=utf-8;node1";test-peer;out="media:enc=utf-8;node3""#,
         ),
         build_testcartridge_cap(
-            r#"cap:in="media:node1;textable";identity;out="media:node1;textable""#,
+            r#"cap:in="media:enc=utf-8;node1";identity;out="media:enc=utf-8;node1""#,
         ),
     ];
     registry.add_caps_to_cache(caps);
@@ -344,7 +344,7 @@ async fn test919_parse_simple_testcartridge_graph() {
     let registry = create_test_fabric_registry();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
+[test_edge1 cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"]
 [A -> test_edge1 -> B]
 "#;
 
@@ -355,10 +355,10 @@ async fn test919_parse_simple_testcartridge_graph() {
     assert_eq!(graph.nodes.len(), 2);
     assert_eq!(graph.edges.len(), 1);
     let node_a = capdag::MediaUrn::from_string(graph.nodes.get("A").unwrap()).unwrap();
-    let expected_a = capdag::MediaUrn::from_string("media:node1;textable").unwrap();
+    let expected_a = capdag::MediaUrn::from_string("media:enc=utf-8;node1").unwrap();
     assert!(node_a.is_equivalent(&expected_a).unwrap());
     let node_b = capdag::MediaUrn::from_string(graph.nodes.get("B").unwrap()).unwrap();
-    let expected_b = capdag::MediaUrn::from_string("media:node2;textable").unwrap();
+    let expected_b = capdag::MediaUrn::from_string("media:enc=utf-8;node2").unwrap();
     assert!(node_b.is_equivalent(&expected_b).unwrap());
 }
 
@@ -369,7 +369,7 @@ async fn test889_execute_single_edge_dag() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
+[test_edge1 cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"]
 [input -> test_edge1 -> output]
 "#;
 
@@ -422,8 +422,8 @@ async fn test888_execute_edge1_to_edge2_chain() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
-[test_edge2 cap:in="media:node2;textable";test-edge2;out="media:node3;textable"]
+[test_edge1 cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"]
+[test_edge2 cap:in="media:enc=utf-8;node2";test-edge2;out="media:enc=utf-8;node3"]
 [A -> test_edge1 -> B]
 [B -> test_edge2 -> C]
 "#;
@@ -474,7 +474,7 @@ async fn test887_execute_with_file_input() {
     let (temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
+[test_edge1 cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"]
 [input -> test_edge1 -> output]
 "#;
 
@@ -580,8 +580,8 @@ async fn test951_fan_in_pattern() {
 
     // Two parallel paths that merge
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
-[test_edge2 cap:in="media:node2;textable";test-edge2;out="media:node3;textable"]
+[test_edge1 cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"]
+[test_edge2 cap:in="media:enc=utf-8;node2";test-edge2;out="media:enc=utf-8;node3"]
 [A -> test_edge1 -> B]
 [C -> test_edge1 -> D]
 [B -> test_edge2 -> E]
@@ -636,7 +636,7 @@ async fn test950_reject_cycles() {
 
     // Create a self-loop using identity cap
     let route = r#"
-[identity cap:in="media:node1;textable";identity;out="media:node1;textable"]
+[identity cap:in="media:enc=utf-8;node1";identity;out="media:enc=utf-8;node1"]
 [A -> identity -> A]
 "#;
 
@@ -661,7 +661,7 @@ async fn test943_same_media_different_names_is_not_a_cycle() {
     let registry = create_test_fabric_registry();
 
     let route = r#"
-[identity cap:in="media:node1;textable";identity;out="media:node1;textable"]
+[identity cap:in="media:enc=utf-8;node1";identity;out="media:enc=utf-8;node1"]
 [A -> identity -> B]
 "#;
 
@@ -735,10 +735,10 @@ async fn test946_four_machine() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
-[test_edge2 cap:in="media:node2;textable";test-edge2;out="media:node3;textable"]
-[test_edge7 cap:in="media:node3;textable";test-edge7;out="media:node6;textable"]
-[test_edge8 cap:in="media:node6;textable";test-edge8;out="media:node7;textable"]
+[test_edge1 cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"]
+[test_edge2 cap:in="media:enc=utf-8;node2";test-edge2;out="media:enc=utf-8;node3"]
+[test_edge7 cap:in="media:enc=utf-8;node3";test-edge7;out="media:enc=utf-8;node6"]
+[test_edge8 cap:in="media:enc=utf-8;node6";test-edge8;out="media:enc=utf-8;node7"]
 [A -> test_edge1 -> B]
 [B -> test_edge2 -> C]
 [C -> test_edge7 -> D]
@@ -795,11 +795,11 @@ async fn test945_five_machine() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
-[test_edge2 cap:in="media:node2;textable";test-edge2;out="media:node3;textable"]
-[test_edge7 cap:in="media:node3;textable";test-edge7;out="media:node6;textable"]
-[test_edge8 cap:in="media:node6;textable";test-edge8;out="media:node7;textable"]
-[test_edge9 cap:in="media:node7;textable";test-edge9;out="media:node8;textable"]
+[test_edge1 cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"]
+[test_edge2 cap:in="media:enc=utf-8;node2";test-edge2;out="media:enc=utf-8;node3"]
+[test_edge7 cap:in="media:enc=utf-8;node3";test-edge7;out="media:enc=utf-8;node6"]
+[test_edge8 cap:in="media:enc=utf-8;node6";test-edge8;out="media:enc=utf-8;node7"]
+[test_edge9 cap:in="media:enc=utf-8;node7";test-edge9;out="media:enc=utf-8;node8"]
 [A -> test_edge1 -> B]
 [B -> test_edge2 -> C]
 [C -> test_edge7 -> D]
@@ -855,12 +855,12 @@ async fn test944_six_machine() {
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = r#"
-[test_edge1 cap:in="media:node1;textable";test-edge1;out="media:node2;textable"]
-[test_edge2 cap:in="media:node2;textable";test-edge2;out="media:node3;textable"]
-[test_edge7 cap:in="media:node3;textable";test-edge7;out="media:node6;textable"]
-[test_edge8 cap:in="media:node6;textable";test-edge8;out="media:node7;textable"]
-[test_edge9 cap:in="media:node7;textable";test-edge9;out="media:node8;textable"]
-[test_edge10 cap:in="media:node8;textable";test-edge10;out="media:node1;textable"]
+[test_edge1 cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"]
+[test_edge2 cap:in="media:enc=utf-8;node2";test-edge2;out="media:enc=utf-8;node3"]
+[test_edge7 cap:in="media:enc=utf-8;node3";test-edge7;out="media:enc=utf-8;node6"]
+[test_edge8 cap:in="media:enc=utf-8;node6";test-edge8;out="media:enc=utf-8;node7"]
+[test_edge9 cap:in="media:enc=utf-8;node7";test-edge9;out="media:enc=utf-8;node8"]
+[test_edge10 cap:in="media:enc=utf-8;node8";test-edge10;out="media:enc=utf-8;node1"]
 [A -> test_edge1 -> B]
 [B -> test_edge2 -> C]
 [C -> test_edge7 -> D]
@@ -1003,9 +1003,9 @@ async fn test394_peer_invoke_roundtrip() {
     }
 
     // Now call test-peer, which will peer invoke test-edge1 and test-edge2
-    let test_peer_urn = r#"cap:in="media:node1;textable";test-peer;out="media:node5;textable""#;
+    let test_peer_urn = r#"cap:in="media:enc=utf-8;node1";test-peer;out="media:enc=utf-8;node5""#;
     let input_data = b"CHAIN".to_vec();
-    let arguments = vec![CapArgumentValue::new("media:node1;textable", input_data)];
+    let arguments = vec![CapArgumentValue::new("media:enc=utf-8;node1", input_data)];
 
     eprintln!("[TEST394] Calling test-peer with input: CHAIN");
 
