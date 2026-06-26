@@ -1,19 +1,19 @@
-//! Tests for the `media:plain-text;textable;txt` terminal-binding contract.
+//! Tests for the `media:enc=utf-8;ext=txt;plain-text` terminal-binding contract.
 //!
 //! Background: the wizard's path planner finds candidate terminals by
 //! locating caps whose `out` conforms to the requested target media URN,
 //! and feeders by locating caps whose `out` conforms to the candidate's
-//! `in`. Earlier, `cap:save-as-txt` declared `in = media:textable`,
+//! `in`. Earlier, `cap:save-as-txt` declared `in = media:enc=utf-8`,
 //! making the cap a universal sink — every textable-producing cap
 //! (PDF page extractor, JSON-as-text adapter, prompt loader) became a
 //! recommended feeder for `.txt` persistence, polluting the planner's
 //! recommended-paths surface.
 //!
-//! The fix introduced `media:plain-text;textable;txt` as a narrow
+//! The fix introduced `media:enc=utf-8;ext=txt;plain-text` as a narrow
 //! concrete terminal type: producers of user-facing prose
 //! (LLM text-generation, OCR's extracted text, summarisation) opt in
 //! by declaring this URN as their `out`; everything else stays on
-//! `media:textable` and is therefore not a candidate feeder.
+//! `media:enc=utf-8` and is therefore not a candidate feeder.
 //!
 //! These tests pin down the order-theoretic relations the contract
 //! depends on. A regression that re-loosens `save-as-txt`'s `in`, or
@@ -38,14 +38,14 @@ fn conforms(concrete: &str, pattern: &str) -> bool {
     })
 }
 
-const PLAIN_TEXT: &str = "media:plain-text;textable;txt";
-const EXTRACTED_TEXT: &str = "media:extracted-text;plain-text;textable;txt";
-const IMAGE_DESCRIPTION: &str = "media:image-description;plain-text;textable;txt";
-const DISBIND_PAGE: &str = "media:page;plain-text;textable;txt";
-const TRANSCRIPTION: &str = "media:record;textable;transcription";
-const BARE_TEXTABLE: &str = "media:textable";
+const PLAIN_TEXT: &str = "media:enc=utf-8;ext=txt;plain-text";
+const EXTRACTED_TEXT: &str = "media:enc=utf-8;ext=txt;extracted-text;plain-text";
+const IMAGE_DESCRIPTION: &str = "media:enc=utf-8;ext=txt;image-description;plain-text";
+const DISBIND_PAGE: &str = "media:enc=utf-8;ext=txt;page;plain-text";
+const TRANSCRIPTION: &str = "media:enc=utf-8;record;transcription";
+const BARE_TEXTABLE: &str = "media:enc=utf-8";
 
-/// `media:plain-text;textable;txt` conforms to itself — basic
+/// `media:enc=utf-8;ext=txt;plain-text` conforms to itself — basic
 /// reflexivity sanity. If this fails the canonical parser is broken.
 #[test]
 fn test0054_plain_text_conforms_to_itself() {
@@ -57,7 +57,7 @@ fn test0054_plain_text_conforms_to_itself() {
 
 /// A concrete plain-text URN refines bare textable. The relation is
 /// directional — refinement, not equivalence — so a generic textable
-/// CONSUMER cap declaring `in = media:textable` would correctly
+/// CONSUMER cap declaring `in = media:enc=utf-8` would correctly
 /// accept a plain-text producer's output (any subtype). This is fine
 /// in the consumer direction; the regression we guard against below
 /// is in the producer direction.
@@ -69,8 +69,8 @@ fn test0055_plain_text_refines_bare_textable() {
     );
 }
 
-/// **Core regression guard.** Bare `media:textable` does NOT conform
-/// to `media:plain-text;textable;txt`. This is the relation that
+/// **Core regression guard.** Bare `media:enc=utf-8` does NOT conform
+/// to `media:enc=utf-8;ext=txt;plain-text`. This is the relation that
 /// keeps `cap:save-as-txt` from accidentally accepting every textable
 /// cap's output as a feeder. If this assertion ever flips to `true`,
 /// the wizard's recommended-paths surface will fill with bogus chains
@@ -79,7 +79,7 @@ fn test0055_plain_text_refines_bare_textable() {
 fn test0056_bare_textable_does_not_conform_to_plain_text() {
     assert!(
         !conforms(BARE_TEXTABLE, PLAIN_TEXT),
-        "media:textable must NOT conform to media:plain-text;textable;txt — \
+        "media:enc=utf-8 must NOT conform to media:enc=utf-8;ext=txt;plain-text — \
          a generic textable producer is not a valid feeder for save-as-txt"
     );
 }
@@ -87,7 +87,7 @@ fn test0056_bare_textable_does_not_conform_to_plain_text() {
 /// OCR's narrowed output URN refines plain-text. Both carry the
 /// `plain-text` marker, the `textable` coercion, and `file-type=txt`;
 /// extracted-text adds the OCR-specific marker on top. Save-as-txt's
-/// `in = media:plain-text;textable;txt` therefore accepts OCR output
+/// `in = media:enc=utf-8;ext=txt;plain-text` therefore accepts OCR output
 /// without further intermediation.
 #[test]
 fn test0057_extracted_text_refines_plain_text() {
@@ -113,25 +113,25 @@ fn test0058_plain_text_does_not_refine_extracted_text() {
     );
 }
 
-/// `media:textable;txt` (the dim-anchored composite without the
-/// `plain-text` marker) is NOT a substitute for `media:plain-text;textable;txt`.
+/// `media:enc=utf-8;ext=txt` (the dim-anchored composite without the
+/// `plain-text` marker) is NOT a substitute for `media:enc=utf-8;ext=txt;plain-text`.
 /// This catches a regression where a producer cap drops the
 /// `plain-text` marker and only declares the file-type=txt narrowing
 /// — that producer would suddenly satisfy save-as-txt's input
-/// because the catalog defines `media:textable;txt`, but the
+/// because the catalog defines `media:enc=utf-8;ext=txt`, but the
 /// `plain-text` marker is what actually gates the persistence path.
 #[test]
 fn test0059_textable_txt_without_plain_text_marker_does_not_satisfy() {
     assert!(
-        !conforms("media:textable;txt", PLAIN_TEXT),
-        "media:textable;txt (file-type narrowing only, no plain-text marker) \
-         must NOT satisfy media:plain-text;textable;txt — the plain-text \
+        !conforms("media:enc=utf-8;ext=txt", PLAIN_TEXT),
+        "media:enc=utf-8;ext=txt (file-type narrowing only, no plain-text marker) \
+         must NOT satisfy media:enc=utf-8;ext=txt;plain-text — the plain-text \
          marker is the explicit opt-in that keeps the save-as-txt path \
          scoped to producers of user-facing prose"
     );
 }
 
-/// Vision describe caps emit `media:image-description;plain-text;textable;txt`.
+/// Vision describe caps emit `media:enc=utf-8;ext=txt;image-description;plain-text`.
 /// The composite carries the vision-specific `image-description` marker so
 /// downstream caption-aware tools can match on the narrower URN, AND the
 /// `plain-text` marker so `cap:save-as-txt` accepts captions as a feeder.
@@ -146,7 +146,7 @@ fn test0069_image_description_refines_plain_text() {
     );
 }
 
-/// Disbind-pdf emits `media:page;plain-text;textable;txt` per page. Each
+/// Disbind-pdf emits `media:enc=utf-8;ext=txt;page;plain-text` per page. Each
 /// page item must be persistable as `.txt` — that's the user-visible
 /// reason for the marker (per-page save in the Finder). If a regression
 /// drops the `plain-text` marker from the disbind output URN, this test
