@@ -622,7 +622,7 @@ mod tests {
     #[tokio::test]
     async fn test1265_compatible_media_urns_at_shared_node() {
         // Cap A outputs media:ext=png;image; cap B inputs
-        // media:image;png;bytes. The parser's lexical
+        // media:bytes;ext=png;image. The parser's lexical
         // is_comparable accepts the chain (bytes is more
         // specific). The resolver's matching then assigns the
         // image;png;bytes source URN (held at the shared node)
