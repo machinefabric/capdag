@@ -34,8 +34,8 @@ accepts(a, b)  :⟺  b ⪯ a
 
 **Examples**:
 ```
-accepts(media:bytes, media:pdf;bytes)     = true   # bytes accepts pdf;bytes
-accepts(media:pdf;bytes, media:bytes)     = false  # pdf;bytes does not accept bytes
+accepts(media:bytes, media:bytes;ext=pdf)     = true   # bytes accepts pdf;bytes
+accepts(media:bytes;ext=pdf, media:bytes)     = false  # pdf;bytes does not accept bytes
 accepts(media:ext=pdf, media:ext=pdf)             = true   # identical
 ```
 
@@ -58,8 +58,8 @@ conforms_to(a, b)  :⟺  a ⪯ b
 
 **Examples**:
 ```
-conforms_to(media:pdf;bytes, media:bytes)     = true   # pdf;bytes conforms to bytes
-conforms_to(media:bytes, media:pdf;bytes)     = false  # bytes does not conform to pdf;bytes
+conforms_to(media:bytes;ext=pdf, media:bytes)     = true   # pdf;bytes conforms to bytes
+conforms_to(media:bytes, media:bytes;ext=pdf)     = false  # bytes does not conform to pdf;bytes
 conforms_to(media:ext=pdf, media:ext=pdf)             = true   # identical
 ```
 
@@ -82,7 +82,7 @@ is_comparable(a, b)  :⟺  a ⪯ b  ∨  b ⪯ a
 
 **Examples**:
 ```
-is_comparable(media:bytes, media:pdf;bytes)   = true   # same chain
+is_comparable(media:bytes, media:bytes;ext=pdf)   = true   # same chain
 is_comparable(media:ext=pdf, media:image)         = false  # different branches
 is_comparable(media:ext=pdf, media:ext=pdf)           = true   # identical
 ```
@@ -109,8 +109,8 @@ is_equivalent(a, b)  :⟺  a ⪯ b  ∧  b ⪯ a
 **Examples**:
 ```
 is_equivalent(media:ext=pdf, media:ext=pdf)           = true
-is_equivalent(media:bytes;pdf, media:pdf;bytes) = true   # same tags, different order
-is_equivalent(media:ext=pdf, media:pdf;bytes)     = false  # different specificity
+is_equivalent(media:bytes;ext=pdf, media:bytes;ext=pdf) = true   # same tags, different order
+is_equivalent(media:ext=pdf, media:bytes;ext=pdf)     = false  # different specificity
 ```
 
 ---

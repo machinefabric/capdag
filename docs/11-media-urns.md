@@ -17,7 +17,7 @@ Examples:
 ```
 media:                          # Identity (any media)
 media:ext=pdf                       # PDF type
-media:pdf;bytes                 # PDF with bytes marker
+media:bytes;ext=pdf                 # PDF with bytes marker
 media:enc=utf-8                 # Bare UTF-8 text (scalar by default)
 media:fmt=json;record           # JSON object (serialization format)
 media:ext=png;image                 # PNG image
@@ -299,7 +299,7 @@ Media URN matching follows Tagged URN semantics from [01-TAGGED-URN-DOMAIN](/doc
 
 ```
 Pattern:  media:bytes
-Instance: media:pdf;bytes
+Instance: media:bytes;ext=pdf
 
 Does instance have all tags pattern requires?
 - Pattern requires: bytes=*
@@ -314,14 +314,14 @@ More tags = more specific:
 ```
 spec(media:) = 0
 spec(media:bytes) = 2           # bytes=* is must-have-any
-spec(media:pdf;bytes) = 4       # two must-have-any tags
+spec(media:bytes;ext=pdf) = 4       # two must-have-any tags
 spec(media:pdf;v=2.0) = 5       # must-have-any + exact value
 ```
 
 ### 6.3 Conformance
 
 ```
-media:pdf;bytes ⪯ media:bytes   (pdf;bytes conforms to bytes)
+media:bytes;ext=pdf ⪯ media:bytes   (pdf;bytes conforms to bytes)
 media:bytes ⪯ media:            (bytes conforms to identity)
 media:ext=pdf ⪯ media:image         ✗ (not on same chain)
 ```
@@ -337,7 +337,7 @@ When used as `in` or `out` values in Cap URNs:
 Media URNs containing `;` must be quoted:
 
 ```
-cap:in="media:pdf;bytes";extract;out="media:record"
+cap:in="media:bytes;ext=pdf";extract;out="media:record"
 ```
 
 ### 7.2 Identity Expansion

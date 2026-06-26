@@ -39,9 +39,9 @@ identifier  ::= [a-z][a-z0-9-]*
 
 ```
 media:                           # Identity (no tags)
-media:pdf;bytes                  # Two tags with implicit * values
+media:bytes;ext=pdf                  # Two tags with implicit * values
 cap:in=media:pdf;extract;out=media:record
-cap:in="media:pdf;bytes";extract;out="media:record"
+cap:in="media:bytes;ext=pdf";extract;out="media:record"
 ```
 
 ---
@@ -63,22 +63,22 @@ All Tagged URNs are normalized on parse using these rules:
 
 A tag without `=` is treated as having value `*`:
 ```
-Input:  media:pdf;bytes
+Input:  media:bytes;ext=pdf
 Parsed: media:ext=pdf=*;bytes=*
 ```
 
 When serializing, `*` values serialize back to value-less form:
 ```
 Internal: {pdf: "*", bytes: "*"}
-Output:   media:pdf;bytes
+Output:   media:bytes;ext=pdf
 ```
 
 ### 3.3 Tag Ordering
 
 Tags are stored in a sorted map (BTreeMap) and serialized in **alphabetical key order**:
 ```
-Input:  media:bytes;pdf
-Output: media:bytes;pdf      # 'bytes' before 'pdf' alphabetically
+Input:  media:bytes;ext=pdf
+Output: media:bytes;ext=pdf      # 'bytes' before 'pdf' alphabetically
 ```
 
 ### 3.4 Quoting Rules
@@ -167,7 +167,7 @@ The headline rules:
 ### 5.2 Examples
 
 ```
-# Pattern: media:ext=pdf      Instance: media:pdf;bytes
+# Pattern: media:ext=pdf      Instance: media:bytes;ext=pdf
 # Pattern has: pdf=*      Instance has: pdf=*, bytes=*
 # For key 'pdf': Instance=*, Pattern=* → ✓
 # For key 'bytes': Instance=*, Pattern=(missing) → ✓

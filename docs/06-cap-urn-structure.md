@@ -126,10 +126,10 @@ Validation rules (CU1, CU2 in [10-VALIDATION-RULES](/docs/10-validation-rules)) 
 
 Direction spec values containing `;` must be quoted:
 ```
-cap:in="media:pdf;bytes";extract;out="media:record"
+cap:in="media:bytes;ext=pdf";extract;out="media:record"
 ```
 
-Without quotes, `media:pdf;bytes` would parse incorrectly.
+Without quotes, `media:bytes;ext=pdf` would parse incorrectly.
 
 ---
 
@@ -403,7 +403,7 @@ other refinements are Transform/Source/Sink/Effect as their structure dictates.
 The `in` and `out` tag values are themselves Media URNs:
 
 ```
-cap:in="media:pdf;bytes";out="media:record"
+cap:in="media:bytes;ext=pdf";out="media:record"
         ↑                     ↑
     Media URN             Media URN
 ```
@@ -414,7 +414,7 @@ When matching direction specs, use Media URN matching:
 
 ```rust
 let provider_in = MediaUrn::from_string("media:bytes")?;
-let request_in = MediaUrn::from_string("media:pdf;bytes")?;
+let request_in = MediaUrn::from_string("media:bytes;ext=pdf")?;
 
 // For dispatch: request_in must conform to provider_in
 request_in.conforms_to(&provider_in)  // true

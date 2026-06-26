@@ -2788,7 +2788,7 @@ fn test0125_effect_none_preserves_runtime_media() {
 #[test]
 fn test0126_effect_declared_uses_declared_output() {
     let resize = CapUrn::from_string("cap:in=media:image;out=media:image;resize").unwrap();
-    let png = MediaUrn::from_string("media:image;png;width=4000").unwrap();
+    let png = MediaUrn::from_string("media:ext=png;image;width=4000").unwrap();
     assert_eq!(
         resize.infer_runtime_output_media(&png).unwrap().to_string(),
         "media:image"
