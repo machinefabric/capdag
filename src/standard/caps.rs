@@ -598,7 +598,7 @@ pub fn listing_analysis_task_urn(lang_code: &str) -> CapUrn {
 // Each coercion is a cap with a specific input and output type.
 
 /// Build URN for coercing any type to string
-/// Input: source data (any textable type)
+/// Input: source data (any text type)
 /// Output: string representation
 pub fn coerce_to_string_urn(source_type: &str) -> CapUrn {
     coercion_urn(source_type, "string")
@@ -659,7 +659,7 @@ pub fn coercion_urn(source_type: &str, target_type: &str) -> CapUrn {
 /// Returns (source_type, target_type) pairs for all supported coercions
 pub fn all_coercion_paths() -> Vec<(&'static str, &'static str)> {
     vec![
-        // To string (from all textable types)
+        // To string (from all text types)
         ("integer", "string"),
         ("number", "string"),
         ("boolean", "string"),
@@ -710,7 +710,7 @@ pub struct FormatConversionPath {
     pub description: &'static str,
 }
 
-/// All valid format conversion paths between JSON, YAML, CSV, and textable lists.
+/// All valid format conversion paths between JSON, YAML, CSV, and text lists.
 pub fn all_format_conversion_paths() -> Vec<FormatConversionPath> {
     vec![
         // JSON <-> YAML value
@@ -1081,7 +1081,7 @@ mod tests {
     }
 
     // TEST310: llm_generate_text_urn() produces a valid cap URN with a
-    // textable input and plain-text terminal output.
+    // UTF-8 text input and plain-text terminal output.
     #[test]
     fn test310_llm_generate_text_urn_shape() {
         use crate::urn::media_urn::MediaUrn;

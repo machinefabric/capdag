@@ -764,7 +764,7 @@ mod tests {
     fn test1179_match_more_specific_source_assigned_to_general_arg() {
         // The cap declares `media:enc=utf-8`. The source is the
         // more-specific `media:enc=utf-8;page`. The source must
-        // conform (it does, page;textable ⪯ textable) and get
+        // conform (it does, enc=utf-8;page ⪯ enc=utf-8) and get
         // assigned to that arg with distance > 0.
         let sources = vec![media("media:enc=utf-8;page")];
         let args = vec![media("media:enc=utf-8")];
@@ -813,11 +813,11 @@ mod tests {
         // sources: [media:ext=png;image, media:enc=utf-8;model-spec]
         // args:    [media:ext=png;image, media:enc=utf-8]
         //
-        // image;png ⪯ image;png (dist 0); image;png ⪯ textable? no
-        // model-spec;textable ⪯ image;png? no
-        // model-spec;textable ⪯ textable (dist 1)
+        // image;png ⪯ image;png (dist 0); image;png ⪯ enc=utf-8? no
+        // enc=utf-8;model-spec ⪯ image;png? no
+        // enc=utf-8;model-spec ⪯ enc=utf-8 (dist 1)
         //
-        // Unique optimum: (image;png → image;png), (model-spec;textable → textable)
+        // Unique optimum: (image;png → image;png), (enc=utf-8;model-spec → enc=utf-8)
         let sources = vec![media("media:ext=png;image"), media("media:enc=utf-8;model-spec")];
         let args = vec![media("media:ext=png;image"), media("media:enc=utf-8")];
         let cap_urn =
@@ -825,7 +825,7 @@ mod tests {
         let pairs = match_sources_to_args(&sources, &args, &cap_urn, 0).unwrap();
         assert_eq!(pairs.len(), 2);
         // Pairs are sorted by cap_arg_media_urn structurally.
-        // image;png and textable: structural Ord places
+        // image;png and enc=utf-8: structural Ord places
         // image;png first (more tags / different prefix string).
         // Don't depend on the exact sort order; check the
         // mapping by content instead.
@@ -1142,11 +1142,11 @@ mod tests {
     #[test]
     fn test1190_resolve_strand_inverse_format_converters_no_cycle() {
         // A strand that visits two inverse format converters
-        // (numeric;textable → integer;numeric;textable →
-        // numeric;textable). Under positional interning, each
+        // (numeric → integer;numeric →
+        // numeric). Under positional interning, each
         // cap step's target is a FRESH NodeId, so the strand's
-        // source NodeId(0) (numeric;textable) and the second
-        // step's target NodeId(2) (also numeric;textable) are
+        // source NodeId(0) (numeric) and the second
+        // step's target NodeId(2) (also numeric) are
         // DISTINCT positions. There is no cycle.
         //
         // The planner's visited-set prevents the path finder
@@ -1189,9 +1189,9 @@ mod tests {
             "inverse format converters must resolve without cycle under positional interning",
         );
         // Three distinct data positions: input
-        // (numeric;textable), intermediate
-        // (integer;numeric;textable), and output
-        // (numeric;textable). Input and output share a URN
+        // (numeric), intermediate
+        // (integer;numeric), and output
+        // (numeric). Input and output share a URN
         // but are distinct NodeIds.
         assert_eq!(resolved.nodes().len(), 3);
         assert_eq!(resolved.edges().len(), 2);
@@ -1272,7 +1272,7 @@ mod tests {
     // regardless of creation order.
     #[test]
     fn test1138_assignment_bindings_are_sorted_by_cap_arg_media_urn() {
-        // Cap with two stdin args: textable (later alphabetically) and pdf (earlier).
+        // Cap with two stdin args: enc=utf-8 (later alphabetically) and pdf (earlier).
         // Args are listed in reverse order so the test fails if sorting is skipped.
         let merge_cap = build_cap(
             "cap:in=\"media:ext=pdf\";merge;out=\"media:enc=utf-8;ext=txt\"",
@@ -1282,7 +1282,7 @@ mod tests {
         );
         let registry = registry_with(vec![merge_cap]);
 
-        // Pre-interned nodes: 0=pdf, 1=textable, 2=txt;textable (output)
+        // Pre-interned nodes: 0=pdf, 1=enc=utf-8, 2=enc=utf-8;ext=txt (output)
         let nodes = vec![
             media("media:ext=pdf"),
             media("media:enc=utf-8"),
@@ -1292,7 +1292,7 @@ mod tests {
             CapUrn::from_string("cap:in=\"media:ext=pdf\";merge;out=\"media:enc=utf-8;ext=txt\"").unwrap();
         let wirings = vec![PreInternedWiring {
             cap_urn,
-            source_node_ids: vec![0, 1], // pdf first, textable second
+            source_node_ids: vec![0, 1], // pdf first, enc=utf-8 second
             target_node_id: 2,
             is_loop: false,
         }];
