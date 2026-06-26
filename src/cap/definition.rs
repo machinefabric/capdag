@@ -14,11 +14,11 @@
 //!
 //! ```json
 //! {
-//!   "urn": "cap:in=\"media:string\";conversation;out=\"media:my-output;json;record\"",
+//!   "urn": "cap:in=\"media:string\";conversation;out=\"media:fmt=json;my-output;record\"",
 //!   "args": [
 //!     { "media_urn": "media:string", "required": true, "sources": [{"cli_flag": "--input"}] }
 //!   ],
-//!   "output": { "media_urn": "media:my-output;json;record", ... }
+//!   "output": { "media_urn": "media:fmt=json;my-output;record", ... }
 //! }
 //! ```
 
@@ -96,7 +96,7 @@ pub struct CapArg {
     /// or a single item (is_sequence=false, the default).
     /// When true, the argument data is a sequence of values of the media type,
     /// not a single value. This is independent of the media type — e.g.,
-    /// media:question;textable with is_sequence=true means "multiple questions".
+    /// media:enc=utf-8;question with is_sequence=true means "multiple questions".
     #[serde(default)]
     pub is_sequence: bool,
 
@@ -893,11 +893,11 @@ mod tests {
 
         // Enable stdin support by adding an arg with a stdin source
         let stdin_arg = CapArg {
-            media_urn: "media:textable".to_string(),
+            media_urn: "media:enc=utf-8".to_string(),
             required: true,
             is_sequence: false,
             sources: vec![ArgSource::Stdin {
-                stdin: "media:textable".to_string(),
+                stdin: "media:enc=utf-8".to_string(),
             }],
             arg_description: Some("Input text".to_string()),
             default_value: None,
@@ -906,7 +906,7 @@ mod tests {
         cap.add_arg(stdin_arg);
 
         assert!(cap.accepts_stdin());
-        assert_eq!(cap.get_stdin_media_urn(), Some("media:textable"));
+        assert_eq!(cap.get_stdin_media_urn(), Some("media:enc=utf-8"));
 
         // Test serialization/deserialization preserves the args
         let serialized = serde_json::to_string(&cap).unwrap();
@@ -914,7 +914,7 @@ mod tests {
         assert!(serialized.contains("\"stdin\""));
         let deserialized: Cap = serde_json::from_str(&serialized).unwrap();
         assert!(deserialized.accepts_stdin());
-        assert_eq!(deserialized.get_stdin_media_urn(), Some("media:textable"));
+        assert_eq!(deserialized.get_stdin_media_urn(), Some("media:enc=utf-8"));
     }
 
     // TEST114: Test ArgSource type variants stdin, position, and cli_flag with their accessors
@@ -1226,12 +1226,12 @@ mod tests {
 
         // CapOutput with_full_definition
         let output2 = CapOutput::with_full_definition(
-            "media:json",
+            "media:fmt=json",
             "JSON output",
             false,
             Some(serde_json::json!({"v": 2})),
         );
-        assert_eq!(output2.get_media_urn(), "media:json");
+        assert_eq!(output2.get_media_urn(), "media:fmt=json");
         assert!(output2.get_metadata().is_some());
 
         // Clear metadata on output
@@ -1322,7 +1322,7 @@ mod tests {
         // string escaping rules — the URN value contains both backslashes
         // and embedded double quotes.
         let json = serde_json::json!({
-            "urn": "cap:in=\"media:textable\";docparse;out=\"media:textable\"",
+            "urn": "cap:in=\"media:enc=utf-8\";docparse;out=\"media:enc=utf-8\"",
             "title": "Doc Parse",
             "command": "docparse",
             "cap_description": "short",

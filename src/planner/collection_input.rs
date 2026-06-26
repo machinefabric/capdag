@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Media URN for a collection input structure (machine internal)
-const COLLECTION_MEDIA_URN: &str = "media:collection;record;textable";
+const COLLECTION_MEDIA_URN: &str = "media:collection;enc=utf-8;record";
 
 /// A collection as structured input for machine processing.
 ///
@@ -177,7 +177,7 @@ mod tests {
         collection.files.push(CollectionFile::new(
             "listing-2".to_string(),
             "/path/to/file2.md".to_string(),
-            "media:md;textable".to_string(),
+            "media:enc=utf-8;ext=md".to_string(),
         ));
 
         assert!(!collection.is_empty());

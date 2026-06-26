@@ -3642,12 +3642,12 @@ mod tests {
     async fn test0130_registry_cache_revision_rebuilds_live_cap_fab_without_capability_change() {
         let registry = test_fabric_registry();
         registry.insert_cached_media_def_for_test(test_media_def(
-            "media:test-source;textable",
+            "media:enc=utf-8;test-source",
             "Test Source",
             &[],
         ));
         registry.insert_cached_media_def_for_test(test_media_def(
-            "media:test-output;textable;txt",
+            "media:enc=utf-8;ext=txt;test-output",
             "Test Output",
             &["txt"],
         ));
@@ -3658,14 +3658,14 @@ mod tests {
                 .expect("empty relay switch must construct"),
         );
 
-        let cap_urn = "cap:test-transform;in=\"media:test-source;textable\";out=\"media:test-output;textable;txt\"";
+        let cap_urn = "cap:test-transform;in=\"media:enc=utf-8;test-source\";out=\"media:enc=utf-8;ext=txt;test-output\"";
         *switch.aggregate_capabilities.write().await =
             serde_json::to_vec(&vec![CAP_IDENTITY.to_string(), cap_urn.to_string()])
                 .expect("aggregate cap URNs must serialize");
 
-        let source = MediaUrn::from_string("media:test-source;textable")
+        let source = MediaUrn::from_string("media:enc=utf-8;test-source")
             .expect("test source media URN must parse");
-        let target = MediaUrn::from_string("media:test-output;textable;txt")
+        let target = MediaUrn::from_string("media:enc=utf-8;ext=txt;test-output")
             .expect("test target media URN must parse");
         assert!(
             switch
@@ -4578,7 +4578,7 @@ mod tests {
 
         // Preference for an unrelated cap — no equivalent match, falls back to closest-specificity
         let unrelated =
-            "cap:in=\"media:textable;txt\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:enc=utf-8;ext=txt\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
         assert_eq!(
             switch.find_master_for_cap(request, Some(unrelated)).await,
             Some(0)

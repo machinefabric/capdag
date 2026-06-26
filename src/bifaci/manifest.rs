@@ -429,7 +429,7 @@ mod tests {
             }],
         ));
         cap.add_arg(CapArg::with_full_definition(
-            "media:chunk-size;textable;numeric",
+            "media:chunk-size;numeric",
             false,
             false,
             vec![ArgSource::CliFlag {
@@ -440,7 +440,7 @@ mod tests {
             Some(serde_json::json!({"unit": "words"})),
         ));
         cap.add_arg(CapArg::with_full_definition(
-            "media:timestamps;textable;bool",
+            "media:bool;enc=utf-8;timestamps",
             false,
             false,
             vec![ArgSource::CliFlag {
@@ -651,7 +651,7 @@ mod tests {
         let group = CapGroup {
             name: "data-formats".to_string(),
             caps: vec![cap],
-            adapter_urns: vec!["media:json".to_string(), "media:csv".to_string()],
+            adapter_urns: vec!["media:fmt=json".to_string(), "media:fmt=csv".to_string()],
         };
 
         let manifest = CapManifest::new(
@@ -665,8 +665,8 @@ mod tests {
 
         let json = serde_json::to_string(&manifest).unwrap();
         assert!(json.contains("\"adapter_urns\""));
-        assert!(json.contains("media:json"));
-        assert!(json.contains("media:csv"));
+        assert!(json.contains("media:fmt=json"));
+        assert!(json.contains("media:fmt=csv"));
 
         let deserialized: CapManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.cap_groups[0].adapter_urns.len(), 2);

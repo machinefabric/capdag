@@ -432,8 +432,8 @@ mod tests {
     #[tokio::test]
     async fn test954_standalone_collect_passthrough() {
         let registry = build_test_registry(&[
-            r#"cap:in=media:pdf;extract;out="media:text;textable""#,
-            r#"cap:in="media:list;text;textable";embed;out="media:embedding-vector;record;textable""#,
+            r#"cap:in=media:pdf;extract;out="media:enc=utf-8;text""#,
+            r#"cap:in="media:enc=utf-8;list;text";embed;out="media:embedding-vector;enc=utf-8;record""#,
         ]);
 
         let mut plan = MachinePlan::new("collect_plan");
@@ -445,19 +445,19 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap(
             "cap_0",
-            r#"cap:in=media:pdf;extract;out="media:text;textable""#,
+            r#"cap:in=media:pdf;extract;out="media:enc=utf-8;text""#,
         ));
 
         // Standalone Collect: scalar→list with output_media_urn set
         let mut collect_node = MachineNode::collect("collect_0", vec!["cap_0".to_string()]);
         collect_node.node_type = ExecutionNodeType::Collect {
             input_nodes: vec!["cap_0".to_string()],
-            output_media_urn: Some("media:list;text;textable".to_string()),
+            output_media_urn: Some("media:enc=utf-8;list;text".to_string()),
         };
         collect_node.description = Some("Collect: scalar to list-of-one".to_string());
         plan.add_node(collect_node);
 
-        plan.add_node(MachineNode::cap("cap_1", r#"cap:in="media:list;text;textable";embed;out="media:embedding-vector;record;textable""#));
+        plan.add_node(MachineNode::cap("cap_1", r#"cap:in="media:enc=utf-8;list;text";embed;out="media:embedding-vector;enc=utf-8;record""#));
         plan.add_node(MachineNode::output("output", "result", "cap_1"));
 
         plan.add_edge(MachinePlanEdge::direct("input", "cap_0"));

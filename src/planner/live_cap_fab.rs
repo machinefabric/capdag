@@ -349,9 +349,9 @@ impl LiveCapFab {
     ///
     /// Strand bookends (transmute source or target) MUST be bookend-eligible.
     /// Internal URNs that appear as cap inputs/outputs but do not name a
-    /// concrete file format (wildcards like `media:textable`, primitives
-    /// like `media:integer;numeric;textable`, role markers like
-    /// `media:page;textable`) are tracked as nodes for path-finding but
+    /// concrete file format (wildcards like `media:enc=utf-8`, primitives
+    /// like `media:integer;numeric`, role markers like
+    /// `media:enc=utf-8;page`) are tracked as nodes for path-finding but
     /// are not valid bookends and never appear as transmute sources/targets.
     pub fn is_bookend(&self, urn: &MediaUrn) -> bool {
         self.bookend_nodes.contains(urn)
@@ -458,7 +458,7 @@ impl LiveCapFab {
             // The cartridge reports the specific cap URN it implements — we need to find
             // that same cap in the registry. Using is_dispatchable here was wrong because
             // it would match a wildcard registry cap (e.g. in=media:) before reaching
-            // the specific one (e.g. in=media:txt;textable), since .find() returns the
+            // the specific one (e.g. in=media:enc=utf-8;ext=txt), since .find() returns the
             // first match.
             let matching_cap_owned = all_caps
                 .iter()
@@ -825,7 +825,7 @@ impl LiveCapFab {
 
         // Filter to bookend-eligible targets. Reachability in the cap graph
         // includes URNs that exist only as cap-input wildcards (e.g.
-        // `media:textable`, `media:integer;numeric;textable`). Such URNs
+        // `media:enc=utf-8`, `media:integer;numeric`). Such URNs
         // describe the value type a cap accepts, not a file format that
         // can sit on disk, so they are never valid transmute targets. The
         // bookend set is precomputed at sync time from the live media
@@ -1724,12 +1724,12 @@ mod tests {
         let mut graph = LiveCapFab::new();
 
         // Only add PDF->textable cap
-        let pdf_to_text = make_test_cap("media:pdf", "media:textable", "pdf2text", "PDF to Text");
+        let pdf_to_text = make_test_cap("media:pdf", "media:enc=utf-8", "pdf2text", "PDF to Text");
         graph.add_cap(&pdf_to_text);
 
         // Try to find path from PNG (not PDF)
         let source = MediaUrn::from_string("media:image;png").unwrap();
-        let target = MediaUrn::from_string("media:textable").unwrap();
+        let target = MediaUrn::from_string("media:enc=utf-8").unwrap();
 
         let paths = graph.find_paths_to_exact_target(&source, &target, false, 5, 10);
 
@@ -1772,7 +1772,7 @@ mod tests {
     fn test779_get_reachable_targets_respects_type_matching() {
         let mut graph = LiveCapFab::new();
 
-        let pdf_to_text = make_test_cap("media:pdf", "media:textable", "pdf2text", "PDF to Text");
+        let pdf_to_text = make_test_cap("media:pdf", "media:enc=utf-8", "pdf2text", "PDF to Text");
         let png_to_thumb = make_test_cap(
             "media:image;png",
             "media:thumbnail",
@@ -1788,7 +1788,7 @@ mod tests {
         let png_source = MediaUrn::from_string("media:image;png").unwrap();
         let png_targets = graph.get_reachable_targets(&png_source, false, 5);
         let media_thumbnail = MediaUrn::from_string("media:thumbnail").unwrap();
-        let media_textable = MediaUrn::from_string("media:textable").unwrap();
+        let media_textable = MediaUrn::from_string("media:enc=utf-8").unwrap();
         assert!(
             png_targets
                 .iter()
@@ -1863,18 +1863,18 @@ mod tests {
 
     // TEST788: ForEach is only synthesized when is_sequence=true
     // With scalar input (is_sequence=false), disbind output goes directly to choose
-    // since media:page;textable conforms to media:textable.
+    // since media:enc=utf-8;page conforms to media:enc=utf-8.
     // With sequence input (is_sequence=true), ForEach splits the sequence so each
     // item can be processed by disbind individually, then choose.
     #[test]
     fn test788_foreach_only_with_sequence_input() {
         let mut graph = LiveCapFab::new();
 
-        let disbind = make_test_cap("media:pdf", "media:page;textable", "disbind", "Disbind PDF");
+        let disbind = make_test_cap("media:pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF");
 
         let choose = make_test_cap(
-            "media:textable",
-            "media:decision;json;record;textable",
+            "media:enc=utf-8",
+            "media:decision;fmt=json;record",
             "choose",
             "Make a Decision",
         );
@@ -1889,7 +1889,7 @@ mod tests {
         );
 
         let source = MediaUrn::from_string("media:pdf").unwrap();
-        let target = MediaUrn::from_string("media:decision;json;record;textable").unwrap();
+        let target = MediaUrn::from_string("media:decision;fmt=json;record").unwrap();
 
         // Scalar input: no ForEach, direct path disbind → choose
         let scalar_paths = graph.find_paths_to_exact_target(&source, &target, false, 10, 20);
@@ -1928,10 +1928,10 @@ mod tests {
 
         // Create a registry with test caps
         let registry = FabricRegistry::new_for_test();
-        let disbind = make_test_cap("media:pdf", "media:page;textable", "disbind", "Disbind PDF");
+        let disbind = make_test_cap("media:pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF");
         let choose = make_test_cap(
-            "media:textable",
-            "media:decision;json;record;textable",
+            "media:enc=utf-8",
+            "media:decision;fmt=json;record",
             "choose",
             "Make a Decision",
         );
@@ -1969,7 +1969,7 @@ mod tests {
 
         // A specific cap should NOT be equivalent to identity
         let specific_cap = crate::CapUrn::from_string(
-            r#"cap:disbind;in=media:pdf;out="media:disbound-page;textable""#,
+            r#"cap:disbind;in=media:pdf;out="media:disbound-page;enc=utf-8""#,
         )
         .unwrap();
 
@@ -1983,7 +1983,7 @@ mod tests {
     #[test]
     fn test789_cap_from_json_has_valid_specs() {
         let json = r#"{
-            "urn": "cap:disbind;in=media:pdf;out=\"media:disbound-page;textable\"",
+            "urn": "cap:disbind;in=media:pdf;out=\"media:disbound-page;enc=utf-8\"",
             "command": "disbind",
             "title": "Disbind PDF",
             "args": [],
@@ -2047,7 +2047,7 @@ mod tests {
                 StrandStep {
                     step_type: StrandStepType::Cap {
                         cap_urn: CapUrn::from_string(
-                            r#"cap:disbind;in=media:pdf;out="media:page;textable""#,
+                            r#"cap:disbind;in=media:pdf;out="media:enc=utf-8;page""#,
                         )
                         .unwrap(),
                         title: "Disbind PDF Into Pages".to_string(),
@@ -2056,18 +2056,18 @@ mod tests {
                         output_is_sequence: true,
                     },
                     from_spec: MediaUrn::from_string("media:pdf").unwrap(),
-                    to_spec: MediaUrn::from_string("media:page;textable").unwrap(),
+                    to_spec: MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
                 },
                 StrandStep {
                     step_type: StrandStepType::ForEach {
-                        media_def: MediaUrn::from_string("media:page;textable").unwrap(),
+                        media_def: MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
                     },
-                    from_spec: MediaUrn::from_string("media:page;textable").unwrap(),
-                    to_spec: MediaUrn::from_string("media:page;textable").unwrap(),
+                    from_spec: MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
+                    to_spec: MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
                 },
             ],
             source_media_urn: MediaUrn::from_string("media:pdf").unwrap(),
-            target_media_urn: MediaUrn::from_string("media:page;textable").unwrap(),
+            target_media_urn: MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
             total_steps: 2,
             cap_step_count: 1,
             description: "Transform PDF into text pages".to_string(),
@@ -2077,7 +2077,7 @@ mod tests {
         let recovered: Strand = serde_json::from_str(&json).expect("strand should deserialize");
 
         let expected_source = MediaUrn::from_string("media:pdf").unwrap();
-        let expected_target = MediaUrn::from_string("media:page;textable").unwrap();
+        let expected_target = MediaUrn::from_string("media:enc=utf-8;page").unwrap();
         assert!(
             recovered
                 .source_media_urn
@@ -2090,7 +2090,7 @@ mod tests {
                 .target_media_urn
                 .is_equivalent(&expected_target)
                 .expect("URN equivalence check"),
-            "target_media_urn must round-trip structurally as media:page;textable"
+            "target_media_urn must round-trip structurally as media:enc=utf-8;page"
         );
         assert_eq!(recovered.steps.len(), 2);
         assert!(matches!(
@@ -2104,7 +2104,7 @@ mod tests {
     }
 
     // TEST1111: ForEach works for user-provided list sources not in the graph.
-    // This is the original bug — media:list;textable;txt is a user import source,
+    // This is the original bug — media:enc=utf-8;ext=txt;list is a user import source,
     // not a cap output. Previously, no ForEach edge existed for it because
     // insert_cardinality_transitions() only pre-computed edges for cap outputs.
     // With dynamic synthesis, ForEach is available for ANY list source.
@@ -2114,8 +2114,8 @@ mod tests {
 
         // Cap: textable → decision (accepts singular textable)
         let make_decision = make_test_cap(
-            "media:textable",
-            "media:decision;json;record;textable",
+            "media:enc=utf-8",
+            "media:decision;fmt=json;record",
             "make_decision",
             "Make Decision",
         );
@@ -2123,14 +2123,14 @@ mod tests {
         graph.sync_from_caps(__caps, &all_bookends(__caps));
 
         // Source is a user-provided list that no cap outputs
-        let source = MediaUrn::from_string("media:list;textable;txt").unwrap();
-        let target = MediaUrn::from_string("media:decision;json;record;textable").unwrap();
+        let source = MediaUrn::from_string("media:enc=utf-8;ext=txt;list").unwrap();
+        let target = MediaUrn::from_string("media:decision;fmt=json;record").unwrap();
 
         // User provides multiple files → is_sequence=true
         let paths = graph.find_paths_to_exact_target(&source, &target, true, 10, 20);
 
         // Expected path: ForEach → make_decision
-        // ForEach iterates over items, make_decision accepts media:textable
+        // ForEach iterates over items, make_decision accepts media:enc=utf-8
         let path = paths.iter().find(|p| {
             p.steps.len() == 2
                 && matches!(p.steps[0].step_type, StrandStepType::ForEach { .. })
@@ -2140,7 +2140,7 @@ mod tests {
         assert!(
             path.is_some(),
             "Should find path: ForEach → make_decision. \
-             User-provided list source media:list;textable;txt must be iterable. \
+             User-provided list source media:enc=utf-8;ext=txt;list must be iterable. \
              Found {} paths: {:?}",
             paths.len(),
             paths.iter().map(|p| &p.description).collect::<Vec<_>>()
@@ -2164,18 +2164,18 @@ mod tests {
         let mut graph = LiveCapFab::new();
 
         let summarize = make_test_cap(
-            "media:textable",
-            "media:summary;textable",
+            "media:enc=utf-8",
+            "media:enc=utf-8;summary",
             "summarize",
             "Summarize",
         );
         let __caps = &[summarize];
         graph.sync_from_caps(__caps, &all_bookends(__caps));
 
-        let source = MediaUrn::from_string("media:textable").unwrap();
+        let source = MediaUrn::from_string("media:enc=utf-8").unwrap();
         // list;summary;textable is a different semantic type — can't reach it
         // without a cap that outputs it or a Collect step (not synthesized)
-        let target = MediaUrn::from_string("media:list;summary;textable").unwrap();
+        let target = MediaUrn::from_string("media:enc=utf-8;list;summary").unwrap();
 
         let paths = graph.find_paths_to_exact_target(&source, &target, false, 10, 20);
         assert!(
@@ -2189,10 +2189,10 @@ mod tests {
     fn test1113_multi_cap_path_no_collect() {
         let mut graph = LiveCapFab::new();
 
-        let disbind = make_test_cap("media:pdf", "media:page;textable", "disbind", "Disbind PDF");
+        let disbind = make_test_cap("media:pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF");
         let summarize = make_test_cap(
-            "media:page;textable",
-            "media:summary;textable",
+            "media:enc=utf-8;page",
+            "media:enc=utf-8;summary",
             "summarize",
             "Summarize Page",
         );
@@ -2201,7 +2201,7 @@ mod tests {
 
         // Scalar path: pdf → disbind → page;textable → summarize → summary;textable
         let source = MediaUrn::from_string("media:pdf").unwrap();
-        let target = MediaUrn::from_string("media:summary;textable").unwrap();
+        let target = MediaUrn::from_string("media:enc=utf-8;summary").unwrap();
 
         let paths = graph.find_paths_to_exact_target(&source, &target, false, 10, 20);
         assert!(!paths.is_empty(), "Should find direct cap path");
@@ -2214,16 +2214,16 @@ mod tests {
         let mut graph = LiveCapFab::new();
 
         let caps = vec![
-            make_test_cap("media:pdf", "media:page;textable", "disbind", "Disbind"),
+            make_test_cap("media:pdf", "media:enc=utf-8;page", "disbind", "Disbind"),
             make_test_cap(
-                "media:page;textable",
-                "media:summary;textable",
+                "media:enc=utf-8;page",
+                "media:enc=utf-8;summary",
                 "summarize",
                 "Summarize",
             ),
             make_test_cap(
-                "media:textable",
-                "media:decision;json;record;textable",
+                "media:enc=utf-8",
+                "media:decision;fmt=json;record",
                 "decide",
                 "Decide",
             ),
@@ -2251,15 +2251,15 @@ mod tests {
 
         // Need a cap that accepts the source type for ForEach to be synthesized
         let cap = make_test_cap(
-            "media:textable",
-            "media:summary;textable",
+            "media:enc=utf-8",
+            "media:enc=utf-8;summary",
             "summarize",
             "Summarize",
         );
         let __caps = &[cap];
         graph.sync_from_caps(__caps, &all_bookends(__caps));
 
-        let source = MediaUrn::from_string("media:textable").unwrap();
+        let source = MediaUrn::from_string("media:enc=utf-8").unwrap();
         let edges = graph.get_outgoing_edges(&source, true);
 
         let foreach_edge = edges
@@ -2287,7 +2287,7 @@ mod tests {
     fn test1116_collect_never_synthesized() {
         let graph = LiveCapFab::new();
 
-        let source = MediaUrn::from_string("media:page;textable").unwrap();
+        let source = MediaUrn::from_string("media:enc=utf-8;page").unwrap();
 
         // Neither scalar nor sequence should produce Collect
         let edges_scalar = graph.get_outgoing_edges(&source, false);
@@ -2316,15 +2316,15 @@ mod tests {
 
         // Even with caps that could consume, ForEach requires is_sequence=true
         let cap = make_test_cap(
-            "media:textable",
-            "media:summary;textable",
+            "media:enc=utf-8",
+            "media:enc=utf-8;summary",
             "summarize",
             "Summarize",
         );
         let __caps = &[cap];
         graph.sync_from_caps(__caps, &all_bookends(__caps));
 
-        let source = MediaUrn::from_string("media:textable").unwrap();
+        let source = MediaUrn::from_string("media:enc=utf-8").unwrap();
         let edges = graph.get_outgoing_edges(&source, false);
 
         let foreach_edge = edges
@@ -2341,7 +2341,7 @@ mod tests {
     fn test1118_no_foreach_without_cap_consumers() {
         let graph = LiveCapFab::new();
 
-        let source = MediaUrn::from_string("media:textable").unwrap();
+        let source = MediaUrn::from_string("media:enc=utf-8").unwrap();
         // Empty graph — no caps to consume items
         let edges = graph.get_outgoing_edges(&source, true);
 
@@ -2360,12 +2360,12 @@ mod tests {
     fn test1119_strand_knit_with_registry_returns_single_strand_machine() {
         use crate::cap::registry::FabricRegistry;
 
-        let cap = make_test_cap_with_arg("media:pdf", "media:txt;textable", "extract", "Extract");
+        let cap = make_test_cap_with_arg("media:pdf", "media:enc=utf-8;ext=txt", "extract", "Extract");
         let registry = FabricRegistry::new_for_test();
         registry.add_caps_to_cache(vec![cap]);
 
         let cap_urn =
-            CapUrn::from_string("cap:extract;in=media:pdf;out=\"media:textable;txt\"").unwrap();
+            CapUrn::from_string("cap:extract;in=media:pdf;out=\"media:enc=utf-8;ext=txt\"").unwrap();
         let strand = Strand {
             steps: vec![StrandStep {
                 step_type: StrandStepType::Cap {
@@ -2376,10 +2376,10 @@ mod tests {
                     output_is_sequence: false,
                 },
                 from_spec: MediaUrn::from_string("media:pdf").unwrap(),
-                to_spec: MediaUrn::from_string("media:textable;txt").unwrap(),
+                to_spec: MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
             }],
             source_media_urn: MediaUrn::from_string("media:pdf").unwrap(),
-            target_media_urn: MediaUrn::from_string("media:textable;txt").unwrap(),
+            target_media_urn: MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
             total_steps: 1,
             cap_step_count: 1,
             description: "pdf to txt".to_string(),
@@ -2411,7 +2411,7 @@ mod tests {
         // Note: no caps added to the registry.
 
         let cap_urn =
-            CapUrn::from_string("cap:ghost;in=media:pdf;out=\"media:textable;txt\"").unwrap();
+            CapUrn::from_string("cap:ghost;in=media:pdf;out=\"media:enc=utf-8;ext=txt\"").unwrap();
         let strand = Strand {
             steps: vec![StrandStep {
                 step_type: StrandStepType::Cap {
@@ -2422,10 +2422,10 @@ mod tests {
                     output_is_sequence: false,
                 },
                 from_spec: MediaUrn::from_string("media:pdf").unwrap(),
-                to_spec: MediaUrn::from_string("media:textable;txt").unwrap(),
+                to_spec: MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
             }],
             source_media_urn: MediaUrn::from_string("media:pdf").unwrap(),
-            target_media_urn: MediaUrn::from_string("media:textable;txt").unwrap(),
+            target_media_urn: MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
             total_steps: 1,
             cap_step_count: 1,
             description: "ghost strand".to_string(),
@@ -2447,23 +2447,23 @@ mod tests {
 
         // textable → integer (coerce)
         let cap1 = make_test_cap(
-            "media:textable",
-            "media:integer;numeric;textable",
+            "media:enc=utf-8",
+            "media:integer;numeric",
             "coerce_to_int",
             "Coerce to Integer",
         );
         graph.add_cap(&cap1);
         // integer → textable (coerce back)
         let cap2 = make_test_cap(
-            "media:integer;numeric;textable",
-            "media:textable",
+            "media:integer;numeric",
+            "media:enc=utf-8",
             "coerce_to_text",
             "Coerce to Text",
         );
         graph.add_cap(&cap2);
         graph.set_bookends(&all_bookends(&[cap1, cap2]));
 
-        let source = MediaUrn::from_string("media:textable").unwrap();
+        let source = MediaUrn::from_string("media:enc=utf-8").unwrap();
         let targets = graph.get_reachable_targets(&source, false, 5);
 
         // Source should be reachable (via textable→integer→textable)
@@ -2489,21 +2489,21 @@ mod tests {
 
         // textable → integer
         graph.add_cap(&make_test_cap(
-            "media:textable",
-            "media:integer;numeric;textable",
+            "media:enc=utf-8",
+            "media:integer;numeric",
             "coerce_to_int",
             "Coerce to Integer",
         ));
         // integer → textable
         graph.add_cap(&make_test_cap(
-            "media:integer;numeric;textable",
-            "media:textable",
+            "media:integer;numeric",
+            "media:enc=utf-8",
             "coerce_to_text",
             "Coerce to Text",
         ));
 
-        let source = MediaUrn::from_string("media:textable").unwrap();
-        let target = MediaUrn::from_string("media:textable").unwrap();
+        let source = MediaUrn::from_string("media:enc=utf-8").unwrap();
+        let target = MediaUrn::from_string("media:enc=utf-8").unwrap();
 
         let paths = graph.find_paths_to_exact_target(&source, &target, false, 5, 100);
 
@@ -2528,21 +2528,21 @@ mod tests {
 
         // textable → integer
         graph.add_cap(&make_test_cap(
-            "media:textable",
-            "media:integer;numeric;textable",
+            "media:enc=utf-8",
+            "media:integer;numeric",
             "coerce_to_int",
             "Coerce to Integer",
         ));
         // integer → textable
         graph.add_cap(&make_test_cap(
-            "media:integer;numeric;textable",
-            "media:textable",
+            "media:integer;numeric",
+            "media:enc=utf-8",
             "coerce_to_text",
             "Coerce to Text",
         ));
 
-        let source = MediaUrn::from_string("media:textable").unwrap();
-        let target = MediaUrn::from_string("media:textable").unwrap();
+        let source = MediaUrn::from_string("media:enc=utf-8").unwrap();
+        let target = MediaUrn::from_string("media:enc=utf-8").unwrap();
 
         // With is_sequence=true, the path goes through ForEach first
         let paths = graph.find_paths_to_exact_target(&source, &target, true, 5, 100);

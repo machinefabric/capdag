@@ -616,15 +616,15 @@ mod tests {
 
     fn pdf_extract_embed_registry() -> FabricRegistry {
         let extract = build_cap(
-            "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+            "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"",
             "extract",
-            &["media:pdf"],
-            "media:textable;txt",
+            &["media:ext=pdf"],
+            "media:enc=utf-8;ext=txt",
         );
         let embed = build_cap(
-            "cap:in=media:textable;embed;out=\"media:vec;record\"",
+            "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\"",
             "embed",
-            &["media:textable"],
+            &["media:enc=utf-8"],
             "media:vec;record",
         );
         registry_with(vec![extract, embed])
@@ -635,8 +635,8 @@ mod tests {
     fn test1163_parse_single_strand_two_caps_connected_via_shared_node() {
         let registry = pdf_extract_embed_registry();
         let notation = "\
-[extract cap:in=media:pdf;extract;out=\"media:txt;textable\"]\
-[embed cap:in=media:textable;embed;out=\"media:vec;record\"]\
+[extract cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"]\
+[embed cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\"]\
 [doc -> extract -> txt]\
 [txt -> embed -> vec]";
         let machine = parse_machine(notation, &registry).expect("must parse");
@@ -659,21 +659,21 @@ mod tests {
         // partition them into two `MachineStrand`s and order
         // them by first appearance in the textual input.
         let convert_a = build_cap(
-            "cap:in=media:json;convert-a;out=media:csv",
+            "cap:convert-a;in=\"media:fmt=json\";out=\"media:fmt=csv\"",
             "convert_a",
-            &["media:json"],
-            "media:csv",
+            &["media:fmt=json"],
+            "media:fmt=csv",
         );
         let convert_b = build_cap(
-            "cap:in=media:html;convert-b;out=media:txt",
+            "cap:convert-b;in=media:html;out=\"media:ext=txt\"",
             "convert_b",
             &["media:html"],
-            "media:txt",
+            "media:ext=txt",
         );
         let registry = registry_with(vec![convert_a, convert_b]);
         let notation = "\
-[ca cap:in=media:json;convert-a;out=media:csv]\
-[cb cap:in=media:html;convert-b;out=media:txt]\
+[ca cap:convert-a;in=\"media:fmt=json\";out=\"media:fmt=csv\"]\
+[cb cap:convert-b;in=media:html;out=\"media:ext=txt\"]\
 [input_a -> ca -> output_a]\
 [input_b -> cb -> output_b]";
         let machine = parse_machine(notation, &registry).expect("must parse");
@@ -706,7 +706,7 @@ mod tests {
     fn test1165_parse_unknown_cap_in_registry_fails_hard() {
         let registry = registry_with(vec![]);
         let notation = "\
-[ghost cap:in=media:pdf;ghost;out=\"media:txt;textable\"]\
+[ghost cap:ghost;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"]\
 [a -> ghost -> b]";
         let err = parse_machine(notation, &registry).unwrap_err();
         match err {
@@ -722,8 +722,8 @@ mod tests {
     fn test1166_parse_duplicate_alias_is_syntax_error() {
         let registry = pdf_extract_embed_registry();
         let notation = "\
-[extract cap:in=media:pdf;extract;out=\"media:txt;textable\"]\
-[extract cap:in=media:textable;embed;out=\"media:vec;record\"]\
+[extract cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"]\
+[extract cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\"]\
 [a -> extract -> b]";
         let err = parse_machine(notation, &registry).unwrap_err();
         assert!(matches!(
@@ -737,7 +737,7 @@ mod tests {
     fn test1167_parse_undefined_alias_is_syntax_error() {
         let registry = pdf_extract_embed_registry();
         let notation = "\
-[extract cap:in=media:pdf;extract;out=\"media:txt;textable\"]\
+[extract cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"]\
 [a -> notDefined -> b]";
         let err = parse_machine(notation, &registry).unwrap_err();
         assert!(matches!(
@@ -755,7 +755,7 @@ mod tests {
         // node? The parser must reject it.
         let registry = pdf_extract_embed_registry();
         let notation = "\
-[extract cap:in=media:pdf;extract;out=\"media:txt;textable\"]\
+[extract cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"]\
 [extract -> extract -> b]";
         let err = parse_machine(notation, &registry).unwrap_err();
         assert!(matches!(
@@ -768,14 +768,14 @@ mod tests {
     #[test]
     fn test1169_parse_loop_marker_sets_is_loop_on_resolved_edge() {
         let cap_def = build_cap(
-            "cap:in=media:textable;t;out=media:textable",
+            "cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"",
             "t",
-            &["media:textable"],
-            "media:textable",
+            &["media:enc=utf-8"],
+            "media:enc=utf-8",
         );
         let registry = registry_with(vec![cap_def]);
         let notation = "\
-[t cap:in=media:textable;t;out=media:textable]\
+[t cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"]\
 [a -> LOOP t -> b]";
         let machine = parse_machine(notation, &registry).expect("must parse");
         assert_eq!(machine.strand_count(), 1);
@@ -797,8 +797,8 @@ mod tests {
         // serialize is a fixed point.
         let registry = pdf_extract_embed_registry();
         let user_input = "\
-[user_extract cap:in=media:pdf;extract;out=\"media:txt;textable\"]\
-[user_embed cap:in=media:textable;embed;out=\"media:vec;record\"]\
+[user_extract cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"]\
+[user_embed cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\"]\
 [doc -> user_extract -> txt]\
 [txt -> user_embed -> vec]";
         let m1 = parse_machine(user_input, &registry).expect("must parse");

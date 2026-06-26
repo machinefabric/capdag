@@ -60,7 +60,7 @@ fn check_structure_compatibility(
 /// Machine notation format (both forms are equally valid):
 ///
 /// ```text
-/// extract cap:in="media:pdf";extract;out="media:textable;txt"
+/// extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"
 /// doc -> extract -> text
 /// ```
 ///
@@ -307,13 +307,13 @@ mod tests {
     #[tokio::test]
     async fn test1256_parse_simple_machine() {
         let registry = build_test_registry(&[(
-            r#"cap:in="media:pdf";extract;out="media:txt;textable""#,
+            r#"cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt""#,
             &["media:pdf"],
-            "media:textable;txt",
+            "media:enc=utf-8;ext=txt",
         )]);
 
         let notation = concat!(
-            r#"[extract cap:in="media:pdf";extract;out="media:txt;textable"]"#,
+            r#"[extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"]"#,
             "[A -> extract -> B]"
         );
 
@@ -334,10 +334,10 @@ mod tests {
         );
 
         let node_b = MediaUrn::from_string(graph.nodes.get("B").unwrap()).unwrap();
-        let expected_b = MediaUrn::from_string("media:textable;txt").unwrap();
+        let expected_b = MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap();
         assert!(
             node_b.is_equivalent(&expected_b).unwrap(),
-            "Node B: expected media:txt;textable, got {}",
+            "Node B: expected media:enc=utf-8;ext=txt, got {}",
             node_b
         );
     }
@@ -347,20 +347,20 @@ mod tests {
     async fn test1257_parse_two_step_chain() {
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:pdf";extract;out="media:txt;textable""#,
+                r#"cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt""#,
                 &["media:pdf"],
-                "media:textable;txt",
+                "media:enc=utf-8;ext=txt",
             ),
             (
-                r#"cap:in="media:txt;textable";embed;out="media:embedding-vector;record;textable""#,
-                &["media:textable;txt"],
-                "media:embedding-vector;record;textable",
+                r#"cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record""#,
+                &["media:enc=utf-8;ext=txt"],
+                "media:embedding-vector;enc=utf-8;record",
             ),
         ]);
 
         let notation = concat!(
-            r#"[extract cap:in="media:pdf";extract;out="media:txt;textable"]"#,
-            r#"[embed cap:in="media:txt;textable";embed;out="media:embedding-vector;record;textable"]"#,
+            r#"[extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"]"#,
+            r#"[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]"#,
             "[A -> extract -> B]",
             "[B -> embed -> C]"
         );
@@ -374,10 +374,10 @@ mod tests {
 
         // Verify the intermediate node B has the correct media type
         let node_b = MediaUrn::from_string(graph.nodes.get("B").unwrap()).unwrap();
-        let expected_b = MediaUrn::from_string("media:textable;txt").unwrap();
+        let expected_b = MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap();
         assert!(
             node_b.is_equivalent(&expected_b).unwrap(),
-            "Intermediate node B should be media:txt;textable, got {}",
+            "Intermediate node B should be media:enc=utf-8;ext=txt, got {}",
             node_b
         );
     }
@@ -391,14 +391,14 @@ mod tests {
     async fn test1258_parse_fan_out() {
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:pdf";extract-metadata;out="media:file-metadata;record;textable""#,
+                r#"cap:in="media:pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record""#,
                 &["media:pdf"],
-                "media:file-metadata;record;textable",
+                "media:enc=utf-8;file-metadata;record",
             ),
             (
-                r#"cap:in="media:pdf";extract-outline;out="media:document-outline;record;textable""#,
+                r#"cap:in="media:pdf";extract-outline;out="media:document-outline;enc=utf-8;record""#,
                 &["media:pdf"],
-                "media:document-outline;record;textable",
+                "media:document-outline;enc=utf-8;record",
             ),
             (
                 r#"cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail""#,
@@ -408,8 +408,8 @@ mod tests {
         ]);
 
         let notation = concat!(
-            r#"[meta cap:in="media:pdf";extract-metadata;out="media:file-metadata;record;textable"]"#,
-            r#"[outline cap:in="media:pdf";extract-outline;out="media:document-outline;record;textable"]"#,
+            r#"[meta cap:in="media:pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]"#,
+            r#"[outline cap:in="media:pdf";extract-outline;out="media:document-outline;enc=utf-8;record"]"#,
             r#"[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]"#,
             "[doc -> meta -> metadata]",
             "[doc -> outline -> outline_data]",
@@ -442,21 +442,21 @@ mod tests {
                 "media:image;png;thumbnail",
             ),
             (
-                r#"cap:in="media:model-spec;textable";download;out="media:model-spec;textable""#,
-                &["media:model-spec;textable"],
-                "media:model-spec;textable",
+                r#"cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec""#,
+                &["media:enc=utf-8;model-spec"],
+                "media:enc=utf-8;model-spec",
             ),
             (
-                r#"cap:in="media:image;png";describe-image;out="media:image-description;textable""#,
-                &["media:image;png", "media:model-spec;textable"],
-                "media:image-description;textable",
+                r#"cap:in="media:image;png";describe-image;out="media:enc=utf-8;image-description""#,
+                &["media:image;png", "media:enc=utf-8;model-spec"],
+                "media:enc=utf-8;image-description",
             ),
         ]);
 
         let notation = concat!(
             r#"[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]"#,
-            r#"[model_dl cap:in="media:model-spec;textable";download;out="media:model-spec;textable"]"#,
-            r#"[describe cap:in="media:image;png";describe-image;out="media:image-description;textable"]"#,
+            r#"[model_dl cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"]"#,
+            r#"[describe cap:in="media:image;png";describe-image;out="media:enc=utf-8;image-description"]"#,
             "[doc -> thumb -> thumbnail]",
             "[spec_input -> model_dl -> model_spec]",
             "[(thumbnail, model_spec) -> describe -> description]"
@@ -479,13 +479,13 @@ mod tests {
     #[tokio::test]
     async fn test1260_parse_loop_wiring() {
         let registry = build_test_registry(&[(
-            r#"cap:in="media:disbound-page;textable";page-to-text;out="media:txt;textable""#,
-            &["media:disbound-page;textable"],
-            "media:textable;txt",
+            r#"cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt""#,
+            &["media:disbound-page;enc=utf-8"],
+            "media:enc=utf-8;ext=txt",
         )]);
 
         let notation = concat!(
-            r#"[p2t cap:in="media:disbound-page;textable";page-to-text;out="media:txt;textable"]"#,
+            r#"[p2t cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt"]"#,
             "[pages -> LOOP p2t -> texts]"
         );
 
@@ -549,16 +549,16 @@ mod tests {
     #[tokio::test]
     async fn test1263_cycle_detection() {
         let registry = build_test_registry(&[(
-            r#"cap:in="media:txt;textable";process;out="media:txt;textable""#,
-            &["media:textable;txt"],
-            "media:textable;txt",
+            r#"cap:in="media:enc=utf-8;ext=txt";process;out="media:enc=utf-8;ext=txt""#,
+            &["media:enc=utf-8;ext=txt"],
+            "media:enc=utf-8;ext=txt",
         )]);
 
         // A -> B -> C -> A creates a cycle (three wirings
         // sharing nodes form one connected component → one
         // strand → resolver detects the cycle).
         let notation = concat!(
-            r#"[proc cap:in="media:txt;textable";process;out="media:txt;textable"]"#,
+            r#"[proc cap:in="media:enc=utf-8;ext=txt";process;out="media:enc=utf-8;ext=txt"]"#,
             "[A -> proc -> B]",
             "[B -> proc -> C]",
             "[C -> proc -> A]"
@@ -590,15 +590,15 @@ mod tests {
                 "media:pdf",
             ),
             (
-                r#"cap:in="media:audio;wav";transcribe;out="media:txt;textable""#,
+                r#"cap:in="media:audio;wav";transcribe;out="media:enc=utf-8;ext=txt""#,
                 &["media:audio;wav"],
-                "media:textable;txt",
+                "media:enc=utf-8;ext=txt",
             ),
         ]);
 
         let notation = concat!(
             r#"[produce cap:in="media:void";produce-pdf;out="media:pdf"]"#,
-            r#"[transcribe cap:in="media:audio;wav";transcribe;out="media:txt;textable"]"#,
+            r#"[transcribe cap:in="media:audio;wav";transcribe;out="media:enc=utf-8;ext=txt"]"#,
             "[A -> produce -> B]",
             "[B -> transcribe -> C]"
         );
@@ -634,15 +634,15 @@ mod tests {
                 "media:image;png",
             ),
             (
-                r#"cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;record;textable""#,
+                r#"cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;enc=utf-8;record""#,
                 &["media:bytes;image;png"],
-                "media:embedding-vector;record;textable",
+                "media:embedding-vector;enc=utf-8;record",
             ),
         ]);
 
         let notation = concat!(
             r#"[thumb cap:in="media:pdf";thumbnail;out="media:image;png"]"#,
-            r#"[embed_image cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;record;textable"]"#,
+            r#"[embed_image cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;enc=utf-8;record"]"#,
             "[A -> thumb -> B]",
             "[B -> embed_image -> C]"
         );
@@ -663,8 +663,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "structure mismatch detection between node media and cap input not yet implemented"]
     async fn test1266_structure_mismatch_record_to_opaque() {
-        // Cap A outputs record (media:json;record;textable),
-        // cap B inputs opaque (media:json;textable, no record).
+        // Cap A outputs record (media:fmt=json;record),
+        // cap B inputs opaque (media:fmt=json, no record).
         // The parser's lexical is_comparable check passes
         // because both URNs are on the same `textable` chain
         // (one with `record`, one without — `record` is the
@@ -673,20 +673,20 @@ mod tests {
         // mismatch.
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:void";produce;out="media:json;record;textable""#,
+                r#"cap:in="media:void";produce;out="media:fmt=json;record""#,
                 &["media:void"],
-                "media:json;record;textable",
+                "media:fmt=json;record",
             ),
             (
-                r#"cap:in="media:json;textable";process;out="media:txt;textable""#,
-                &["media:json;textable"],
-                "media:textable;txt",
+                r#"cap:in="media:fmt=json";process;out="media:enc=utf-8;ext=txt""#,
+                &["media:fmt=json"],
+                "media:enc=utf-8;ext=txt",
             ),
         ]);
 
         let notation = concat!(
-            r#"[produce cap:in="media:void";produce;out="media:json;record;textable"]"#,
-            r#"[process cap:in="media:json;textable";process;out="media:txt;textable"]"#,
+            r#"[produce cap:in="media:void";produce;out="media:fmt=json;record"]"#,
+            r#"[process cap:in="media:fmt=json";process;out="media:enc=utf-8;ext=txt"]"#,
             "[A -> produce -> B]",
             "[B -> process -> C]"
         );
@@ -711,20 +711,20 @@ mod tests {
     async fn test1267_structure_match_both_record() {
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:void";produce;out="media:json;record;textable""#,
+                r#"cap:in="media:void";produce;out="media:fmt=json;record""#,
                 &["media:void"],
-                "media:json;record;textable",
+                "media:fmt=json;record",
             ),
             (
-                r#"cap:in="media:json;record;textable";transform;out="media:result;record;textable""#,
-                &["media:json;record;textable"],
-                "media:result;record;textable",
+                r#"cap:in="media:fmt=json;record";transform;out="media:enc=utf-8;record;result""#,
+                &["media:fmt=json;record"],
+                "media:enc=utf-8;record;result",
             ),
         ]);
 
         let notation = concat!(
-            r#"[produce cap:in="media:void";produce;out="media:json;record;textable"]"#,
-            r#"[transform cap:in="media:json;record;textable";transform;out="media:result;record;textable"]"#,
+            r#"[produce cap:in="media:void";produce;out="media:fmt=json;record"]"#,
+            r#"[transform cap:in="media:fmt=json;record";transform;out="media:enc=utf-8;record;result"]"#,
             "[A -> produce -> B]",
             "[B -> transform -> C]"
         );
@@ -746,20 +746,20 @@ mod tests {
     async fn test1268_structure_match_both_opaque() {
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:void";produce;out="media:json;textable""#,
+                r#"cap:in="media:void";produce;out="media:fmt=json""#,
                 &["media:void"],
-                "media:json;textable",
+                "media:fmt=json",
             ),
             (
-                r#"cap:in="media:json;textable";format;out="media:txt;textable""#,
-                &["media:json;textable"],
-                "media:textable;txt",
+                r#"cap:in="media:fmt=json";format;out="media:enc=utf-8;ext=txt""#,
+                &["media:fmt=json"],
+                "media:enc=utf-8;ext=txt",
             ),
         ]);
 
         let notation = concat!(
-            r#"[produce cap:in="media:void";produce;out="media:json;textable"]"#,
-            r#"[format cap:in="media:json;textable";format;out="media:txt;textable"]"#,
+            r#"[produce cap:in="media:void";produce;out="media:fmt=json"]"#,
+            r#"[format cap:in="media:fmt=json";format;out="media:enc=utf-8;ext=txt"]"#,
             "[A -> produce -> B]",
             "[B -> format -> C]"
         );
@@ -780,13 +780,13 @@ mod tests {
     #[tokio::test]
     async fn test1269_parse_multiline_machine() {
         let registry = build_test_registry(&[(
-            r#"cap:in="media:pdf";extract;out="media:txt;textable""#,
+            r#"cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt""#,
             &["media:pdf"],
-            "media:textable;txt",
+            "media:enc=utf-8;ext=txt",
         )]);
 
         let notation = r#"
-[extract cap:in="media:pdf";extract;out="media:txt;textable"]
+[extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"]
 [doc -> extract -> text]
 "#;
 

@@ -9,8 +9,8 @@
 //!   domain-specific markers (e.g., model family for model-spec arguments)
 //!
 //! The base media URN comes from the argument slot declaration (e.g., a cap's arg
-//! specifies `media:model-spec;textable;llm`). The value filling the slot is inspected
-//! to produce a more specific URN (e.g., `media:model-spec;textable;llm;mistral`).
+//! specifies `media:enc=utf-8;llm;model-spec`). The value filling the slot is inspected
+//! to produce a more specific URN (e.g., `media:enc=utf-8;llm;mistral;model-spec`).
 
 /// Result of value-based content inspection
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,8 +29,8 @@ pub struct ValueAdapterResult {
 ///
 /// A `ModelSpecValueAdapter` inspects a model spec string like
 /// `hf:MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF` and adds a `mistral`
-/// marker tag to the base URN `media:model-spec;textable;llm`, producing
-/// `media:mistral;model-spec;textable` (canonical sorted form).
+/// marker tag to the base URN `media:enc=utf-8;llm;model-spec`, producing
+/// `media:enc=utf-8;mistral;model-spec` (canonical sorted form).
 pub trait ValueAdapter: Send + Sync {
     /// Unique name for this adapter (for debugging/logging)
     fn name(&self) -> &'static str;
@@ -38,7 +38,7 @@ pub trait ValueAdapter: Send + Sync {
     /// Refine a base media URN based on the value filling the argument slot.
     ///
     /// - `base_media_urn`: The media URN declared by the argument slot
-    ///   (e.g., `media:model-spec;textable;llm`)
+    ///   (e.g., `media:enc=utf-8;llm;model-spec`)
     /// - `value`: The string value filling the slot
     ///   (e.g., `hf:MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF?include=...`)
     ///
@@ -77,11 +77,11 @@ mod tests {
     #[test]
     fn test1228_value_adapter_refine_match() {
         let adapter = TestValueAdapter;
-        let result = adapter.refine("media:test;textable", "something-special");
+        let result = adapter.refine("media:enc=utf-8;test", "something-special");
         assert_eq!(
             result,
             Some(ValueAdapterResult {
-                media_urn: "media:test;textable;special".to_string(),
+                media_urn: "media:enc=utf-8;test;special".to_string(),
             })
         );
     }
@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn test1229_value_adapter_refine_no_match_base() {
         let adapter = TestValueAdapter;
-        let result = adapter.refine("media:other;textable", "something-special");
+        let result = adapter.refine("media:enc=utf-8;other", "something-special");
         assert_eq!(result, None);
     }
 
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn test1230_value_adapter_refine_no_match_value() {
         let adapter = TestValueAdapter;
-        let result = adapter.refine("media:test;textable", "ordinary-value");
+        let result = adapter.refine("media:enc=utf-8;test", "ordinary-value");
         assert_eq!(result, None);
     }
 }

@@ -253,7 +253,7 @@ pub fn resolve_pre_interned(
         // For args that DO have a stdin source, the URN that
         // matters for matching is the stdin source's inner
         // type (e.g. `media:image;png`), NOT the arg's outer
-        // `media_urn` (e.g. `media:file-path;textable`). The
+        // `media_urn` (e.g. `media:enc=utf-8;file-path`). The
         // outer is the slot identity that cartridge_runtime uses
         // to label the stream and to drive file-path
         // auto-conversion; the inner is the type the runtime
@@ -751,7 +751,7 @@ mod tests {
         // single pair.
         let sources = vec![media("media:pdf")];
         let args = vec![media("media:pdf")];
-        let cap_urn = cap("cap:in=media:pdf;extract;out=\"media:textable;txt\"");
+        let cap_urn = cap("cap:in=media:pdf;extract;out=\"media:enc=utf-8;ext=txt\"");
         let pairs = match_sources_to_args(&sources, &args, &cap_urn, 0)
             .expect("trivial single-source match must succeed");
         assert_eq!(pairs.len(), 1);
@@ -762,19 +762,19 @@ mod tests {
     // TEST1179: Source-to-arg matching assigns a more specific source to a compatible general argument.
     #[test]
     fn test1179_match_more_specific_source_assigned_to_general_arg() {
-        // The cap declares `media:textable`. The source is the
-        // more-specific `media:page;textable`. The source must
+        // The cap declares `media:enc=utf-8`. The source is the
+        // more-specific `media:enc=utf-8;page`. The source must
         // conform (it does, page;textable ⪯ textable) and get
         // assigned to that arg with distance > 0.
-        let sources = vec![media("media:page;textable")];
-        let args = vec![media("media:textable")];
-        let cap_urn = cap("cap:in=media:textable;make-decision;out=\"media:decision;textable\"");
+        let sources = vec![media("media:enc=utf-8;page")];
+        let args = vec![media("media:enc=utf-8")];
+        let cap_urn = cap("cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;enc=utf-8\"");
         let pairs = match_sources_to_args(&sources, &args, &cap_urn, 0)
             .expect("more-specific source must be matched to its arg");
-        assert!(pairs[0].0.is_equivalent(&media("media:textable")).unwrap());
+        assert!(pairs[0].0.is_equivalent(&media("media:enc=utf-8")).unwrap());
         assert!(pairs[0]
             .1
-            .is_equivalent(&media("media:page;textable"))
+            .is_equivalent(&media("media:enc=utf-8;page"))
             .unwrap());
     }
 
@@ -785,8 +785,8 @@ mod tests {
         // args. Must surface as `UnmatchedSourceInCapArgs` —
         // never as a silent zero-cost or random pairing.
         let sources = vec![media("media:numeric")];
-        let args = vec![media("media:textable")];
-        let cap_urn = cap("cap:in=media:textable;t;out=media:textable");
+        let args = vec![media("media:enc=utf-8")];
+        let cap_urn = cap("cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"");
         let err = match_sources_to_args(&sources, &args, &cap_urn, 7).unwrap_err();
         match err {
             MachineAbstractionError::UnmatchedSourceInCapArgs {
@@ -810,18 +810,18 @@ mod tests {
         // remaining arg. The resolver picks the unique minimum-
         // cost matching.
         //
-        // sources: [media:image;png, media:model-spec;textable]
-        // args:    [media:image;png, media:textable]
+        // sources: [media:image;png, media:enc=utf-8;model-spec]
+        // args:    [media:image;png, media:enc=utf-8]
         //
         // image;png ⪯ image;png (dist 0); image;png ⪯ textable? no
         // model-spec;textable ⪯ image;png? no
         // model-spec;textable ⪯ textable (dist 1)
         //
         // Unique optimum: (image;png → image;png), (model-spec;textable → textable)
-        let sources = vec![media("media:image;png"), media("media:model-spec;textable")];
-        let args = vec![media("media:image;png"), media("media:textable")];
+        let sources = vec![media("media:image;png"), media("media:enc=utf-8;model-spec")];
+        let args = vec![media("media:image;png"), media("media:enc=utf-8")];
         let cap_urn =
-            cap("cap:in=\"media:image;png\";describe;out=\"media:image-description;textable\"");
+            cap("cap:in=\"media:image;png\";describe;out=\"media:enc=utf-8;image-description\"");
         let pairs = match_sources_to_args(&sources, &args, &cap_urn, 0).unwrap();
         assert_eq!(pairs.len(), 2);
         // Pairs are sorted by cap_arg_media_urn structurally.
@@ -835,9 +835,9 @@ mod tests {
             if arg.is_equivalent(&media("media:image;png")).unwrap() {
                 assert!(src.is_equivalent(&media("media:image;png")).unwrap());
                 found_image = true;
-            } else if arg.is_equivalent(&media("media:textable")).unwrap() {
+            } else if arg.is_equivalent(&media("media:enc=utf-8")).unwrap() {
                 assert!(src
-                    .is_equivalent(&media("media:model-spec;textable"))
+                    .is_equivalent(&media("media:enc=utf-8;model-spec"))
                     .unwrap());
                 found_text = true;
             }
@@ -852,12 +852,12 @@ mod tests {
         // the same total cost. The minimum-cost matching is not
         // unique → AmbiguousMachineNotation.
         //
-        // Both sources are `media:textable`; both args are
-        // `media:textable`. Distance 0 either way; both
+        // Both sources are `media:enc=utf-8`; both args are
+        // `media:enc=utf-8`. Distance 0 either way; both
         // permutations are tied at total cost 0.
-        let sources = vec![media("media:textable"), media("media:textable")];
-        let args = vec![media("media:textable"), media("media:textable")];
-        let cap_urn = cap("cap:in=media:textable;t;out=media:textable");
+        let sources = vec![media("media:enc=utf-8"), media("media:enc=utf-8")];
+        let args = vec![media("media:enc=utf-8"), media("media:enc=utf-8")];
+        let cap_urn = cap("cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"");
         let err = match_sources_to_args(&sources, &args, &cap_urn, 0).unwrap_err();
         assert!(
             matches!(
@@ -888,18 +888,18 @@ mod tests {
     #[test]
     fn test1184_resolve_strand_single_cap_produces_one_edge() {
         let extract_cap = build_cap(
-            "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+            "cap:in=media:pdf;extract;out=\"media:enc=utf-8;ext=txt\"",
             "extract",
             &["media:pdf"],
-            "media:textable;txt",
+            "media:enc=utf-8;ext=txt",
         );
         let registry = registry_with(vec![extract_cap]);
         let strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+                "cap:in=media:pdf;extract;out=\"media:enc=utf-8;ext=txt\"",
                 "extract",
                 "media:pdf",
-                "media:textable;txt",
+                "media:enc=utf-8;ext=txt",
             )],
             "pdf to txt",
         );
@@ -915,14 +915,14 @@ mod tests {
             .unwrap());
         let src_urn = resolved.node_urn(binding.source);
         assert!(src_urn.is_equivalent(&media("media:pdf")).unwrap());
-        // Anchors: input is media:pdf, output is media:txt;textable.
+        // Anchors: input is media:pdf, output is media:enc=utf-8;ext=txt.
         let inputs = resolved.input_anchors();
         let outputs = resolved.output_anchors();
         assert_eq!(inputs.len(), 1);
         assert_eq!(outputs.len(), 1);
         assert!(inputs[0].is_equivalent(&media("media:pdf")).unwrap());
         assert!(outputs[0]
-            .is_equivalent(&media("media:textable;txt"))
+            .is_equivalent(&media("media:enc=utf-8;ext=txt"))
             .unwrap());
     }
 
@@ -930,20 +930,20 @@ mod tests {
     #[test]
     fn test1185_resolve_strand_chained_caps_share_intermediate_node() {
         // Two-step strand: pdf → extract → txt → embed → vec.
-        // The intermediate node `media:txt;textable` is produced
+        // The intermediate node `media:enc=utf-8;ext=txt` is produced
         // by extract and consumed by embed. The resolver must
         // intern these as the SAME NodeId, so the strand has
         // exactly three node positions, not four.
         let extract = build_cap(
-            "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+            "cap:in=media:pdf;extract;out=\"media:enc=utf-8;ext=txt\"",
             "extract",
             &["media:pdf"],
-            "media:textable;txt",
+            "media:enc=utf-8;ext=txt",
         );
         let embed = build_cap(
-            "cap:in=media:textable;embed;out=\"media:vec;record\"",
+            "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\"",
             "embed",
-            &["media:textable"],
+            &["media:enc=utf-8"],
             "media:vec;record",
         );
         let registry = registry_with(vec![extract, embed]);
@@ -951,15 +951,15 @@ mod tests {
         let strand = strand_from_steps(
             vec![
                 cap_step(
-                    "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+                    "cap:in=media:pdf;extract;out=\"media:enc=utf-8;ext=txt\"",
                     "extract",
                     "media:pdf",
-                    "media:textable;txt",
+                    "media:enc=utf-8;ext=txt",
                 ),
                 cap_step(
-                    "cap:in=media:textable;embed;out=\"media:vec;record\"",
+                    "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\"",
                     "embed",
-                    "media:textable;txt",
+                    "media:enc=utf-8;ext=txt",
                     "media:vec;record",
                 ),
             ],
@@ -1000,35 +1000,35 @@ mod tests {
         // ForEach immediately followed by a cap. The cap's edge
         // must have is_loop=true. Collect at the end is elided.
         let disbind = build_cap(
-            "cap:in=media:pdf;disbind;out=\"media:page;textable\"",
+            "cap:in=media:pdf;disbind;out=\"media:enc=utf-8;page\"",
             "disbind",
             &["media:pdf"],
-            "media:page;textable",
+            "media:enc=utf-8;page",
         );
         let make_decision = build_cap(
-            "cap:in=media:textable;make-decision;out=\"media:decision;json;record;textable\"",
+            "cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;fmt=json;record\"",
             "make_decision",
-            &["media:textable"],
-            "media:decision;json;record;textable",
+            &["media:enc=utf-8"],
+            "media:decision;fmt=json;record",
         );
         let registry = registry_with(vec![disbind, make_decision]);
 
         let strand = strand_from_steps(
             vec![
                 cap_step(
-                    "cap:in=media:pdf;disbind;out=\"media:page;textable\"",
+                    "cap:in=media:pdf;disbind;out=\"media:enc=utf-8;page\"",
                     "disbind",
                     "media:pdf",
-                    "media:page;textable",
+                    "media:enc=utf-8;page",
                 ),
-                for_each_step("media:page;textable"),
+                for_each_step("media:enc=utf-8;page"),
                 cap_step(
-                    "cap:in=media:textable;make-decision;out=\"media:decision;json;record;textable\"",
+                    "cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;fmt=json;record\"",
                     "make_decision",
-                    "media:textable",
-                    "media:decision;json;record;textable",
+                    "media:enc=utf-8",
+                    "media:decision;fmt=json;record",
                 ),
-                collect_step("media:decision;json;record;textable"),
+                collect_step("media:decision;fmt=json;record"),
             ],
             "disbind+foreach+make_decision",
         );
@@ -1054,9 +1054,9 @@ mod tests {
 
         // Critical: disbind's target NodeId must be the same
         // as make_decision's source NodeId — the intermediate
-        // data position (media:page;textable) is shared even
-        // though disbind declares out=media:page;textable and
-        // make_decision declares in=media:textable (less
+        // data position (media:enc=utf-8;page) is shared even
+        // though disbind declares out=media:enc=utf-8;page and
+        // make_decision declares in=media:enc=utf-8 (less
         // specific, but on the same specialization chain).
         // Positional interning collapses them.
         let disbind_target = disbind_edge.target;
@@ -1066,13 +1066,13 @@ mod tests {
             "disbind target and make_decision source must share the same NodeId (positional interning)"
         );
         // The canonical URN at that shared node must be
-        // the more-specific one: media:page;textable.
+        // the more-specific one: media:page;enc=utf-8.
         assert!(
             resolved
                 .node_urn(disbind_target)
-                .is_equivalent(&media("media:page;textable"))
+                .is_equivalent(&media("media:enc=utf-8;page"))
                 .unwrap(),
-            "shared node URN must be the more-specific media:page;textable, got: {}",
+            "shared node URN must be the more-specific media:enc=utf-8;page, got: {}",
             resolved.node_urn(disbind_target)
         );
     }
@@ -1083,10 +1083,10 @@ mod tests {
         let registry = registry_with(vec![]);
         let strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+                "cap:in=media:pdf;extract;out=\"media:enc=utf-8;ext=txt\"",
                 "extract",
                 "media:pdf",
-                "media:textable;txt",
+                "media:enc=utf-8;ext=txt",
             )],
             "pdf to txt with empty registry",
         );
@@ -1113,18 +1113,18 @@ mod tests {
         // positions must produce byte-identical canonical
         // anchor URN order. This pins the structural sort.
         let extract = build_cap(
-            "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+            "cap:in=media:pdf;extract;out=\"media:enc=utf-8;ext=txt\"",
             "extract",
             &["media:pdf"],
-            "media:textable;txt",
+            "media:enc=utf-8;ext=txt",
         );
         let registry = registry_with(vec![extract]);
         let strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+                "cap:in=media:pdf;extract;out=\"media:enc=utf-8;ext=txt\"",
                 "extract",
                 "media:pdf",
-                "media:textable;txt",
+                "media:enc=utf-8;ext=txt",
             )],
             "pdf to txt",
         );
@@ -1155,31 +1155,31 @@ mod tests {
         // strand construction can produce it, and the resolver
         // must handle it correctly.
         let to_int = build_cap(
-            "cap:in=\"media:numeric;textable\";coerce-int;out=\"media:integer;numeric;textable\"",
+            "cap:in=\"media:numeric\";coerce-int;out=\"media:integer;numeric\"",
             "coerce_int",
-            &["media:numeric;textable"],
-            "media:integer;numeric;textable",
+            &["media:numeric"],
+            "media:integer;numeric",
         );
         let to_num = build_cap(
-            "cap:in=\"media:integer;numeric;textable\";coerce-num;out=\"media:numeric;textable\"",
+            "cap:in=\"media:integer;numeric\";coerce-num;out=\"media:numeric\"",
             "coerce_num",
-            &["media:integer;numeric;textable"],
-            "media:numeric;textable",
+            &["media:integer;numeric"],
+            "media:numeric",
         );
         let registry = registry_with(vec![to_int, to_num]);
         let strand = strand_from_steps(
             vec![
                 cap_step(
-                    "cap:in=\"media:numeric;textable\";coerce-int;out=\"media:integer;numeric;textable\"",
+                    "cap:in=\"media:numeric\";coerce-int;out=\"media:integer;numeric\"",
                     "coerce_int",
-                    "media:numeric;textable",
-                    "media:integer;numeric;textable",
+                    "media:numeric",
+                    "media:integer;numeric",
                 ),
                 cap_step(
-                    "cap:in=\"media:integer;numeric;textable\";coerce-num;out=\"media:numeric;textable\"",
+                    "cap:in=\"media:integer;numeric\";coerce-num;out=\"media:numeric\"",
                     "coerce_num",
-                    "media:integer;numeric;textable",
-                    "media:numeric;textable",
+                    "media:integer;numeric",
+                    "media:numeric",
                 ),
             ],
             "round-trip numeric coercion",
@@ -1207,7 +1207,7 @@ mod tests {
     fn test1191_resolve_strand_disbind_pdf_with_file_path_slot_identity() {
         // Regression: a cap whose arg slot identity differs
         // from its stdin source URN. The disbind cap declares
-        // `media:file-path;textable` as the slot identity but
+        // `media:enc=utf-8;file-path` as the slot identity but
         // its stdin source delivers `media:pdf` (this is the
         // wire-level wraparound: cartridge_runtime auto-converts
         // a file-path argument into a stdin byte stream of
@@ -1218,21 +1218,21 @@ mod tests {
         // the slot identity. Before this fix the resolver
         // would have returned `UnmatchedSourceInCapArgs`
         // because `media:pdf` does not conform to
-        // `media:file-path;textable`.
+        // `media:enc=utf-8;file-path`.
         let disbind = build_cap_with_slot_stdin_pairs(
-            "cap:in=media:pdf;disbind;out=\"media:textable;page\"",
+            "cap:in=media:pdf;disbind;out=\"media:enc=utf-8;page\"",
             "disbind",
-            &[("media:file-path;textable", "media:pdf")],
-            "media:textable;page",
+            &[("media:enc=utf-8;file-path", "media:pdf")],
+            "media:enc=utf-8;page",
         );
         let registry = registry_with(vec![disbind]);
 
         let strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;disbind;out=\"media:textable;page\"",
+                "cap:in=media:pdf;disbind;out=\"media:enc=utf-8;page\"",
                 "disbind",
                 "media:pdf",
-                "media:textable;page",
+                "media:enc=utf-8;page",
             )],
             "pdf to pages",
         );
@@ -1243,13 +1243,13 @@ mod tests {
         let binding = &resolved.edges()[0].assignment[0];
 
         // The binding's `cap_arg_media_urn` must be the SLOT
-        // identity (`media:file-path;textable`), since that is
+        // identity (`media:enc=utf-8;file-path`), since that is
         // what the cap definition uses to label the arg slot
         // (RULE1).
         assert!(
             binding
                 .cap_arg_media_urn
-                .is_equivalent(&media("media:file-path;textable"))
+                .is_equivalent(&media("media:enc=utf-8;file-path"))
                 .unwrap(),
             "binding cap_arg_media_urn must be the slot identity, got: {}",
             binding.cap_arg_media_urn
@@ -1275,21 +1275,21 @@ mod tests {
         // Cap with two stdin args: textable (later alphabetically) and pdf (earlier).
         // Args are listed in reverse order so the test fails if sorting is skipped.
         let merge_cap = build_cap(
-            "cap:in=media:pdf;merge;out=\"media:textable;txt\"",
+            "cap:in=media:pdf;merge;out=\"media:enc=utf-8;ext=txt\"",
             "merge",
-            &["media:textable", "media:pdf"],
-            "media:textable;txt",
+            &["media:enc=utf-8", "media:pdf"],
+            "media:enc=utf-8;ext=txt",
         );
         let registry = registry_with(vec![merge_cap]);
 
         // Pre-interned nodes: 0=pdf, 1=textable, 2=txt;textable (output)
         let nodes = vec![
             media("media:pdf"),
-            media("media:textable"),
-            media("media:textable;txt"),
+            media("media:enc=utf-8"),
+            media("media:enc=utf-8;ext=txt"),
         ];
         let cap_urn =
-            CapUrn::from_string("cap:in=media:pdf;merge;out=\"media:textable;txt\"").unwrap();
+            CapUrn::from_string("cap:in=media:pdf;merge;out=\"media:enc=utf-8;ext=txt\"").unwrap();
         let wirings = vec![PreInternedWiring {
             cap_urn,
             source_node_ids: vec![0, 1], // pdf first, textable second

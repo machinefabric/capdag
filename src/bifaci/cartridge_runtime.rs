@@ -549,7 +549,7 @@ impl InputPackage {
 /// exact match — never a subsumption/pattern match.
 ///
 /// The `media_urn` parameter must be the FULL media URN from the cap arg
-/// definition (e.g., `"media:model-spec;textable"`).
+/// definition (e.g., `"media:enc=utf-8;model-spec"`).
 pub fn find_stream<'a>(
     streams: &'a [(String, Vec<u8>, Option<StreamMeta>)],
     media_urn: &str,
@@ -579,8 +579,8 @@ pub fn find_stream_str(
 /// Find a stream whose URN *conforms to* `pattern`. Use this when the
 /// cap-arg URN declared in the cap TOML is a richer refinement of the
 /// bare functional pattern the handler thinks about (e.g. cap TOML
-/// declares `media:max-tokens;inference;limit;user;task;textable;numeric`,
-/// the handler thinks `media:max-tokens;textable;numeric`). Equality
+/// declares `media:inference;limit;max-tokens;numeric;task;user`,
+/// the handler thinks `media:max-tokens;numeric`). Equality
 /// matching via [`find_stream`] silently misses the rich form,
 /// the unmatched stream falls through to the textable catch-all
 /// downstream and overwrites the prompt body — that's the
@@ -3652,7 +3652,7 @@ impl CartridgeRuntime {
         // Try default value.
         //
         // The wire contract for an arg stream is "bytes of the typed
-        // media URN". For a `media:textable`-shaped arg that's plain
+        // media URN". For a `media:enc=utf-8`-shaped arg that's plain
         // UTF-8 text — NOT a JSON-encoded form. A naive
         // `serde_json::to_vec(default)` would corrupt every string
         // default by wrapping it in `"…"`: a `default_value =
@@ -4713,42 +4713,42 @@ mod tests {
 
             // Add common test caps used across tests
             registry.add_cap(create_test_cap(
-                r#"cap:in="media:void";test;out="media:void""#,
+                r#"cap:in=media:void;test;out=media:void"#,
                 "Test",
                 "test",
                 vec![],
             ));
 
             registry.add_cap(create_test_cap(
-                r#"cap:in="media:";process;out="media:void""#,
+                r#"cap:in=media:;process;out=media:void"#,
                 "Process",
                 "process",
                 vec![],
             ));
 
             registry.add_cap(create_test_cap(
-                r#"cap:in="media:string;textable";test;out="*""#,
+                r#"cap:in="media:enc=utf-8;string";test;out=media:"#,
                 "Test String",
                 "test",
                 vec![],
             ));
 
             registry.add_cap(create_test_cap(
-                r#"cap:in="*";test;out="*""#,
+                r#"cap:in=media:;test;out=media:"#,
                 "Test Wildcard",
                 "test",
                 vec![],
             ));
 
             registry.add_cap(create_test_cap(
-                r#"cap:in="media:model-spec;textable";infer;out="*""#,
+                r#"cap:in="media:enc=utf-8;model-spec";infer;out=media:"#,
                 "Infer",
                 "infer",
                 vec![],
             ));
 
             registry.add_cap(create_test_cap(
-                r#"cap:in="media:pdf";process;out="*""#,
+                r#"cap:in="media:ext=pdf";process;out=media:"#,
                 "Process PDF",
                 "process",
                 vec![],
@@ -4899,18 +4899,18 @@ mod tests {
     const TEST_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"},{"urn":"cap:test","title":"Test","command":"test"}]}]}"#;
 
     /// Valid manifest with proper in/out specs for tests that need parsed CapManifest
-    const VALID_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"},{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","command":"test"}],"adapter_urns":[]}]}"#;
+    const VALID_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"},{"urn":"cap:in=media:void;test;out=media:void","title":"Test","command":"test"}],"adapter_urns":[]}]}"#;
 
     // TEST248: Test register_op and find_handler by exact cap URN
     #[test]
     fn test248_register_and_find_handler() {
         let mut runtime = CartridgeRuntime::new(TEST_MANIFEST.as_bytes());
-        runtime.register_op("cap:in=*;test;out=*", || {
+        runtime.register_op("cap:in=media:;test;out=media:", || {
             Box::new(EmitBytesOp {
                 data: b"result".to_vec(),
             })
         });
-        assert!(runtime.find_handler("cap:in=*;test;out=*").is_some());
+        assert!(runtime.find_handler("cap:in=media:;test;out=media:").is_some());
     }
 
     // TEST249: Test register_op handler echoes bytes directly
@@ -5181,7 +5181,7 @@ mod tests {
     fn test259_extract_effective_payload_non_cbor() {
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:void";test;out="media:void""#)
+            .get(r#"cap:in=media:void;test;out=media:void"#)
             .unwrap();
         let payload = b"raw data";
         let result =
@@ -5194,7 +5194,7 @@ mod tests {
     fn test260_extract_effective_payload_no_content_type() {
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:void";test;out="media:void""#)
+            .get(r#"cap:in=media:void;test;out=media:void"#)
             .unwrap();
         let payload = b"raw data";
         let result = extract_effective_payload(payload, None, cap, true).unwrap();
@@ -5204,11 +5204,11 @@ mod tests {
     // TEST261: Test extract_effective_payload with CBOR content extracts matching argument value
     #[test]
     fn test261_extract_effective_payload_cbor_match() {
-        // Build CBOR arguments: [{media_urn: "media:string;textable", value: bytes("hello")}]
+        // Build CBOR arguments: [{media_urn: "media:enc=utf-8;string", value: bytes("hello")}]
         let args = ciborium::Value::Array(vec![ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:string;textable".to_string()),
+                ciborium::Value::Text("media:enc=utf-8;string".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -5218,10 +5218,10 @@ mod tests {
         let mut payload = Vec::new();
         ciborium::into_writer(&args, &mut payload).unwrap();
 
-        // The cap URN has in=media:string;textable
+        // The cap URN has in=media:enc=utf-8;string
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:string;textable";test;out="*""#)
+            .get(r#"cap:in="media:enc=utf-8;string";test;out=media:"#)
             .unwrap();
         let result = extract_effective_payload(
             &payload,
@@ -5278,7 +5278,7 @@ mod tests {
 
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:string;textable";test;out="*""#)
+            .get(r#"cap:in="media:enc=utf-8;string";test;out=media:"#)
             .unwrap();
         let result = extract_effective_payload(
             &payload,
@@ -5299,7 +5299,7 @@ mod tests {
     #[test]
     fn test263_extract_effective_payload_invalid_cbor() {
         let registry = MockRegistry::with_test_caps();
-        let cap = registry.get(r#"cap:in="*";test;out="*""#).unwrap();
+        let cap = registry.get(r#"cap:in=media:;test;out=media:"#).unwrap();
         let result = extract_effective_payload(
             b"not cbor",
             Some("application/cbor"),
@@ -5317,7 +5317,7 @@ mod tests {
         ciborium::into_writer(&value, &mut payload).unwrap();
 
         let registry = MockRegistry::with_test_caps();
-        let cap = registry.get(r#"cap:in="*";test;out="*""#).unwrap();
+        let cap = registry.get(r#"cap:in=media:;test;out=media:"#).unwrap();
         let result = extract_effective_payload(
             &payload,
             Some("application/cbor"),
@@ -5471,7 +5471,7 @@ mod tests {
             ciborium::Value::Map(vec![
                 (
                     ciborium::Value::Text("media_urn".to_string()),
-                    ciborium::Value::Text("media:other-type;textable".to_string()),
+                    ciborium::Value::Text("media:enc=utf-8;other-type".to_string()),
                 ),
                 (
                     ciborium::Value::Text("value".to_string()),
@@ -5481,7 +5481,7 @@ mod tests {
             ciborium::Value::Map(vec![
                 (
                     ciborium::Value::Text("media_urn".to_string()),
-                    ciborium::Value::Text("media:model-spec;textable".to_string()),
+                    ciborium::Value::Text("media:enc=utf-8;model-spec".to_string()),
                 ),
                 (
                     ciborium::Value::Text("value".to_string()),
@@ -5494,7 +5494,7 @@ mod tests {
 
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:model-spec;textable";infer;out="*""#)
+            .get(r#"cap:in="media:enc=utf-8;model-spec";infer;out=media:"#)
             .unwrap();
         let result = extract_effective_payload(
             &payload,
@@ -5519,7 +5519,7 @@ mod tests {
         );
 
         // Find the argument matching in_spec (media:model-spec)
-        let in_spec = MediaUrn::from_string("media:model-spec;textable").unwrap();
+        let in_spec = MediaUrn::from_string("media:enc=utf-8;model-spec").unwrap();
         let mut found_value = None;
         for arg in result_array {
             if let ciborium::Value::Map(map) = arg {
@@ -5565,7 +5565,7 @@ mod tests {
         let args = ciborium::Value::Array(vec![ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:pdf".to_string()),
+                ciborium::Value::Text("media:ext=pdf".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -5577,7 +5577,7 @@ mod tests {
 
         let registry = MockRegistry::with_test_caps();
         let cap = registry
-            .get(r#"cap:in="media:pdf";process;out="*""#)
+            .get(r#"cap:in="media:ext=pdf";process;out=media:"#)
             .unwrap();
         let result = extract_effective_payload(
             &payload,
@@ -5625,11 +5625,11 @@ mod tests {
         std::fs::write(&test_file, b"PDF binary content 336").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";process;out=\"media:void\"",
+            "cap:in=\"media:ext=pdf\";process;out=media:void",
             "Process PDF",
             "process",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -5648,7 +5648,7 @@ mod tests {
         let received_clone = Arc::clone(&received_payload);
 
         runtime.register_op(
-            "cap:in=\"media:pdf\";process;out=\"media:void\"",
+            "cap:in=\"media:ext=pdf\";process;out=media:void",
             move || {
                 Box::new(ExtractValueOp {
                     received: Arc::clone(&received_clone),
@@ -5696,11 +5696,11 @@ mod tests {
         std::fs::write(&test_file, b"content").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:void\";test;out=\"media:void\"",
+            "cap:in=media:void;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![ArgSource::Position { position: 0 }], // NO stdin source!
             )],
@@ -5733,11 +5733,11 @@ mod tests {
         std::fs::write(&test_file, b"PDF via flag 338").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";process;out=\"media:void\"",
+            "cap:in=\"media:ext=pdf\";process;out=media:void",
             "Process",
             "process",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -5783,7 +5783,7 @@ mod tests {
         std::fs::write(&file2, b"content2").unwrap();
 
         let mut batch_arg = CapArg::new(
-            "media:file-path;textable",
+            "media:enc=utf-8;file-path",
             true,
             vec![
                 ArgSource::Stdin {
@@ -5795,7 +5795,7 @@ mod tests {
         batch_arg.is_sequence = true;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";batch;out=\"media:void\"",
+            "cap:in=media:;batch;out=media:void",
             "Batch",
             "batch",
             vec![batch_arg],
@@ -5825,7 +5825,7 @@ mod tests {
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -5848,7 +5848,7 @@ mod tests {
         let arg = ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:file-path;textable".to_string()),
+                ciborium::Value::Text("media:enc=utf-8;file-path".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -5885,11 +5885,11 @@ mod tests {
 
         // Stdin source comes BEFORE position source
         let cap = create_test_cap(
-            "cap:in=\"media:\";test;out=\"media:void\"",
+            "cap:in=media:;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -5929,11 +5929,11 @@ mod tests {
         std::fs::write(&test_file, b"binary data 342").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";test;out=\"media:void\"",
+            "cap:in=media:;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -5961,15 +5961,15 @@ mod tests {
     fn test343_non_file_path_args_unaffected() {
         // Arg with different media type should NOT trigger file reading
         let cap = create_test_cap(
-            "cap:in=\"media:void\";test;out=\"media:void\"",
+            "cap:in=media:void;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:model-spec;textable", // NOT file-path
+                "media:enc=utf-8;model-spec", // NOT file-path
                 true,
                 vec![
                     ArgSource::Stdin {
-                        stdin: "media:model-spec;textable".to_string(),
+                        stdin: "media:enc=utf-8;model-spec".to_string(),
                     },
                     ArgSource::Position { position: 0 },
                 ],
@@ -5995,11 +5995,11 @@ mod tests {
     #[test]
     fn test344_file_path_array_invalid_json_fails() {
         let cap = create_test_cap(
-            "cap:in=\"media:\";batch;out=\"media:void\"",
+            "cap:in=media:;batch;out=media:void",
             "Test",
             "batch",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -6023,7 +6023,7 @@ mod tests {
         let arg = ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:file-path;textable".to_string()),
+                ciborium::Value::Text("media:enc=utf-8;file-path".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -6055,11 +6055,11 @@ mod tests {
         let missing_path = temp_dir.join("test345_missing.txt");
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";batch;out=\"media:void\"",
+            "cap:in=media:;batch;out=media:void",
             "Test",
             "batch",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -6083,7 +6083,7 @@ mod tests {
         let arg = ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:file-path;textable".to_string()),
+                ciborium::Value::Text("media:enc=utf-8;file-path".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -6122,11 +6122,11 @@ mod tests {
         std::fs::write(&test_file, &large_data).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";test;out=\"media:void\"",
+            "cap:in=media:;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -6157,11 +6157,11 @@ mod tests {
         std::fs::write(&test_file, b"").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";test;out=\"media:void\"",
+            "cap:in=media:;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -6192,11 +6192,11 @@ mod tests {
 
         // Position source BEFORE stdin source
         let cap = create_test_cap(
-            "cap:in=\"media:\";test;out=\"media:void\"",
+            "cap:in=media:;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Position { position: 0 }, // First
@@ -6233,11 +6233,11 @@ mod tests {
         std::fs::write(&test_file, b"content 349").unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";test;out=\"media:void\"",
+            "cap:in=media:;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::CliFlag {
@@ -6280,11 +6280,11 @@ mod tests {
         std::fs::write(&test_file, test_content).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";process;out=\"media:result;textable\"",
+            "cap:in=\"media:ext=pdf\";process;out=\"media:enc=utf-8;result\"",
             "Process PDF",
             "process",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -6303,7 +6303,7 @@ mod tests {
         let received_clone = Arc::clone(&received_payload);
 
         runtime.register_op(
-            "cap:in=\"media:pdf\";process;out=\"media:result;textable\"",
+            "cap:in=\"media:ext=pdf\";process;out=\"media:enc=utf-8;result\"",
             move || {
                 Box::new(ExtractValueOp {
                     received: Arc::clone(&received_clone),
@@ -6348,7 +6348,7 @@ mod tests {
     #[test]
     fn test351_file_path_array_empty_array() {
         let mut batch_arg = CapArg::new(
-            "media:file-path;textable",
+            "media:enc=utf-8;file-path",
             false, // Not required
             vec![ArgSource::Stdin {
                 stdin: "media:".to_string(),
@@ -6357,7 +6357,7 @@ mod tests {
         batch_arg.is_sequence = true;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";batch;out=\"media:void\"",
+            "cap:in=media:;batch;out=media:void",
             "Test",
             "batch",
             vec![batch_arg],
@@ -6366,7 +6366,7 @@ mod tests {
         let arg = ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:file-path;textable".to_string()),
+                ciborium::Value::Text("media:enc=utf-8;file-path".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -6432,11 +6432,11 @@ mod tests {
         std::fs::set_permissions(&test_file, perms).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";test;out=\"media:void\"",
+            "cap:in=media:;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -6460,7 +6460,7 @@ mod tests {
         let arg = ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:file-path;textable".to_string()),
+                ciborium::Value::Text("media:enc=utf-8;file-path".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -6491,15 +6491,15 @@ mod tests {
     #[test]
     fn test353_cbor_payload_format_consistency() {
         let cap = create_test_cap(
-            "cap:in=\"media:text;textable\";test;out=\"media:void\"",
+            "cap:in=\"media:enc=utf-8;text\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:text;textable",
+                "media:enc=utf-8;text",
                 true,
                 vec![
                     ArgSource::Stdin {
-                        stdin: "media:text;textable".to_string(),
+                        stdin: "media:enc=utf-8;text".to_string(),
                     },
                     ArgSource::Position { position: 0 },
                 ],
@@ -6538,7 +6538,7 @@ mod tests {
             .expect("Should have media_urn key");
 
         match media_urn_val {
-            ciborium::Value::Text(s) => assert_eq!(s, "media:text;textable"),
+            ciborium::Value::Text(s) => assert_eq!(s, "media:enc=utf-8;text"),
             _ => panic!("media_urn should be text"),
         }
 
@@ -6561,11 +6561,11 @@ mod tests {
         let temp_dir = std::env::temp_dir();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";batch;out=\"media:void\"",
+            "cap:in=media:;batch;out=media:void",
             "Test",
             "batch",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -6590,7 +6590,7 @@ mod tests {
         let arg = ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:file-path;textable".to_string()),
+                ciborium::Value::Text("media:enc=utf-8;file-path".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -6627,7 +6627,7 @@ mod tests {
         std::fs::write(&file1, b"content1").unwrap();
 
         let mut batch_arg = CapArg::new(
-            "media:file-path;textable",
+            "media:enc=utf-8;file-path",
             true,
             vec![
                 ArgSource::Stdin {
@@ -6639,7 +6639,7 @@ mod tests {
         batch_arg.is_sequence = true;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";batch;out=\"media:void\"",
+            "cap:in=media:;batch;out=media:void",
             "Test",
             "batch",
             vec![batch_arg],
@@ -6679,7 +6679,7 @@ mod tests {
         std::fs::write(&file2, b"json").unwrap();
 
         let mut batch_arg = CapArg::new(
-            "media:file-path;textable",
+            "media:enc=utf-8;file-path",
             true,
             vec![
                 ArgSource::Stdin {
@@ -6691,7 +6691,7 @@ mod tests {
         batch_arg.is_sequence = true;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";batch;out=\"media:void\"",
+            "cap:in=media:;batch;out=media:void",
             "Test",
             "batch",
             vec![batch_arg],
@@ -6708,7 +6708,7 @@ mod tests {
         let arg = ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:file-path;textable".to_string()),
+                ciborium::Value::Text("media:enc=utf-8;file-path".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -6784,11 +6784,11 @@ mod tests {
         unix_fs::symlink(&real_file, &link_file).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";test;out=\"media:void\"",
+            "cap:in=media:;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -6827,11 +6827,11 @@ mod tests {
         std::fs::write(&test_file, &binary_data).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";test;out=\"media:void\"",
+            "cap:in=media:;test;out=media:void",
             "Test",
             "test",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -6857,11 +6857,11 @@ mod tests {
     #[test]
     fn test359_invalid_glob_pattern_fails() {
         let cap = create_test_cap(
-            "cap:in=\"media:\";batch;out=\"media:void\"",
+            "cap:in=media:;batch;out=media:void",
             "Test",
             "batch",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -6882,7 +6882,7 @@ mod tests {
         let arg = ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:file-path;textable".to_string()),
+                ciborium::Value::Text("media:enc=utf-8;file-path".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -6915,11 +6915,11 @@ mod tests {
         std::fs::write(&test_file, pdf_content).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";process;out=\"media:void\"",
+            "cap:in=\"media:ext=pdf\";process;out=media:void",
             "Process",
             "process",
             vec![CapArg::new(
-                "media:file-path;textable",
+                "media:enc=utf-8;file-path",
                 true,
                 vec![
                     ArgSource::Stdin {
@@ -7008,7 +7008,7 @@ mod tests {
         std::fs::write(&test_file, pdf_content).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";process;out=\"media:void\"",
+            "cap:in=\"media:ext=pdf\";process;out=media:void",
             "Process",
             "process",
             vec![CapArg::new(
@@ -7058,7 +7058,7 @@ mod tests {
 
         // Create cap that accepts stdin
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";process;out=\"media:void\"",
+            "cap:in=\"media:ext=pdf\";process;out=media:void",
             "Process",
             "process",
             vec![CapArg::new(
@@ -7111,7 +7111,7 @@ mod tests {
 
                     assert_eq!(
                         media_urn,
-                        Some("media:pdf".to_string()),
+                        Some("media:ext=pdf".to_string()),
                         "Media URN matches cap in_spec"
                     );
                     assert_eq!(value, Some(pdf_content), "Binary content preserved exactly");
@@ -7133,7 +7133,7 @@ mod tests {
         let received_clone = Arc::clone(&received);
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";process;out=\"media:void\"",
+            "cap:in=\"media:ext=pdf\";process;out=media:void",
             "Process",
             "process",
             vec![CapArg::new(
@@ -7190,7 +7190,7 @@ mod tests {
         std::fs::write(&test_file, pdf_content).unwrap();
 
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";process;out=\"media:void\"",
+            "cap:in=\"media:ext=pdf\";process;out=media:void",
             "Process",
             "process",
             vec![CapArg::new(
@@ -7288,7 +7288,7 @@ mod tests {
         std::fs::write(&file3, b"content3").unwrap();
 
         let mut batch_arg = CapArg::new(
-            "media:file-path;textable",
+            "media:enc=utf-8;file-path",
             true,
             vec![ArgSource::Stdin {
                 stdin: "media:".to_string(),
@@ -7297,7 +7297,7 @@ mod tests {
         batch_arg.is_sequence = true;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";batch;out=\"media:void\"",
+            "cap:in=media:;batch;out=media:void",
             "Test",
             "batch",
             vec![batch_arg],
@@ -7307,7 +7307,7 @@ mod tests {
         let arg = ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:file-path;textable".to_string()),
+                ciborium::Value::Text("media:enc=utf-8;file-path".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -7393,7 +7393,7 @@ mod tests {
         use std::io::Cursor;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";process;out=\"media:void\"",
+            "cap:in=media:;process;out=media:void",
             "Process",
             "process",
             vec![],
@@ -7439,7 +7439,7 @@ mod tests {
         use std::io::Cursor;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";process;out=\"media:void\"",
+            "cap:in=media:;process;out=media:void",
             "Process",
             "process",
             vec![],
@@ -7483,7 +7483,7 @@ mod tests {
         use std::io::Cursor;
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";process;out=\"media:void\"",
+            "cap:in=media:;process;out=media:void",
             "Process",
             "process",
             vec![],
@@ -7532,7 +7532,7 @@ mod tests {
         }
 
         let cap = create_test_cap(
-            "cap:in=\"media:\";process;out=\"media:void\"",
+            "cap:in=media:;process;out=media:void",
             "Process",
             "process",
             vec![],
@@ -8447,12 +8447,12 @@ mod tests {
     #[test]
     fn test678_find_stream_equivalent_urn_different_tag_order() {
         let streams = vec![(
-            "media:json;record;llm-generation-request".to_string(),
+            "media:fmt=json;llm-generation-request;record".to_string(),
             b"data".to_vec(),
             None,
         )];
         // Tags in different order — is_equivalent is order-independent
-        let found = super::find_stream(&streams, "media:llm-generation-request;json;record");
+        let found = super::find_stream(&streams, "media:fmt=json;llm-generation-request;record");
         assert!(
             found.is_some(),
             "Same tags in different order must match via is_equivalent"
@@ -8463,7 +8463,7 @@ mod tests {
     // TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict
     // This is the root cause of the cartridge_client.rs bug. Sender sent
     // "media:llm-generation-request" but receiver looked for
-    // "media:llm-generation-request;json;record".
+    // "media:fmt=json;llm-generation-request;record".
     #[test]
     fn test679_find_stream_base_urn_does_not_match_full_urn() {
         let streams = vec![(
@@ -8471,7 +8471,7 @@ mod tests {
             b"data".to_vec(),
             None,
         )];
-        let found = super::find_stream(&streams, "media:llm-generation-request;json;record");
+        let found = super::find_stream(&streams, "media:fmt=json;llm-generation-request;record");
         assert!(
             found.is_none(),
             "Base URN without tags must NOT match full URN with tags"
@@ -8482,15 +8482,15 @@ mod tests {
     #[test]
     fn test680_require_stream_missing_urn_returns_error() {
         let streams = vec![(
-            "media:model-spec;textable".to_string(),
+            "media:enc=utf-8;model-spec".to_string(),
             b"gpt-4".to_vec(),
             None,
         )];
-        let result = super::require_stream(&streams, "media:llm-generation-request;json;record");
+        let result = super::require_stream(&streams, "media:fmt=json;llm-generation-request;record");
         assert!(result.is_err(), "Missing stream must fail hard");
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("media:llm-generation-request;json;record"),
+            err.contains("media:fmt=json;llm-generation-request;record"),
             "Error must name the missing media URN, got: {}",
             err
         );
@@ -8501,22 +8501,22 @@ mod tests {
     fn test681_find_stream_multiple_streams_returns_correct() {
         let streams = vec![
             (
-                "media:model-spec;textable".to_string(),
+                "media:enc=utf-8;model-spec".to_string(),
                 b"gpt-4".to_vec(),
                 None,
             ),
             (
-                "media:llm-generation-request;json;record".to_string(),
+                "media:fmt=json;llm-generation-request;record".to_string(),
                 b"{\"prompt\":\"test\"}".to_vec(),
                 None,
             ),
             (
-                "media:temperature;textable;numeric".to_string(),
+                "media:numeric;temperature".to_string(),
                 b"0.7".to_vec(),
                 None,
             ),
         ];
-        let found = super::find_stream(&streams, "media:llm-generation-request;json;record");
+        let found = super::find_stream(&streams, "media:fmt=json;llm-generation-request;record");
         assert!(found.is_some());
         assert_eq!(found.unwrap(), b"{\"prompt\":\"test\"}");
     }
@@ -8524,8 +8524,8 @@ mod tests {
     // TEST682: require_stream_str returns UTF-8 string for text data
     #[test]
     fn test682_require_stream_str_returns_utf8() {
-        let streams = vec![("media:textable".to_string(), b"hello world".to_vec(), None)];
-        let result = super::require_stream_str(&streams, "media:textable");
+        let streams = vec![("media:enc=utf-8".to_string(), b"hello world".to_vec(), None)];
+        let result = super::require_stream_str(&streams, "media:enc=utf-8");
         assert_eq!(result.unwrap(), "hello world");
     }
 

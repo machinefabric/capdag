@@ -603,18 +603,18 @@ mod tests {
 
     fn extract_cap_def() -> crate::cap::definition::Cap {
         build_cap(
-            "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+            "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"",
             "extract",
-            &["media:pdf"],
-            "media:textable;txt",
+            &["media:ext=pdf"],
+            "media:enc=utf-8;ext=txt",
         )
     }
 
     fn embed_cap_def() -> crate::cap::definition::Cap {
         build_cap(
-            "cap:in=media:textable;embed;out=\"media:vec;record\"",
+            "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\"",
             "embed",
-            &["media:textable"],
+            &["media:enc=utf-8"],
             "media:vec;record",
         )
     }
@@ -622,10 +622,10 @@ mod tests {
     fn pdf_to_txt_strand() -> crate::planner::Strand {
         strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+                "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"",
                 "extract",
-                "media:pdf",
-                "media:textable;txt",
+                "media:ext=pdf",
+                "media:enc=utf-8;ext=txt",
             )],
             "pdf to txt",
         )
@@ -634,9 +634,9 @@ mod tests {
     fn txt_to_vec_strand() -> crate::planner::Strand {
         strand_from_steps(
             vec![cap_step(
-                "cap:in=media:textable;embed;out=\"media:vec;record\"",
+                "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\"",
                 "embed",
-                "media:textable;txt",
+                "media:enc=utf-8;ext=txt",
                 "media:vec;record",
             )],
             "txt to vec",
@@ -673,7 +673,7 @@ mod tests {
     #[test]
     fn test1156_from_strands_keeps_strands_disjoint() {
         // Two strands, each with one cap. Even though both
-        // touch `media:txt;textable` (one as input, one as
+        // touch `media:enc=utf-8;ext=txt` (one as input, one as
         // output), `from_strands` does NOT join them — that's
         // the contract: programmatic construction never
         // creates crossings.
