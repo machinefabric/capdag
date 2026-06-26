@@ -505,7 +505,7 @@ impl MediaUrn {
     /// - Empty input → `media:` (universal type)
     /// - Single input → returned as-is
     /// - `[media:ext=pdf, media:ext=pdf]` → `media:ext=pdf`
-    /// - `[media:ext=pdf, media:image;png]` → `media:` (no common tags)
+    /// - `[media:ext=pdf, media:ext=png;image]` → `media:` (no common tags)
     /// - `[media:fmt=json, media:fmt=csv]` → `media:enc=utf-8`
     /// - `[media:fmt=json;list, media:fmt=json]` → `media:fmt=json`
     pub fn least_upper_bound(urns: &[MediaUrn]) -> MediaUrn {
@@ -1233,7 +1233,7 @@ mod debug_tests {
         assert!(MediaUrn::from_string("media:image;thumbnail")
             .unwrap()
             .is_image());
-        assert!(MediaUrn::from_string("media:image;jpg").unwrap().is_image());
+        assert!(MediaUrn::from_string("media:ext=jpg;image").unwrap().is_image());
         // Non-image types
         assert!(!MediaUrn::from_string(MEDIA_PDF).unwrap().is_image());
         assert!(!MediaUrn::from_string(MEDIA_STRING).unwrap().is_image());

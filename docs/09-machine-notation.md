@@ -288,7 +288,7 @@ One strand. The `LOOP` marker on the second wiring sets `is_loop = true` on the 
 ```
 [meta cap:in="media:ext=pdf";extract-metadata;out="media:file-metadata;fmt=json;record"]
 [outline cap:in="media:ext=pdf";extract-outline;out="media:document-outline;fmt=json;record"]
-[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"]
+[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]
 [doc -> meta -> metadata]
 [doc -> outline -> outline_data]
 [doc -> thumb -> thumbnail]
@@ -299,15 +299,15 @@ One strand. All three wirings share the source `doc`, so they are connected (one
 ### 13.4 Fan-in
 
 ```
-[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"]
+[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]
 [model_dl cap:in="media:model-spec;enc=utf-8";download;out="media:model-spec;enc=utf-8"]
-[describe cap:in="media:image;png";describe-image;out="media:image-description;enc=utf-8"]
+[describe cap:in="media:ext=png;image";describe-image;out="media:image-description;enc=utf-8"]
 [doc -> thumb -> thumbnail]
 [spec_input -> model_dl -> model_spec]
 [(thumbnail, model_spec) -> describe -> description]
 ```
 
-The `describe` cap declares two args in its definition: `media:image;png` and `media:model-spec;enc=utf-8`. The fan-in wiring `(thumbnail, model_spec) -> describe -> description` provides two source URNs. The resolver's bipartite matching pairs `thumbnail` (URN: `media:image;png;thumbnail`) with the `media:image;png` arg (it conforms) and `model_spec` (URN: `media:model-spec;enc=utf-8`) with the `media:model-spec;enc=utf-8` arg. The resulting edge has two `EdgeAssignmentBinding`s.
+The `describe` cap declares two args in its definition: `media:ext=png;image` and `media:model-spec;enc=utf-8`. The fan-in wiring `(thumbnail, model_spec) -> describe -> description` provides two source URNs. The resolver's bipartite matching pairs `thumbnail` (URN: `media:ext=png;image;thumbnail`) with the `media:ext=png;image` arg (it conforms) and `model_spec` (URN: `media:model-spec;enc=utf-8`) with the `media:model-spec;enc=utf-8` arg. The resulting edge has two `EdgeAssignmentBinding`s.
 
 If the `describe` cap had declared only one arg, the resolver would fail with `UnmatchedSourceInCapArgs` for the second source.
 

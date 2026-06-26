@@ -254,7 +254,7 @@ Result: NOT DISPATCHABLE
 ### 6.3 Incompatible Types
 
 ```
-Request:  cap:in="media:ext=pdf";convert;out="media:html"
+Request:  cap:in="media:ext=pdf";convert;out="media:ext=html"
 Provider: cap:in="media:image";convert;out="media:enc=utf-8"
 
 Input:  i_r=media:ext=pdf, i_p=media:image

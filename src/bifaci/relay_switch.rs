@@ -4471,7 +4471,7 @@ mod tests {
         // Request with INCOMPATIBLE input should NOT match (different type family)
         let req3 = Frame::req(
             MessageId::Uint(3),
-            "cap:in=\"media:image;png\";process;out=\"media:text\"",
+            "cap:in=\"media:ext=png;image\";process;out=\"media:text\"",
             vec![],
             "text/plain",
         );
@@ -4499,7 +4499,7 @@ mod tests {
         let (engine_sock1, slave_sock1) = UnixStream::pair().unwrap();
 
         // Master 0: generic thumbnail handler (like internal ThumbnailProvider)
-        let generic_cap = "cap:in=media:;generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let generic_cap = "cap:in=media:;generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock0,
@@ -4511,7 +4511,7 @@ mod tests {
 
         // Master 1: specific thumbnail handler (like pdfcartridge)
         let specific_cap =
-            "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock1,
@@ -4529,7 +4529,7 @@ mod tests {
         .unwrap();
 
         // Specific request for PDF thumbnail
-        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
 
         // Without preference: routes to master 1 (specific, closest-specificity)
         assert_eq!(switch.find_master_for_cap(request, None).await, Some(1));
@@ -4557,7 +4557,7 @@ mod tests {
 
         // Master 0: only has a specific cap
         let registered =
-            "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock,
@@ -4574,11 +4574,11 @@ mod tests {
         .await
         .unwrap();
 
-        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
 
         // Preference for an unrelated cap — no equivalent match, falls back to closest-specificity
         let unrelated =
-            "cap:in=\"media:enc=utf-8;ext=txt\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:enc=utf-8;ext=txt\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
         assert_eq!(
             switch.find_master_for_cap(request, Some(unrelated)).await,
             Some(0)
@@ -4596,7 +4596,7 @@ mod tests {
         let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
 
         // Master 0: only generic handler (in=media: wildcard)
-        let generic_cap = "cap:in=media:;generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let generic_cap = "cap:in=media:;generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock,
@@ -4615,7 +4615,7 @@ mod tests {
 
         // Specific PDF request — generic handler CAN dispatch it
         // because provider's wildcard input (media:) accepts any input type
-        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
         assert_eq!(
             switch.find_master_for_cap(request, None).await,
             Some(0),

@@ -259,7 +259,7 @@ Tagged URNs with the same prefix form a **partial order** (specialization order)
                 /         \
        media:ext=pdf          media:image
            |                   |
-   media:pdf;v=2.0      media:image;png
+   media:pdf;v=2.0      media:ext=png;image
            |
 media:pdf;v=2.0;compressed              (more specific)
 ```

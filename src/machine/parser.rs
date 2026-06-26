@@ -665,15 +665,15 @@ mod tests {
             "media:fmt=csv",
         );
         let convert_b = build_cap(
-            "cap:convert-b;in=media:html;out=\"media:ext=txt\"",
+            "cap:convert-b;in=\"media:ext=html\";out=\"media:ext=txt\"",
             "convert_b",
-            &["media:html"],
+            &["media:ext=html"],
             "media:ext=txt",
         );
         let registry = registry_with(vec![convert_a, convert_b]);
         let notation = "\
 [ca cap:convert-a;in=\"media:fmt=json\";out=\"media:fmt=csv\"]\
-[cb cap:convert-b;in=media:html;out=\"media:ext=txt\"]\
+[cb cap:convert-b;in=\"media:ext=html\";out=\"media:ext=txt\"]\
 [input_a -> ca -> output_a]\
 [input_b -> cb -> output_b]";
         let machine = parse_machine(notation, &registry).expect("must parse");

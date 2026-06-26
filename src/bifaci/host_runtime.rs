@@ -4800,7 +4800,7 @@ mod tests {
         let mut runtime = CartridgeHostRuntime::new();
         let cap_groups = cap_groups_from_urns(&[
             CAP_IDENTITY,
-            "cap:in=\"media:ext=pdf\";thumbnail;out=\"media:image;png\"",
+            "cap:in=\"media:ext=pdf\";thumbnail;out=\"media:ext=png;image\"",
         ]);
         runtime.register_cartridge(
             &bin_path,
@@ -4816,7 +4816,7 @@ mod tests {
         assert_eq!(runtime.cap_table[0].0, CAP_IDENTITY);
         assert_eq!(
             runtime.cap_table[1].0,
-            "cap:in=\"media:ext=pdf\";out=\"media:image;png\";thumbnail"
+            "cap:in=\"media:ext=pdf\";out=\"media:ext=png;image\";thumbnail"
         );
 
         // Build capabilities (no outbound_tx, so no RelayNotify sent).

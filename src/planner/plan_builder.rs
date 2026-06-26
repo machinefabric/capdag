@@ -903,7 +903,7 @@ mod tests {
     fn test994_input_arg_first_cap_auto_resolved_from_input() {
         let builder = create_test_plan_builder();
         let in_spec = "media:ext=pdf";
-        let out_spec = "media:image;png";
+        let out_spec = "media:ext=png;image";
         let resolution =
             builder.determine_resolution_with_io_check(in_spec, in_spec, out_spec, 0, true, &None);
         assert_eq!(resolution, ArgumentResolution::FromInputFile);
@@ -915,7 +915,7 @@ mod tests {
     fn test995_input_arg_subsequent_cap_auto_resolved_from_previous() {
         let builder = create_test_plan_builder();
         let in_spec = "media:ext=pdf";
-        let out_spec = "media:image;png";
+        let out_spec = "media:ext=png;image";
 
         let resolution =
             builder.determine_resolution_with_io_check(in_spec, in_spec, out_spec, 1, true, &None);
@@ -932,7 +932,7 @@ mod tests {
     fn test996_output_arg_auto_resolved() {
         let builder = create_test_plan_builder();
         let in_spec = "media:ext=pdf";
-        let out_spec = "media:image;png";
+        let out_spec = "media:ext=png;image";
         let resolution =
             builder.determine_resolution_with_io_check(out_spec, in_spec, out_spec, 0, true, &None);
         assert_eq!(resolution, ArgumentResolution::FromPreviousOutput);
@@ -944,7 +944,7 @@ mod tests {
     fn test997_file_path_type_fallback_first_cap() {
         let builder = create_test_plan_builder();
         let in_spec = "media:ext=pdf";
-        let out_spec = "media:image;png";
+        let out_spec = "media:ext=png;image";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_FILE_PATH,
             in_spec,
@@ -962,7 +962,7 @@ mod tests {
     fn test998_file_path_type_fallback_subsequent_cap() {
         let builder = create_test_plan_builder();
         let in_spec = "media:ext=pdf";
-        let out_spec = "media:image;png";
+        let out_spec = "media:ext=png;image";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_FILE_PATH,
             in_spec,
@@ -981,7 +981,7 @@ mod tests {
         let builder = create_test_plan_builder();
         let default = Some(serde_json::json!(200));
         let in_spec = "media:ext=pdf";
-        let out_spec = "media:image;png";
+        let out_spec = "media:ext=png;image";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_INTEGER,
             in_spec,
@@ -999,7 +999,7 @@ mod tests {
     fn test1012_non_io_arg_without_default_requires_user_input() {
         let builder = create_test_plan_builder();
         let in_spec = "media:ext=pdf";
-        let out_spec = "media:image;png";
+        let out_spec = "media:ext=png;image";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_STRING,
             in_spec,
@@ -1018,7 +1018,7 @@ mod tests {
         let builder = create_test_plan_builder();
         let default = Some(serde_json::json!(300));
         let in_spec = "media:ext=pdf";
-        let out_spec = "media:image;png";
+        let out_spec = "media:ext=png;image";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_INTEGER,
             in_spec,
@@ -1036,7 +1036,7 @@ mod tests {
     fn test1015_optional_non_io_arg_without_default_requires_user_input() {
         let builder = create_test_plan_builder();
         let in_spec = "media:ext=pdf";
-        let out_spec = "media:image;png";
+        let out_spec = "media:ext=png;image";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_BOOLEAN,
             in_spec,
@@ -1114,7 +1114,7 @@ mod tests {
     fn test768_path_argument_requirements_structure() {
         let requirements = PathArgumentRequirements {
             source_media_urn: "media:ext=pdf".to_string(),
-            target_media_urn: "media:image;png".to_string(),
+            target_media_urn: "media:ext=png;image".to_string(),
             steps: vec![StepArgumentRequirements {
                 cap_urn: "cap:generate-thumbnail;in=pdf;out=png".to_string(),
                 step_index: 0,

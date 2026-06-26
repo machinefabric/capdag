@@ -2471,11 +2471,11 @@ mod tests {
         // A cap accepting media: (generic wildcard) should match a request with media:ext=pdf (specific)
         // because media:ext=pdf has the media: wildcard pattern (accepts everything)
         let generic_cap = CapUrn::from_string(
-            "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:;out=\"media:ext=png;image;thumbnail\"",
         )
         .unwrap();
         let pdf_request = CapUrn::from_string(
-            "cap:generate_thumbnail;in=\"media:ext=pdf\";out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=\"media:ext=pdf\";out=\"media:ext=png;image;thumbnail\"",
         )
         .unwrap();
         assert!(
@@ -2485,7 +2485,7 @@ mod tests {
 
         // Generic cap also matches epub (any media subtype)
         let epub_request = CapUrn::from_string(
-            "cap:generate_thumbnail;in=media:epub;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:epub;out=\"media:ext=png;image;thumbnail\"",
         )
         .unwrap();
         assert!(
@@ -2496,11 +2496,11 @@ mod tests {
         // Reverse: specific cap does NOT match generic request
         // A pdf-only handler cannot accept arbitrary bytes
         let pdf_cap = CapUrn::from_string(
-            "cap:generate_thumbnail;in=\"media:ext=pdf\";out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=\"media:ext=pdf\";out=\"media:ext=png;image;thumbnail\"",
         )
         .unwrap();
         let generic_request = CapUrn::from_string(
-            "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:;out=\"media:ext=png;image;thumbnail\"",
         )
         .unwrap();
         assert!(
@@ -2516,7 +2516,7 @@ mod tests {
 
         // Output direction: cap producing more specific output matches less specific request
         let specific_out_cap = CapUrn::from_string(
-            "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:;out=\"media:ext=png;image;thumbnail\"",
         )
         .unwrap();
         let generic_out_request =
@@ -2530,7 +2530,7 @@ mod tests {
         let generic_out_cap =
             CapUrn::from_string("cap:generate_thumbnail;in=media:;out=media:image").unwrap();
         let specific_out_request = CapUrn::from_string(
-            "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:;out=\"media:ext=png;image;thumbnail\"",
         )
         .unwrap();
         assert!(
@@ -2546,26 +2546,26 @@ mod tests {
     #[test]
     fn test891_direction_semantic_specificity() {
         let generic_cap = CapUrn::from_string(
-            "cap:generate_thumbnail;in=media:;out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=media:;out=\"media:ext=png;image;thumbnail\"",
         )
         .unwrap();
         let specific_cap = CapUrn::from_string(
-            "cap:generate_thumbnail;in=\"media:ext=pdf\";out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=\"media:ext=pdf\";out=\"media:ext=png;image;thumbnail\"",
         )
         .unwrap();
 
         // generic:
-        //   out=media:image;png;thumbnail -> 2 + 2 + 2 = 6
+        //   out=media:ext=png;image;thumbnail -> 4 (ext=png exact-value) + 2 + 2 = 8
         //   in=media:                     -> 0
         //   y: generate_thumbnail marker  -> 2
-        //   spec_C = 10_000*6 + 100*0 + 2 = 60002
-        assert_eq!(generic_cap.specificity(), 10_000 * 6 + 100 * 0 + 2);
+        //   spec_C = 10_000*8 + 100*0 + 2 = 80002
+        assert_eq!(generic_cap.specificity(), 10_000 * 8 + 100 * 0 + 2);
         // specific:
-        //   out=media:image;png;thumbnail -> 6
+        //   out=media:ext=png;image;thumbnail -> 8
         //   in=media:ext=pdf              -> 4 (ext=pdf is an exact-value tag, not a bare marker)
         //   y: generate_thumbnail marker  -> 2
-        //   spec_C = 10_000*6 + 100*4 + 2 = 60402
-        assert_eq!(specific_cap.specificity(), 10_000 * 6 + 100 * 4 + 2);
+        //   spec_C = 10_000*8 + 100*4 + 2 = 80402
+        assert_eq!(specific_cap.specificity(), 10_000 * 8 + 100 * 4 + 2);
 
         assert!(
             specific_cap.specificity() > generic_cap.specificity(),
@@ -2574,7 +2574,7 @@ mod tests {
 
         // CapMatcher should prefer the more specific cap when both match
         let pdf_request = CapUrn::from_string(
-            "cap:generate_thumbnail;in=\"media:ext=pdf\";out=\"media:image;png;thumbnail\"",
+            "cap:generate_thumbnail;in=\"media:ext=pdf\";out=\"media:ext=png;image;thumbnail\"",
         )
         .unwrap();
         let caps = vec![generic_cap.clone(), specific_cap.clone()];
@@ -2766,7 +2766,7 @@ fn test653_effect_none_illegal_declaration_rejected() {
 #[test]
 fn test0125_effect_none_preserves_runtime_media() {
     let decimate = CapUrn::from_string("cap:decimate-sequence;effect=none").unwrap();
-    let png = MediaUrn::from_string("media:image;png").unwrap();
+    let png = MediaUrn::from_string("media:ext=png;image").unwrap();
     let pdf = MediaUrn::from_string("media:ext=pdf").unwrap();
     assert_eq!(
         decimate

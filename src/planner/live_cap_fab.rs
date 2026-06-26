@@ -1728,7 +1728,7 @@ mod tests {
         graph.add_cap(&pdf_to_text);
 
         // Try to find path from PNG (not PDF)
-        let source = MediaUrn::from_string("media:image;png").unwrap();
+        let source = MediaUrn::from_string("media:ext=png;image").unwrap();
         let target = MediaUrn::from_string("media:enc=utf-8").unwrap();
 
         let paths = graph.find_paths_to_exact_target(&source, &target, false, 5, 10);
@@ -1747,7 +1747,7 @@ mod tests {
 
         // Only add PNG->thumbnail cap
         let png_to_thumb = make_test_cap(
-            "media:image;png",
+            "media:ext=png;image",
             "media:thumbnail",
             "png2thumb",
             "PNG to Thumbnail",
@@ -1774,7 +1774,7 @@ mod tests {
 
         let pdf_to_text = make_test_cap("media:ext=pdf", "media:enc=utf-8", "pdf2text", "PDF to Text");
         let png_to_thumb = make_test_cap(
-            "media:image;png",
+            "media:ext=png;image",
             "media:thumbnail",
             "png2thumb",
             "PNG to Thumbnail",
@@ -1785,7 +1785,7 @@ mod tests {
         graph.set_bookends(&all_bookends(&[pdf_to_text.clone(), png_to_thumb.clone()]));
 
         // PNG should reach thumbnail (cap target) but NOT textable (PDF-only cap)
-        let png_source = MediaUrn::from_string("media:image;png").unwrap();
+        let png_source = MediaUrn::from_string("media:ext=png;image").unwrap();
         let png_targets = graph.get_reachable_targets(&png_source, false, 5);
         let media_thumbnail = MediaUrn::from_string("media:thumbnail").unwrap();
         let media_textable = MediaUrn::from_string("media:enc=utf-8").unwrap();
@@ -1826,7 +1826,7 @@ mod tests {
         let mut graph = LiveCapFab::new();
 
         let resize_png = make_test_cap(
-            "media:image;png",
+            "media:ext=png;image",
             "media:resized-png",
             "resize",
             "Resize PNG",
@@ -1842,7 +1842,7 @@ mod tests {
         graph.add_cap(&to_thumb);
 
         // PNG should find path through resized-png to thumbnail
-        let png_source = MediaUrn::from_string("media:image;png").unwrap();
+        let png_source = MediaUrn::from_string("media:ext=png;image").unwrap();
         let thumb_target = MediaUrn::from_string("media:thumbnail").unwrap();
         let png_paths = graph.find_paths_to_exact_target(&png_source, &thumb_target, false, 5, 10);
         assert_eq!(

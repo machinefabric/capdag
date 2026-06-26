@@ -610,7 +610,7 @@ mod tests {
     // Verifies Single input and Single output result in OneToOne pattern
     #[test]
     fn test697_cap_shape_info_one_to_one() {
-        let info = CapShapeInfo::from_cap_specs("cap:test", "media:ext=pdf", "media:image;png");
+        let info = CapShapeInfo::from_cap_specs("cap:test", "media:ext=pdf", "media:ext=png;image");
         assert_eq!(info.input.cardinality, InputCardinality::Single);
         assert_eq!(info.output.cardinality, InputCardinality::Single);
         assert_eq!(info.cardinality_pattern(), CardinalityPattern::OneToOne);
@@ -621,7 +621,7 @@ mod tests {
     // The list tag is a semantic type property, not a cardinality indicator.
     #[test]
     fn test698_cap_shape_info_cardinality_always_single_from_urn() {
-        let info = CapShapeInfo::from_cap_specs("cap:pdf-to-pages", "media:ext=pdf", "media:list;png");
+        let info = CapShapeInfo::from_cap_specs("cap:pdf-to-pages", "media:ext=pdf", "media:ext=png;list");
         assert_eq!(info.input.cardinality, InputCardinality::Single);
         assert_eq!(info.output.cardinality, InputCardinality::Single);
         assert_eq!(info.cardinality_pattern(), CardinalityPattern::OneToOne);
@@ -682,8 +682,8 @@ mod tests {
     #[test]
     fn test711_strand_shape_analysis_simple_linear() {
         let infos = vec![
-            CapShapeInfo::from_cap_specs("cap:pdf-to-png", "media:ext=pdf", "media:image;png"),
-            CapShapeInfo::from_cap_specs("cap:resize", "media:image;png", "media:image;png"),
+            CapShapeInfo::from_cap_specs("cap:pdf-to-png", "media:ext=pdf", "media:ext=png;image"),
+            CapShapeInfo::from_cap_specs("cap:resize", "media:ext=png;image", "media:ext=png;image"),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
         assert!(analysis.is_valid);
@@ -699,11 +699,11 @@ mod tests {
             CapShapeInfo::from_cap_specs_with_sequence(
                 "cap:pdf-to-pages",
                 "media:ext=pdf",
-                "media:image;png",
+                "media:ext=png;image",
                 false,
                 true,
             ),
-            CapShapeInfo::from_cap_specs("cap:thumbnail", "media:image;png", "media:image;png"),
+            CapShapeInfo::from_cap_specs("cap:thumbnail", "media:ext=png;image", "media:ext=png;image"),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
         assert!(analysis.is_valid);
@@ -975,8 +975,8 @@ mod tests {
     #[test]
     fn test750_strand_shape_valid() {
         let infos = vec![
-            CapShapeInfo::from_cap_specs("cap:resize", "media:image;png", "media:image;png"),
-            CapShapeInfo::from_cap_specs("cap:compress", "media:image;png", "media:image;png"),
+            CapShapeInfo::from_cap_specs("cap:resize", "media:ext=png;image", "media:ext=png;image"),
+            CapShapeInfo::from_cap_specs("cap:compress", "media:ext=png;image", "media:ext=png;image"),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
         assert!(analysis.is_valid);
