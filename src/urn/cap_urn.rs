@@ -47,9 +47,9 @@ use crate::urn::media_urn::{MediaUrn, MediaUrnError, MEDIA_IDENTITY, MEDIA_OBJEC
 /// - `cap:passthrough` — Transform (specifies the operation, even
 ///   though in/out are unconstrained)
 /// - `cap:in=media:void;out=media:model-artifact;warm` — Source
-/// - `cap:in=media:json;out=media:void;log` — Sink
+/// - `cap:in="media:fmt=json";out="media:ext=log";void` — Sink
 /// - `cap:in=media:void;out=media:void;ping` — Effect (health check)
-/// - `cap:in=media:pdf;out=media:textable;extract` — Transform
+/// - `cap:in=media:ext=pdf;out="media:enc=utf-8";extract` — Transform
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CapKind {
     /// `media:` → `media:` with `effect=none` and no other tags.
@@ -2757,7 +2757,7 @@ fn test652_wildcard_014_cap_identity_constant_works() {
 #[test]
 fn test653_effect_none_illegal_declaration_rejected() {
     assert!(matches!(
-        CapUrn::from_string("cap:in=media:pdf;out=media:enc=utf-8;effect=none"),
+        CapUrn::from_string("cap:in=media:pdf;out=\"media:enc=utf-8\";effect=none"),
         Err(CapUrnError::IllegalDeclaration(_))
     ));
 }
@@ -2799,7 +2799,7 @@ fn test0126_effect_declared_uses_declared_output() {
 #[test]
 fn test0127_invalid_effect_none_fails_hard() {
     assert!(matches!(
-        CapUrn::from_string("cap:in=media:pdf;out=media:enc=utf-8;effect=none"),
+        CapUrn::from_string("cap:in=media:pdf;out=\"media:enc=utf-8\";effect=none"),
         Err(CapUrnError::IllegalDeclaration(_))
     ));
 }
@@ -2861,9 +2861,9 @@ mod tier_tests {
         // Chain both
         let changed_both = cap
             .with_in_spec("media:pdf".to_string())
-            .with_out_spec("media:enc=utf-8;txt".to_string());
+            .with_out_spec("media:enc=utf-8;ext=txt".to_string());
         assert_eq!(changed_both.in_spec(), "media:pdf");
-        assert_eq!(changed_both.out_spec(), "media:enc=utf-8;txt");
+        assert_eq!(changed_both.out_spec(), "media:enc=utf-8;ext=txt");
 
         let identity = CapUrn::from_string("cap:effect=none").unwrap();
         let illegal = std::panic::catch_unwind(|| identity.with_out_spec("media:pdf".to_string()));
@@ -2877,21 +2877,21 @@ mod tier_tests {
     #[test]
     fn test561_in_out_media_urn() {
         let cap =
-            CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:enc=utf-8;txt""#).unwrap();
+            CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out="media:enc=utf-8;ext=txt""#).unwrap();
 
         let in_urn = cap
             .in_media_urn()
             .expect("in_spec should parse as MediaUrn");
-        // pdf input declares no text encoding (no enc= tag).
+        // pdf file input declares no text encoding (no enc= tag).
         assert!(in_urn.get_tag("enc").is_none());
-        assert!(in_urn.has_tag("pdf", "*"));
+        assert!(in_urn.has_tag("ext", "pdf"));
 
         let out_urn = cap
             .out_media_urn()
             .expect("out_spec should parse as MediaUrn");
-        // extracted-text output is text-representable (enc=utf-8).
+        // extracted-text output is a UTF-8 text file (enc=utf-8;ext=txt).
         assert!(out_urn.get_tag("enc").is_some());
-        assert!(out_urn.has_tag("txt", "*"));
+        assert!(out_urn.has_tag("ext", "txt"));
 
         // Wildcard media: fails to parse (no tags, just prefix)
         let wildcard_cap = CapUrn::from_string("cap:raw").unwrap();
@@ -3086,7 +3086,7 @@ mod tier_tests {
         let provider =
             CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:enc=utf-8;record""#).unwrap();
         let request =
-            CapUrn::from_string(r#"cap:extract;in=media:pdf;out=media:enc=utf-8"#).unwrap();
+            CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:enc=utf-8""#).unwrap();
         assert!(
             provider.is_dispatchable(&request),
             "Provider output enc=utf-8;record conforms to request output enc=utf-8"
@@ -3178,7 +3178,7 @@ mod tier_tests {
     fn test832_dispatch_asymmetric() {
         let broad =
             CapUrn::from_string(r#"cap:in=media:;out="media:enc=utf-8;record";process"#).unwrap();
-        let narrow = CapUrn::from_string(r#"cap:in=media:pdf;out=media:enc=utf-8;process"#).unwrap();
+        let narrow = CapUrn::from_string(r#"cap:in=media:pdf;out="media:enc=utf-8";process"#).unwrap();
         // broad provider CAN dispatch narrow request:
         //   input:  provider in=media: accepts anything → OK
         //   output: provider out=media:enc=utf-8;record conforms to request out=media:enc=utf-8 → OK
@@ -3193,7 +3193,7 @@ mod tier_tests {
     // TEST833: is_comparable — both directions checked
     #[test]
     fn test833_comparable_symmetric() {
-        let a = CapUrn::from_string(r#"cap:extract;in=media:pdf;out=media:enc=utf-8"#).unwrap();
+        let a = CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:enc=utf-8""#).unwrap();
         let b =
             CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:enc=utf-8;record""#).unwrap();
         assert!(a.is_comparable(&b));
@@ -3203,7 +3203,7 @@ mod tier_tests {
     // TEST834: is_comparable — unrelated caps are NOT comparable
     #[test]
     fn test834_comparable_unrelated() {
-        let a = CapUrn::from_string(r#"cap:extract;in=media:pdf;out=media:enc=utf-8"#).unwrap();
+        let a = CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:enc=utf-8""#).unwrap();
         let b = CapUrn::from_string(r#"cap:in=media:audio;out="media:enc=utf-8;record";transcribe"#)
             .unwrap();
         assert!(!a.is_comparable(&b));
@@ -3224,7 +3224,7 @@ mod tier_tests {
     // TEST836: is_equivalent — non-equivalent comparable caps
     #[test]
     fn test836_equivalent_non_equivalent() {
-        let a = CapUrn::from_string(r#"cap:extract;in=media:pdf;out=media:enc=utf-8"#).unwrap();
+        let a = CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:enc=utf-8""#).unwrap();
         let b =
             CapUrn::from_string(r#"cap:extract;in=media:pdf;out="media:enc=utf-8;record""#).unwrap();
         assert!(a.is_comparable(&b));
@@ -3311,7 +3311,7 @@ mod tier_tests {
         // non-void, and that pairing with in=void is a Source. (The
         // protocol does not privilege out=media: here; the
         // classifier looks for `void` specifically.)
-        let generator = CapUrn::from_string("cap:in=media:void;out=media:enc=utf-8").unwrap();
+        let generator = CapUrn::from_string("cap:in=media:void;out=\"media:enc=utf-8\"").unwrap();
         assert_eq!(generator.kind().unwrap(), CapKind::Source);
     }
 
@@ -3371,14 +3371,14 @@ mod tier_tests {
             ),
             // Transform — quoted vs unquoted single-tag media URN.
             (
-                "cap:extract;in=media:pdf;out=media:enc=utf-8",
+                "cap:extract;in=media:pdf;out=\"media:enc=utf-8\"",
                 r#"cap:extract;in="media:pdf";out="media:enc=utf-8""#,
                 CapKind::Transform,
             ),
             // Source — segment order at parse time must not change kind.
             (
-                "cap:in=media:void;out=media:enc=utf-8;warm",
-                "cap:warm;out=media:enc=utf-8;in=media:void",
+                "cap:in=media:void;out=\"media:enc=utf-8\";warm",
+                "cap:warm;out=\"media:enc=utf-8\";in=media:void",
                 CapKind::Source,
             ),
         ];

@@ -474,18 +474,18 @@ mod tests {
 
     fn extract_cap_def() -> crate::cap::definition::Cap {
         build_cap(
-            "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+            "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"",
             "extract",
-            &["media:pdf"],
-            "media:textable;txt",
+            &["media:ext=pdf"],
+            "media:enc=utf-8;ext=txt",
         )
     }
 
     fn embed_cap_def() -> crate::cap::definition::Cap {
         build_cap(
-            "cap:in=media:textable;embed;out=\"media:vec;record\"",
+            "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\"",
             "embed",
-            &["media:textable"],
+            &["media:enc=utf-8"],
             "media:vec;record",
         )
     }
@@ -494,15 +494,15 @@ mod tests {
         strand_from_steps(
             vec![
                 cap_step(
-                    "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+                    "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"",
                     "extract",
-                    "media:pdf",
-                    "media:textable;txt",
+                    "media:ext=pdf",
+                    "media:enc=utf-8;ext=txt",
                 ),
                 cap_step(
-                    "cap:in=media:textable;embed;out=\"media:vec;record\"",
+                    "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\"",
                     "embed",
-                    "media:textable;txt",
+                    "media:enc=utf-8;ext=txt",
                     "media:vec;record",
                 ),
             ],
@@ -586,7 +586,7 @@ mod tests {
         let registry = registry_with(vec![extract_cap_def(), embed_cap_def()]);
         seed_media_titles(
             &registry,
-            &["media:pdf", "media:textable;txt", "media:vec;record"],
+            &["media:ext=pdf", "media:enc=utf-8;ext=txt", "media:vec;record"],
         );
         let machine = Machine::from_strand(&pdf_to_vec_strand(), &registry).unwrap();
         let payload = machine.to_render_payload_json(&registry).unwrap();
@@ -603,7 +603,7 @@ mod tests {
         assert!(payload.contains("extract"));
         assert!(payload.contains("embed"));
         // Titles should appear on nodes and edges.
-        assert!(payload.contains("\"title\":\"Title for media:pdf\""));
+        assert!(payload.contains("\"title\":\"Title for media:ext=pdf\""));
         assert!(payload.contains("\"title\":\"extract\""));
         assert!(payload.contains("\"title\":\"embed\""));
     }
@@ -623,28 +623,28 @@ mod tests {
     #[test]
     fn test1137_two_strand_machine_serializes_to_notation_containing_both_ops() {
         let caption_cap = build_cap(
-            "cap:in=media:image;caption;out=\"media:textable;txt\"",
+            "cap:in=media:image;caption;out=\"media:enc=utf-8;ext=txt\"",
             "caption",
             &["media:image"],
-            "media:textable;txt",
+            "media:enc=utf-8;ext=txt",
         );
         let registry = registry_with(vec![extract_cap_def(), caption_cap]);
 
         let extract_strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:pdf;extract;out=\"media:textable;txt\"",
+                "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"",
                 "extract",
-                "media:pdf",
-                "media:textable;txt",
+                "media:ext=pdf",
+                "media:enc=utf-8;ext=txt",
             )],
             "extract strand",
         );
         let caption_strand = strand_from_steps(
             vec![cap_step(
-                "cap:in=media:image;caption;out=\"media:textable;txt\"",
+                "cap:in=media:image;caption;out=\"media:enc=utf-8;ext=txt\"",
                 "caption",
                 "media:image",
-                "media:textable;txt",
+                "media:enc=utf-8;ext=txt",
             )],
             "caption strand",
         );

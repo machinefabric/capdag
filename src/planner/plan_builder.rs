@@ -764,19 +764,19 @@ mod tests {
             make_test_cap(
                 "extract_metadata",
                 "media:pdf",
-                "media:file-metadata;textable;record",
+                "media:enc=utf-8;file-metadata;record",
                 "Extract Metadata",
             )?,
             make_test_cap(
                 "extract_outline",
                 "media:pdf",
-                "media:document-outline;textable;record",
+                "media:document-outline;enc=utf-8;record",
                 "Extract Outline",
             )?,
             make_test_cap(
                 "disbind",
                 "media:pdf",
-                "media:disbound-pages;textable;list",
+                "media:disbound-pages;enc=utf-8;list",
                 "Disbind PDF",
             )?,
         ];
@@ -798,13 +798,13 @@ mod tests {
             make_test_cap(
                 "disbind",
                 "media:pdf",
-                "media:disbound-pages;textable;list",
+                "media:disbound-pages;enc=utf-8;list",
                 "Disbind PDF",
             )?,
             make_test_cap(
                 "disbind",
                 "media:pdf",
-                "media:disbound-pages;textable;list",
+                "media:disbound-pages;enc=utf-8;list",
                 "Disbind PDF Again",
             )?,
         ];
@@ -839,13 +839,13 @@ mod tests {
             make_test_cap(
                 "disbind",
                 "media:pdf",
-                "media:disbound-pages;textable;list",
+                "media:disbound-pages;enc=utf-8;list",
                 "Disbind",
             )?,
             make_test_cap(
                 "grind",
                 "media:pdf",
-                "media:disbound-pages;textable;list",
+                "media:disbound-pages;enc=utf-8;list",
                 "Grind",
             )?,
         ];
@@ -865,13 +865,13 @@ mod tests {
             make_test_cap(
                 "extract_metadata",
                 "media:pdf",
-                "media:file-metadata;textable;record",
+                "media:enc=utf-8;file-metadata;record",
                 "Extract PDF Metadata",
             )?,
             make_test_cap(
                 "extract_metadata",
-                "media:textable;txt",
-                "media:file-metadata;textable;record",
+                "media:enc=utf-8;ext=txt",
+                "media:enc=utf-8;file-metadata;record",
                 "Extract TXT Metadata",
             )?,
         ];
@@ -1215,10 +1215,10 @@ mod tests {
     ) -> Result<(), crate::urn::cap_urn::CapUrnError> {
         // Create two CapUrns with different tag ordering in the output media URN
         let urn1 = CapUrn::from_string(
-            "cap:in=media:pdf;extract-metadata;out=\"media:file-metadata;record;textable\"",
+            "cap:extract-metadata;in=\"media:ext=pdf\";out=\"media:enc=utf-8;file-metadata;record\"",
         )?;
         let urn2 = CapUrn::from_string(
-            "cap:in=media:pdf;extract-metadata;out=\"media:file-metadata;textable;record\"",
+            "cap:extract-metadata;in=\"media:ext=pdf\";out=\"media:enc=utf-8;file-metadata;record\"",
         )?;
 
         // After normalization, both should produce the same canonical string
@@ -1228,11 +1228,12 @@ mod tests {
             "URNs with different tag ordering should normalize to the same canonical form"
         );
 
-        // The canonical form should have tags in alphabetical order
+        // The canonical form should have tags in alphabetical order: the out
+        // media URN's tags normalize to `enc=utf-8;file-metadata;record`.
         let canonical = urn1.to_string();
         assert!(
-            canonical.contains("record;textable") || canonical.contains("textable;record"),
-            "Canonical form should contain the tags: {}",
+            canonical.contains("enc=utf-8;file-metadata;record"),
+            "Canonical form should contain the normalized out tags: {}",
             canonical
         );
 

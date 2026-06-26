@@ -1347,8 +1347,8 @@ mod tests {
     }
 
     fn make_test_cap_with_stdin_args(args: Vec<CapArg>) -> Cap {
-        // Uses in=media:textable — for tests where at least one arg has a stdin source.
-        let urn = CapUrn::from_string(r#"cap:in=media:textable;test;out="media:record""#).unwrap();
+        // Uses in=media:enc=utf-8 — for tests where at least one arg has a stdin source.
+        let urn = CapUrn::from_string(r#"cap:in="media:enc=utf-8";test;out="media:record""#).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
         for arg in args {
             cap.add_arg(arg);
@@ -1397,7 +1397,7 @@ mod tests {
                 MEDIA_STRING,
                 true,
                 vec![ArgSource::Stdin {
-                    stdin: "media:textable;txt".to_string(),
+                    stdin: "media:enc=utf-8;ext=txt".to_string(),
                 }],
             ),
             CapArg::new(
@@ -1422,14 +1422,14 @@ mod tests {
                 MEDIA_STRING,
                 true,
                 vec![ArgSource::Stdin {
-                    stdin: "media:textable;txt".to_string(),
+                    stdin: "media:enc=utf-8;ext=txt".to_string(),
                 }],
             ),
             CapArg::new(
                 MEDIA_INTEGER,
                 true,
                 vec![ArgSource::Stdin {
-                    stdin: "media:textable;txt".to_string(),
+                    stdin: "media:enc=utf-8;ext=txt".to_string(),
                 }],
             ),
         ]);
@@ -1604,7 +1604,7 @@ mod tests {
                 vec![
                     ArgSource::Position { position: 0 },
                     ArgSource::Stdin {
-                        stdin: "media:textable;txt".to_string(),
+                        stdin: "media:enc=utf-8;ext=txt".to_string(),
                     },
                 ],
             ),
@@ -1629,7 +1629,7 @@ mod tests {
             MEDIA_STRING,
             true,
             vec![ArgSource::Stdin {
-                stdin: "media:textable".to_string(),
+                stdin: "media:enc=utf-8".to_string(),
             }],
         )]);
         let result = validate_cap_args(&cap);
@@ -1645,7 +1645,7 @@ mod tests {
     // TEST0124: RULE11 - non-void-input cap without stdin source rejected
     #[test]
     fn test0124_rule11_non_void_input_without_stdin_rejected() {
-        let urn = CapUrn::from_string(r#"cap:in=media:textable;test;out="media:record""#).unwrap();
+        let urn = CapUrn::from_string(r#"cap:in="media:enc=utf-8";test;out="media:record""#).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
         cap.add_arg(CapArg::new(
             MEDIA_STRING,
@@ -1689,7 +1689,7 @@ mod tests {
             MEDIA_STRING,
             true,
             vec![ArgSource::Stdin {
-                stdin: "media:textable".to_string(),
+                stdin: "media:enc=utf-8".to_string(),
             }],
         )]);
         let result = validate_cap_args(&cap);

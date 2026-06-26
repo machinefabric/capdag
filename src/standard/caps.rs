@@ -79,14 +79,14 @@ pub const CAP_DISCARD: &str = "cap:in=media:;out=media:void";
 /// returns empty END (no match). Cartridges that inspect file content override
 /// this with a handler that returns `{"media_urns": [...]}`.
 pub const CAP_ADAPTER_SELECTION: &str =
-    "cap:in=\"media:\";out=\"media:adapter-selection;json;record\"";
+    "cap:in=\"media:\";out=\"media:adapter-selection;fmt=json;record\"";
 
 /// Cap that resolves a canonical cap URN to its full flattened cap definition
 /// by fetching the registry-published entry. Implemented by the engine-bundled
 /// `fetchcartridge`. Sandboxed cartridges peer-invoke this when they need
 /// to read a cap's `default_value` or any other registry-only field.
 pub const CAP_LOOKUP_CAP_FABRIC: &str =
-    "cap:in=\"media:cap-urn;textable\";fabric;lookup-cap;out=\"media:cap-definition;json;record;textable\"";
+    "cap:in=\"media:cap-urn;enc=utf-8\";fabric;lookup-cap;out=\"media:cap-definition;fmt=json;record\"";
 
 /// Cap that resolves a canonical media URN to its full media definition
 /// by fetching the registry-published entry. Implemented by the engine-bundled
@@ -94,7 +94,7 @@ pub const CAP_LOOKUP_CAP_FABRIC: &str =
 /// to read a media def's title, MIME type, profile URI, or any other
 /// registry-only field.
 pub const CAP_LOOKUP_MEDIA_DEF_FABRIC: &str =
-    "cap:in=\"media:media-urn;textable\";fabric;lookup-media-def;out=\"media:media-definition;json;record;textable\"";
+    "cap:in=\"media:enc=utf-8;media-urn\";fabric;lookup-media-def;out=\"media:fmt=json;media-definition;record\"";
 
 /// Parse and return the canonical `cap:lookup-cap;fabric` `CapUrn`.
 pub fn lookup_cap_fabric_urn() -> CapUrn {
@@ -290,7 +290,7 @@ pub fn discard_cap() -> Cap {
 ///
 /// The adapter selection cap declares a wildcard input arg
 /// (`media:`) so it can accept any file content for inspection.
-/// The output is `media:adapter-selection;json;record` — a JSON
+/// The output is `media:adapter-selection;fmt=json;record` — a JSON
 /// object with `media_urns` listing the media URNs the adapter
 /// is confident match the inspected file content.
 ///
@@ -382,7 +382,7 @@ pub fn llm_generate_text_urn() -> CapUrn {
 // -----------------------------------------------------------------------------
 
 /// Build URN for embeddings-dimensions capability
-/// Output uses MEDIA_MODEL_DIM per CATALOG: media:model-dim;integer;textable;numeric
+/// Output uses MEDIA_MODEL_DIM per CATALOG: media:integer;model-dim;numeric
 pub fn embeddings_dimensions_urn() -> CapUrn {
     CapUrnBuilder::new()
         .marker("embeddings-dimensions")
@@ -393,8 +393,8 @@ pub fn embeddings_dimensions_urn() -> CapUrn {
 }
 
 /// Build URN for text embeddings-generation capability
-/// Input: media:textable (text)
-/// Output: media:embedding-vector;textable;record
+/// Input: media:enc=utf-8 (text)
+/// Output: media:embedding-vector;enc=utf-8;record
 pub fn embeddings_generation_urn() -> CapUrn {
     CapUrnBuilder::new()
         .marker("generate-embeddings")
@@ -406,7 +406,7 @@ pub fn embeddings_generation_urn() -> CapUrn {
 
 /// Build URN for image embeddings-generation capability
 /// Input: media:image;png
-/// Output: media:embedding-vector;textable;record
+/// Output: media:embedding-vector;enc=utf-8;record
 pub fn image_embeddings_generation_urn() -> CapUrn {
     CapUrnBuilder::new()
         .marker("generate-image-embeddings")
@@ -433,7 +433,7 @@ pub fn model_download_urn() -> CapUrn {
 }
 
 /// Build URN for model-list capability
-/// Input uses MEDIA_MODEL_REPO per CATALOG: media:model-repo;record;textable
+/// Input uses MEDIA_MODEL_REPO per CATALOG: media:enc=utf-8;model-repo;record
 pub fn model_list_urn() -> CapUrn {
     CapUrnBuilder::new()
         .marker("list-models")
@@ -534,7 +534,7 @@ pub fn generate_json_urn(lang_code: &str) -> CapUrn {
 }
 
 /// Build URN for make-decision capability
-/// Output is MEDIA_DECISION: media:decision;json;record;textable
+/// Output is MEDIA_DECISION: media:decision;fmt=json;record
 pub fn make_decision_urn(lang_code: &str) -> CapUrn {
     CapUrnBuilder::new()
         .marker("make-decision")

@@ -1110,10 +1110,12 @@ mod tests {
     // TEST076: Test specificity increases with more tags for ranking conformance
     #[test]
     fn test076_specificity() {
-        // More tags = higher specificity
-        let urn1 = MediaUrn::from_string("media:string").unwrap();
-        let urn2 = MediaUrn::from_string("media:enc=utf-8").unwrap();
-        let urn3 = MediaUrn::from_string("media:numeric").unwrap();
+        // More tags = higher specificity. Use the same enc=utf-8 base and add
+        // markers so each URN is a strict superset of the previous — the
+        // specificity must be monotonic non-decreasing as tags accrue.
+        let urn1 = MediaUrn::from_string("media:enc=utf-8").unwrap();
+        let urn2 = MediaUrn::from_string("media:enc=utf-8;numeric").unwrap();
+        let urn3 = MediaUrn::from_string("media:enc=utf-8;list;numeric").unwrap();
 
         // Verify specificity increases with more tags
         // Note: The exact values may depend on implementation, but relative order should hold
@@ -1416,9 +1418,12 @@ mod debug_tests {
     // TEST854: LUB keeps common tags, drops differing ones
     #[test]
     fn test854_lub_partial_overlap() {
-        let json_text = MediaUrn::from_string("media:fmt=json").unwrap();
-        let csv_text = MediaUrn::from_string("media:fmt=csv").unwrap();
-        let lub = MediaUrn::least_upper_bound(&[json_text, csv_text]);
+        // Both inputs are UTF-8 text (shared enc=utf-8) but differ in structure
+        // (list vs record). The LUB keeps the common enc=utf-8 and drops the
+        // differing structural markers.
+        let text_list = MediaUrn::from_string("media:enc=utf-8;list").unwrap();
+        let text_record = MediaUrn::from_string("media:enc=utf-8;record").unwrap();
+        let lub = MediaUrn::least_upper_bound(&[text_list, text_record]);
         let expected = MediaUrn::from_string("media:enc=utf-8").unwrap();
         assert!(
             lub.is_equivalent(&expected).unwrap(),
@@ -1460,14 +1465,17 @@ mod debug_tests {
     // TEST858: LUB with three+ inputs narrows correctly
     #[test]
     fn test858_lub_three_inputs() {
+        // All three are lists (shared `list`); they differ in serialization
+        // format (json/csv/ndjson) and in the record marker (a,b have it; c
+        // doesn't). The LUB keeps only the common `list` marker.
         let a = MediaUrn::from_string("media:fmt=json;list;record").unwrap();
         let b = MediaUrn::from_string("media:fmt=csv;list;record").unwrap();
         let c = MediaUrn::from_string("media:fmt=ndjson;list").unwrap();
         let lub = MediaUrn::least_upper_bound(&[a, b, c]);
-        let expected = MediaUrn::from_string("media:enc=utf-8;list").unwrap();
+        let expected = MediaUrn::from_string("media:list").unwrap();
         assert!(
             lub.is_equivalent(&expected).unwrap(),
-            "LUB should be media:enc=utf-8;list but got {}",
+            "LUB should be media:list but got {}",
             lub.to_string()
         );
     }
@@ -1497,8 +1505,8 @@ mod debug_tests {
             urn.to_string()
         );
         assert!(
-            urn.has_marker_tag("json"),
-            "Must have json tag, got: {}",
+            urn.has_tag("fmt", "json"),
+            "Must have fmt=json tag, got: {}",
             urn.to_string()
         );
         assert!(

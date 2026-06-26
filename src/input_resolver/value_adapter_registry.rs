@@ -27,10 +27,10 @@ use crate::input_resolver::value_adapter::{ValueAdapter, ValueAdapterResult};
 ///
 /// // The registry finds the adapter for "media:model-spec" prefix
 /// let refined = registry.refine_media_urn(
-///     "media:model-spec;textable;llm",
+///     "media:enc=utf-8;llm;model-spec",
 ///     "hf:MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF",
 /// );
-/// // refined == "media:mistral;model-spec;textable"
+/// // refined == "media:enc=utf-8;mistral;model-spec"
 /// ```
 pub struct ValueAdapterRegistry {
     /// Adapters indexed by base URN prefix they handle
@@ -151,8 +151,10 @@ mod tests {
         let mut registry = ValueAdapterRegistry::new();
         registry.register("media:test", Arc::new(SpecialAdapter));
 
-        let result = registry.refine_media_urn("media:test;textable", "a-special-value");
-        assert_eq!(result, "media:test;textable;refined");
+        // The adapter is keyed by the `media:test` prefix; the base URN starts
+        // with that prefix, so the adapter fires and appends `;refined`.
+        let result = registry.refine_media_urn("media:test;enc=utf-8", "a-special-value");
+        assert_eq!(result, "media:test;enc=utf-8;refined");
     }
 
     // TEST1222: Base URNs without a registered adapter are returned unchanged.
@@ -161,8 +163,8 @@ mod tests {
         let mut registry = ValueAdapterRegistry::new();
         registry.register("media:test", Arc::new(SpecialAdapter));
 
-        let result = registry.refine_media_urn("media:other;textable", "a-special-value");
-        assert_eq!(result, "media:other;textable");
+        let result = registry.refine_media_urn("media:other;enc=utf-8", "a-special-value");
+        assert_eq!(result, "media:other;enc=utf-8");
     }
 
     // TEST1223: Adapters that decline to refine leave the original media URN intact.
@@ -171,8 +173,8 @@ mod tests {
         let mut registry = ValueAdapterRegistry::new();
         registry.register("media:test", Arc::new(SpecialAdapter));
 
-        let result = registry.refine_media_urn("media:test;textable", "ordinary-value");
-        assert_eq!(result, "media:test;textable");
+        let result = registry.refine_media_urn("media:test;enc=utf-8", "ordinary-value");
+        assert_eq!(result, "media:test;enc=utf-8");
     }
 
     // TEST1224: When multiple adapter prefixes match, the longest prefix wins.

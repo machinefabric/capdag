@@ -270,7 +270,7 @@ impl<'a> ArgumentResolutionContext<'a> {
 /// cartridge will see on its arg stream.
 ///
 /// The wire contract for an arg stream is "bytes of the typed
-/// media URN" — for a `media:textable` arg, plain UTF-8 text. A
+/// media URN" — for a `media:enc=utf-8` arg, plain UTF-8 text. A
 /// scalar JSON value (string / number / bool / null) is encoded
 /// as its lexical wire form, matching exactly what the same value
 /// typed at a CLI flag would produce. Composite values (object,
@@ -823,7 +823,7 @@ mod tests {
         let prev_outputs = HashMap::new();
         let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();
         slot_values.insert(
-            "step_0:media:width;textable;numeric".to_string(),
+            "step_0:media:numeric;width".to_string(),
             b"800".to_vec(),
         );
         let context = ArgumentResolutionContext {
@@ -835,7 +835,7 @@ mod tests {
             slot_values: Some(&slot_values),
         };
         let binding = ArgumentBinding::Slot {
-            name: "media:width;textable;numeric".to_string(),
+            name: "media:numeric;width".to_string(),
             schema: None,
         };
         let result = resolve_binding(
@@ -866,7 +866,7 @@ mod tests {
             slot_values: None,
         };
         let binding = ArgumentBinding::Slot {
-            name: "media:quality;textable;numeric".to_string(),
+            name: "media:numeric;quality".to_string(),
             schema: None,
         };
         let default = json!(85);
@@ -898,13 +898,13 @@ mod tests {
             slot_values: None,
         };
         let binding = ArgumentBinding::Slot {
-            name: "media:question;textable".to_string(),
+            name: "media:enc=utf-8;question".to_string(),
             schema: None,
         };
         let result = resolve_binding(&binding, &context, "cap:generate", "step_0", None, true);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("media:question;textable"));
+        assert!(err.contains("media:enc=utf-8;question"));
     }
 
     // TEST671: resolve_binding returns None when optional slot has no value and no default
@@ -921,7 +921,7 @@ mod tests {
             slot_values: None,
         };
         let binding = ArgumentBinding::Slot {
-            name: "media:suffix;textable".to_string(),
+            name: "media:enc=utf-8;suffix".to_string(),
             schema: None,
         };
         let result =
@@ -949,8 +949,8 @@ mod tests {
     // This is the core disambiguation scenario that step-index keying was designed to solve.
     #[test]
     fn test1105_two_steps_same_cap_urn_different_slot_values() {
-        let cap_urn = "cap:in=\"media:pdf\";make-decision;out=\"media:bool;textable\"";
-        let slot_name = "media:list;question;textable";
+        let cap_urn = "cap:in=\"media:pdf\";make-decision;out=\"media:bool;enc=utf-8\"";
+        let slot_name = "media:enc=utf-8;list;question";
         let files = vec![];
         let prev_outputs = HashMap::new();
         let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();
@@ -998,8 +998,8 @@ mod tests {
     // cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
     #[test]
     fn test1106_slot_falls_through_to_cap_settings_shared() {
-        let cap_urn = "cap:in=\"media:pdf\";make-decision;out=\"media:bool;textable\"";
-        let slot_name = "media:language;textable";
+        let cap_urn = "cap:in=\"media:pdf\";make-decision;out=\"media:bool;enc=utf-8\"";
+        let slot_name = "media:enc=utf-8;language";
         let files = vec![];
         let prev_outputs = HashMap::new();
         let mut cap_settings: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
@@ -1037,8 +1037,8 @@ mod tests {
     // Proves per-step override works while shared settings remain as fallback.
     #[test]
     fn test1107_slot_value_overrides_cap_settings_per_step() {
-        let cap_urn = "cap:in=\"media:pdf\";make-decision;out=\"media:bool;textable\"";
-        let slot_name = "media:language;textable";
+        let cap_urn = "cap:in=\"media:pdf\";make-decision;out=\"media:bool;enc=utf-8\"";
+        let slot_name = "media:enc=utf-8;language";
         let files = vec![];
         let prev_outputs = HashMap::new();
 
@@ -1086,11 +1086,11 @@ mod tests {
         let prev_outputs = HashMap::new();
         let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();
         slot_values.insert(
-            "step_3:media:width;textable;numeric".to_string(),
+            "step_3:media:numeric;width".to_string(),
             b"1024".to_vec(),
         );
         slot_values.insert(
-            "step_3:media:quality;textable;numeric".to_string(),
+            "step_3:media:numeric;quality".to_string(),
             b"95".to_vec(),
         );
 
@@ -1105,16 +1105,16 @@ mod tests {
 
         let mut bindings = ArgumentBindings::new();
         bindings.add(
-            "media:width;textable;numeric".to_string(),
+            "media:numeric;width".to_string(),
             ArgumentBinding::Slot {
-                name: "media:width;textable;numeric".to_string(),
+                name: "media:numeric;width".to_string(),
                 schema: None,
             },
         );
         bindings.add(
-            "media:quality;textable;numeric".to_string(),
+            "media:numeric;quality".to_string(),
             ArgumentBinding::Slot {
-                name: "media:quality;textable;numeric".to_string(),
+                name: "media:numeric;quality".to_string(),
                 schema: None,
             },
         );
@@ -1126,14 +1126,14 @@ mod tests {
 
         let width = results
             .iter()
-            .find(|r| r.name == "media:width;textable;numeric")
+            .find(|r| r.name == "media:numeric;width")
             .unwrap();
         assert_eq!(width.value, b"1024");
         assert_eq!(width.source, ArgumentSource::Slot);
 
         let quality = results
             .iter()
-            .find(|r| r.name == "media:quality;textable;numeric")
+            .find(|r| r.name == "media:numeric;quality")
             .unwrap();
         assert_eq!(quality.value, b"95");
         assert_eq!(quality.source, ArgumentSource::Slot);
@@ -1143,7 +1143,7 @@ mod tests {
     #[test]
     fn test1109_slot_key_uses_node_id_not_cap_urn() {
         let cap_urn = "cap:in=\"media:pdf\";resize;out=\"media:pdf\"";
-        let slot_name = "media:width;textable;numeric";
+        let slot_name = "media:numeric;width";
         let files = vec![];
         let prev_outputs = HashMap::new();
         let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();

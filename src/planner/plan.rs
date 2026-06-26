@@ -1639,11 +1639,11 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap(
             "body_cap_0",
-            "cap:in=media:pdf-page;out=\"media:text;textable\"",
+            "cap:in=media:pdf-page;out=\"media:enc=utf-8;text\"",
         ));
         plan.add_node(MachineNode::cap(
             "body_cap_1",
-            "cap:in=\"media:text;textable\";out=\"media:decision;json;record;textable\"",
+            "cap:in=\"media:enc=utf-8;text\";out=\"media:decision;fmt=json;record\"",
         ));
         plan.add_node(MachineNode::collect(
             "collect_0",
@@ -1651,7 +1651,7 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap(
             "cap_post",
-            "cap:in=\"media:decision;json;record;textable\";out=\"media:json;textable\"",
+            "cap:in=\"media:decision;fmt=json;record\";out=\"media:fmt=json\"",
         ));
         plan.add_node(MachineNode::output("output", "result", "cap_post"));
 
@@ -1689,7 +1689,7 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap(
             "body_cap_0",
-            "cap:in=media:pdf-page;out=\"media:decision;json;record;textable\"",
+            "cap:in=media:pdf-page;out=\"media:decision;fmt=json;record\"",
         ));
         plan.add_node(MachineNode::output("output", "result", "body_cap_0"));
 
@@ -1731,7 +1731,7 @@ mod tests {
         );
 
         let linear_plan =
-            MachinePlan::linear_chain(&["cap:a"], "media:pdf", "media:image;png", &["input_a"]);
+            MachinePlan::linear_chain(&["cap:a"], "media:ext=pdf", "media:image;png", &["input_a"]);
         assert!(
             !linear_plan.has_foreach(),
             "Linear plan should not detect ForEach"
@@ -1742,12 +1742,12 @@ mod tests {
         standalone_collect_plan.add_node(MachineNode::input_slot(
             "input",
             "input",
-            "media:textable",
+            "media:enc=utf-8",
             crate::planner::cardinality::InputCardinality::Single,
         ));
         standalone_collect_plan.add_node(MachineNode::cap(
             "cap_0",
-            "cap:in=media:textable;summarize;out=media:summary",
+            "cap:in=\"media:enc=utf-8\";summarize;out=media:summary",
         ));
         let mut collect_node = MachineNode::collect("collect_0", vec!["cap_0".to_string()]);
         collect_node.node_type = ExecutionNodeType::Collect {
@@ -1868,7 +1868,7 @@ mod tests {
         let plan = build_foreach_plan_with_collect();
 
         let suffix = plan
-            .extract_suffix_from("collect_0", "media:decision;json;record;textable")
+            .extract_suffix_from("collect_0", "media:decision;fmt=json;record")
             .unwrap();
 
         // Should have: synthetic input, cap_post, output
@@ -1911,7 +1911,7 @@ mod tests {
             .extract_foreach_body("foreach_0", "media:pdf-page")
             .unwrap();
         let suffix = plan
-            .extract_suffix_from("collect_0", "media:decision;json;record;textable")
+            .extract_suffix_from("collect_0", "media:decision;fmt=json;record")
             .unwrap();
 
         // Collect cap nodes from each sub-plan
@@ -1969,7 +1969,7 @@ mod tests {
     fn test763_suffix_is_dag() {
         let plan = build_foreach_plan_with_collect();
         let suffix = plan
-            .extract_suffix_from("collect_0", "media:decision;json;record;textable")
+            .extract_suffix_from("collect_0", "media:decision;fmt=json;record")
             .unwrap();
         assert!(suffix.topological_order().is_ok());
     }

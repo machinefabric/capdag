@@ -189,18 +189,18 @@ mod tests {
     #[test]
     fn test1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes() {
         let cap = make_test_cap(
-            r#"cap:in="media:pdf";extract;out="media:textable;txt""#,
+            r#"cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt""#,
             r#"Extract "Title" <One>\path"#,
         );
         let second_cap = make_test_cap(
-            r#"cap:in="media:textable;txt";embed;out="media:embedding;record""#,
+            r#"cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding;record""#,
             "Embed",
         );
 
         let graph = ResolvedGraph {
             nodes: HashMap::from([
                 ("input".to_string(), r#"media:pdf"#.to_string()),
-                ("middle".to_string(), r#"media:txt;textable"#.to_string()),
+                ("middle".to_string(), r#"media:enc=utf-8;ext=txt"#.to_string()),
                 (
                     "output".to_string(),
                     r#"media:embedding;record"#.to_string(),
@@ -213,7 +213,7 @@ mod tests {
                     cap_urn: cap.urn.to_string(),
                     cap: cap.clone(),
                     in_media: "media:pdf".to_string(),
-                    out_media: "media:txt;textable".to_string(),
+                    out_media: "media:enc=utf-8;ext=txt".to_string(),
                 },
                 ResolvedEdge {
                     from: "input".to_string(),
@@ -221,14 +221,14 @@ mod tests {
                     cap_urn: cap.urn.to_string(),
                     cap,
                     in_media: "media:pdf".to_string(),
-                    out_media: "media:txt;textable".to_string(),
+                    out_media: "media:enc=utf-8;ext=txt".to_string(),
                 },
                 ResolvedEdge {
                     from: "middle".to_string(),
                     to: "output".to_string(),
                     cap_urn: second_cap.urn.to_string(),
                     cap: second_cap,
-                    in_media: "media:txt;textable".to_string(),
+                    in_media: "media:enc=utf-8;ext=txt".to_string(),
                     out_media: "media:embedding;record".to_string(),
                 },
             ],
@@ -239,7 +239,7 @@ mod tests {
 
         assert!(mermaid.starts_with("graph LR\n"));
         assert!(mermaid.contains(r#"input(["input<br/><small>media:pdf</small>"])"#));
-        assert!(mermaid.contains(r#"middle["middle<br/><small>media:txt;textable</small>"]"#));
+        assert!(mermaid.contains(r#"middle["middle<br/><small>media:enc=utf-8;ext=txt</small>"]"#));
         assert!(
             mermaid.contains(r#"output((("output<br/><small>media:embedding;record</small>")))"#)
         );

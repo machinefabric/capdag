@@ -244,7 +244,7 @@ mod tests {
         let registry = FabricRegistry::new_for_test();
         registry.insert_cached_media_def_for_test(StoredMediaDef {
             version: 0,
-            urn: "media:json;record;textable".to_string(),
+            urn: "media:fmt=json;record".to_string(),
             media_type: "application/json".to_string(),
             title: "JSON".to_string(),
             profile_uri: None,
@@ -266,7 +266,7 @@ mod tests {
 
         let result = registry.register_cap_group(
             "text-formats",
-            &["media:json".to_string(), "media:yaml".to_string()],
+            &["media:fmt=json".to_string(), "media:fmt=yaml".to_string()],
             "txtcartridge",
         );
         assert!(
@@ -283,15 +283,15 @@ mod tests {
         let (fabric_registry, _temp) = create_test_registry();
         let mut registry = MediaAdapterRegistry::new(fabric_registry);
 
-        // Register group A with media:json
+        // Register group A with media:fmt=json
         registry
-            .register_cap_group("group-a", &["media:json".to_string()], "cartridge-a")
+            .register_cap_group("group-a", &["media:fmt=json".to_string()], "cartridge-a")
             .unwrap();
 
-        // Try to register group B with media:json;record;textable (conforms to media:json)
+        // Try to register group B with media:fmt=json;record (conforms to media:fmt=json)
         let result = registry.register_cap_group(
             "group-b",
-            &["media:json;record;textable".to_string()],
+            &["media:fmt=json;record".to_string()],
             "cartridge-b",
         );
         assert!(result.is_err(), "Conforming overlap must be rejected");
@@ -313,18 +313,18 @@ mod tests {
         let (fabric_registry, _temp) = create_test_registry();
         let mut registry = MediaAdapterRegistry::new(fabric_registry);
 
-        // Register an adapter for media:json
+        // Register an adapter for media:fmt=json
         registry
-            .register_cap_group("group-a", &["media:json".to_string()], "cartridge-a")
+            .register_cap_group("group-a", &["media:fmt=json".to_string()], "cartridge-a")
             .unwrap();
 
         // Try to register group with 3 adapters, one of which conflicts
         let result = registry.register_cap_group(
             "group-b",
             &[
-                "media:yaml".to_string(),          // ok
-                "media:json;textable".to_string(), // conflicts with media:json
-                "media:csv".to_string(),           // ok
+                "media:fmt=yaml".to_string(),          // ok
+                "media:fmt=json".to_string(), // conflicts with media:fmt=json
+                "media:fmt=csv".to_string(),           // ok
             ],
             "cartridge-b",
         );
@@ -347,8 +347,8 @@ mod tests {
         let result = registry.register_cap_group(
             "bad-group",
             &[
-                "media:json".to_string(),
-                "media:json;textable".to_string(), // conforms to media:json
+                "media:fmt=json".to_string(),
+                "media:fmt=json".to_string(), // conforms to media:fmt=json
             ],
             "cartridge-x",
         );
@@ -362,13 +362,13 @@ mod tests {
         let (fabric_registry, _temp) = create_test_registry();
         let mut registry = MediaAdapterRegistry::new(fabric_registry);
 
-        // Register adapter for media:json (which should match .json extension candidates)
+        // Register adapter for media:fmt=json (which should match .json extension candidates)
         registry
-            .register_cap_group("text-group", &["media:json".to_string()], "txtcartridge")
+            .register_cap_group("text-group", &["media:fmt=json".to_string()], "txtcartridge")
             .unwrap();
 
         let results = registry.find_adapters_for_extension("json");
-        // Should find txtcartridge since json extension candidates conform to media:json
+        // Should find txtcartridge since json extension candidates conform to media:fmt=json
         assert!(
             !results.is_empty(),
             "Must find adapter for json extension (found: {:?})",
