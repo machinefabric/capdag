@@ -329,7 +329,7 @@ pub const MEDIA_AVAILABILITY_OUTPUT: &str = "media:enc=utf-8;model-availability;
 pub const MEDIA_PATH_OUTPUT: &str = "media:enc=utf-8;model-path;record";
 /// Media URN for embedding vector output - has record marker
 pub const MEDIA_EMBEDDING_VECTOR: &str = "media:embedding-vector;enc=utf-8;record";
-/// Media URN for vision inference output — a concrete textable terminal.
+/// Media URN for vision inference output — a concrete UTF-8 text terminal.
 ///
 /// The composite URN carries `image-description` (the vision-specific marker
 /// so downstream tools can still match captions specifically), `plain-text`
@@ -860,7 +860,7 @@ mod tests {
         assert!(MediaUrn::from_string(MEDIA_NUMBER).unwrap().is_scalar()); // no list marker
         assert!(MediaUrn::from_string(MEDIA_BOOLEAN).unwrap().is_scalar()); // no list marker
         assert!(MediaUrn::from_string(MEDIA_OBJECT).unwrap().is_scalar()); // record but scalar
-        assert!(MediaUrn::from_string("media:enc=utf-8").unwrap().is_scalar()); // plain textable is scalar
+        assert!(MediaUrn::from_string("media:enc=utf-8").unwrap().is_scalar()); // plain text is scalar
                                                                                // With list marker, is_scalar is false
         assert!(!MediaUrn::from_string(MEDIA_STRING_LIST)
             .unwrap()
@@ -921,7 +921,7 @@ mod tests {
     // datacartridge convert-format/collect-records cap declares its CSV media as
     // `media:fmt=csv;list;record` (see MEDIA_CSV), so an is_csv() that
     // only checked the bare marker returned false for real CSV media, collapsing
-    // it to a textable list and breaking list<->csv conversion with "Unsupported
+    // it to a text list and breaking list<->csv conversion with "Unsupported
     // conversion: TextableList -> TextableList". This test pins both accepted
     // spellings and would FAIL against the old marker-only implementation.
     #[test]
@@ -938,8 +938,8 @@ mod tests {
         assert!(MediaUrn::from_string("media:fmt=csv;list")
             .unwrap()
             .is_csv());
-        // A textable list with no CSV signal is NOT csv (the failure mode that
-        // collapsed CSV into a textable list).
+        // A text list with no CSV signal is NOT csv (the failure mode that
+        // collapsed CSV into a text list).
         assert!(!MediaUrn::from_string("media:enc=utf-8;list")
             .unwrap()
             .is_csv());

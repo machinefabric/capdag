@@ -1209,7 +1209,7 @@ mod tests {
 
     // TEST1100: Tests that CapUrn normalizes media URN tags to canonical order
     // This is the root cause fix for caps not matching when cartridges report URNs with
-    // different tag ordering than the registry (e.g., "record;textable" vs "textable;record")
+    // different tag ordering than the registry (e.g., "record;enc=utf-8" vs "enc=utf-8;record")
     #[test]
     fn test1100_cap_urn_normalizes_media_urn_tag_order(
     ) -> Result<(), crate::urn::cap_urn::CapUrnError> {

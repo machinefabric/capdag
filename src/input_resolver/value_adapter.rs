@@ -4,7 +4,7 @@
 //! Both solve the same problem: determining a specific media URN variant from content.
 //!
 //! - `MediaAdapter`: inspects file content (bytes) to refine a base media URN with
-//!   structural markers (list, record, textable)
+//!   structural markers (list, record, enc=utf-8)
 //! - `ValueAdapter`: inspects a string argument value to refine a base media URN with
 //!   domain-specific markers (e.g., model family for model-spec arguments)
 //!

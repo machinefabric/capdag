@@ -280,7 +280,7 @@ impl CapUrn {
         let effect = Self::normalize_effect_value(tagged.tags.get("effect").map(|s| s.as_str()))?;
 
         // Parse and normalize media URNs to canonical form.
-        // This ensures consistent tag ordering (e.g., "record;textable" vs "textable;record").
+        // This ensures consistent tag ordering (e.g., "record;enc=utf-8" vs "enc=utf-8;record").
         use crate::urn::media_urn::MediaUrn;
         let in_urn = if in_urn_raw == "media:" {
             in_urn_raw

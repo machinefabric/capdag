@@ -1723,7 +1723,7 @@ mod tests {
     fn test777_type_mismatch_pdf_cap_does_not_match_png_input() {
         let mut graph = LiveCapFab::new();
 
-        // Only add PDF->textable cap
+        // Only add PDF->text cap
         let pdf_to_text = make_test_cap("media:ext=pdf", "media:enc=utf-8", "pdf2text", "PDF to Text");
         graph.add_cap(&pdf_to_text);
 
@@ -1784,7 +1784,7 @@ mod tests {
         graph.add_cap(&png_to_thumb);
         graph.set_bookends(&all_bookends(&[pdf_to_text.clone(), png_to_thumb.clone()]));
 
-        // PNG should reach thumbnail (cap target) but NOT textable (PDF-only cap)
+        // PNG should reach thumbnail (cap target) but NOT text (PDF-only cap)
         let png_source = MediaUrn::from_string("media:ext=png;image").unwrap();
         let png_targets = graph.get_reachable_targets(&png_source, false, 5);
         let media_thumbnail = MediaUrn::from_string("media:thumbnail").unwrap();
@@ -1802,7 +1802,7 @@ mod tests {
             "PNG should NOT reach textable"
         );
 
-        // PDF should reach textable (cap target) but NOT thumbnail (PNG-only cap)
+        // PDF should reach text (cap target) but NOT thumbnail (PNG-only cap)
         let pdf_source = MediaUrn::from_string("media:ext=pdf").unwrap();
         let pdf_targets = graph.get_reachable_targets(&pdf_source, false, 5);
         assert!(
@@ -2112,7 +2112,7 @@ mod tests {
     fn test1111_foreach_for_user_provided_list_source() {
         let mut graph = LiveCapFab::new();
 
-        // Cap: textable → decision (accepts singular textable)
+        // Cap: text → decision (accepts singular enc=utf-8)
         let make_decision = make_test_cap(
             "media:enc=utf-8",
             "media:decision;fmt=json;record",
@@ -2173,7 +2173,7 @@ mod tests {
         graph.sync_from_caps(__caps, &all_bookends(__caps));
 
         let source = MediaUrn::from_string("media:enc=utf-8").unwrap();
-        // list;summary;textable is a different semantic type — can't reach it
+        // enc=utf-8;list;summary is a different semantic type — can't reach it
         // without a cap that outputs it or a Collect step (not synthesized)
         let target = MediaUrn::from_string("media:enc=utf-8;list;summary").unwrap();
 
@@ -2199,7 +2199,7 @@ mod tests {
         let __caps = &[disbind, summarize];
         graph.sync_from_caps(__caps, &all_bookends(__caps));
 
-        // Scalar path: pdf → disbind → page;textable → summarize → summary;textable
+        // Scalar path: pdf → disbind → enc=utf-8;page → summarize → enc=utf-8;summary
         let source = MediaUrn::from_string("media:ext=pdf").unwrap();
         let target = MediaUrn::from_string("media:enc=utf-8;summary").unwrap();
 
@@ -2445,7 +2445,7 @@ mod tests {
     fn test1289_bfs_reachable_includes_source_roundtrip() {
         let mut graph = LiveCapFab::new();
 
-        // textable → integer (coerce)
+        // text → integer (coerce)
         let cap1 = make_test_cap(
             "media:enc=utf-8",
             "media:integer;numeric",
@@ -2453,7 +2453,7 @@ mod tests {
             "Coerce to Integer",
         );
         graph.add_cap(&cap1);
-        // integer → textable (coerce back)
+        // integer → text (coerce back)
         let cap2 = make_test_cap(
             "media:integer;numeric",
             "media:enc=utf-8",
@@ -2466,7 +2466,7 @@ mod tests {
         let source = MediaUrn::from_string("media:enc=utf-8").unwrap();
         let targets = graph.get_reachable_targets(&source, false, 5);
 
-        // Source should be reachable (via textable→integer→textable)
+        // Source should be reachable (via text→integer→text)
         let has_self = targets
             .iter()
             .any(|t| t.media_def.is_equivalent(&source).unwrap_or(false));
@@ -2487,14 +2487,14 @@ mod tests {
     fn test1290_iddfs_finds_roundtrip_paths() {
         let mut graph = LiveCapFab::new();
 
-        // textable → integer
+        // text → integer
         graph.add_cap(&make_test_cap(
             "media:enc=utf-8",
             "media:integer;numeric",
             "coerce_to_int",
             "Coerce to Integer",
         ));
-        // integer → textable
+        // integer → text
         graph.add_cap(&make_test_cap(
             "media:integer;numeric",
             "media:enc=utf-8",
@@ -2526,14 +2526,14 @@ mod tests {
     fn test1291_iddfs_roundtrip_with_sequence() {
         let mut graph = LiveCapFab::new();
 
-        // textable → integer
+        // text → integer
         graph.add_cap(&make_test_cap(
             "media:enc=utf-8",
             "media:integer;numeric",
             "coerce_to_int",
             "Coerce to Integer",
         ));
-        // integer → textable
+        // integer → text
         graph.add_cap(&make_test_cap(
             "media:integer;numeric",
             "media:enc=utf-8",

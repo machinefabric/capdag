@@ -582,7 +582,7 @@ pub fn find_stream_str(
 /// declares `media:inference;limit;max-tokens;numeric;task;user`,
 /// the handler thinks `media:max-tokens;numeric`). Equality
 /// matching via [`find_stream`] silently misses the rich form,
-/// the unmatched stream falls through to the textable catch-all
+/// the unmatched stream falls through to the text catch-all
 /// downstream and overwrites the prompt body — that's the
 /// gibberish-output bug class.
 pub fn find_stream_conforming<'a>(

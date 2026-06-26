@@ -432,7 +432,7 @@ mod tests {
     #[tokio::test]
     async fn test1259_parse_fan_in() {
         // The describe cap has TWO input args: image;png (the
-        // primary, declared in= spec) and model-spec;textable
+        // primary, declared in= spec) and enc=utf-8;model-spec
         // (a secondary fan-in input). The resolver's matching
         // assigns each source URN to the right arg slot.
         let registry = build_test_registry(&[
@@ -666,7 +666,7 @@ mod tests {
         // Cap A outputs record (media:fmt=json;record),
         // cap B inputs opaque (media:fmt=json, no record).
         // The parser's lexical is_comparable check passes
-        // because both URNs are on the same `textable` chain
+        // because both URNs are on the same `fmt=json` chain
         // (one with `record`, one without — `record` is the
         // additional tag). The orchestrator's
         // structure-compatibility check is what catches the
