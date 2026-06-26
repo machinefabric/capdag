@@ -1627,7 +1627,7 @@ mod tests {
                             "caps": [
                                 {"urn": "cap:in=\"media:convert-image;image;jpeg;png\";out=\"media:image\"", "title": "Convert JPEG to PNG", "command": "convert-image"}
                             ],
-                            "adapter_urns": ["media:bmp;image", "media:image;jpeg", "media:image;png", "media:image;tiff", "media:image;webp", "media:gif;image"]
+                            "adapter_urns": ["media:ext=bmp;image", "media:ext=jpeg;image", "media:ext=png;image", "media:ext=tiff;image", "media:ext=webp;image", "media:ext=gif;image"]
                         }
                     ],
                     "categories": [],

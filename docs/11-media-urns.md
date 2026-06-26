@@ -20,7 +20,7 @@ media:ext=pdf                       # PDF type
 media:pdf;bytes                 # PDF with bytes marker
 media:enc=utf-8                 # Bare UTF-8 text (scalar by default)
 media:fmt=json;record           # JSON object (serialization format)
-media:image;png                 # PNG image
+media:ext=png;image                 # PNG image
 ```
 
 ---
@@ -285,8 +285,8 @@ media:integer;list;numeric         # Array of integers
 
 | Media URN | Description |
 |-----------|-------------|
-| `media:image;png` | PNG image |
-| `media:jpeg;image` | JPEG image |
+| `media:ext=png;image` | PNG image |
+| `media:ext=jpeg;image` | JPEG image |
 | `media:ext=pdf` | PDF document |
 
 ---

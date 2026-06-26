@@ -1036,7 +1036,7 @@ mod tests {
         let plan = MachinePlan::single_cap(
             "cap:test",
             "media:ext=pdf",
-            "media:image;png",
+            "media:ext=png;image",
             "input_file", // file-path argument name for this cap
         );
         assert_eq!(plan.nodes.len(), 3); // input_slot, cap, output
@@ -1052,7 +1052,7 @@ mod tests {
         let plan = MachinePlan::linear_chain(
             &["cap:a", "cap:b", "cap:c"],
             "media:ext=pdf",
-            "media:image;png",
+            "media:ext=png;image",
             &["input_a", "input_b", "input_c"], // file-path argument names for each cap
         );
         assert_eq!(plan.nodes.len(), 5); // input_slot, 3 caps, output
@@ -1370,7 +1370,7 @@ mod tests {
         let plan = MachinePlan::linear_chain(
             &["cap:only"],
             "media:ext=pdf",
-            "media:image;png",
+            "media:ext=png;image",
             &["source_file"], // file-path argument name
         );
         assert_eq!(plan.nodes.len(), 3); // input_slot, 1 cap, output
@@ -1385,7 +1385,7 @@ mod tests {
         let plan = MachinePlan::linear_chain(
             &[],
             "media:ext=pdf",
-            "media:image;png",
+            "media:ext=png;image",
             &[], // no caps, no arg names
         );
         assert_eq!(plan.nodes.len(), 0);
@@ -1502,7 +1502,7 @@ mod tests {
         let plan = MachinePlan::single_cap(
             "cap:test",
             "media:ext=pdf",
-            "media:image;png",
+            "media:ext=png;image",
             "input_file", // file-path argument name
         );
 
@@ -1605,7 +1605,7 @@ mod tests {
         let plan = MachinePlan::single_cap(
             "cap:test",
             "media:ext=pdf",
-            "media:image;png",
+            "media:ext=png;image",
             "doc_path", // file-path argument name
         );
 
@@ -1715,7 +1715,7 @@ mod tests {
         let plan = MachinePlan::linear_chain(
             &["cap:a", "cap:b"],
             "media:ext=pdf",
-            "media:image;png",
+            "media:ext=png;image",
             &["input_a", "input_b"],
         );
         assert_eq!(plan.find_first_foreach(), None);
@@ -1731,7 +1731,7 @@ mod tests {
         );
 
         let linear_plan =
-            MachinePlan::linear_chain(&["cap:a"], "media:ext=pdf", "media:image;png", &["input_a"]);
+            MachinePlan::linear_chain(&["cap:a"], "media:ext=pdf", "media:ext=png;image", &["input_a"]);
         assert!(
             !linear_plan.has_foreach(),
             "Linear plan should not detect ForEach"

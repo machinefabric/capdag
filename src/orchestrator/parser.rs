@@ -401,16 +401,16 @@ mod tests {
                 "media:document-outline;enc=utf-8;record",
             ),
             (
-                r#"cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail""#,
+                r#"cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail""#,
                 &["media:ext=pdf"],
-                "media:image;png;thumbnail",
+                "media:ext=png;image;thumbnail",
             ),
         ]);
 
         let notation = concat!(
             r#"[meta cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]"#,
             r#"[outline cap:in="media:ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"]"#,
-            r#"[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"]"#,
+            r#"[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]"#,
             "[doc -> meta -> metadata]",
             "[doc -> outline -> outline_data]",
             "[doc -> thumb -> thumbnail]"
@@ -437,9 +437,9 @@ mod tests {
         // assigns each source URN to the right arg slot.
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail""#,
+                r#"cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail""#,
                 &["media:ext=pdf"],
-                "media:image;png;thumbnail",
+                "media:ext=png;image;thumbnail",
             ),
             (
                 r#"cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec""#,
@@ -447,16 +447,16 @@ mod tests {
                 "media:enc=utf-8;model-spec",
             ),
             (
-                r#"cap:in="media:image;png";describe-image;out="media:enc=utf-8;image-description""#,
-                &["media:image;png", "media:enc=utf-8;model-spec"],
+                r#"cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description""#,
+                &["media:ext=png;image", "media:enc=utf-8;model-spec"],
                 "media:enc=utf-8;image-description",
             ),
         ]);
 
         let notation = concat!(
-            r#"[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"]"#,
+            r#"[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]"#,
             r#"[model_dl cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"]"#,
-            r#"[describe cap:in="media:image;png";describe-image;out="media:enc=utf-8;image-description"]"#,
+            r#"[describe cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"]"#,
             "[doc -> thumb -> thumbnail]",
             "[spec_input -> model_dl -> model_spec]",
             "[(thumbnail, model_spec) -> describe -> description]"
@@ -590,15 +590,15 @@ mod tests {
                 "media:ext=pdf",
             ),
             (
-                r#"cap:in="media:audio;wav";transcribe;out="media:enc=utf-8;ext=txt""#,
-                &["media:audio;wav"],
+                r#"cap:in="media:audio;ext=wav";transcribe;out="media:enc=utf-8;ext=txt""#,
+                &["media:audio;ext=wav"],
                 "media:enc=utf-8;ext=txt",
             ),
         ]);
 
         let notation = concat!(
             r#"[produce cap:in="media:void";produce-pdf;out="media:ext=pdf"]"#,
-            r#"[transcribe cap:in="media:audio;wav";transcribe;out="media:enc=utf-8;ext=txt"]"#,
+            r#"[transcribe cap:in="media:audio;ext=wav";transcribe;out="media:enc=utf-8;ext=txt"]"#,
             "[A -> produce -> B]",
             "[B -> transcribe -> C]"
         );
@@ -621,7 +621,7 @@ mod tests {
     // TEST1265: Shared nodes accept compatible media URNs when one is a more specific form of the other.
     #[tokio::test]
     async fn test1265_compatible_media_urns_at_shared_node() {
-        // Cap A outputs media:image;png; cap B inputs
+        // Cap A outputs media:ext=png;image; cap B inputs
         // media:image;png;bytes. The parser's lexical
         // is_comparable accepts the chain (bytes is more
         // specific). The resolver's matching then assigns the
@@ -629,20 +629,20 @@ mod tests {
         // to cap B's image;png;bytes arg slot.
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:ext=pdf";thumbnail;out="media:image;png""#,
+                r#"cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image""#,
                 &["media:ext=pdf"],
-                "media:image;png",
+                "media:ext=png;image",
             ),
             (
-                r#"cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;enc=utf-8;record""#,
-                &["media:bytes;image;png"],
+                r#"cap:in="media:bytes;ext=png;image";embed-image;out="media:embedding-vector;enc=utf-8;record""#,
+                &["media:bytes;ext=png;image"],
                 "media:embedding-vector;enc=utf-8;record",
             ),
         ]);
 
         let notation = concat!(
-            r#"[thumb cap:in="media:ext=pdf";thumbnail;out="media:image;png"]"#,
-            r#"[embed_image cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;enc=utf-8;record"]"#,
+            r#"[thumb cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"]"#,
+            r#"[embed_image cap:in="media:bytes;ext=png;image";embed-image;out="media:embedding-vector;enc=utf-8;record"]"#,
             "[A -> thumb -> B]",
             "[B -> embed_image -> C]"
         );

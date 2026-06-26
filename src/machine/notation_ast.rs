@@ -1771,7 +1771,7 @@ mod tests {
     #[test]
     fn test1196_parse_fan_in_group() {
         let input = concat!(
-            r#"[describe cap:in="media:image;png";describe;out="media:ext=txt"]"#,
+            r#"[describe cap:in="media:ext=png;image";describe;out="media:ext=txt"]"#,
             "\n[(thumbnail, model_spec) -> describe -> description]"
         );
         let ast = parse_notation_ast(input);

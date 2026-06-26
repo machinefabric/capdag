@@ -252,7 +252,7 @@ pub fn resolve_pre_interned(
         //
         // For args that DO have a stdin source, the URN that
         // matters for matching is the stdin source's inner
-        // type (e.g. `media:image;png`), NOT the arg's outer
+        // type (e.g. `media:ext=png;image`), NOT the arg's outer
         // `media_urn` (e.g. `media:enc=utf-8;file-path`). The
         // outer is the slot identity that cartridge_runtime uses
         // to label the stream and to drive file-path
@@ -810,18 +810,18 @@ mod tests {
         // remaining arg. The resolver picks the unique minimum-
         // cost matching.
         //
-        // sources: [media:image;png, media:enc=utf-8;model-spec]
-        // args:    [media:image;png, media:enc=utf-8]
+        // sources: [media:ext=png;image, media:enc=utf-8;model-spec]
+        // args:    [media:ext=png;image, media:enc=utf-8]
         //
         // image;png ⪯ image;png (dist 0); image;png ⪯ textable? no
         // model-spec;textable ⪯ image;png? no
         // model-spec;textable ⪯ textable (dist 1)
         //
         // Unique optimum: (image;png → image;png), (model-spec;textable → textable)
-        let sources = vec![media("media:image;png"), media("media:enc=utf-8;model-spec")];
-        let args = vec![media("media:image;png"), media("media:enc=utf-8")];
+        let sources = vec![media("media:ext=png;image"), media("media:enc=utf-8;model-spec")];
+        let args = vec![media("media:ext=png;image"), media("media:enc=utf-8")];
         let cap_urn =
-            cap("cap:in=\"media:image;png\";describe;out=\"media:enc=utf-8;image-description\"");
+            cap("cap:in=\"media:ext=png;image\";describe;out=\"media:enc=utf-8;image-description\"");
         let pairs = match_sources_to_args(&sources, &args, &cap_urn, 0).unwrap();
         assert_eq!(pairs.len(), 2);
         // Pairs are sorted by cap_arg_media_urn structurally.
@@ -832,8 +832,8 @@ mod tests {
         let mut found_image = false;
         let mut found_text = false;
         for (arg, src) in &pairs {
-            if arg.is_equivalent(&media("media:image;png")).unwrap() {
-                assert!(src.is_equivalent(&media("media:image;png")).unwrap());
+            if arg.is_equivalent(&media("media:ext=png;image")).unwrap() {
+                assert!(src.is_equivalent(&media("media:ext=png;image")).unwrap());
                 found_image = true;
             } else if arg.is_equivalent(&media("media:enc=utf-8")).unwrap() {
                 assert!(src

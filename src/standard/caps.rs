@@ -405,7 +405,7 @@ pub fn embeddings_generation_urn() -> CapUrn {
 }
 
 /// Build URN for image embeddings-generation capability
-/// Input: media:image;png
+/// Input: media:ext=png;image
 /// Output: media:embedding-vector;enc=utf-8;record
 pub fn image_embeddings_generation_urn() -> CapUrn {
     CapUrnBuilder::new()

@@ -1070,7 +1070,7 @@ mod tests {
         let registry = test_registry().await;
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
             version: 0,
-            urn: "media:image;jpeg".to_string(),
+            urn: "media:ext=jpeg;image".to_string(),
             media_type: "image/jpeg".to_string(),
             title: "JPEG Image".to_string(),
             profile_uri: Some("https://capdag.com/schema/jpeg".to_string()),
@@ -1082,7 +1082,7 @@ mod tests {
             extensions: vec!["jpg".to_string(), "jpeg".to_string()],
         });
 
-        let resolved = resolve_media_urn("media:image;jpeg", &registry)
+        let resolved = resolve_media_urn("media:ext=jpeg;image", &registry)
             .await
             .unwrap();
         assert_eq!(
