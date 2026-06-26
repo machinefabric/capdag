@@ -43,7 +43,7 @@ pub struct CollectionFile {
     pub listing_id: String,
     /// Full filesystem path to the file
     pub file_path: String,
-    /// Media URN describing the file type (e.g., "media:pdf")
+    /// Media URN describing the file type (e.g., "media:ext=pdf")
     pub media_urn: String,
     /// Optional human-readable title
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -172,7 +172,7 @@ mod tests {
         collection.files.push(CollectionFile::new(
             "listing-1".to_string(),
             "/path/to/file1.pdf".to_string(),
-            "media:pdf".to_string(),
+            "media:ext=pdf".to_string(),
         ));
         collection.files.push(CollectionFile::new(
             "listing-2".to_string(),
@@ -193,7 +193,7 @@ mod tests {
         root.files.push(CollectionFile::new(
             "listing-1".to_string(),
             "/path/file1.pdf".to_string(),
-            "media:pdf".to_string(),
+            "media:ext=pdf".to_string(),
         ));
 
         let mut subfolder =
@@ -201,12 +201,12 @@ mod tests {
         subfolder.files.push(CollectionFile::new(
             "listing-2".to_string(),
             "/path/sub/file2.pdf".to_string(),
-            "media:pdf".to_string(),
+            "media:ext=pdf".to_string(),
         ));
         subfolder.files.push(CollectionFile::new(
             "listing-3".to_string(),
             "/path/sub/file3.pdf".to_string(),
-            "media:pdf".to_string(),
+            "media:ext=pdf".to_string(),
         ));
 
         root.folders.insert("Subfolder".to_string(), subfolder);
@@ -223,7 +223,7 @@ mod tests {
         root.files.push(CollectionFile::new(
             "listing-1".to_string(),
             "/path/file1.pdf".to_string(),
-            "media:pdf".to_string(),
+            "media:ext=pdf".to_string(),
         ));
 
         let mut subfolder =
@@ -231,7 +231,7 @@ mod tests {
         subfolder.files.push(CollectionFile::new(
             "listing-2".to_string(),
             "/path/sub/file2.pdf".to_string(),
-            "media:pdf".to_string(),
+            "media:ext=pdf".to_string(),
         ));
 
         root.folders.insert("Subfolder".to_string(), subfolder);
@@ -252,7 +252,7 @@ mod tests {
             CollectionFile::new(
                 "listing-1".to_string(),
                 "/path/to/file.pdf".to_string(),
-                "media:pdf".to_string(),
+                "media:ext=pdf".to_string(),
             )
             .with_title("My Document".to_string()),
         );

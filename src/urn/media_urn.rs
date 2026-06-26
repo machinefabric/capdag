@@ -28,7 +28,7 @@ use tagged_urn::{TaggedUrn, TaggedUrnCoordinateDelta, TaggedUrnError};
 // - `record` marker: presence = has internal fields, absence = opaque (default)
 //
 // Examples:
-// - `media:pdf` → scalar, opaque (no markers)
+// - `media:ext=pdf` → scalar, opaque (no markers)
 // - `media:enc=utf-8;list` → list, opaque (has list marker)
 // - `media:fmt=json;record` → scalar, record (has record marker)
 // - `media:fmt=json;list;record` → list of records (has both markers)
@@ -504,8 +504,8 @@ impl MediaUrn {
     ///
     /// - Empty input → `media:` (universal type)
     /// - Single input → returned as-is
-    /// - `[media:pdf, media:pdf]` → `media:pdf`
-    /// - `[media:pdf, media:image;png]` → `media:` (no common tags)
+    /// - `[media:ext=pdf, media:ext=pdf]` → `media:ext=pdf`
+    /// - `[media:ext=pdf, media:image;png]` → `media:` (no common tags)
     /// - `[media:fmt=json, media:fmt=csv]` → `media:enc=utf-8`
     /// - `[media:fmt=json;list, media:fmt=json]` → `media:fmt=json`
     pub fn least_upper_bound(urns: &[MediaUrn]) -> MediaUrn {
@@ -1069,7 +1069,7 @@ mod tests {
     #[test]
     fn test074_media_urn_matching() {
         // PDF listing conforms to PDF requirement (PRIMARY type naming)
-        // A more specific URN (media:pdf) conforms to a less specific requirement (media:pdf)
+        // A more specific URN (media:ext=pdf) conforms to a less specific requirement (media:ext=pdf)
         let pdf_listing = MediaUrn::from_string(MEDIA_PDF).unwrap(); // "media:ext=pdf"
         let pdf_requirement = MediaUrn::from_string("media:ext=pdf").unwrap();
         assert!(pdf_listing

@@ -16,7 +16,7 @@ media:<type>[;tag=value]...
 Examples:
 ```
 media:                          # Identity (any media)
-media:pdf                       # PDF type
+media:ext=pdf                       # PDF type
 media:pdf;bytes                 # PDF with bytes marker
 media:enc=utf-8                 # Bare UTF-8 text (scalar by default)
 media:fmt=json;record           # JSON object (serialization format)
@@ -287,7 +287,7 @@ media:integer;list;numeric         # Array of integers
 |-----------|-------------|
 | `media:image;png` | PNG image |
 | `media:jpeg;image` | JPEG image |
-| `media:pdf` | PDF document |
+| `media:ext=pdf` | PDF document |
 
 ---
 
@@ -323,7 +323,7 @@ spec(media:pdf;v=2.0) = 5       # must-have-any + exact value
 ```
 media:pdf;bytes ⪯ media:bytes   (pdf;bytes conforms to bytes)
 media:bytes ⪯ media:            (bytes conforms to identity)
-media:pdf ⪯ media:image         ✗ (not on same chain)
+media:ext=pdf ⪯ media:image         ✗ (not on same chain)
 ```
 
 ---

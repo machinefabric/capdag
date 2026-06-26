@@ -475,7 +475,7 @@ mod tests {
         // PDF
         registry.insert_cached_media_def_for_test(StoredMediaDef {
             version: 0,
-            urn: "media:pdf".to_string(),
+            urn: "media:ext=pdf".to_string(),
             media_type: "application/pdf".to_string(),
             title: "PDF".to_string(),
             profile_uri: None,
@@ -637,8 +637,8 @@ mod tests {
         let resolved = detect_file_by_extension_with_registry(&path, &registry).unwrap();
         let urn = MediaUrn::from_string(&resolved.media_urn).unwrap();
         assert!(
-            urn.has_marker_tag("pdf"),
-            "PDF extension must produce URN with pdf tag, got: {}",
+            urn.has_tag("ext", "pdf"),
+            "PDF extension must produce URN with ext=pdf tag, got: {}",
             resolved.media_urn
         );
     }
@@ -720,7 +720,7 @@ mod tests {
     // TEST1288: structure_from_marker_tags correctly maps tag combinations to ContentStructure
     #[test]
     fn test1288_structure_from_marker_tags() {
-        let scalar_opaque = MediaUrn::from_string("media:pdf").unwrap();
+        let scalar_opaque = MediaUrn::from_string("media:ext=pdf").unwrap();
         assert_eq!(
             structure_from_marker_tags(&scalar_opaque),
             ContentStructure::ScalarOpaque

@@ -42,7 +42,7 @@ Two equally valid statement forms exist. Both can be freely mixed in the same pr
 Each statement is wrapped in `[...]`. Inside a bracketed statement the cap URN reads until the closing `]`, so line breaks between statements are insignificant — multiple statements may share a line:
 
 ```
-[extract cap:in="media:pdf";extract;out="media:txt;enc=utf-8"]
+[extract cap:in="media:ext=pdf";extract;out="media:txt;enc=utf-8"]
 [doc -> extract -> text]
 ```
 
@@ -51,7 +51,7 @@ Each statement is wrapped in `[...]`. Inside a bracketed statement the cap URN r
 One statement per line, no brackets. In this form a cap URN reads until the newline, so line breaks **terminate** statements:
 
 ```
-extract cap:in="media:pdf";extract;out="media:txt;enc=utf-8"
+extract cap:in="media:ext=pdf";extract;out="media:txt;enc=utf-8"
 doc -> extract -> text
 ```
 
@@ -74,7 +74,7 @@ A header binds an alias to a `CapUrn`:
 Examples:
 
 ```
-extract cap:in="media:pdf";extract;out="media:txt;enc=utf-8"
+extract cap:in="media:ext=pdf";extract;out="media:txt;enc=utf-8"
 embed cap:in="media:enc=utf-8";embed;out="media:embedding-vector;fmt=json;record"
 ```
 
@@ -135,13 +135,13 @@ Strand declaration order matters: strands are listed in the resulting `Machine` 
 
 Each cap definition lists its input arguments in `args`. Each arg has a `media_urn` (the **slot key**, unique per cap per RULE1) and a `sources` list describing how the arg receives data at runtime. The source types are:
 
-- `Stdin { stdin: "<media URN>" }` — the arg receives data via the stdin stream. The inner URN is the **data-flow type** (e.g. `media:pdf`). This is the type the runtime delivers on the wire.
+- `Stdin { stdin: "<media URN>" }` — the arg receives data via the stdin stream. The inner URN is the **data-flow type** (e.g. `media:ext=pdf`). This is the type the runtime delivers on the wire.
 - `Position { position: N }` — positional CLI argument.
 - `CliFlag { cli_flag: "--name" }` — named CLI flag.
 
 **Only args with a Stdin source participate in source-to-cap-arg matching.** Args with only CLI/positional sources are runtime configuration — they receive their values at execution time from cap settings, slot values, or defaults, not from upstream caps in the data flow.
 
-The slot key (`arg.media_urn`, e.g. `media:file-path;enc=utf-8`) may differ from the stdin source URN (`media:pdf`). The slot key is the cap definition's internal label for the arg slot; the stdin URN is the type of data that actually flows on the wire. The runtime handles the translation transparently (e.g. reading a file path and piping the file's bytes into stdin). The resolver matches against the **stdin source URN**, not the slot key.
+The slot key (`arg.media_urn`, e.g. `media:file-path;enc=utf-8`) may differ from the stdin source URN (`media:ext=pdf`). The slot key is the cap definition's internal label for the arg slot; the stdin URN is the type of data that actually flows on the wire. The runtime handles the translation transparently (e.g. reading a file path and piping the file's bytes into stdin). The resolver matches against the **stdin source URN**, not the slot key.
 
 ### Matching algorithm
 
@@ -258,24 +258,24 @@ Building a `Machine` from notation can fail in several distinct ways:
 ### 13.1 Linear chain
 
 ```
-[extract cap:in="media:pdf";extract;out="media:txt;enc=utf-8"]
+[extract cap:in="media:ext=pdf";extract;out="media:txt;enc=utf-8"]
 [embed cap:in="media:enc=utf-8";embed;out="media:embedding-vector;fmt=json;record"]
 [doc -> extract -> text]
 [text -> embed -> vectors]
 ```
 
-One strand. Three nodes (`doc`, `text`, `vectors`). Two edges. Input anchor: the URN bound to `doc` (= `media:pdf`). Output anchor: the URN bound to `vectors`.
+One strand. Three nodes (`doc`, `text`, `vectors`). Two edges. Input anchor: the URN bound to `doc` (= `media:ext=pdf`). Output anchor: the URN bound to `vectors`.
 
 Canonical re-serialization:
 
 ```
-[edge_0 cap:in="media:pdf";extract;out="media:txt;enc=utf-8"][edge_1 cap:in="media:enc=utf-8";embed;out="media:embedding-vector;fmt=json;record"][n0 -> edge_0 -> n1][n1 -> edge_1 -> n2]
+[edge_0 cap:in="media:ext=pdf";extract;out="media:txt;enc=utf-8"][edge_1 cap:in="media:enc=utf-8";embed;out="media:embedding-vector;fmt=json;record"][n0 -> edge_0 -> n1][n1 -> edge_1 -> n2]
 ```
 
 ### 13.2 Strand with iteration
 
 ```
-[disbind cap:in="media:pdf";disbind;out="media:page;enc=utf-8"]
+[disbind cap:in="media:ext=pdf";disbind;out="media:page;enc=utf-8"]
 [make_decision cap:in="media:enc=utf-8";make-decision;out="media:decision;fmt=json;record"]
 [doc -> disbind -> pages]
 [pages -> LOOP make_decision -> decisions]
@@ -286,20 +286,20 @@ One strand. The `LOOP` marker on the second wiring sets `is_loop = true` on the 
 ### 13.3 Fan-out
 
 ```
-[meta cap:in="media:pdf";extract-metadata;out="media:file-metadata;fmt=json;record"]
-[outline cap:in="media:pdf";extract-outline;out="media:document-outline;fmt=json;record"]
-[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]
+[meta cap:in="media:ext=pdf";extract-metadata;out="media:file-metadata;fmt=json;record"]
+[outline cap:in="media:ext=pdf";extract-outline;out="media:document-outline;fmt=json;record"]
+[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"]
 [doc -> meta -> metadata]
 [doc -> outline -> outline_data]
 [doc -> thumb -> thumbnail]
 ```
 
-One strand. All three wirings share the source `doc`, so they are connected (one connected component → one strand). Four nodes total: `doc`, `metadata`, `outline_data`, `thumbnail`. Three edges. The input anchor is `doc`'s URN (`media:pdf`); the output anchors are the URNs of `metadata`, `outline_data`, and `thumbnail`.
+One strand. All three wirings share the source `doc`, so they are connected (one connected component → one strand). Four nodes total: `doc`, `metadata`, `outline_data`, `thumbnail`. Three edges. The input anchor is `doc`'s URN (`media:ext=pdf`); the output anchors are the URNs of `metadata`, `outline_data`, and `thumbnail`.
 
 ### 13.4 Fan-in
 
 ```
-[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]
+[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"]
 [model_dl cap:in="media:model-spec;enc=utf-8";download;out="media:model-spec;enc=utf-8"]
 [describe cap:in="media:image;png";describe-image;out="media:image-description;enc=utf-8"]
 [doc -> thumb -> thumbnail]

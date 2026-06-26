@@ -286,7 +286,7 @@ impl Machine {
     ///   "strands": [
     ///     {
     ///       "nodes": [
-    ///         {"id": "n0", "urn": "media:pdf", "title": "PDF Document"},
+    ///         {"id": "n0", "urn": "media:ext=pdf", "title": "PDF Document"},
     ///         ...
     ///       ],
     ///       "edges": [
@@ -297,7 +297,7 @@ impl Machine {
     ///           "is_loop": false,
     ///           "assignment": [
     ///             {
-    ///               "cap_arg_media_urn": "media:pdf",
+    ///               "cap_arg_media_urn": "media:ext=pdf",
     ///               "source_node": "n0"
     ///             }
     ///           ],

@@ -36,7 +36,7 @@ accepts(a, b)  :⟺  b ⪯ a
 ```
 accepts(media:bytes, media:pdf;bytes)     = true   # bytes accepts pdf;bytes
 accepts(media:pdf;bytes, media:bytes)     = false  # pdf;bytes does not accept bytes
-accepts(media:pdf, media:pdf)             = true   # identical
+accepts(media:ext=pdf, media:ext=pdf)             = true   # identical
 ```
 
 ---
@@ -60,7 +60,7 @@ conforms_to(a, b)  :⟺  a ⪯ b
 ```
 conforms_to(media:pdf;bytes, media:bytes)     = true   # pdf;bytes conforms to bytes
 conforms_to(media:bytes, media:pdf;bytes)     = false  # bytes does not conform to pdf;bytes
-conforms_to(media:pdf, media:pdf)             = true   # identical
+conforms_to(media:ext=pdf, media:ext=pdf)             = true   # identical
 ```
 
 ---
@@ -83,8 +83,8 @@ is_comparable(a, b)  :⟺  a ⪯ b  ∨  b ⪯ a
 **Examples**:
 ```
 is_comparable(media:bytes, media:pdf;bytes)   = true   # same chain
-is_comparable(media:pdf, media:image)         = false  # different branches
-is_comparable(media:pdf, media:pdf)           = true   # identical
+is_comparable(media:ext=pdf, media:image)         = false  # different branches
+is_comparable(media:ext=pdf, media:ext=pdf)           = true   # identical
 ```
 
 **Note**: Comparability is necessary but NOT sufficient for dispatch. Two URNs can be comparable but not dispatchable.
@@ -108,9 +108,9 @@ is_equivalent(a, b)  :⟺  a ⪯ b  ∧  b ⪯ a
 
 **Examples**:
 ```
-is_equivalent(media:pdf, media:pdf)           = true
+is_equivalent(media:ext=pdf, media:ext=pdf)           = true
 is_equivalent(media:bytes;pdf, media:pdf;bytes) = true   # same tags, different order
-is_equivalent(media:pdf, media:pdf;bytes)     = false  # different specificity
+is_equivalent(media:ext=pdf, media:pdf;bytes)     = false  # different specificity
 ```
 
 ---

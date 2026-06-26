@@ -1652,7 +1652,7 @@ fn extract_word_prefix(s: &str) -> String {
 }
 
 /// Extract the media URN prefix after `in=` or `out=`.
-/// Handles both quoted (`in="media:pdf"`) and unquoted (`in=media:pdf`) forms.
+/// Handles both quoted (`in="media:ext=pdf"`) and unquoted (`in=media:ext=pdf`) forms.
 fn extract_media_prefix(after_eq: &str) -> String {
     let s = after_eq.trim_start();
     if s.starts_with('"') {
@@ -1702,7 +1702,7 @@ mod tests {
     // TEST1192: Parsing a simple header and wiring produces a valid AST with both statements.
     #[test]
     fn test1192_parse_simple_header_and_wiring() {
-        let input = r#"[extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"]
+        let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
 
@@ -1843,7 +1843,7 @@ mod tests {
     // TEST1202: Semantic token generation marks the expected token kinds for simple notation.
     #[test]
     fn test1202_semantic_tokens_simple() {
-        let input = r#"[extract cap:in="media:pdf";extract;out="media:ext=txt"]
+        let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
         let tokens = emit_semantic_tokens(&ast, input);
@@ -1914,7 +1914,7 @@ mod tests {
     // TEST1203: Editor model hover metadata resolves correctly for an alias definition.
     #[test]
     fn test1203_editor_model_entity_hover_for_alias_definition() {
-        let input = r#"[extract cap:in="media:pdf";extract;out="media:ext=txt"]
+        let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
         let (entities, _) = build_editor_model(&ast, &HashMap::new(), &HashMap::new());
@@ -1935,7 +1935,7 @@ mod tests {
     // TEST1204: Editor model hover metadata resolves correctly for a wiring source node reference.
     #[test]
     fn test1204_editor_model_entity_hover_for_wiring_source_node() {
-        let input = r#"[extract cap:in="media:pdf";extract;out="media:ext=txt"]
+        let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
         let (entities, _) = build_editor_model(&ast, &HashMap::new(), &HashMap::new());
@@ -1969,7 +1969,7 @@ mod tests {
     // TEST1206: The editor model graph includes the expected nodes and edges from parsed notation.
     #[test]
     fn test1206_editor_model_graph_contains_nodes_and_edges() {
-        let input = r#"[extract cap:in="media:pdf";extract;out="media:ext=txt"]
+        let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
         let (_, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new());
@@ -1998,7 +1998,7 @@ mod tests {
     // TEST1207: Cap alias tokens and arrow tokens share the same graph token identity for the cap.
     #[test]
     fn test1207_editor_model_cap_alias_and_arrows_share_token_id_with_graph_cap() {
-        let input = r#"[extract cap:in="media:pdf";extract;out="media:ext=txt"]
+        let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
         let (entities, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new());
@@ -2093,7 +2093,7 @@ mod tests {
     // TEST1209: Parsing line-based headers and wirings produces the expected AST.
     #[test]
     fn test1209_parse_line_based_header_and_wiring() {
-        let input = r#"extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"
+        let input = r#"extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"
 doc -> extract -> text"#;
         let ast = parse_notation_ast(input);
 
@@ -2111,7 +2111,7 @@ doc -> extract -> text"#;
     // TEST1210: Parsing mixed bracketed and line-based notation works within the same document.
     #[test]
     fn test1210_parse_mixed_bracketed_and_line_based() {
-        let input = r#"[extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"]
+        let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]
 doc -> extract -> text"#;
         let ast = parse_notation_ast(input);
 
@@ -2181,7 +2181,7 @@ doc -> extract -> text"#;
     #[test]
     fn test1217_loop_keyword_not_suggested_for_scalar_source() {
         let ast = parse_notation_ast(concat!(
-            r#"extract cap:in="media:pdf";extract;out="media:ext=txt""#,
+            r#"extract cap:in="media:ext=pdf";extract;out="media:ext=txt""#,
             "\n",
             "doc -> extract -> text"
         ));
@@ -2195,7 +2195,7 @@ doc -> extract -> text"#;
     // TEST1218: Semantic tokens are produced correctly for line-based notation without brackets.
     #[test]
     fn test1218_line_based_semantic_tokens_no_brackets() {
-        let input = r#"extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"
+        let input = r#"extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"
 doc -> extract -> text"#;
         let ast = parse_notation_ast(input);
         let tokens = emit_semantic_tokens(&ast, input);

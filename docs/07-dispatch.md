@@ -170,10 +170,10 @@ For dispatch validity with wildcards:
 | Request Input | Provider Input | Dispatch? | Reason |
 |---------------|----------------|-----------|--------|
 | `media:` | `media:` | ✓ | Both unconstrained |
-| `media:` | `media:pdf` | ✓ | Request unconstrained |
-| `media:pdf` | `media:` | ✓ | Provider accepts any |
-| `media:pdf` | `media:bytes` | ✓ | pdf conforms to bytes |
-| `media:pdf` | `media:image` | ✗ | pdf does not conform to image |
+| `media:` | `media:ext=pdf` | ✓ | Request unconstrained |
+| `media:ext=pdf` | `media:` | ✓ | Provider accepts any |
+| `media:ext=pdf` | `media:bytes` | ✓ | pdf conforms to bytes |
+| `media:ext=pdf` | `media:image` | ✗ | pdf does not conform to image |
 
 ---
 
@@ -238,10 +238,10 @@ Result: DISPATCHABLE ✓
 ### 6.2 Specific Request, Generic Provider (Fallback)
 
 ```
-Request:  cap:in="media:pdf";extract;out="media:record"
+Request:  cap:in="media:ext=pdf";extract;out="media:record"
 Provider: cap:in="media:bytes";extract;out="media:"
 
-Input:  i_r=media:pdf, i_p=media:bytes
+Input:  i_r=media:ext=pdf, i_p=media:bytes
         pdf ⪯ bytes? Yes → PASS ✓
 
 Output: o_p=media:, o_r=media:record
@@ -254,10 +254,10 @@ Result: NOT DISPATCHABLE
 ### 6.3 Incompatible Types
 
 ```
-Request:  cap:in="media:pdf";convert;out="media:html"
+Request:  cap:in="media:ext=pdf";convert;out="media:html"
 Provider: cap:in="media:image";convert;out="media:enc=utf-8"
 
-Input:  i_r=media:pdf, i_p=media:image
+Input:  i_r=media:ext=pdf, i_p=media:image
         pdf ⪯ image? No, different families → FAIL ✗
 
 Result: NOT DISPATCHABLE (fails at first axis)

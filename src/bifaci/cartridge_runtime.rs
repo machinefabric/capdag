@@ -5633,7 +5633,7 @@ mod tests {
                 true,
                 vec![
                     ArgSource::Stdin {
-                        stdin: "media:pdf".to_string(),
+                        stdin: "media:ext=pdf".to_string(),
                     },
                     ArgSource::Position { position: 0 },
                 ],
@@ -5741,7 +5741,7 @@ mod tests {
                 true,
                 vec![
                     ArgSource::Stdin {
-                        stdin: "media:pdf".to_string(),
+                        stdin: "media:ext=pdf".to_string(),
                     },
                     ArgSource::CliFlag {
                         cli_flag: "--file".to_string(),
@@ -5821,7 +5821,7 @@ mod tests {
     #[test]
     fn test340_file_not_found_clear_error() {
         let cap = create_test_cap(
-            "cap:in=\"media:pdf\";test;out=\"media:void\"",
+            "cap:in=\"media:ext=pdf\";test;out=\"media:void\"",
             "Test",
             "test",
             vec![CapArg::new(
@@ -5829,7 +5829,7 @@ mod tests {
                 true,
                 vec![
                     ArgSource::Stdin {
-                        stdin: "media:pdf".to_string(),
+                        stdin: "media:ext=pdf".to_string(),
                     },
                     ArgSource::Position { position: 0 },
                 ],
@@ -6288,7 +6288,7 @@ mod tests {
                 true,
                 vec![
                     ArgSource::Stdin {
-                        stdin: "media:pdf".to_string(),
+                        stdin: "media:ext=pdf".to_string(),
                     },
                     ArgSource::Position { position: 0 },
                 ],
@@ -6923,7 +6923,7 @@ mod tests {
                 true,
                 vec![
                     ArgSource::Stdin {
-                        stdin: "media:pdf".to_string(),
+                        stdin: "media:ext=pdf".to_string(),
                     },
                     ArgSource::Position { position: 0 },
                 ],
@@ -6957,7 +6957,7 @@ mod tests {
         };
 
         // Extract value from argument matching in_spec
-        let in_spec = MediaUrn::from_string("media:pdf").unwrap();
+        let in_spec = MediaUrn::from_string("media:ext=pdf").unwrap();
         let mut found_value = None;
         for arg in result_array {
             if let ciborium::Value::Map(map) = arg {
@@ -7016,7 +7016,7 @@ mod tests {
                 true,
                 vec![
                     ArgSource::Stdin {
-                        stdin: "media:pdf".to_string(),
+                        stdin: "media:ext=pdf".to_string(),
                     },
                     ArgSource::Position { position: 0 },
                 ],
@@ -7062,10 +7062,10 @@ mod tests {
             "Process",
             "process",
             vec![CapArg::new(
-                "media:pdf",
+                "media:ext=pdf",
                 true,
                 vec![ArgSource::Stdin {
-                    stdin: "media:pdf".to_string(),
+                    stdin: "media:ext=pdf".to_string(),
                 }],
             )],
         );
@@ -7137,10 +7137,10 @@ mod tests {
             "Process",
             "process",
             vec![CapArg::new(
-                "media:pdf",
+                "media:ext=pdf",
                 true,
                 vec![ArgSource::Stdin {
-                    stdin: "media:pdf".to_string(),
+                    stdin: "media:ext=pdf".to_string(),
                 }],
             )],
         );
@@ -7158,7 +7158,7 @@ mod tests {
         let cbor_args = ciborium::Value::Array(vec![ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("media_urn".to_string()),
-                ciborium::Value::Text("media:pdf".to_string()),
+                ciborium::Value::Text("media:ext=pdf".to_string()),
             ),
             (
                 ciborium::Value::Text("value".to_string()),
@@ -7197,7 +7197,7 @@ mod tests {
                 MEDIA_FILE_PATH,
                 true,
                 vec![ArgSource::Stdin {
-                    stdin: "media:pdf".to_string(),
+                    stdin: "media:ext=pdf".to_string(),
                 }],
             )],
         );
@@ -7259,7 +7259,7 @@ mod tests {
                 }
                 assert_eq!(
                     media_urn,
-                    Some(&"media:pdf".to_string()),
+                    Some(&"media:ext=pdf".to_string()),
                     "URN converted to expected input"
                 );
                 assert_eq!(

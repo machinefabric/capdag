@@ -162,7 +162,7 @@ mod tests {
             MachineAbstractionError::UnmatchedSourceInCapArgs {
                 strand_index: 0,
                 cap_urn: "cap:x".to_string(),
-                source_urn: "media:pdf".to_string(),
+                source_urn: "media:ext=pdf".to_string(),
             },
             MachineAbstractionError::AmbiguousMachineNotation {
                 strand_index: 1,
@@ -215,7 +215,7 @@ mod tests {
     fn test1149_machine_parse_error_from_resolution_preserves_variant() {
         let parse_error: MachineParseError = MachineAbstractionError::AmbiguousMachineNotation {
             strand_index: 2,
-            cap_urn: "cap:in=media:pdf;out=media:text".to_string(),
+            cap_urn: "cap:in=\"media:ext=pdf\";out=media:text".to_string(),
         }
         .into();
 
@@ -225,7 +225,7 @@ mod tests {
                 cap_urn,
             }) => {
                 assert_eq!(strand_index, 2);
-                assert_eq!(cap_urn, "cap:in=media:pdf;out=media:text");
+                assert_eq!(cap_urn, "cap:in=\"media:ext=pdf\";out=media:text");
             }
             other => panic!("expected ambiguous resolution error, got {other:?}"),
         }

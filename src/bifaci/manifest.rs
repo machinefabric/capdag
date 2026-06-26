@@ -422,10 +422,10 @@ mod tests {
             "extract-metadata".to_string(),
         );
         cap.add_arg(CapArg::new(
-            "media:pdf",
+            "media:ext=pdf",
             true,
             vec![ArgSource::Stdin {
-                stdin: "media:pdf".to_string(),
+                stdin: "media:ext=pdf".to_string(),
             }],
         ));
         cap.add_arg(CapArg::with_full_definition(
