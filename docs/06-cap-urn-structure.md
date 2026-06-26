@@ -40,7 +40,7 @@ Examples:
 ```
 cap:effect=none
 cap:extract;in="media:pdf";out="media:record"
-cap:in="media:textable";out="media:json;record;textable";prompt
+cap:in="media:enc=utf-8";out="media:fmt=json;record";prompt
 ```
 
 ### 2.2 Direction Tags
@@ -104,7 +104,7 @@ rules govern the directional axes:
 | `cap:test` | `cap:test` |
 | `cap:in=media:;test;out=media:` | `cap:test` |
 | `cap:in=*;test;out=*` | `cap:test` |
-| `cap:in=media:pdf;extract;out=media:textable` | `cap:extract;in=media:pdf;out=media:textable` |
+| `cap:in=media:pdf;extract;out=media:record` | `cap:extract;in=media:pdf;out=media:record` |
 | `cap:in=media:;out=media:;effect=none` | `cap:effect=none` |
 
 The value `*` in direction tags expands to `media:`:
@@ -287,7 +287,7 @@ cap:...;extract;target=metadata
 semantics as any other Tagged URN. Tags in `y` are arbitrary — no
 key has functional meaning to the protocol. They distinguish caps
 with the same data signature (e.g. an `extract` cap and a `summarize`
-cap can both have `media:pdf → media:textable` and remain distinct
+cap can both have `media:pdf → media:enc=utf-8` and remain distinct
 because their `y` differs).
 
 A non-empty `y` is also what distinguishes `cap:passthrough`
@@ -303,10 +303,10 @@ directional axes match.
 Given a Cap URN string, extract:
 
 ```rust
-let cap = CapUrn::from_string("cap:extract;in=media:pdf;out=media:textable")?;
+let cap = CapUrn::from_string("cap:extract;in=media:pdf;out=media:record")?;
 
 let input: &str = cap.in_spec();    // "media:pdf"
-let output: &str = cap.out_spec();  // "media:textable"
+let output: &str = cap.out_spec();  // "media:record"
 let has_extract: bool = cap.has_marker_tag("extract"); // true
 let kind: CapKind = cap.kind()?;    // CapKind::Transform
 ```
@@ -362,7 +362,7 @@ weighted total:
 |--------------------------------------------------|-----------|:------------:|-------:|
 | `cap:?effect`                                   | Transform | (0, 0, 0)    |      0 |
 | `cap:extract`                                    | Transform | (0, 0, 2)    |      2 |
-| `cap:extract;in=media:pdf;out=media:textable`    | Transform | (2, 2, 2)    |  20202 |
+| `cap:extract;in=media:pdf;out=media:record`    | Transform | (2, 2, 2)    |  20202 |
 | `cap:in=media:void;out=media:void;ping`          | Effect    | (2, 2, 2)    |  20202 |
 | `cap:extract;target=metadata`                    | Transform | (0, 0, 6)    |      6 |
 
@@ -382,11 +382,11 @@ space. The fully unconstrained explicit request `cap:?effect` is the top:
                              |
                         cap:extract                       (Transform)
                        /            \
-       cap:extract;in=media:pdf       cap:extract;out=media:textable
+       cap:extract;in=media:pdf       cap:extract;out=media:record
                        \            /
-            cap:extract;in=media:pdf;out=media:textable
+            cap:extract;in=media:pdf;out=media:record
                              |
-   cap:extract;in=media:pdf;out=media:textable;target=metadata     (more specific)
+   cap:extract;in=media:pdf;out=media:record;target=metadata     (more specific)
 ```
 
 The ordering follows from the dispatch relation (see
@@ -447,8 +447,8 @@ explicit `effect=none` promise. Required in all capsets.
 ### 11.2 Transform — typed data processor
 
 ```
-cap:extract;in=media:pdf;out=media:textable
-cap:generate;constrained;in=media:textable;language=en;out=media:json
+cap:extract;in=media:pdf;out=media:record
+cap:generate;constrained;in=media:enc=utf-8;language=en;out=media:json
 cap:render-page-image;in=media:pdf;out=media:image
 ```
 

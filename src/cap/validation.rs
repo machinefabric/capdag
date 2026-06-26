@@ -395,21 +395,6 @@ impl InputValidator {
                 error: e.to_string(),
             })?;
 
-        // For binary media types, we expect a base64-encoded string - no profile validation
-        if resolved.is_binary() {
-            if !matches!(value, Value::String(_)) {
-                return Err(ValidationError::InvalidArgumentType {
-                    cap_urn,
-                    argument_name: arg_def.media_urn.clone(),
-                    expected_media_def: arg_def.media_urn.clone(),
-                    actual_value: value.clone(),
-                    schema_errors: vec![
-                        "Expected base64-encoded string for binary type".to_string()
-                    ],
-                });
-            }
-            return Ok(resolved);
-        }
 
         // First, try to use local schema from resolved spec
         if let Some(ref schema) = resolved.schema {
@@ -661,21 +646,6 @@ impl OutputValidator {
                 field_name: "output".to_string(),
                 error: e.to_string(),
             })?;
-
-        // For binary media types, we expect a base64-encoded string - no profile validation
-        if resolved.is_binary() {
-            if !matches!(value, Value::String(_)) {
-                return Err(ValidationError::InvalidOutputType {
-                    cap_urn,
-                    expected_media_def: output_def.media_urn.clone(),
-                    actual_value: value.clone(),
-                    schema_errors: vec![
-                        "Expected base64-encoded string for binary type".to_string()
-                    ],
-                });
-            }
-            return Ok(resolved);
-        }
 
         // First, try to use local schema from resolved spec
         if let Some(ref schema) = resolved.schema {

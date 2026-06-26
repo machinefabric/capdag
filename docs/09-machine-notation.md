@@ -42,7 +42,7 @@ Two equally valid statement forms exist. Both can be freely mixed in the same pr
 Each statement is wrapped in `[...]`. Inside a bracketed statement the cap URN reads until the closing `]`, so line breaks between statements are insignificant — multiple statements may share a line:
 
 ```
-[extract cap:in="media:pdf";extract;out="media:txt;textable"]
+[extract cap:in="media:pdf";extract;out="media:txt;enc=utf-8"]
 [doc -> extract -> text]
 ```
 
@@ -51,7 +51,7 @@ Each statement is wrapped in `[...]`. Inside a bracketed statement the cap URN r
 One statement per line, no brackets. In this form a cap URN reads until the newline, so line breaks **terminate** statements:
 
 ```
-extract cap:in="media:pdf";extract;out="media:txt;textable"
+extract cap:in="media:pdf";extract;out="media:txt;enc=utf-8"
 doc -> extract -> text
 ```
 
@@ -74,8 +74,8 @@ A header binds an alias to a `CapUrn`:
 Examples:
 
 ```
-extract cap:in="media:pdf";extract;out="media:txt;textable"
-embed cap:in="media:textable";embed;out="media:embedding-vector;record;textable"
+extract cap:in="media:pdf";extract;out="media:txt;enc=utf-8"
+embed cap:in="media:enc=utf-8";embed;out="media:embedding-vector;fmt=json;record"
 ```
 
 The cap URN is parsed by `CapUrn::from_string` (see [04-CAP-URN-STRUCTURE](/docs/06-cap-urn-structure)). The header is consumed in exactly one place: each matching wiring references it by alias.
@@ -141,7 +141,7 @@ Each cap definition lists its input arguments in `args`. Each arg has a `media_u
 
 **Only args with a Stdin source participate in source-to-cap-arg matching.** Args with only CLI/positional sources are runtime configuration — they receive their values at execution time from cap settings, slot values, or defaults, not from upstream caps in the data flow.
 
-The slot key (`arg.media_urn`, e.g. `media:file-path;textable`) may differ from the stdin source URN (`media:pdf`). The slot key is the cap definition's internal label for the arg slot; the stdin URN is the type of data that actually flows on the wire. The runtime handles the translation transparently (e.g. reading a file path and piping the file's bytes into stdin). The resolver matches against the **stdin source URN**, not the slot key.
+The slot key (`arg.media_urn`, e.g. `media:file-path;enc=utf-8`) may differ from the stdin source URN (`media:pdf`). The slot key is the cap definition's internal label for the arg slot; the stdin URN is the type of data that actually flows on the wire. The runtime handles the translation transparently (e.g. reading a file path and piping the file's bytes into stdin). The resolver matches against the **stdin source URN**, not the slot key.
 
 ### Matching algorithm
 
@@ -216,7 +216,7 @@ For each Cap step in a planner strand, `from_strand` builds one resolved edge wh
 
 ### Positional interning (planner path)
 
-The planner chains caps by conformance: a cap's declared input (`in=media:textable`) may be less specific than the preceding cap's declared output (`out=media:page;textable`). At runtime the more-specific data flows through both. The resolver uses **positional interning** to collapse these into one shared data position:
+The planner chains caps by conformance: a cap's declared input (`in=media:enc=utf-8`) may be less specific than the preceding cap's declared output (`out=media:page;enc=utf-8`). At runtime the more-specific data flows through both. The resolver uses **positional interning** to collapse these into one shared data position:
 
 - Each cap step's **source** reuses the preceding cap step's target NodeId iff the two URNs are on the same specialization chain (`is_comparable`). The more-specific URN wins as the canonical representative.
 - Each cap step's **target** always allocates a fresh NodeId.
@@ -258,8 +258,8 @@ Building a `Machine` from notation can fail in several distinct ways:
 ### 13.1 Linear chain
 
 ```
-[extract cap:in="media:pdf";extract;out="media:txt;textable"]
-[embed cap:in="media:textable";embed;out="media:embedding-vector;record;textable"]
+[extract cap:in="media:pdf";extract;out="media:txt;enc=utf-8"]
+[embed cap:in="media:enc=utf-8";embed;out="media:embedding-vector;fmt=json;record"]
 [doc -> extract -> text]
 [text -> embed -> vectors]
 ```
@@ -269,25 +269,25 @@ One strand. Three nodes (`doc`, `text`, `vectors`). Two edges. Input anchor: the
 Canonical re-serialization:
 
 ```
-[edge_0 cap:in="media:pdf";extract;out="media:txt;textable"][edge_1 cap:in="media:textable";embed;out="media:embedding-vector;record;textable"][n0 -> edge_0 -> n1][n1 -> edge_1 -> n2]
+[edge_0 cap:in="media:pdf";extract;out="media:txt;enc=utf-8"][edge_1 cap:in="media:enc=utf-8";embed;out="media:embedding-vector;fmt=json;record"][n0 -> edge_0 -> n1][n1 -> edge_1 -> n2]
 ```
 
 ### 13.2 Strand with iteration
 
 ```
-[disbind cap:in="media:pdf";disbind;out="media:page;textable"]
-[make_decision cap:in="media:textable";make-decision;out="media:decision;json;record;textable"]
+[disbind cap:in="media:pdf";disbind;out="media:page;enc=utf-8"]
+[make_decision cap:in="media:enc=utf-8";make-decision;out="media:decision;fmt=json;record"]
 [doc -> disbind -> pages]
 [pages -> LOOP make_decision -> decisions]
 ```
 
-One strand. The `LOOP` marker on the second wiring sets `is_loop = true` on the resolved edge — semantically, the cap runs once per item of the sequence. The cap definition declares `make_decision`'s input as `media:textable`, but the source URN is the more-specific `media:page;textable`; the resolver's matching accepts the conforming source and emits the binding `(media:textable, page_node)`.
+One strand. The `LOOP` marker on the second wiring sets `is_loop = true` on the resolved edge — semantically, the cap runs once per item of the sequence. The cap definition declares `make_decision`'s input as `media:enc=utf-8`, but the source URN is the more-specific `media:page;enc=utf-8`; the resolver's matching accepts the conforming source and emits the binding `(media:enc=utf-8, page_node)`.
 
 ### 13.3 Fan-out
 
 ```
-[meta cap:in="media:pdf";extract-metadata;out="media:file-metadata;record;textable"]
-[outline cap:in="media:pdf";extract-outline;out="media:document-outline;record;textable"]
+[meta cap:in="media:pdf";extract-metadata;out="media:file-metadata;fmt=json;record"]
+[outline cap:in="media:pdf";extract-outline;out="media:document-outline;fmt=json;record"]
 [thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]
 [doc -> meta -> metadata]
 [doc -> outline -> outline_data]
@@ -300,14 +300,14 @@ One strand. All three wirings share the source `doc`, so they are connected (one
 
 ```
 [thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]
-[model_dl cap:in="media:model-spec;textable";download;out="media:model-spec;textable"]
-[describe cap:in="media:image;png";describe-image;out="media:image-description;textable"]
+[model_dl cap:in="media:model-spec;enc=utf-8";download;out="media:model-spec;enc=utf-8"]
+[describe cap:in="media:image;png";describe-image;out="media:image-description;enc=utf-8"]
 [doc -> thumb -> thumbnail]
 [spec_input -> model_dl -> model_spec]
 [(thumbnail, model_spec) -> describe -> description]
 ```
 
-The `describe` cap declares two args in its definition: `media:image;png` and `media:model-spec;textable`. The fan-in wiring `(thumbnail, model_spec) -> describe -> description` provides two source URNs. The resolver's bipartite matching pairs `thumbnail` (URN: `media:image;png;thumbnail`) with the `media:image;png` arg (it conforms) and `model_spec` (URN: `media:model-spec;textable`) with the `media:model-spec;textable` arg. The resulting edge has two `EdgeAssignmentBinding`s.
+The `describe` cap declares two args in its definition: `media:image;png` and `media:model-spec;enc=utf-8`. The fan-in wiring `(thumbnail, model_spec) -> describe -> description` provides two source URNs. The resolver's bipartite matching pairs `thumbnail` (URN: `media:image;png;thumbnail`) with the `media:image;png` arg (it conforms) and `model_spec` (URN: `media:model-spec;enc=utf-8`) with the `media:model-spec;enc=utf-8` arg. The resulting edge has two `EdgeAssignmentBinding`s.
 
 If the `describe` cap had declared only one arg, the resolver would fail with `UnmatchedSourceInCapArgs` for the second source.
 

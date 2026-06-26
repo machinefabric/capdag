@@ -153,69 +153,6 @@ impl ResponseWrapper {
     }
 
     /// Validate response against cap output definition (basic validation)
-    pub async fn validate_against_cap(
-        &self,
-        cap: &Cap,
-        registry: &crate::media::registry::FabricRegistry,
-    ) -> Result<(), ValidationError> {
-        // Convert response to JSON value for validation
-        let _json_value = match self.content_type {
-            ResponseContentType::Json => {
-                let text = self
-                    .as_string()
-                    .map_err(|e| ValidationError::JsonParseError {
-                        cap_urn: cap.urn_string(),
-                        error: format!("Failed to convert response to string: {}", e),
-                    })?;
-                serde_json::from_str::<JsonValue>(&text).map_err(|e| {
-                    ValidationError::JsonParseError {
-                        cap_urn: cap.urn_string(),
-                        error: format!("Failed to parse JSON: {}", e),
-                    }
-                })?
-            }
-            ResponseContentType::Text => {
-                let text = self
-                    .as_string()
-                    .map_err(|e| ValidationError::JsonParseError {
-                        cap_urn: cap.urn_string(),
-                        error: format!("Failed to convert response to string: {}", e),
-                    })?;
-                JsonValue::String(text)
-            }
-            ResponseContentType::Binary => {
-                // Binary outputs can't be validated as JSON, validate the response type instead
-                if let Some(output_def) = cap.get_output() {
-                    let resolved =
-                        crate::media::spec::resolve_media_urn(&output_def.media_urn, registry)
-                            .await
-                            .map_err(|e| ValidationError::InvalidMediaDef {
-                                cap_urn: cap.urn_string(),
-                                field_name: "output".to_string(),
-                                error: e.to_string(),
-                            })?;
-                    let is_binary = resolved.is_binary();
-                    if !is_binary {
-                        return Err(ValidationError::InvalidOutputType {
-                            cap_urn: cap.urn_string(),
-                            expected_media_def: output_def.media_urn.clone(),
-                            actual_value: JsonValue::String(format!(
-                                "{} bytes of binary data",
-                                self.raw_bytes.len()
-                            )),
-                            schema_errors: vec![
-                                "Expected non-binary output but received binary data".to_string(),
-                            ],
-                        });
-                    }
-                }
-                return Ok(());
-            }
-        };
-
-        Ok(())
-    }
-
     /// Get content type for validation purposes
     pub fn get_content_type(&self) -> &str {
         match self.content_type {
@@ -223,36 +160,6 @@ impl ResponseWrapper {
             ResponseContentType::Text => "text/plain",
             ResponseContentType::Binary => "application/octet-stream",
         }
-    }
-
-    /// Check if response matches expected output type based on media_def
-    ///
-    /// # Errors
-    /// Returns error if the output spec ID cannot be resolved
-    pub async fn matches_output_type(
-        &self,
-        cap: &Cap,
-        registry: &crate::media::registry::FabricRegistry,
-    ) -> Result<bool, crate::media::spec::MediaDefError> {
-        let output_def = cap.get_output().ok_or_else(|| {
-            crate::media::spec::MediaDefError::UnresolvableMediaUrn(
-                "cap has no output definition".to_string(),
-            )
-        })?;
-
-        let resolved =
-            crate::media::spec::resolve_media_urn(&output_def.media_urn, registry).await?;
-        let is_output_binary = resolved.is_binary();
-        let is_output_structured = resolved.is_structured();
-
-        Ok(match &self.content_type {
-            // JSON response matches structured outputs (map/list)
-            ResponseContentType::Json => is_output_structured,
-            // Text response matches non-binary, non-structured outputs (scalars)
-            ResponseContentType::Text => !is_output_binary && !is_output_structured,
-            // Binary response matches binary outputs
-            ResponseContentType::Binary => is_output_binary,
-        })
     }
 }
 

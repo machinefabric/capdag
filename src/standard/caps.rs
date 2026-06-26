@@ -47,8 +47,8 @@ use crate::urn::media_urn::{
     MEDIA_STATUS_OUTPUT,
     // Primitives (needed for coercion functions)
     MEDIA_STRING,
-    // Bare list types (no format tag)
-    MEDIA_TEXTABLE_LIST,
+    // Bare text list type (no format tag)
+    MEDIA_STRING_LIST,
     // Semantic output types
     MEDIA_TEXTABLE_PAGE,
     MEDIA_TXT,
@@ -791,44 +791,44 @@ pub fn all_format_conversion_paths() -> Vec<FormatConversionPath> {
             title: "Convert CSV to YAML List of Mappings",
             description: "Convert CSV data to a YAML list of mappings",
         },
-        // Textable list <-> JSON list
+        // Text list <-> JSON list
         FormatConversionPath {
-            in_media: MEDIA_TEXTABLE_LIST,
+            in_media: MEDIA_STRING_LIST,
             out_media: MEDIA_JSON_LIST,
             title: "Convert Text List to JSON Array",
-            description: "Convert a list of textable values to a JSON array",
+            description: "Convert a list of text values to a JSON array",
         },
         FormatConversionPath {
             in_media: MEDIA_JSON_LIST,
-            out_media: MEDIA_TEXTABLE_LIST,
+            out_media: MEDIA_STRING_LIST,
             title: "Convert JSON Array to Text List",
-            description: "Convert a JSON array to a list of textable values",
+            description: "Convert a JSON array to a list of text values",
         },
-        // Textable list <-> YAML list
+        // Text list <-> YAML list
         FormatConversionPath {
-            in_media: MEDIA_TEXTABLE_LIST,
+            in_media: MEDIA_STRING_LIST,
             out_media: MEDIA_YAML_LIST,
             title: "Convert Text List to YAML Sequence",
-            description: "Convert a list of textable values to a YAML sequence",
+            description: "Convert a list of text values to a YAML sequence",
         },
         FormatConversionPath {
             in_media: MEDIA_YAML_LIST,
-            out_media: MEDIA_TEXTABLE_LIST,
+            out_media: MEDIA_STRING_LIST,
             title: "Convert YAML Sequence to Text List",
-            description: "Convert a YAML sequence to a list of textable values",
+            description: "Convert a YAML sequence to a list of text values",
         },
-        // Textable list <-> CSV
+        // Text list <-> CSV
         FormatConversionPath {
-            in_media: MEDIA_TEXTABLE_LIST,
+            in_media: MEDIA_STRING_LIST,
             out_media: MEDIA_CSV,
             title: "Convert Text List to CSV",
-            description: "Convert a list of textable values to CSV format",
+            description: "Convert a list of text values to CSV format",
         },
         FormatConversionPath {
             in_media: MEDIA_CSV,
-            out_media: MEDIA_TEXTABLE_LIST,
+            out_media: MEDIA_STRING_LIST,
             title: "Convert CSV to Text List",
-            description: "Convert CSV data to a list of textable values",
+            description: "Convert CSV data to a list of text values",
         },
     ]
 }

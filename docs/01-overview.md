@@ -36,7 +36,7 @@ This specification defines the semantic foundations, runtime protocol, execution
 |---|----------|---------|--------------|
 | 9 | [Machine Notation](/docs/09-machine-notation) | Textual encoding of multi-cap data-flow graphs | 4, 6 |
 | 10 | [Validation Rules](/docs/10-validation-rules) | Structural validation constraints | 3, 6 |
-| 11 | [Media URNs](/docs/11-media-urns) | Media URN structure and coercion | 3 |
+| 11 | [Media URNs](/docs/11-media-urns) | Media URN structure and the ext/fmt/enc axes | 3 |
 
 ### Protocol (12)
 
