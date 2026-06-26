@@ -72,6 +72,11 @@ const HF_TOKEN: &str = "media:enc=utf-8;hf-token;secret";
 const MODEL_SPEC_GGUF_LLM: &str = "media:enc=utf-8;gguf;llm;model-spec;tokenizer-embedded-gguf";
 const PAGE_TEXT: &str = "media:enc=utf-8;ext=txt;page;plain-text";
 const BARE_TEXTABLE: &str = "media:enc=utf-8";
+/// The numeric catch-all. After the textable→fmt/enc redesign there is no single
+/// universal "textable" marker shared by numbers and strings: numeric params carry
+/// `numeric` (and no `enc=`), text params carry `enc=utf-8`. So there are now TWO
+/// catch-alls — `media:enc=utf-8` for text and `media:numeric` for numbers.
+const BARE_NUMERIC: &str = "media:numeric";
 
 // --- Core regression: rich URN does NOT equal bare URN, but DOES conform ----
 
@@ -131,30 +136,46 @@ fn test0082_all_rich_numeric_params_conform_to_their_bare_pattern() {
     }
 }
 
-// --- Catch-all greediness: every textable-tagged URN conforms to bare textable ---
+// --- Catch-all greediness: text URNs conform to the enc=utf-8 catch-all,
+//     numeric URNs to the numeric catch-all, and the two do NOT cross ---
 
-/// The catch-all for the prompt body uses `conforms_to(&textable)`.
-/// This test pins what such a check accepts: every textable-tagged
-/// URN — including parameter streams, the system prompt, and the
-/// model spec — conforms. That's WHY the if-chain in the cartridge
-/// handler must check specific patterns BEFORE the textable
-/// catch-all, otherwise the catch-all would swallow them.
+/// The prompt-body catch-all uses `conforms_to(&BARE_TEXTABLE)` and the numeric
+/// slots use `conforms_to(&BARE_NUMERIC)`. After the textable→fmt/enc redesign
+/// these are two SEPARATE greedy catch-alls: every UTF-8 text URN (system prompt,
+/// model spec, page text, secrets) conforms to `media:enc=utf-8`, and every numeric
+/// parameter URN conforms to `media:numeric` — but a numeric does NOT conform to
+/// `media:enc=utf-8` and a text URN does NOT conform to `media:numeric`. That
+/// separation is WHY the cartridge handler's if-chain must still check specific
+/// patterns BEFORE either catch-all (each catch-all would otherwise swallow every
+/// member of its own class).
 #[test]
-fn test0083_every_textable_tagged_urn_conforms_to_bare_textable() {
-    let textable_carriers = [
-        RICH_MAX_TOKENS,
-        RICH_TEMPERATURE,
-        RICH_TOP_P,
-        SYSTEM_PROMPT,
-        HF_TOKEN,
-        MODEL_SPEC_GGUF_LLM,
-        PAGE_TEXT,
-    ];
-    for urn in &textable_carriers {
+fn test0083_text_and_numeric_urns_conform_to_their_catch_alls() {
+    // Text carriers conform to the enc=utf-8 catch-all (and NOT to numeric).
+    let text_carriers = [SYSTEM_PROMPT, HF_TOKEN, MODEL_SPEC_GGUF_LLM, PAGE_TEXT];
+    for urn in &text_carriers {
         assert!(
             conforms(urn, BARE_TEXTABLE),
-            "every textable-carrying URN must conform to media:enc=utf-8 — \
-             this is what makes the catch-all greedy and forces the if-chain order",
+            "every UTF-8 text URN must conform to media:enc=utf-8 — this is what \
+             makes the text catch-all greedy and forces the if-chain order",
+        );
+        assert!(
+            !conforms(urn, BARE_NUMERIC),
+            "a text URN must NOT conform to the numeric catch-all (no shared marker)",
+        );
+    }
+
+    // Numeric carriers conform to the numeric catch-all (and NOT to enc=utf-8).
+    let numeric_carriers = [RICH_MAX_TOKENS, RICH_TEMPERATURE, RICH_TOP_P];
+    for urn in &numeric_carriers {
+        assert!(
+            conforms(urn, BARE_NUMERIC),
+            "every numeric param URN must conform to media:numeric — the numeric \
+             catch-all's greediness forces the if-chain order for numeric slots",
+        );
+        assert!(
+            !conforms(urn, BARE_TEXTABLE),
+            "a numeric URN must NOT conform to media:enc=utf-8 — numerics dropped \
+             the textable marker and carry no encoding tag",
         );
     }
 }
