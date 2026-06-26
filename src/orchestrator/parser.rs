@@ -60,7 +60,7 @@ fn check_structure_compatibility(
 /// Machine notation format (both forms are equally valid):
 ///
 /// ```text
-/// extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"
+/// extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"
 /// doc -> extract -> text
 /// ```
 ///
@@ -307,13 +307,13 @@ mod tests {
     #[tokio::test]
     async fn test1256_parse_simple_machine() {
         let registry = build_test_registry(&[(
-            r#"cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt""#,
-            &["media:pdf"],
+            r#"cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt""#,
+            &["media:ext=pdf"],
             "media:enc=utf-8;ext=txt",
         )]);
 
         let notation = concat!(
-            r#"[extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"]"#,
+            r#"[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]"#,
             "[A -> extract -> B]"
         );
 
@@ -326,10 +326,10 @@ mod tests {
 
         // Verify node media using semantic comparison
         let node_a = MediaUrn::from_string(graph.nodes.get("A").unwrap()).unwrap();
-        let expected_a = MediaUrn::from_string("media:pdf").unwrap();
+        let expected_a = MediaUrn::from_string("media:ext=pdf").unwrap();
         assert!(
             node_a.is_equivalent(&expected_a).unwrap(),
-            "Node A: expected media:pdf, got {}",
+            "Node A: expected media:ext=pdf, got {}",
             node_a
         );
 
@@ -347,8 +347,8 @@ mod tests {
     async fn test1257_parse_two_step_chain() {
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt""#,
-                &["media:pdf"],
+                r#"cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt""#,
+                &["media:ext=pdf"],
                 "media:enc=utf-8;ext=txt",
             ),
             (
@@ -359,7 +359,7 @@ mod tests {
         ]);
 
         let notation = concat!(
-            r#"[extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"]"#,
+            r#"[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]"#,
             r#"[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]"#,
             "[A -> extract -> B]",
             "[B -> embed -> C]"
@@ -391,26 +391,26 @@ mod tests {
     async fn test1258_parse_fan_out() {
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record""#,
-                &["media:pdf"],
+                r#"cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record""#,
+                &["media:ext=pdf"],
                 "media:enc=utf-8;file-metadata;record",
             ),
             (
-                r#"cap:in="media:pdf";extract-outline;out="media:document-outline;enc=utf-8;record""#,
-                &["media:pdf"],
+                r#"cap:in="media:ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record""#,
+                &["media:ext=pdf"],
                 "media:document-outline;enc=utf-8;record",
             ),
             (
-                r#"cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail""#,
-                &["media:pdf"],
+                r#"cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail""#,
+                &["media:ext=pdf"],
                 "media:image;png;thumbnail",
             ),
         ]);
 
         let notation = concat!(
-            r#"[meta cap:in="media:pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]"#,
-            r#"[outline cap:in="media:pdf";extract-outline;out="media:document-outline;enc=utf-8;record"]"#,
-            r#"[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]"#,
+            r#"[meta cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]"#,
+            r#"[outline cap:in="media:ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"]"#,
+            r#"[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"]"#,
             "[doc -> meta -> metadata]",
             "[doc -> outline -> outline_data]",
             "[doc -> thumb -> thumbnail]"
@@ -437,8 +437,8 @@ mod tests {
         // assigns each source URN to the right arg slot.
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail""#,
-                &["media:pdf"],
+                r#"cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail""#,
+                &["media:ext=pdf"],
                 "media:image;png;thumbnail",
             ),
             (
@@ -454,7 +454,7 @@ mod tests {
         ]);
 
         let notation = concat!(
-            r#"[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]"#,
+            r#"[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"]"#,
             r#"[model_dl cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"]"#,
             r#"[describe cap:in="media:image;png";describe-image;out="media:enc=utf-8;image-description"]"#,
             "[doc -> thumb -> thumbnail]",
@@ -579,15 +579,15 @@ mod tests {
     // TEST1264: Shared nodes with incompatible upstream and downstream media fail during parsing.
     #[tokio::test]
     async fn test1264_incompatible_media_types_at_shared_node() {
-        // Cap A outputs media:pdf; cap B inputs media:audio;wav.
+        // Cap A outputs media:ext=pdf; cap B inputs media:audio;wav.
         // These are completely incompatible at the shared node B,
         // and the parser's lexical assign-or-check-node step
         // catches it via `is_comparable`.
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:void";produce-pdf;out="media:pdf""#,
+                r#"cap:in="media:void";produce-pdf;out="media:ext=pdf""#,
                 &["media:void"],
-                "media:pdf",
+                "media:ext=pdf",
             ),
             (
                 r#"cap:in="media:audio;wav";transcribe;out="media:enc=utf-8;ext=txt""#,
@@ -597,7 +597,7 @@ mod tests {
         ]);
 
         let notation = concat!(
-            r#"[produce cap:in="media:void";produce-pdf;out="media:pdf"]"#,
+            r#"[produce cap:in="media:void";produce-pdf;out="media:ext=pdf"]"#,
             r#"[transcribe cap:in="media:audio;wav";transcribe;out="media:enc=utf-8;ext=txt"]"#,
             "[A -> produce -> B]",
             "[B -> transcribe -> C]"
@@ -629,8 +629,8 @@ mod tests {
         // to cap B's image;png;bytes arg slot.
         let registry = build_test_registry(&[
             (
-                r#"cap:in="media:pdf";thumbnail;out="media:image;png""#,
-                &["media:pdf"],
+                r#"cap:in="media:ext=pdf";thumbnail;out="media:image;png""#,
+                &["media:ext=pdf"],
                 "media:image;png",
             ),
             (
@@ -641,7 +641,7 @@ mod tests {
         ]);
 
         let notation = concat!(
-            r#"[thumb cap:in="media:pdf";thumbnail;out="media:image;png"]"#,
+            r#"[thumb cap:in="media:ext=pdf";thumbnail;out="media:image;png"]"#,
             r#"[embed_image cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;enc=utf-8;record"]"#,
             "[A -> thumb -> B]",
             "[B -> embed_image -> C]"
@@ -780,13 +780,13 @@ mod tests {
     #[tokio::test]
     async fn test1269_parse_multiline_machine() {
         let registry = build_test_registry(&[(
-            r#"cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt""#,
-            &["media:pdf"],
+            r#"cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt""#,
+            &["media:ext=pdf"],
             "media:enc=utf-8;ext=txt",
         )]);
 
         let notation = r#"
-[extract cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"]
+[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]
 [doc -> extract -> text]
 "#;
 

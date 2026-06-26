@@ -64,7 +64,7 @@ All Tagged URNs are normalized on parse using these rules:
 A tag without `=` is treated as having value `*`:
 ```
 Input:  media:pdf;bytes
-Parsed: media:pdf=*;bytes=*
+Parsed: media:ext=pdf=*;bytes=*
 ```
 
 When serializing, `*` values serialize back to value-less form:
@@ -167,13 +167,13 @@ The headline rules:
 ### 5.2 Examples
 
 ```
-# Pattern: media:pdf      Instance: media:pdf;bytes
+# Pattern: media:ext=pdf      Instance: media:pdf;bytes
 # Pattern has: pdf=*      Instance has: pdf=*, bytes=*
 # For key 'pdf': Instance=*, Pattern=* → ✓
 # For key 'bytes': Instance=*, Pattern=(missing) → ✓
 # Result: MATCH
 
-# Pattern: media:pdf;!audio    Instance: media:pdf;audio=mp3
+# Pattern: media:ext=pdf;!audio    Instance: media:pdf;audio=mp3
 # For key 'pdf': Instance=*, Pattern=* → ✓
 # For key 'audio': Instance=mp3 (exact), Pattern=! → ✗
 # Result: NO MATCH
@@ -183,7 +183,7 @@ The headline rules:
 # For key 'v': Instance=final, Pattern=!=draft → ✓ (final ≠ draft)
 # Result: MATCH
 
-# Pattern: media:pdf;v?=draft   Instance: media:pdf
+# Pattern: media:pdf;v?=draft   Instance: media:ext=pdf
 # For key 'pdf': Instance=*, Pattern=* → ✓
 # For key 'v': Instance=missing, Pattern=?=draft → ✓ (absence allowed)
 # Result: MATCH
@@ -257,7 +257,7 @@ Tagged URNs with the same prefix form a **partial order** (specialization order)
                       |
               media:bytes
                 /         \
-       media:pdf          media:image
+       media:ext=pdf          media:image
            |                   |
    media:pdf;v=2.0      media:image;png
            |

@@ -47,7 +47,7 @@ cap:in="<media-urn>";out="<media-urn>";<other-tags>
 cap:in=media:;out=media:;transform  →  cap:in=media:;transform;out=media:   ✓ (normalized)
 
 # Already canonical
-cap:in="media:pdf";extract;out="media:record"             ✓
+cap:in="media:ext=pdf";extract;out="media:record"             ✓
 cap:in=media:;generate;out="media:enc=utf-8"               ✓
 ```
 

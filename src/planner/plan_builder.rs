@@ -763,19 +763,19 @@ mod tests {
         let caps = vec![
             make_test_cap(
                 "extract_metadata",
-                "media:pdf",
+                "media:ext=pdf",
                 "media:enc=utf-8;file-metadata;record",
                 "Extract Metadata",
             )?,
             make_test_cap(
                 "extract_outline",
-                "media:pdf",
+                "media:ext=pdf",
                 "media:document-outline;enc=utf-8;record",
                 "Extract Outline",
             )?,
             make_test_cap(
                 "disbind",
-                "media:pdf",
+                "media:ext=pdf",
                 "media:disbound-pages;enc=utf-8;list",
                 "Disbind PDF",
             )?,
@@ -797,13 +797,13 @@ mod tests {
         let caps = vec![
             make_test_cap(
                 "disbind",
-                "media:pdf",
+                "media:ext=pdf",
                 "media:disbound-pages;enc=utf-8;list",
                 "Disbind PDF",
             )?,
             make_test_cap(
                 "disbind",
-                "media:pdf",
+                "media:ext=pdf",
                 "media:disbound-pages;enc=utf-8;list",
                 "Disbind PDF Again",
             )?,
@@ -823,7 +823,7 @@ mod tests {
             err_msg
         );
         assert!(
-            err_msg.contains("media:pdf"),
+            err_msg.contains("media:ext=pdf"),
             "Error should contain the input spec: {}",
             err_msg
         );
@@ -838,13 +838,13 @@ mod tests {
         let caps = vec![
             make_test_cap(
                 "disbind",
-                "media:pdf",
+                "media:ext=pdf",
                 "media:disbound-pages;enc=utf-8;list",
                 "Disbind",
             )?,
             make_test_cap(
                 "grind",
-                "media:pdf",
+                "media:ext=pdf",
                 "media:disbound-pages;enc=utf-8;list",
                 "Grind",
             )?,
@@ -864,7 +864,7 @@ mod tests {
         let caps = vec![
             make_test_cap(
                 "extract_metadata",
-                "media:pdf",
+                "media:ext=pdf",
                 "media:enc=utf-8;file-metadata;record",
                 "Extract PDF Metadata",
             )?,
@@ -902,7 +902,7 @@ mod tests {
     #[test]
     fn test994_input_arg_first_cap_auto_resolved_from_input() {
         let builder = create_test_plan_builder();
-        let in_spec = "media:pdf";
+        let in_spec = "media:ext=pdf";
         let out_spec = "media:image;png";
         let resolution =
             builder.determine_resolution_with_io_check(in_spec, in_spec, out_spec, 0, true, &None);
@@ -914,7 +914,7 @@ mod tests {
     #[test]
     fn test995_input_arg_subsequent_cap_auto_resolved_from_previous() {
         let builder = create_test_plan_builder();
-        let in_spec = "media:pdf";
+        let in_spec = "media:ext=pdf";
         let out_spec = "media:image;png";
 
         let resolution =
@@ -931,7 +931,7 @@ mod tests {
     #[test]
     fn test996_output_arg_auto_resolved() {
         let builder = create_test_plan_builder();
-        let in_spec = "media:pdf";
+        let in_spec = "media:ext=pdf";
         let out_spec = "media:image;png";
         let resolution =
             builder.determine_resolution_with_io_check(out_spec, in_spec, out_spec, 0, true, &None);
@@ -943,7 +943,7 @@ mod tests {
     #[test]
     fn test997_file_path_type_fallback_first_cap() {
         let builder = create_test_plan_builder();
-        let in_spec = "media:pdf";
+        let in_spec = "media:ext=pdf";
         let out_spec = "media:image;png";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_FILE_PATH,
@@ -961,7 +961,7 @@ mod tests {
     #[test]
     fn test998_file_path_type_fallback_subsequent_cap() {
         let builder = create_test_plan_builder();
-        let in_spec = "media:pdf";
+        let in_spec = "media:ext=pdf";
         let out_spec = "media:image;png";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_FILE_PATH,
@@ -980,7 +980,7 @@ mod tests {
     fn test1009_non_io_arg_with_default_has_default() {
         let builder = create_test_plan_builder();
         let default = Some(serde_json::json!(200));
-        let in_spec = "media:pdf";
+        let in_spec = "media:ext=pdf";
         let out_spec = "media:image;png";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_INTEGER,
@@ -998,7 +998,7 @@ mod tests {
     #[test]
     fn test1012_non_io_arg_without_default_requires_user_input() {
         let builder = create_test_plan_builder();
-        let in_spec = "media:pdf";
+        let in_spec = "media:ext=pdf";
         let out_spec = "media:image;png";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_STRING,
@@ -1017,7 +1017,7 @@ mod tests {
     fn test886_optional_non_io_arg_with_default_has_default() {
         let builder = create_test_plan_builder();
         let default = Some(serde_json::json!(300));
-        let in_spec = "media:pdf";
+        let in_spec = "media:ext=pdf";
         let out_spec = "media:image;png";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_INTEGER,
@@ -1035,7 +1035,7 @@ mod tests {
     #[test]
     fn test1015_optional_non_io_arg_without_default_requires_user_input() {
         let builder = create_test_plan_builder();
-        let in_spec = "media:pdf";
+        let in_spec = "media:ext=pdf";
         let out_spec = "media:image;png";
         let resolution = builder.determine_resolution_with_io_check(
             crate::MEDIA_BOOLEAN,
@@ -1113,7 +1113,7 @@ mod tests {
     #[test]
     fn test768_path_argument_requirements_structure() {
         let requirements = PathArgumentRequirements {
-            source_media_urn: "media:pdf".to_string(),
+            source_media_urn: "media:ext=pdf".to_string(),
             target_media_urn: "media:image;png".to_string(),
             steps: vec![StepArgumentRequirements {
                 cap_urn: "cap:generate-thumbnail;in=pdf;out=png".to_string(),
@@ -1248,10 +1248,10 @@ mod tests {
     fn test1103_is_dispatchable_uses_correct_directionality() {
         // A more specific provider should be dispatchable for a general request
         let general_request =
-            CapUrn::from_string("cap:in=media:pdf;extract;out=media:text").unwrap();
+            CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text").unwrap();
 
         let specific_provider =
-            CapUrn::from_string("cap:in=media:pdf;extract;out=media:text;version=2").unwrap();
+            CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text;version=2").unwrap();
 
         // provider.is_dispatchable(&request) should be true: specific provider refines general request
         assert!(
@@ -1271,10 +1271,10 @@ mod tests {
     fn test1104_is_dispatchable_rejects_non_dispatchable() {
         // Request requires specific tag that provider doesn't have
         let request =
-            CapUrn::from_string("cap:in=media:pdf;extract;out=media:text;required=yes").unwrap();
+            CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text;required=yes").unwrap();
 
         let provider = CapUrn::from_string(
-            "cap:in=media:pdf;extract;out=media:text", // missing required=yes
+            "cap:in=\"media:ext=pdf\";extract;out=media:text", // missing required=yes
         )
         .unwrap();
 

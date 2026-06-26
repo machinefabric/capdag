@@ -137,11 +137,11 @@ scores from the truth table (§2.2):
 
 ```
 spec_U(media:)                       = 0           (no tags, top of order)
-spec_U(media:pdf)                    = 2           (pdf=*, must-have-any)
+spec_U(media:ext=pdf)                    = 2           (pdf=*, must-have-any)
 spec_U(media:pdf;bytes)              = 2 + 2 = 4
 spec_U(media:pdf;v=2.0)              = 2 + 4 = 6   (pdf=*, v=2.0 exact)
-spec_U(media:pdf;!compressed)        = 2 + 5 = 7   (pdf=*, !compressed must-not-have)
-spec_U(media:pdf;?v)                 = 2 + 0 = 2   (pdf=*, v explicit no-constraint)
+spec_U(media:ext=pdf;!compressed)        = 2 + 5 = 7   (pdf=*, !compressed must-not-have)
+spec_U(media:ext=pdf;?v)                 = 2 + 0 = 2   (pdf=*, v explicit no-constraint)
 spec_U(media:void)                   = 2           (void marker = must-have-any)
 ```
 
@@ -241,11 +241,11 @@ spec_C(cap:effect=none) = 0
 Adding any tag whose form scores above 0 (everything except
 `?` / missing) increases specificity:
 ```
-spec_U(media:)              < spec_U(media:pdf)              # added must-have-any
-spec_U(media:pdf)           < spec_U(media:pdf;bytes)        # added another must-have-any
+spec_U(media:)              < spec_U(media:ext=pdf)              # added must-have-any
+spec_U(media:ext=pdf)           < spec_U(media:pdf;bytes)        # added another must-have-any
 spec_U(media:pdf;v=*)       < spec_U(media:pdf;v=2.0)        # tightened * (2) → exact (4)
 spec_U(media:pdf;v?=draft)  < spec_U(media:pdf;v!=draft)     # tightened ?=v (1) → !=v (3)
-spec_U(media:pdf;v!=draft)  < spec_U(media:pdf;!v)           # tightened !=v (3) → ! (5)
+spec_U(media:pdf;v!=draft)  < spec_U(media:ext=pdf;!v)           # tightened !=v (3) → ! (5)
 ```
 
 The ladder is monotone within each branch:
@@ -260,7 +260,7 @@ score, since `!` (5) > `*` (2).
 **Important**: Higher specificity does NOT imply the refinement relation.
 
 ```
-spec_U(media:pdf) = 2
+spec_U(media:ext=pdf) = 2
 spec_U(media:image) = 2
 ```
 

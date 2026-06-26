@@ -1035,7 +1035,7 @@ mod tests {
     fn test920_single_cap_plan() {
         let plan = MachinePlan::single_cap(
             "cap:test",
-            "media:pdf",
+            "media:ext=pdf",
             "media:image;png",
             "input_file", // file-path argument name for this cap
         );
@@ -1051,7 +1051,7 @@ mod tests {
     fn test921_linear_chain_plan() {
         let plan = MachinePlan::linear_chain(
             &["cap:a", "cap:b", "cap:c"],
-            "media:pdf",
+            "media:ext=pdf",
             "media:image;png",
             &["input_a", "input_b", "input_c"], // file-path argument names for each cap
         );
@@ -1369,7 +1369,7 @@ mod tests {
     fn test737_linear_chain_single_cap() {
         let plan = MachinePlan::linear_chain(
             &["cap:only"],
-            "media:pdf",
+            "media:ext=pdf",
             "media:image;png",
             &["source_file"], // file-path argument name
         );
@@ -1384,7 +1384,7 @@ mod tests {
     fn test738_linear_chain_empty() {
         let plan = MachinePlan::linear_chain(
             &[],
-            "media:pdf",
+            "media:ext=pdf",
             "media:image;png",
             &[], // no caps, no arg names
         );
@@ -1501,7 +1501,7 @@ mod tests {
     fn test744_plan_serialization() {
         let plan = MachinePlan::single_cap(
             "cap:test",
-            "media:pdf",
+            "media:ext=pdf",
             "media:image;png",
             "input_file", // file-path argument name
         );
@@ -1604,7 +1604,7 @@ mod tests {
     fn test749_get_node() {
         let plan = MachinePlan::single_cap(
             "cap:test",
-            "media:pdf",
+            "media:ext=pdf",
             "media:image;png",
             "doc_path", // file-path argument name
         );
@@ -1624,12 +1624,12 @@ mod tests {
         plan.add_node(MachineNode::input_slot(
             "input_slot",
             "input",
-            "media:pdf",
+            "media:ext=pdf",
             InputCardinality::Single,
         ));
         plan.add_node(MachineNode::cap(
             "cap_0",
-            "cap:in=media:pdf;out=\"media:pdf-page;list\"",
+            "cap:in=\"media:ext=pdf\";out=\"media:pdf-page;list\"",
         )); // disbind
         plan.add_node(MachineNode::for_each(
             "foreach_0",
@@ -1674,12 +1674,12 @@ mod tests {
         plan.add_node(MachineNode::input_slot(
             "input_slot",
             "input",
-            "media:pdf",
+            "media:ext=pdf",
             InputCardinality::Single,
         ));
         plan.add_node(MachineNode::cap(
             "cap_0",
-            "cap:in=media:pdf;out=\"media:pdf-page;list\"",
+            "cap:in=\"media:ext=pdf\";out=\"media:pdf-page;list\"",
         ));
         plan.add_node(MachineNode::for_each(
             "foreach_0",
@@ -1714,7 +1714,7 @@ mod tests {
     fn test935_find_first_foreach_linear() {
         let plan = MachinePlan::linear_chain(
             &["cap:a", "cap:b"],
-            "media:pdf",
+            "media:ext=pdf",
             "media:image;png",
             &["input_a", "input_b"],
         );

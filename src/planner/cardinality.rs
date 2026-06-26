@@ -4,7 +4,7 @@
 //!
 //! ## 1. Cardinality (how many items)
 //! Detected from the `list` marker tag:
-//! - `media:pdf` → Single (scalar, no list marker)
+//! - `media:ext=pdf` → Single (scalar, no list marker)
 //! - `media:pdf;list` → Sequence (array, has list marker)
 //!
 //! ## 2. Structure (internal shape of each item)
@@ -610,7 +610,7 @@ mod tests {
     // Verifies Single input and Single output result in OneToOne pattern
     #[test]
     fn test697_cap_shape_info_one_to_one() {
-        let info = CapShapeInfo::from_cap_specs("cap:test", "media:pdf", "media:image;png");
+        let info = CapShapeInfo::from_cap_specs("cap:test", "media:ext=pdf", "media:image;png");
         assert_eq!(info.input.cardinality, InputCardinality::Single);
         assert_eq!(info.output.cardinality, InputCardinality::Single);
         assert_eq!(info.cardinality_pattern(), CardinalityPattern::OneToOne);
@@ -621,7 +621,7 @@ mod tests {
     // The list tag is a semantic type property, not a cardinality indicator.
     #[test]
     fn test698_cap_shape_info_cardinality_always_single_from_urn() {
-        let info = CapShapeInfo::from_cap_specs("cap:pdf-to-pages", "media:pdf", "media:list;png");
+        let info = CapShapeInfo::from_cap_specs("cap:pdf-to-pages", "media:ext=pdf", "media:list;png");
         assert_eq!(info.input.cardinality, InputCardinality::Single);
         assert_eq!(info.output.cardinality, InputCardinality::Single);
         assert_eq!(info.cardinality_pattern(), CardinalityPattern::OneToOne);
@@ -632,7 +632,7 @@ mod tests {
     fn test699_cap_shape_info_list_urn_still_single_cardinality() {
         // URN parsing always yields Single — the "list" tag is a structure marker, not cardinality
         let from_urn =
-            CapShapeInfo::from_cap_specs("cap:merge-pdfs", "media:list;pdf", "media:pdf");
+            CapShapeInfo::from_cap_specs("cap:merge-pdfs", "media:list;pdf", "media:ext=pdf");
         assert_eq!(from_urn.input.cardinality, InputCardinality::Single);
         assert_eq!(from_urn.output.cardinality, InputCardinality::Single);
         assert_eq!(from_urn.cardinality_pattern(), CardinalityPattern::OneToOne);
@@ -641,7 +641,7 @@ mod tests {
         let with_seq = CapShapeInfo::from_cap_specs_with_sequence(
             "cap:merge-pdfs",
             "media:list;pdf",
-            "media:pdf",
+            "media:ext=pdf",
             true,
             false,
         );
@@ -682,7 +682,7 @@ mod tests {
     #[test]
     fn test711_strand_shape_analysis_simple_linear() {
         let infos = vec![
-            CapShapeInfo::from_cap_specs("cap:pdf-to-png", "media:pdf", "media:image;png"),
+            CapShapeInfo::from_cap_specs("cap:pdf-to-png", "media:ext=pdf", "media:image;png"),
             CapShapeInfo::from_cap_specs("cap:resize", "media:image;png", "media:image;png"),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
@@ -698,7 +698,7 @@ mod tests {
         let infos = vec![
             CapShapeInfo::from_cap_specs_with_sequence(
                 "cap:pdf-to-pages",
-                "media:pdf",
+                "media:ext=pdf",
                 "media:image;png",
                 false,
                 true,
@@ -751,7 +751,7 @@ mod tests {
     #[test]
     fn test720_from_media_urn_opaque() {
         assert_eq!(
-            InputStructure::from_media_urn("media:pdf"),
+            InputStructure::from_media_urn("media:ext=pdf"),
             InputStructure::Opaque
         );
         assert_eq!(
@@ -958,7 +958,7 @@ mod tests {
     fn test741_cap_shape_info_pattern() {
         let one_to_many = CapShapeInfo::from_cap_specs_with_sequence(
             "cap:disbind",
-            "media:pdf",
+            "media:ext=pdf",
             "media:disbound-page;enc=utf-8",
             false,
             true,
@@ -987,7 +987,7 @@ mod tests {
     #[test]
     fn test751_strand_shape_structure_mismatch() {
         let infos = vec![
-            CapShapeInfo::from_cap_specs("cap:extract", "media:pdf", "media:enc=utf-8"),
+            CapShapeInfo::from_cap_specs("cap:extract", "media:ext=pdf", "media:enc=utf-8"),
             // This cap expects record but gets opaque - should fail
             CapShapeInfo::from_cap_specs("cap:parse", "media:fmt=json;record", "media:data;record"),
         ];
@@ -1004,7 +1004,7 @@ mod tests {
         let infos = vec![
             CapShapeInfo::from_cap_specs_with_sequence(
                 "cap:disbind",
-                "media:pdf",
+                "media:ext=pdf",
                 "media:enc=utf-8;page",
                 false,
                 true,

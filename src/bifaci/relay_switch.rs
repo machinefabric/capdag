@@ -4490,7 +4490,7 @@ mod tests {
     // TEST437: find_master_for_cap with preferred_cap routes to generic handler
     //
     // With is_dispatchable semantics:
-    // - Generic provider (in=media:) CAN dispatch specific request (in="media:pdf")
+    // - Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf")
     //   because media: (wildcard) accepts any input type
     // - Preference routes to preferred among dispatchable candidates
     #[tokio::test]
@@ -4511,7 +4511,7 @@ mod tests {
 
         // Master 1: specific thumbnail handler (like pdfcartridge)
         let specific_cap =
-            "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock1,
@@ -4529,7 +4529,7 @@ mod tests {
         .unwrap();
 
         // Specific request for PDF thumbnail
-        let request = "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
 
         // Without preference: routes to master 1 (specific, closest-specificity)
         assert_eq!(switch.find_master_for_cap(request, None).await, Some(1));
@@ -4557,7 +4557,7 @@ mod tests {
 
         // Master 0: only has a specific cap
         let registered =
-            "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+            "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
                 slave_sock,
@@ -4574,7 +4574,7 @@ mod tests {
         .await
         .unwrap();
 
-        let request = "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
 
         // Preference for an unrelated cap — no equivalent match, falls back to closest-specificity
         let unrelated =
@@ -4589,7 +4589,7 @@ mod tests {
     //          (but only matches if no more specific provider exists)
     //
     // With is_dispatchable: generic provider (in=media:) CAN handle specific
-    // request (in="media:pdf") because media: accepts any input type.
+    // request (in="media:ext=pdf") because media: accepts any input type.
     // With preference, can route to generic even when more specific exists.
     #[tokio::test]
     async fn test439_generic_provider_can_dispatch_specific_request() {
@@ -4615,7 +4615,7 @@ mod tests {
 
         // Specific PDF request — generic handler CAN dispatch it
         // because provider's wildcard input (media:) accepts any input type
-        let request = "cap:in=\"media:pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
+        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:image;png;thumbnail\"";
         assert_eq!(
             switch.find_master_for_cap(request, None).await,
             Some(0),

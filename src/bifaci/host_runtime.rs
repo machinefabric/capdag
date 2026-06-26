@@ -4800,7 +4800,7 @@ mod tests {
         let mut runtime = CartridgeHostRuntime::new();
         let cap_groups = cap_groups_from_urns(&[
             CAP_IDENTITY,
-            "cap:in=\"media:pdf\";thumbnail;out=\"media:image;png\"",
+            "cap:in=\"media:ext=pdf\";thumbnail;out=\"media:image;png\"",
         ]);
         runtime.register_cartridge(
             &bin_path,
@@ -4816,7 +4816,7 @@ mod tests {
         assert_eq!(runtime.cap_table[0].0, CAP_IDENTITY);
         assert_eq!(
             runtime.cap_table[1].0,
-            "cap:in=media:pdf;out=\"media:image;png\";thumbnail"
+            "cap:in=\"media:ext=pdf\";out=\"media:image;png\";thumbnail"
         );
 
         // Build capabilities (no outbound_tx, so no RelayNotify sent).
@@ -4853,7 +4853,7 @@ mod tests {
         let mut runtime = CartridgeHostRuntime::new();
         let groups_1 = cap_groups_from_urns(&[
             CAP_IDENTITY,
-            "cap:in=\"media:pdf\";extract;out=\"media:text\"",
+            "cap:in=\"media:ext=pdf\";extract;out=\"media:text\"",
         ]);
         let groups_2 = cap_groups_from_urns(&[
             CAP_IDENTITY,
@@ -4983,7 +4983,7 @@ mod tests {
         std::fs::write(&bin_path, b"#!/bin/false\n").expect("write binary");
         let pre_attach_groups = cap_groups_from_urns(&[
             CAP_IDENTITY,
-            "cap:in=\"media:pdf\";extract;out=\"media:text\"",
+            "cap:in=\"media:ext=pdf\";extract;out=\"media:text\"",
         ]);
         runtime.register_cartridge(
             &bin_path,
@@ -5046,7 +5046,7 @@ mod tests {
         // Register a non-running cartridge with probe-time cap_groups
         let dormant_groups = cap_groups_from_urns(&[
             CAP_IDENTITY,
-            "cap:in=\"media:pdf\";not-running-op;out=\"media:text\"",
+            "cap:in=\"media:ext=pdf\";not-running-op;out=\"media:text\"",
         ]);
         runtime.register_cartridge(
             std::path::Path::new("/fake/not-running"),

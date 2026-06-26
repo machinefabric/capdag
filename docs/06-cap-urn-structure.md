@@ -39,7 +39,7 @@ cap:in="<media-urn>";out="<media-urn>";effect=<effect>;<cap-tags>
 Examples:
 ```
 cap:effect=none
-cap:extract;in="media:pdf";out="media:record"
+cap:extract;in="media:ext=pdf";out="media:record"
 cap:in="media:enc=utf-8";out="media:fmt=json;record";prompt
 ```
 
@@ -257,7 +257,7 @@ questions are answered.
 
 | Value          | Meaning                                          |
 |----------------|--------------------------------------------------|
-| `media:pdf`    | "Requires a PDF."                                |
+| `media:ext=pdf`    | "Requires a PDF."                                |
 | `media:`       | "Accepts any input." (top — Identity / generic)  |
 | `media:void`   | "Takes no data input." (unit — Source / Effect)  |
 
@@ -287,7 +287,7 @@ cap:...;extract;target=metadata
 semantics as any other Tagged URN. Tags in `y` are arbitrary — no
 key has functional meaning to the protocol. They distinguish caps
 with the same data signature (e.g. an `extract` cap and a `summarize`
-cap can both have `media:pdf → media:enc=utf-8` and remain distinct
+cap can both have `media:ext=pdf → media:enc=utf-8` and remain distinct
 because their `y` differs).
 
 A non-empty `y` is also what distinguishes `cap:passthrough`
@@ -305,7 +305,7 @@ Given a Cap URN string, extract:
 ```rust
 let cap = CapUrn::from_string("cap:extract;in=media:pdf;out=media:record")?;
 
-let input: &str = cap.in_spec();    // "media:pdf"
+let input: &str = cap.in_spec();    // "media:ext=pdf"
 let output: &str = cap.out_spec();  // "media:record"
 let has_extract: bool = cap.has_marker_tag("extract"); // true
 let kind: CapKind = cap.kind()?;    // CapKind::Transform
@@ -382,7 +382,7 @@ space. The fully unconstrained explicit request `cap:?effect` is the top:
                              |
                         cap:extract                       (Transform)
                        /            \
-       cap:extract;in=media:pdf       cap:extract;out=media:record
+       cap:extract;in=media:ext=pdf       cap:extract;out=media:record
                        \            /
             cap:extract;in=media:pdf;out=media:record
                              |
