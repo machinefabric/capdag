@@ -100,17 +100,17 @@ o_p ⪯ o_r
 **Example**:
 ```
 Request:  out="media:record"                    (general requirement)
-Provider: out="media:json;record;textable"     (more specific guarantee)
+Provider: out="media:fmt=json;record"     (more specific guarantee)
 
-o_p = media:json;record;textable
+o_p = media:fmt=json;record
 o_r = media:record
 
-o_p ⪯ o_r? → Does json;record;textable conform to record?
-           → Yes, json;record;textable is more specific than record
+o_p ⪯ o_r? → Does fmt=json;record conform to record?
+           → Yes, fmt=json;record is more specific than record
            → PASS ✓
 ```
 
-A provider guaranteeing `media:json;record;textable` satisfies a request needing `media:record`.
+A provider guaranteeing `media:fmt=json;record` satisfies a request needing `media:record`.
 
 ### 3.3 Cap-Tags Axis (Invariant for Explicit, Wildcard for Omitted)
 
@@ -255,7 +255,7 @@ Result: NOT DISPATCHABLE
 
 ```
 Request:  cap:in="media:pdf";convert;out="media:html"
-Provider: cap:in="media:image";convert;out="media:textable"
+Provider: cap:in="media:image";convert;out="media:enc=utf-8"
 
 Input:  i_r=media:pdf, i_p=media:image
         pdf ⪯ image? No, different families → FAIL ✗

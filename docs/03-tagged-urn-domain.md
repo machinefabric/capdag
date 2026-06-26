@@ -141,7 +141,7 @@ The chains diverge by the kind of claim being made: positive chains
 Bare `x` and `x=*` are the same form. The parser stores both with
 value `"*"`; the serializer emits the bare form `x` (no `=*` suffix)
 as canonical. This keeps marker-style writing (`extract`, `bytes`,
-`textable`) consistent with explicit-value writing.
+`numeric`) consistent with explicit-value writing.
 
 ---
 

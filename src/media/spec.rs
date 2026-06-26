@@ -436,12 +436,6 @@ impl ResolvedMediaDef {
             .expect("ResolvedMediaDef has invalid media_urn - this indicates a bug in resolution")
     }
 
-    /// Check if this represents binary (non-text) data.
-    /// Returns true if the "textable" marker tag is NOT present in the source media URN.
-    pub fn is_binary(&self) -> bool {
-        self.parse_media_urn().is_binary()
-    }
-
     /// Check if this represents a record (has internal key-value structure).
     /// This indicates the data has internal fields (e.g., JSON object).
     pub fn is_record(&self) -> bool {
@@ -473,12 +467,6 @@ impl ResolvedMediaDef {
     /// For checking if data is structured (map/list), use is_structured().
     pub fn is_json(&self) -> bool {
         self.parse_media_urn().is_json()
-    }
-
-    /// Check if this represents text data.
-    /// Returns true if the "textable" marker tag is present in the source media URN.
-    pub fn is_text(&self) -> bool {
-        self.parse_media_urn().is_text()
     }
 
     /// Check if this represents image data.
@@ -637,9 +625,9 @@ mod tests {
         let registry = test_registry().await;
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
             version: 0,
-            urn: "media:textable".to_string(),
+            urn: "media:enc=utf-8".to_string(),
             media_type: "text/plain".to_string(),
-            title: "Textable".to_string(),
+            title: "UTF-8 text".to_string(),
             profile_uri: None,
             schema: None,
             description: None,
@@ -648,7 +636,7 @@ mod tests {
             metadata: None,
             extensions: Vec::new(),
         });
-        let resolved = resolve_media_urn("media:textable", &registry)
+        let resolved = resolve_media_urn("media:enc=utf-8", &registry)
             .await
             .unwrap();
         assert_eq!(resolved.media_type, "text/plain");
@@ -787,7 +775,9 @@ mod tests {
     // ResolvedMediaDef tests
     // -------------------------------------------------------------------------
 
-    // TEST099: Test ResolvedMediaDef is_binary returns true when textable tag is absent
+    // TEST099: The identity media (`media:`) carries no encoding, no record
+    // marker, and no format. The old is_binary() delegate is gone (binary/text is
+    // no longer a distinction); a media is text-representable iff it declares enc=.
     #[test]
     fn test099_resolved_is_binary() {
         let resolved = ResolvedMediaDef {
@@ -802,7 +792,7 @@ mod tests {
             metadata: None,
             extensions: Vec::new(),
         };
-        assert!(resolved.is_binary());
+        assert!(resolved.parse_media_urn().get_tag("enc").is_none());
         assert!(!resolved.is_record());
         assert!(!resolved.is_json());
     }
@@ -811,7 +801,7 @@ mod tests {
     #[test]
     fn test100_resolved_is_record() {
         let resolved = ResolvedMediaDef {
-            media_urn: "media:record;textable".to_string(),
+            media_urn: "media:enc=utf-8;record".to_string(),
             media_type: "application/json".to_string(),
             profile_uri: None,
             schema: None,
@@ -823,7 +813,6 @@ mod tests {
             extensions: Vec::new(),
         };
         assert!(resolved.is_record());
-        assert!(!resolved.is_binary());
         assert!(resolved.is_scalar(), "record without list marker is scalar");
         assert!(!resolved.is_list());
     }
@@ -832,7 +821,7 @@ mod tests {
     #[test]
     fn test101_resolved_is_scalar() {
         let resolved = ResolvedMediaDef {
-            media_urn: "media:textable".to_string(),
+            media_urn: "media:enc=utf-8".to_string(),
             media_type: "text/plain".to_string(),
             profile_uri: None,
             schema: None,
@@ -852,7 +841,7 @@ mod tests {
     #[test]
     fn test102_resolved_is_list() {
         let resolved = ResolvedMediaDef {
-            media_urn: "media:list;textable".to_string(),
+            media_urn: "media:enc=utf-8;list".to_string(),
             media_type: "application/json".to_string(),
             profile_uri: None,
             schema: None,
@@ -872,7 +861,7 @@ mod tests {
     #[test]
     fn test103_resolved_is_json() {
         let resolved = ResolvedMediaDef {
-            media_urn: "media:json;record;textable".to_string(),
+            media_urn: "media:fmt=json;record".to_string(),
             media_type: "application/json".to_string(),
             profile_uri: None,
             schema: None,
@@ -885,14 +874,16 @@ mod tests {
         };
         assert!(resolved.is_json());
         assert!(resolved.is_record());
-        assert!(!resolved.is_binary());
     }
 
-    // TEST104: Test ResolvedMediaDef is_text returns true when textable tag is present
+    // TEST104: Text-representability is now carried by the orthogonal `enc=` tag.
+    // The old is_text()/is_binary() delegates on ResolvedMediaDef are gone; a media
+    // is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8
+    // text — has enc, is not JSON.
     #[test]
     fn test104_resolved_is_text() {
         let resolved = ResolvedMediaDef {
-            media_urn: "media:textable".to_string(),
+            media_urn: "media:enc=utf-8".to_string(),
             media_type: "text/plain".to_string(),
             profile_uri: None,
             schema: None,
@@ -903,8 +894,7 @@ mod tests {
             metadata: None,
             extensions: Vec::new(),
         };
-        assert!(resolved.is_text());
-        assert!(!resolved.is_binary());
+        assert!(resolved.parse_media_urn().get_tag("enc").is_some());
         assert!(!resolved.is_json());
     }
 
@@ -1114,7 +1104,7 @@ mod tests {
         let body = "## Markdown body\n\nWith `code` and a [link](https://example.com).";
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
             version: 0,
-            urn: "media:doc-test;textable".to_string(),
+            urn: "media:doc-test;enc=utf-8".to_string(),
             media_type: "text/plain".to_string(),
             title: "Documented".to_string(),
             profile_uri: None,
@@ -1126,7 +1116,7 @@ mod tests {
             extensions: Vec::new(),
         });
 
-        let resolved = resolve_media_urn("media:doc-test;textable", &registry)
+        let resolved = resolve_media_urn("media:doc-test;enc=utf-8", &registry)
             .await
             .unwrap();
         assert_eq!(

@@ -18,7 +18,8 @@ Examples:
 media:                          # Identity (any media)
 media:pdf                       # PDF type
 media:pdf;bytes                 # PDF with bytes marker
-media:textable                  # String type (scalar by default)
+media:enc=utf-8                 # Bare UTF-8 text (scalar by default)
+media:fmt=json;record           # JSON object (serialization format)
 media:image;png                 # PNG image
 ```
 
@@ -118,7 +119,7 @@ cap args), never as a refinement of the media URN:
 ✓ cap:in=media:void;out=media:image;generate;target=thumbnail
 
 ✗ cap:in=media:void;reason=warmup;out=media:void
-✗ cap:in=media:void;text;out=media:textable
+✗ cap:in=media:void;enc=utf-8;out=media:enc=utf-8
 ```
 
 Each of the first three describes a distinct morphism (different
@@ -155,49 +156,73 @@ is a leaf carrying the nullary value.
 
 ---
 
-## 3. Semantic and Coercion Markers
+## 3. Semantic Markers and the Three Media Axes
 
-Media URNs use marker tags to declare type capabilities and content
-properties. Some of these participate in coercion-style matching
-(`textable`, `numeric`); others describe modality (`visual`, `audio`).
+Media URNs describe data with two kinds of tag: **marker tags** that
+declare modality or numeric capability (`numeric`, `image`/`visual`,
+`audio`), and three orthogonal **media-URN axes** that describe how the
+bytes are typed, serialized, and encoded.
 
-### 3.1 Standard Markers
+There is **no coercion model and no `textable` tag.** Earlier revisions
+used a single `textable` marker to mean "representable as UTF-8 text"
+and let a request for `media:textable` silently match numbers,
+booleans, and JSON via implicit stringification. That mechanism is
+**gone.** Adapting a value from one format to another (number → text,
+JSON → CSV, text → PDF) is now the job of an **explicit conversion
+capability** (e.g. `cap:convert-format`), never an implicit property of
+the type. Dispatch matches types as declared; it does not coerce.
+
+### 3.1 The Three Media Axes
+
+| Axis | Tag | Describes | Single-valued? | Examples |
+|------|-----|-----------|----------------|----------|
+| file type | `ext=<x>` | The on-disk FILE type | no | `pdf`, `png`, `txt`, `csv` |
+| data format | `fmt=<x>` | The content SERIALIZATION format | **yes** (≤ one `fmt`) | `json`, `yaml`, `ndjson`, `csv`, `xml`, `tsv`, `psv`, `cbor`, `msgpack` |
+| encoding | `enc=<x>` | The character ENCODING of text | yes | `utf-8` |
+
+These axes are **independent** and must not be conflated:
+
+- `ext=` is what the file is called on disk; it says nothing about how
+  the bytes are structured.
+- `fmt=` is how the content is serialized once you look inside; a value
+  has **at most one** `fmt`.
+- `enc=` is the character encoding, and its **presence** is how text is
+  identified at all (see §8). Bare text is `media:enc=utf-8`.
+
+So a CSV file sitting on disk is `media:ext=csv;fmt=csv;...`, while the
+CSV *content* flowing between caps is `media:fmt=csv;list;record`. A
+plain text file is `media:ext=txt;enc=utf-8`; bare text is just
+`media:enc=utf-8`.
+
+### 3.2 Standard Markers
 
 | Tag | Meaning | Examples |
 |-----|---------|----------|
-| `textable` | Can be represented as UTF-8 text | strings, numbers, booleans, JSON |
 | `numeric` | Supports numeric operations | integers, floats |
-| `visual` | Has visual rendering | images, PDFs |
+| `visual` / `image` | Has visual rendering | images, PDFs |
 | `audio` | Represents audio content | wav, mp3, flac |
+| `video` | Represents video content | mp4, webm |
 
-There is **no `binary` marker dim** in the media model. The definition
-is positive: `textable` means the value is faithfully representable as
-UTF-8 text without loss. A media URN that lacks `textable` simply makes
-no such promise.
+Markers are orthogonal to the three axes. A number is `media:numeric`
+(no `enc=`, because it is not delivered as text). A boolean delivered as
+text is `media:bool;enc=utf-8`. There is **no `binary` marker**:
+everything is binary at the byte level, so "binary" is not a category —
+the meaningful question is which axes a type carries.
 
-### 3.2 How Coercion Works
+### 3.3 Format Adaptation Is Explicit
 
-A capability requiring `media:textable` matches ANY type with the `textable` tag:
+A capability requiring `media:enc=utf-8` matches values that actually
+carry the `enc=utf-8` tag. It does **not** match a bare `media:numeric`
+or `media:fmt=json;record`. To feed a number into a text-consuming cap,
+route it through an explicit conversion cap:
 
 ```
-cap:in="media:textable";prompt;out="media:json;record;textable"
+media:numeric ──[cap:convert-format → text]──▶ media:enc=utf-8
+media:fmt=json;record ──[cap:convert-format → csv]──▶ media:fmt=csv;list;record
 ```
 
-This matches:
-- `media:textable` (string)
-- `media:integer` (if it has textable)
-- `media:bool;textable` (boolean)
-- `media:json;record;textable` (object via JSON.stringify)
-
-### 3.3 Coercion Rules
-
-| Source Type | Can Coerce To | Method |
-|-------------|---------------|--------|
-| integer, number | textable | `.toString()` |
-| boolean | textable | `"true"` / `"false"` |
-| object, array | textable | JSON stringify |
-| string | textable | Direct (already text) |
-| image, PDF, audio | textable | **NO** (requires explicit conversion cap) |
+The conversion cap is a real node in the graph with its own input and
+output types. Nothing is adapted behind the dispatcher's back.
 
 ---
 
@@ -215,18 +240,18 @@ marker tags and by default absence:
 
 So:
 
-- `media:textable` means scalar + opaque
-- `media:json;record;textable` means scalar + record
-- `media:list;textable` means list + opaque
-- `media:json;list;record;textable` means list + record
+- `media:enc=utf-8` means scalar + opaque (text)
+- `media:fmt=json;record` means scalar + record
+- `media:enc=utf-8;list` means list + opaque
+- `media:fmt=json;list;record` means list + record
 
 ### 4.1 Examples
 
 ```
-media:textable                     # String
-media:list;textable                # Array of strings
-media:json;record;textable         # JSON object
-media:integer;list;textable;numeric # Array of integers
+media:enc=utf-8                    # String
+media:enc=utf-8;list               # Array of strings
+media:fmt=json;record              # JSON object
+media:integer;list;numeric         # Array of integers
 ```
 
 ---
@@ -239,21 +264,21 @@ media:integer;list;textable;numeric # Array of integers
 |-----------|----------|-------------|
 | `media:` | `MEDIA_IDENTITY` | **Top** — any data type (universal wildcard) |
 | `media:void` | `MEDIA_VOID` | **Unit** — the nullary value (no data flows here) |
-| `media:textable` | `MEDIA_STRING` | UTF-8 string |
-| `media:integer` | `MEDIA_INTEGER` | Integer |
-| `media:textable;numeric` | `MEDIA_NUMBER` | Float |
-| `media:bool;textable` | `MEDIA_BOOLEAN` | Boolean |
+| `media:enc=utf-8` | `MEDIA_STRING` | UTF-8 string |
+| `media:integer;numeric` | `MEDIA_INTEGER` | Integer |
+| `media:numeric` | `MEDIA_NUMBER` | Float |
+| `media:bool;enc=utf-8` | `MEDIA_BOOLEAN` | Boolean |
 | `media:record` | `MEDIA_OBJECT` | Generic record/object |
-| `media:json;record;textable` | `MEDIA_JSON` | JSON object |
+| `media:fmt=json;record` | `MEDIA_JSON` | JSON object |
 
 ### 5.2 Arrays
 
 | Media URN | Constant | Description |
 |-----------|----------|-------------|
-| `media:list;textable` | `MEDIA_STRING_LIST` | String array |
-| `media:integer;list;textable;numeric` | `MEDIA_INTEGER_LIST` | Integer array |
-| `media:list;numeric;textable` | `MEDIA_NUMBER_LIST` | Number array |
-| `media:bool;list;textable` | `MEDIA_BOOLEAN_LIST` | Boolean array |
+| `media:enc=utf-8;list` | `MEDIA_STRING_LIST` | String array |
+| `media:integer;list;numeric` | `MEDIA_INTEGER_LIST` | Integer array |
+| `media:list;numeric` | `MEDIA_NUMBER_LIST` | Number array |
+| `media:bool;enc=utf-8;list` | `MEDIA_BOOLEAN_LIST` | Boolean array |
 | `media:list;record` | `MEDIA_OBJECT_LIST` | List of opaque records |
 
 ### 5.3 Visual Types
@@ -338,31 +363,41 @@ For dispatch (see [05-DISPATCH](/docs/07-dispatch)):
 ### 8.1 Helper Methods
 
 ```rust
-let urn = MediaUrn::from_string("media:textable")?;
+let urn = MediaUrn::from_string("media:fmt=json;record")?;
 
-urn.is_text()    // true when the `textable` marker is present
-urn.is_json()    // true for JSON-flavoured URNs
-urn.is_binary()  // implementation convenience: true when `textable` is absent
+urn.is_json()    // true iff get_tag("fmt") == Some("json")
+urn.is_yaml()    // true iff get_tag("fmt") == Some("yaml")
+urn.is_csv()     // true iff get_tag("fmt") == Some("csv")
 urn.is_void()    // true iff the `void` marker tag is present (unit type)
 urn.is_top()     // true iff the URN has no tags at all (top type)
 ```
+
+The format predicates (`is_json` / `is_yaml` / `is_csv`) read the
+`fmt=` axis: each is just `get_tag("fmt") == Some(<format>)`. There is
+**no `is_text()` and no `is_binary()`** — they were deleted. Everything
+is binary at the byte level, so "text vs binary" is not a real
+distinction. Text is identified by the **presence of the `enc=` tag**:
+
+```rust
+urn.has_tag("enc")          // true → this value is text
+urn.get_tag("enc")          // Some("utf-8") → the encoding, if any
+```
+
+There is no `is_utf8` method; callers inspect `get_tag("enc")`
+directly.
 
 `is_void` and `is_top` are the predicates the [CapKind](/docs/06-cap-urn-structure#4-cap-kinds)
 classifier consults. Together they let any caller reason about
 whether a media URN is a concrete type, the wildcard, or the unit
 without parsing strings.
 
-`is_binary()` is a helper some implementations expose, but it is not a
-first-class structural axis in the media def system. The normative
-question is whether `textable` is present, not whether the URN belongs
-to a separate "binary" category.
-
 ### 8.2 Tag Queries
 
 ```rust
-urn.has_tag("textable")     // true
+urn.has_tag("enc")          // true (text)
+urn.has_tag("fmt")          // true (serialized)
 urn.has_tag("list")         // false
-urn.has_tag("record")       // false
+urn.has_tag("record")       // true
 ```
 
 ---
@@ -371,7 +406,8 @@ urn.has_tag("record")       // false
 
 When defining a new media type:
 
-1. **Determine coercion tags**: What can this type be coerced to?
+1. **Determine the content format (`fmt=`) and/or encoding (`enc=`)**:
+   how is this value serialized, and is it text?
 2. **Determine structure/cardinality**: default scalar vs `list`, default opaque vs `record`
 3. **Add constant** if frequently used
 4. **Document** in media catalog
@@ -379,10 +415,10 @@ When defining a new media type:
 ### 9.1 Example: Custom Type
 
 ```rust
-// A new type for structured logs
-const MEDIA_LOG_ENTRY: &str = "media:log-entry;record;textable";
+// A new type for structured logs (serialized as JSON)
+const MEDIA_LOG_ENTRY: &str = "media:log-entry;fmt=json;record";
 
-// Coercible to text, structured as record
+// Serialized as JSON, structured as record
 ```
 
 ---
@@ -396,11 +432,11 @@ type:
 ```
                     media:                          (top — any A)
                   /        \
-          media:textable    media:void              (leaf — unit ())
+          media:enc=utf-8   media:void               (leaf — unit ())
             /         \
-     media:textable    media:json;record;textable
-        |                            |
-media:integer;textable;numeric  media:json;list;record;textable
+  media:integer;numeric  media:fmt=json;record
+                                      |
+                         media:fmt=json;list;record
 ```
 
 More tags = lower in the order = more specific. `media:void` carries
@@ -417,7 +453,8 @@ concrete type.
 | Structure | `media:<type>[;tag=value]...` |
 | Top | `media:` — universal wildcard, max of the partial order, "any A" |
 | Unit | `media:void` — nullary value, leaf of the partial order, "()" |
-| Coercion / semantic markers | textable, numeric, visual, audio |
+| Media axes | `ext=` (file type), `fmt=` (serialization), `enc=` (encoding) |
+| Semantic markers | numeric, visual/image, audio, video |
 | Structural markers | `list` and `record`; scalar and opaque are defaults by absence |
 | Matching | Tagged URN semantics (truth table) |
 | Specificity | Sum of per-tag scores |

@@ -67,7 +67,7 @@ media:bytes                      → 2        # bytes=* (bare = must-have-any)
 media:pdf;bytes                  → 2 + 2 = 4
 media:pdf;v=2.0                  → 2 + 4 = 6  # pdf=*, v=2.0 (exact)
 media:pdf;v=2.0;!compressed      → 2 + 4 + 5 = 11
-media:json;record;textable       → 2 + 2 + 2 = 6
+media:image;record;numeric       → 2 + 2 + 2 = 6
 media:pdf;v?=draft               → 2 + 1 = 3  # absent OR not draft
 media:pdf;v!=draft               → 2 + 3 = 5  # present and not draft
 ```
@@ -190,12 +190,12 @@ cap:effect=none                              → (0, 0, 0)         = 0
 cap:extract                                   → (0, 0, 2)         = 2
 # in=media: (0), out=media: (0), extract=* (must-have-any → 2)
 
-cap:extract;in=media:pdf;out=media:textable   → (2, 2, 2)         = 20202
-# out: textable=* (2); in: pdf=* (2); y: extract=* (2)
+cap:extract;in=media:pdf;out=media:record     → (2, 2, 2)         = 20202
+# out: record=* (2); in: pdf=* (2); y: extract=* (2)
 
-cap:in="media:pdf;bytes";extract;out="media:textable;record"
+cap:in="media:pdf;bytes";extract;out="media:numeric;record"
                                               → (4, 4, 2)         = 40402
-# out: textable=* + record=* (2+2); in: pdf=* + bytes=* (2+2); y: extract=* (2)
+# out: numeric=* + record=* (2+2); in: pdf=* + bytes=* (2+2); y: extract=* (2)
 
 cap:in=*;extract;out=*                        → (0, 0, 2)         = 2
 # in=* normalizes to media: (0); out=* normalizes to media: (0); y: extract=* (2)
