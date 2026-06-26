@@ -5,7 +5,7 @@
 //! ## 1. Cardinality (how many items)
 //! Detected from the `list` marker tag:
 //! - `media:ext=pdf` → Single (scalar, no list marker)
-//! - `media:pdf;list` → Sequence (array, has list marker)
+//! - `media:ext=pdf;list` → Sequence (array, has list marker)
 //!
 //! ## 2. Structure (internal shape of each item)
 //! Detected from the `record` marker tag:
@@ -632,7 +632,7 @@ mod tests {
     fn test699_cap_shape_info_list_urn_still_single_cardinality() {
         // URN parsing always yields Single — the "list" tag is a structure marker, not cardinality
         let from_urn =
-            CapShapeInfo::from_cap_specs("cap:merge-pdfs", "media:list;pdf", "media:ext=pdf");
+            CapShapeInfo::from_cap_specs("cap:merge-pdfs", "media:ext=pdf;list", "media:ext=pdf");
         assert_eq!(from_urn.input.cardinality, InputCardinality::Single);
         assert_eq!(from_urn.output.cardinality, InputCardinality::Single);
         assert_eq!(from_urn.cardinality_pattern(), CardinalityPattern::OneToOne);
@@ -640,7 +640,7 @@ mod tests {
         // With is_sequence=true on input, cardinality becomes ManyToOne
         let with_seq = CapShapeInfo::from_cap_specs_with_sequence(
             "cap:merge-pdfs",
-            "media:list;pdf",
+            "media:ext=pdf;list",
             "media:ext=pdf",
             true,
             false,

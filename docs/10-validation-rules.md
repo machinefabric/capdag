@@ -63,7 +63,7 @@ This error occurs only for malformed inputs that bypass normalization (e.g., pro
 
 **Examples**:
 ```
-cap:in="media:pdf;bytes";extract;out="media:record"   ✓
+cap:in="media:bytes;ext=pdf";extract;out="media:record"   ✓
 cap:in=*;convert;out=*                                ✓ (normalizes to media:)
 cap:in="invalid";test;out="media:enc=utf-8"            ✗
 ```

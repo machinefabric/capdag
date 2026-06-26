@@ -74,10 +74,10 @@ i_r ⪯ i_p
 
 **Example**:
 ```
-Request:  in="media:pdf;bytes"     (specific)
+Request:  in="media:bytes;ext=pdf"     (specific)
 Provider: in="media:bytes"         (more general)
 
-i_r = media:pdf;bytes
+i_r = media:bytes;ext=pdf
 i_p = media:bytes
 
 i_r ⪯ i_p? → Does pdf;bytes conform to bytes?
@@ -85,7 +85,7 @@ i_r ⪯ i_p? → Does pdf;bytes conform to bytes?
            → PASS ✓
 ```
 
-A provider accepting `media:bytes` can handle a request sending `media:pdf;bytes`.
+A provider accepting `media:bytes` can handle a request sending `media:bytes;ext=pdf`.
 
 ### 3.2 Output Axis (Covariant)
 

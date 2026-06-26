@@ -64,7 +64,7 @@ spec_U(u) = Σ score(tag) for all tags in u
 ```
 media:                           → 0        # no tags
 media:bytes                      → 2        # bytes=* (bare = must-have-any)
-media:pdf;bytes                  → 2 + 2 = 4
+media:bytes;ext=pdf                  → 2 + 2 = 4
 media:pdf;v=2.0                  → 2 + 4 = 6  # pdf=*, v=2.0 (exact)
 media:pdf;v=2.0;!compressed      → 2 + 4 + 5 = 11
 media:image;record;numeric       → 2 + 2 + 2 = 6
@@ -138,7 +138,7 @@ scores from the truth table (§2.2):
 ```
 spec_U(media:)                       = 0           (no tags, top of order)
 spec_U(media:ext=pdf)                    = 2           (pdf=*, must-have-any)
-spec_U(media:pdf;bytes)              = 2 + 2 = 4
+spec_U(media:bytes;ext=pdf)              = 2 + 2 = 4
 spec_U(media:pdf;v=2.0)              = 2 + 4 = 6   (pdf=*, v=2.0 exact)
 spec_U(media:ext=pdf;!compressed)        = 2 + 5 = 7   (pdf=*, !compressed must-not-have)
 spec_U(media:ext=pdf;?v)                 = 2 + 0 = 2   (pdf=*, v explicit no-constraint)
@@ -193,7 +193,7 @@ cap:extract                                   → (0, 0, 2)         = 2
 cap:extract;in=media:pdf;out=media:record     → (2, 2, 2)         = 20202
 # out: record=* (2); in: pdf=* (2); y: extract=* (2)
 
-cap:in="media:pdf;bytes";extract;out="media:numeric;record"
+cap:in="media:bytes;ext=pdf";extract;out="media:numeric;record"
                                               → (4, 4, 2)         = 40402
 # out: numeric=* + record=* (2+2); in: pdf=* + bytes=* (2+2); y: extract=* (2)
 
@@ -242,7 +242,7 @@ Adding any tag whose form scores above 0 (everything except
 `?` / missing) increases specificity:
 ```
 spec_U(media:)              < spec_U(media:ext=pdf)              # added must-have-any
-spec_U(media:ext=pdf)           < spec_U(media:pdf;bytes)        # added another must-have-any
+spec_U(media:ext=pdf)           < spec_U(media:bytes;ext=pdf)        # added another must-have-any
 spec_U(media:pdf;v=*)       < spec_U(media:pdf;v=2.0)        # tightened * (2) → exact (4)
 spec_U(media:pdf;v?=draft)  < spec_U(media:pdf;v!=draft)     # tightened ?=v (1) → !=v (3)
 spec_U(media:pdf;v!=draft)  < spec_U(media:ext=pdf;!v)           # tightened !=v (3) → ! (5)
