@@ -549,6 +549,7 @@ impl ManagedCartridge {
         manifest: Vec<u8>,
         limits: Limits,
         cap_groups: Vec<crate::bifaci::manifest::CapGroup>,
+        installed_identity: Option<InstalledCartridgeRecord>,
     ) -> Self {
         Self {
             path: PathBuf::new(),
@@ -558,7 +559,7 @@ impl ManagedCartridge {
             manifest,
             limits,
             cap_groups,
-            installed_identity: None,
+            installed_identity,
             running: true,
             reader_handle: None,
             writer_handle: None,
@@ -680,6 +681,42 @@ fn installed_cartridge_record_from_binary(
         attachment_error: None,
         runtime_stats: None,
         lifecycle: CartridgeLifecycle::Discovered,
+    })
+}
+
+/// Build the install identity for a cartridge attached over raw streams
+/// (no on-disk anchor: the dev/host-embedded/interop path).
+///
+/// Advertisement is identity-gated — a cartridge with no
+/// `installed_identity` is silently dropped from every `RelayNotify`, so an
+/// attached cartridge MUST carry a resolvable identity or the host
+/// advertises an empty inventory and the engine can never route to it. An
+/// attached cartridge has already completed HELLO + identity verification by
+/// the time this is called, so it is operational by construction; its
+/// identity is sourced from the manifest it sent during HELLO (the same
+/// `(registry_url, channel, id, version)` tuple a registered install carries),
+/// with the sha256 taken over the manifest bytes (the only stable artefact
+/// available without a file on disk). This mirrors
+/// `installed_cartridge_record_from_binary` but anchors on the manifest
+/// rather than a binary path.
+fn installed_cartridge_record_from_manifest(
+    manifest: &[u8],
+) -> Option<InstalledCartridgeRecord> {
+    let parsed: crate::CapManifest = serde_json::from_slice(manifest).ok()?;
+    let mut hasher = Sha256::new();
+    hasher.update(manifest);
+    let sha256 = format!("{:x}", hasher.finalize());
+    Some(InstalledCartridgeRecord {
+        registry_url: parsed.registry_url,
+        id: parsed.name,
+        channel: parsed.channel,
+        version: parsed.version,
+        sha256,
+        cap_groups: Vec::new(),
+        attachment_error: None,
+        // Attached ⇒ HELLO + identity verification already succeeded.
+        lifecycle: CartridgeLifecycle::Operational,
+        runtime_stats: None,
     })
 }
 
@@ -1085,6 +1122,12 @@ impl CartridgeHostRuntime {
 
         let cartridge_idx = self.cartridges.len();
 
+        // Derive the install identity from the manifest the cartridge sent
+        // during HELLO. Advertisement is identity-gated, so without this the
+        // attached cartridge is silently excluded from every RelayNotify and
+        // the engine can never route to it (the dev/interop relay path).
+        let installed_identity = installed_cartridge_record_from_manifest(&result.manifest);
+
         // Start writer task
         let (writer_tx, writer_rx) = mpsc::unbounded_channel::<Frame>();
         let wh = Self::start_writer_task(writer, writer_rx);
@@ -1092,8 +1135,12 @@ impl CartridgeHostRuntime {
         // Start reader task
         let rh = Self::start_reader_task(cartridge_idx, reader, self.event_tx.clone());
 
-        let mut cartridge =
-            ManagedCartridge::new_attached(result.manifest, result.limits, cap_groups);
+        let mut cartridge = ManagedCartridge::new_attached(
+            result.manifest,
+            result.limits,
+            cap_groups,
+            installed_identity,
+        );
         cartridge.writer_tx = Some(writer_tx);
         cartridge.reader_handle = Some(rh);
         cartridge.writer_handle = Some(wh);
@@ -3145,6 +3192,57 @@ mod tests {
         let groups = result_ok.expect("Manifest with CAP_IDENTITY must be accepted");
         let total_caps: usize = groups.iter().map(|g| g.caps.len()).sum();
         assert_eq!(total_caps, 2, "Must parse both caps");
+    }
+
+    // TEST6601: An attached cartridge (raw-stream, no on-disk anchor) must
+    // get a resolvable install identity derived from its HELLO manifest.
+    //
+    // Advertisement is identity-gated: build_installed_cartridge_identities
+    // drops any cartridge whose installed_cartridge_record() is None. If an
+    // attached cartridge had no identity it would be silently excluded from
+    // every RelayNotify, the host would advertise an empty inventory, and the
+    // engine could never route to it — the deadlock that hung the
+    // rust-rust-rust interop echo test forever.
+    #[test]
+    fn test6601_attached_cartridge_identity_derived_from_manifest() {
+        let manifest = r#"{"name":"InteropCartridge","version":"2.3.4","channel":"nightly","registry_url":null,"description":"x","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]}],"adapter_urns":[]}]}"#;
+
+        let record = installed_cartridge_record_from_manifest(manifest.as_bytes())
+            .expect("attached cartridge must have a resolvable identity from its manifest");
+
+        // Identity tuple comes straight from the manifest.
+        assert_eq!(record.id, "InteropCartridge");
+        assert_eq!(record.version, "2.3.4");
+        assert_eq!(record.registry_url, None, "null registry_url ⇒ dev install");
+        assert!(
+            matches!(record.channel, crate::bifaci::cartridge_repo::CartridgeChannel::Nightly),
+            "channel must round-trip from the manifest"
+        );
+        // sha256 is over the manifest bytes — non-empty, deterministic.
+        assert_eq!(record.sha256.len(), 64, "sha256 hex must be 64 chars");
+        let again = installed_cartridge_record_from_manifest(manifest.as_bytes()).unwrap();
+        assert_eq!(record.sha256, again.sha256, "identity must be deterministic");
+        // Attached ⇒ already verified ⇒ operational, no attachment error.
+        assert!(record.attachment_error.is_none());
+        assert!(matches!(record.lifecycle, CartridgeLifecycle::Operational));
+
+        // A ManagedCartridge built via new_attached with this identity must
+        // surface it through installed_cartridge_record() — the gate that
+        // build_installed_cartridge_identities consults.
+        let cartridge = ManagedCartridge::new_attached(
+            manifest.as_bytes().to_vec(),
+            Limits::default(),
+            Vec::new(),
+            Some(record.clone()),
+        );
+        assert!(
+            cartridge.installed_cartridge_record().is_some(),
+            "attached cartridge must not be filtered out of the advertisement"
+        );
+
+        // Garbage manifest ⇒ no identity (caller still attaches, but the
+        // record is honestly absent rather than fabricated).
+        assert!(installed_cartridge_record_from_manifest(b"{not json").is_none());
     }
 
     // TEST235: Test ResponseChunk stores payload, seq, offset, len, and eof fields correctly
