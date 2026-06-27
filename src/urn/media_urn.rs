@@ -1483,13 +1483,13 @@ mod debug_tests {
     // TEST859: LUB with valued tags (non-marker) that differ
     #[test]
     fn test859_lub_valued_tags() {
-        let v1 = MediaUrn::from_string("media:image;format=png").unwrap();
-        let v2 = MediaUrn::from_string("media:image;format=jpeg").unwrap();
+        let v1 = MediaUrn::from_string("media:ext=png;image").unwrap();
+        let v2 = MediaUrn::from_string("media:ext=jpeg;image").unwrap();
         let lub = MediaUrn::least_upper_bound(&[v1, v2]);
         let expected = MediaUrn::from_string("media:image").unwrap();
         assert!(
             lub.is_equivalent(&expected).unwrap(),
-            "LUB should drop conflicting format tag, got {}",
+            "LUB should drop conflicting ext tag, got {}",
             lub.to_string()
         );
     }
