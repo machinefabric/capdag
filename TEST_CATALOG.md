@@ -43,7 +43,7 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test025 | `test025_best_match` | TEST025: Test find_best_match returns most specific matching cap | src/urn/cap_urn.rs:2081 |
 | test026 | `test026_merge_and_subset` | TEST026: Test merge combines tags from both caps, subset keeps only specified tags | src/urn/cap_urn.rs:2097 |
 | test027 | `test027_wildcard_tag` | TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out | src/urn/cap_urn.rs:2121 |
-| test028 | `test028_empty_cap_urn_is_illegal` | TEST028: Test empty cap URN is illegal after effect transition | src/urn/cap_urn.rs:2137 |
+| test28 | `test28_empty_cap_urn_is_illegal` | TEST28: Test empty cap URN is illegal after effect transition | src/urn/cap_urn.rs:2137 |
 | test029 | `test029_minimal_cap_urn` | TEST029: Test minimal valid cap URN has just in and out, empty tags | src/urn/cap_urn.rs:2150 |
 | test030 | `test030_extended_character_support` | TEST030: Test extended characters (forward slashes, colons) in tag values | src/urn/cap_urn.rs:2164 |
 | test031 | `test031_wildcard_restrictions` | TEST031: Test wildcard rejected in keys but accepted in values | src/urn/cap_urn.rs:2177 |
@@ -147,18 +147,11 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test0132 | `test0132_add_master_dynamic` | TEST0132: add_master dynamically connects new host to running switch | src/bifaci/relay_switch.rs:5053 |
 | test0133 | `test0133_reattach_by_id_preserves_slot_index` | / Reattach-by-id keeps the slot index stable. / / After a master at slot index 0 dies, a new socket added with / the same id MUST be placed into slot 0 (not appended at index 1). / Without this, request_routing entries keyed by `master_idx=0` / would dangle pointing at a permanently-unhealthy zombie slot / while the live caps came back at slot 1 — exactly the / observed bug. | src/bifaci/relay_switch.rs:5260 |
 | test0134 | `test0134_add_master_with_duplicate_healthy_id_errors` | / Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug — the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot. | src/bifaci/relay_switch.rs:5366 |
-| test0135 | `test0135_relay_switch_new_rejects_duplicate_ids` | / `RelaySwitch::new` rejects duplicate ids in its cardinality / list. Without this guard the first reconnect would / reattach to whichever slot is found first by the linear / scan, leaving the other slot stuck unhealthy forever. | src/bifaci/relay_switch.rs:5425 |
 | test0136 | `test0136_all_masters_ready_false_when_expected_count_unset` | TEST0136: All masters ready false when expected count unset | src/bifaci/relay_switch.rs:5712 |
 | test0137 | `test0137_all_masters_ready_false_when_partially_connected` | TEST0137: All masters ready false when partially connected | src/bifaci/relay_switch.rs:5730 |
-| test0138 | `test0138_all_masters_ready_true_when_expectation_met` | TEST0138: All masters ready true when expectation met | src/bifaci/relay_switch.rs:5746 |
 | test0139 | `test0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST0139: All masters ready true when masters connected but capless | src/bifaci/relay_switch.rs:5781 |
 | test0140 | `test0140_all_masters_ready_does_not_overshoot` | TEST0140: All masters ready does not overshoot | src/bifaci/relay_switch.rs:5804 |
-| test0141 | `test0141_local_socket_pair_round_trips_in_both_directions` | TEST0141: Local socket pair round trips in both directions | src/bifaci/local_socket.rs:350 |
-| test0142 | `test0142_routes_req_to_handler` | TEST0142: InProcessCartridgeHost routes REQ to matching handler and returns response | src/bifaci/in_process_host.rs:999 |
-| test0143 | `test0143_identity_verification` | TEST0143: InProcessCartridgeHost handles identity verification (echo nonce) | src/bifaci/in_process_host.rs:1089 |
-| test0144 | `test0144_no_handler_returns_err` | TEST0144: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | src/bifaci/in_process_host.rs:1159 |
-| test0145 | `test0145_manifest_includes_all_caps` | TEST0145: InProcessCartridgeHost manifest includes identity cap and handler caps | src/bifaci/in_process_host.rs:1198 |
-| test147 | `test147_registry_for_test_with_custom_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | src/fabric/registry.rs:2611 |
+| test147 | `test147_registry_for_test_with_custom_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | src/fabric/registry.rs:2610 |
 | test148 | `test148_cap_manifest_creation` | TEST148: Manifest creation with cap groups | src/bifaci/manifest.rs:264 |
 | test149 | `test149_cap_manifest_with_author` | TEST149: Author field | src/bifaci/manifest.rs:392 |
 | test150 | `test150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | src/bifaci/manifest.rs:415 |
@@ -336,14 +329,11 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test341 | `test341_stdin_precedence_over_file_path` | TEST341: stdin takes precedence over file-path in source order | src/bifaci/cartridge_runtime.rs:5881 |
 | test342 | `test342_file_path_position_zero_reads_first_arg` | TEST342: file-path with position 0 reads first positional arg as file | src/bifaci/cartridge_runtime.rs:5926 |
 | test343 | `test343_non_file_path_args_unaffected` | TEST343: Non-file-path args are not affected by file reading | src/bifaci/cartridge_runtime.rs:5961 |
-| test344 | `test344_file_path_array_invalid_json_fails` | TEST344: file-path-array with nonexistent path fails clearly | src/bifaci/cartridge_runtime.rs:5996 |
-| test345 | `test345_file_path_array_one_file_missing_fails_hard` | TEST345: file-path-array with literal nonexistent path fails hard | src/bifaci/cartridge_runtime.rs:6053 |
 | test346 | `test346_large_file_reads_successfully` | TEST346: Large file (1MB) reads successfully | src/bifaci/cartridge_runtime.rs:6116 |
 | test347 | `test347_empty_file_reads_as_empty_bytes` | TEST347: Empty file reads as empty bytes | src/bifaci/cartridge_runtime.rs:6154 |
 | test348 | `test348_file_path_conversion_respects_source_order` | TEST348: file-path conversion respects source order | src/bifaci/cartridge_runtime.rs:6188 |
 | test349 | `test349_file_path_multiple_sources_fallback` | TEST349: file-path arg with multiple sources tries all in order | src/bifaci/cartridge_runtime.rs:6230 |
 | test350 | `test350_full_cli_mode_with_file_path_integration` | TEST350: Integration test - full CLI mode invocation with file-path | src/bifaci/cartridge_runtime.rs:6274 |
-| test351 | `test351_file_path_array_empty_array` | TEST351: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array — no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only. | src/bifaci/cartridge_runtime.rs:6349 |
 | test352 | `test352_file_permission_denied_clear_error` | TEST352: file permission denied error is clear (Unix-specific) | src/bifaci/cartridge_runtime.rs:6411 |
 | test353 | `test353_cbor_payload_format_consistency` | TEST353: CBOR payload format matches between CLI and CBOR mode | src/bifaci/cartridge_runtime.rs:6492 |
 | test354 | `test354_glob_pattern_no_matches_empty_array` | TEST354: Glob pattern with no matches fails hard (NO FALLBACK) | src/bifaci/cartridge_runtime.rs:6560 |
@@ -383,7 +373,6 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test411 | `test411_socket_close_detection` | TEST411: Socket close detection (both directions) | src/bifaci/relay.rs:801 |
 | test412 | `test412_bidirectional_concurrent_flow` | TEST412: Bidirectional concurrent frame flow through relay | src/bifaci/relay.rs:842 |
 | test413 | `test413_register_cartridge_adds_to_cap_table` | TEST413: Register cartridge adds entries to cap_table. The cap_table stores canonical URN strings (alphabetical tag order, no unnecessary quotes around single-tag media URNs). The input forms below get canonicalized at parse-time and the table reads back as the canonical form. | src/bifaci/host_runtime.rs:3404 |
-| test414 | `test414_capabilities_empty_initially` | TEST414: aggregate_installed_cartridges() is empty before any cartridge with a resolvable identity is attached. A binary path that does not exist on disk has no identity (`installed_identity` is `None`) and therefore does not appear in the relay payload. | src/bifaci/host_runtime.rs:3438 |
 | test415 | `test415_req_for_known_cap_triggers_spawn` | TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary) | src/bifaci/host_runtime.rs:3464 |
 | test416 | `test416_attach_cartridge_handshake_updates_capabilities` | TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities | src/bifaci/host_runtime.rs:3541 |
 | test417 | `test417_route_req_to_correct_cartridge` | TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges) | src/bifaci/host_runtime.rs:3598 |
@@ -438,7 +427,6 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test476 | `test476_validate_fails_without_identity` | TEST476: validate() fails without CAP_IDENTITY | src/bifaci/manifest.rs:626 |
 | test478 | `test478_auto_registers_identity_handler` | TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction | src/bifaci/cartridge_runtime.rs:7560 |
 | test479 | `test479_custom_identity_overrides_default` | TEST479: Custom identity Op overrides auto-registered default | src/bifaci/cartridge_runtime.rs:7628 |
-| test480 | `test480_parse_cap_groups_rejects_manifest_without_identity` | TEST480: parse_cap_groups_from_manifest classifies failures by kind Manifest JSON that parses but lacks CAP_IDENTITY is `Incompatible` (schema-rejected). Manifest bytes that don't parse as CapManifest are `ManifestInvalid` (JSON-level failure). The split lets the host's attachment-error reporter surface the right kind to the UI. | src/bifaci/host_runtime.rs:3106 |
 | test481 | `test481_verify_identity_succeeds` | TEST481: verify_identity succeeds with standard identity echo handler | src/bifaci/io.rs:2064 |
 | test482 | `test482_verify_identity_fails_on_err` | TEST482: verify_identity fails when cartridge returns ERR on identity call | src/bifaci/io.rs:2091 |
 | test483 | `test483_verify_identity_fails_on_close` | TEST483: verify_identity fails when connection closes before response | src/bifaci/io.rs:2131 |
@@ -552,16 +540,15 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test603 | `test603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | src/cap/response.rs:285 |
 | test605 | `test605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | src/standard/caps.rs:1191 |
 | test606 | `test606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | src/standard/caps.rs:1219 |
-| test607 | `test607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | src/fabric/registry.rs:2624 |
-| test608 | `test608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | src/fabric/registry.rs:2632 |
-| test609 | `test609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension→URN pairs. | src/fabric/registry.rs:2649 |
-| test610 | `test610_get_cached_media_def` | TEST610: get_cached_spec returns None for unknown and Some for known | src/fabric/registry.rs:2665 |
-| test611 | `test611_insert_schema_populates_cache` | TEST611: insert_schema is the production seam for non-HTTP schema injection. It must persist to the in-memory cache so subsequent schema_exists/validate calls succeed without network access. | src/media/profile.rs:662 |
+| test607 | `test607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | src/fabric/registry.rs:2623 |
+| test608 | `test608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | src/fabric/registry.rs:2631 |
+| test609 | `test609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension→URN pairs. | src/fabric/registry.rs:2648 |
+| test610 | `test610_get_cached_media_def` | TEST610: get_cached_spec returns None for unknown and Some for known | src/fabric/registry.rs:2664 |
 | test612 | `test612_clear_cache` | TEST612: clear_cache empties the in-memory cache for seeded schemas. | src/media/profile.rs:700 |
 | test613 | `test613_validate_cached` | TEST613: validate_cached validates against cached standard schemas | src/media/profile.rs:717 |
-| test614 | `test614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | src/fabric/registry.rs:2675 |
-| test616 | `test616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | src/fabric/registry.rs:2681 |
-| test617 | `test617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | src/fabric/registry.rs:2695 |
+| test614 | `test614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | src/fabric/registry.rs:2674 |
+| test616 | `test616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | src/fabric/registry.rs:2680 |
+| test617 | `test617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | src/fabric/registry.rs:2694 |
 | test618 | `test618_registry_creation` | TEST618: Verify profile schema registry creation succeeds with temp cache | src/media/profile.rs:517 |
 | test619 | `test619_fresh_registry_cache_is_empty` | TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema. | src/media/profile.rs:526 |
 | test620 | `test620_string_validation` | TEST620: Verify string schema validates strings and rejects non-strings | src/media/profile.rs:539 |
@@ -601,7 +588,6 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test658 | `test658_heartbeat_response` | TEST658: InProcessCartridgeHost handles heartbeat by echoing same ID | src/bifaci/in_process_host.rs:1226 |
 | test659 | `test659_handler_error_returns_err_frame` | TEST659: InProcessCartridgeHost handler error returns ERR frame | src/bifaci/in_process_host.rs:1257 |
 | test660 | `test660_closest_specificity_routing` | TEST660: InProcessCartridgeHost closest-specificity routing prefers specific over identity | src/bifaci/in_process_host.rs:1330 |
-| test661 | `test661_cartridge_death_keeps_caps_advertised` | TEST661: Cartridge death keeps caps advertised for on-demand respawn. The cartridge's `cap_groups` survive process death, so the host can continue advertising the cartridge's caps and the relay can route a fresh REQ to it (which triggers an on-demand respawn). | src/bifaci/host_runtime.rs:4793 |
 | test662 | `test662_rebuild_capabilities_includes_non_running_cartridges` | TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet). | src/bifaci/host_runtime.rs:4846 |
 | test663 | `test663_hello_failed_cartridge_removed_from_capabilities` | TEST663: Cartridge with hello_failed is permanently removed from capabilities | src/bifaci/host_runtime.rs:4905 |
 | test664 | `test664_running_cartridge_uses_manifest_caps` | TEST664: Attached cartridge replaces pre-registration caps with manifest caps. The pre-attach `cap_groups` (from probe-time discovery) get superseded by the post-HELLO `cap_groups` from the actual handshake. | src/bifaci/host_runtime.rs:4956 |
@@ -798,8 +784,7 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test903 | `test903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | src/bifaci/frame.rs:1719 |
 | test904 | `test904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | src/bifaci/frame.rs:1744 |
 | test905 | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:4879 |
-| test907 | `test907_cbor_rejects_stream_end_without_chunk_count` | TEST907: CBOR decode REJECTS STREAM_END frame missing chunk_count field | src/bifaci/frame.rs:2368 |
-| test908 | `test908_cached_caps_accessible_when_offline` | TEST908: cached caps remain accessible while offline. | src/fabric/registry.rs:2704 |
+| test908 | `test908_cached_caps_accessible_when_offline` | TEST908: cached caps remain accessible while offline. | src/fabric/registry.rs:2703 |
 | test910 | `test910_map_progress_monotonic` | TEST910: map_progress output is monotonic for monotonically increasing input | src/orchestrator/executor.rs:1734 |
 | test911 | `test911_map_progress_bounded` | TEST911: map_progress output is bounded within [base, base+weight] | src/orchestrator/executor.rs:1752 |
 | test912 | `test912_progress_mapper_reports_through_parent` | TEST912: ProgressMapper correctly maps through a CapProgressFn | src/orchestrator/executor.rs:1773 |
@@ -1104,10 +1089,7 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test1834 | `test1834_canonicalize_exact_value` | TEST1834: x=v stays as x=v (the lone exact-value form). | src/urn/cap_urn.rs:3606 |
 | test1835 | `test1835_canonicalize_must_not_have` | TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x. | src/urn/cap_urn.rs:3613 |
 | test1842 | `test1842_truth_table_full_cross_product` | TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form. | src/urn/cap_urn.rs:3632 |
-| test1843 | `test1843_reject_invalid_combinations` | TEST1843: Invalid combinations of qualifiers must be rejected by the parser. These are hard parse errors, not silently accepted shorthands. | src/urn/cap_urn.rs:3691 |
-| test1844 | `test1844_axis_weighting_out_dominates` | TEST1844: Cap-URN axis weighting is lexicographic. A cap with greater out-axis specificity always outranks one with greater in-axis specificity, regardless of y-axis. | src/urn/cap_urn.rs:3721 |
 | test1845 | `test1845_axis_weighting_in_dominates_y` | TEST1845: With equal out-axis, in-axis dominates over y-axis. | src/urn/cap_urn.rs:3737 |
-| test1846 | `test1846_axis_weighting_decoded_layout` | TEST1846: Specificity composes uniformly across all three axes. For a fully-loaded cap with one of each form per axis, the total reads as out_score, in_score, y_score in distinct digit slots. | src/urn/cap_urn.rs:3756 |
 | test1847 | `test1847_cartridge_build_legacy_package_fallback` | TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and `primary_package()` must fall back to that legacy package, so a registry not yet republished with the dual-write keeps installing. When `packages[]` is present it is preferred over the legacy field. | src/bifaci/cartridge_repo.rs:1664 |
 | test1849 | `test1849_resolve_for_host_compatible_latest` | TEST1849: latest version has a host build → Compatible, resolving to the latest version and that platform's native-format package. | src/bifaci/cartridge_repo.rs:1829 |
 | test1850 | `test1850_resolve_for_host_compatible_outdated` | TEST1850: the latest version lacks a host build but an older version has one → CompatibleOutdated, resolving to the older version with a reason naming both the latest and the resolved version. | src/bifaci/cartridge_repo.rs:1857 |
@@ -1134,7 +1116,25 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test1889 | `test1889_resolve_alias_typed_enforces_kind` | TEST1889: resolve_alias_typed enforces the expected kind. A media alias requested as a cap fails hard; requested as media (or untyped) succeeds. This is the typed-boundary contract. | src/fabric/registry.rs:2465 |
 | test1890 | `test1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. | src/fabric/registry.rs:2497 |
 | test1891 | `test1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | src/fabric/registry.rs:2528 |
-| test1892 | `test1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name (not in the manifest, not cached) is a hard NotFound, never a silent empty result. alias_defver_for surfaces the same. This is the "expose issues, no fallback" contract. | src/fabric/registry.rs:2563 |
+| test1892 | `test1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name is a hard not-found, never a silent empty. the same. This is the "expose issues, no fallback" contract. | src/fabric/registry.rs:2562 |
+| test6586 | `test6586_file_path_array_invalid_json_fails` | TEST6586: file-path-array with nonexistent path fails clearly | src/bifaci/cartridge_runtime.rs:5996 |
+| test6587 | `test6587_file_path_array_one_file_missing_fails_hard` | TEST6587: file-path-array with literal nonexistent path fails hard | src/bifaci/cartridge_runtime.rs:6053 |
+| test6588 | `test6588_file_path_array_empty_array` | TEST6588: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array — no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only. | src/bifaci/cartridge_runtime.rs:6349 |
+| test6594 | `test6594_capabilities_empty_initially` | TEST6594: aggregate_installed_cartridges() is empty before any cartridge with a resolvable identity is attached. A binary path that does not exist on disk has no identity (`installed_identity` is `None`) and therefore does not appear in the relay payload. | src/bifaci/host_runtime.rs:3438 |
+| test6600 | `test6600_parse_cap_groups_rejects_manifest_without_identity` | TEST6600: parse_cap_groups_from_manifest classifies failures by kind Manifest JSON that parses but lacks CAP_IDENTITY is `Incompatible` (schema-rejected). Manifest bytes that don't parse as CapManifest are `ManifestInvalid` (JSON-level failure). The split lets the host's attachment-error reporter surface the right kind to the UI. | src/bifaci/host_runtime.rs:3106 |
+| test6605 | `test6605_insert_schema_populates_cache` | TEST6605: insert_schema is the production seam for non-HTTP schema injection. It must persist to the in-memory cache so subsequent schema_exists/validate calls succeed without network access. | src/media/profile.rs:662 |
+| test6623 | `test6623_cartridge_death_keeps_caps_advertised` | TEST6623: Cartridge death keeps caps advertised for on-demand respawn. The cartridge's `cap_groups` survive process death, so the host can continue advertising the cartridge's caps and the relay can route a fresh REQ to it (which triggers an on-demand respawn). | src/bifaci/host_runtime.rs:4793 |
+| test6672 | `test6672_cbor_rejects_stream_end_without_chunk_count` | TEST6672: CBOR decode REJECTS STREAM_END frame missing chunk_count field | src/bifaci/frame.rs:2368 |
+| test6734 | `test6734_reject_invalid_combinations` | TEST6734: Invalid combinations of qualifiers must be rejected by the parser. These are hard parse errors, not silently accepted shorthands. | src/urn/cap_urn.rs:3691 |
+| test6735 | `test6735_axis_weighting_out_dominates` | TEST6735: Cap-URN axis weighting is lexicographic. A cap with greater out-axis specificity always outranks one with greater in-axis specificity, regardless of y-axis. | src/urn/cap_urn.rs:3721 |
+| test6736 | `test6736_axis_weighting_decoded_layout` | TEST6736: Specificity composes uniformly across all three axes. For a fully-loaded cap with one of each form per axis, the total reads as out_score, in_score, y_score in distinct digit slots. | src/urn/cap_urn.rs:3756 |
+| test6745 | `test6745_relay_switch_new_rejects_duplicate_ids` | / `RelaySwitch::new` rejects duplicate ids in its cardinality / list. Without this guard the first reconnect would / reattach to whichever slot is found first by the linear / scan, leaving the other slot stuck unhealthy forever. | src/bifaci/relay_switch.rs:5425 |
+| test6746 | `test6746_all_masters_ready_true_when_expectation_met` | TEST6746: All masters ready true when expectation met | src/bifaci/relay_switch.rs:5746 |
+| test6747 | `test6747_local_socket_pair_round_trips_in_both_directions` | TEST6747: Local socket pair round trips in both directions | src/bifaci/local_socket.rs:350 |
+| test6748 | `test6748_routes_req_to_handler` | TEST6748: InProcessCartridgeHost routes REQ to matching handler and returns response | src/bifaci/in_process_host.rs:999 |
+| test6749 | `test6749_identity_verification` | TEST6749: InProcessCartridgeHost handles identity verification (echo nonce) | src/bifaci/in_process_host.rs:1089 |
+| test6750 | `test6750_no_handler_returns_err` | TEST6750: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | src/bifaci/in_process_host.rs:1159 |
+| test6751 | `test6751_manifest_includes_all_caps` | TEST6751: InProcessCartridgeHost manifest includes identity cap and handler caps | src/bifaci/in_process_host.rs:1198 |
 | test8000 | `test8000_parse_simple_header_and_wiring` | TEST8000: Parsing a simple header and wiring produces a valid AST with both statements. | src/machine/notation_ast.rs:1704 |
 | test8001 | `test8001_parse_empty_returns_error` | TEST8001: Parsing empty notation returns an error in the AST. | src/machine/notation_ast.rs:1729 |
 | test8002 | `test8002_parse_invalid_returns_partial_ast` | TEST8002: Parsing invalid notation still returns a partial AST alongside the error. | src/machine/notation_ast.rs:1737 |

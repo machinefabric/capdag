@@ -2132,9 +2132,9 @@ mod tests {
         assert_eq!(wildcard_out.out_spec(), MEDIA_IDENTITY);
     }
 
-    // TEST028: Test empty cap URN is illegal after effect transition
+    // TEST28: Test empty cap URN is illegal after effect transition
     #[test]
-    fn test028_empty_cap_urn_is_illegal() {
+    fn test28_empty_cap_urn_is_illegal() {
         assert!(matches!(
             CapUrn::from_string("cap:"),
             Err(CapUrnError::IllegalDeclaration(_))
@@ -3684,11 +3684,11 @@ mod tier_tests {
         }
     }
 
-    // TEST1843: Invalid combinations of qualifiers must be rejected
+    // TEST6734: Invalid combinations of qualifiers must be rejected
     // by the parser. These are hard parse errors, not silently
     // accepted shorthands.
     #[test]
-    fn test1843_reject_invalid_combinations() {
+    fn test6734_reject_invalid_combinations() {
         // Each input must fail to parse.
         let invalid = [
             "cap:?x?=v", // prefix and infix ? together
@@ -3714,11 +3714,11 @@ mod tier_tests {
         }
     }
 
-    // TEST1844: Cap-URN axis weighting is lexicographic. A cap with
+    // TEST6735: Cap-URN axis weighting is lexicographic. A cap with
     // greater out-axis specificity always outranks one with greater
     // in-axis specificity, regardless of y-axis.
     #[test]
-    fn test1844_axis_weighting_out_dominates() {
+    fn test6735_axis_weighting_out_dominates() {
         // out=4 (enc=utf-8;record), in=0 (media:), y=0
         let big_out = CapUrn::from_string("cap:in=media:;out=\"media:enc=utf-8;record\"").unwrap();
         // out=2 (record), in=2 (pdf), y=15 (loaded y axis)
@@ -3748,12 +3748,12 @@ mod tier_tests {
         );
     }
 
-    // TEST1846: Specificity composes uniformly across all three axes.
+    // TEST6736: Specificity composes uniformly across all three axes.
     // For a fully-loaded cap with one of each form per axis, the
     // total reads as out_score, in_score, y_score in distinct digit
     // slots.
     #[test]
-    fn test1846_axis_weighting_decoded_layout() {
+    fn test6736_axis_weighting_decoded_layout() {
         // Construct a cap where every axis has a controlled score.
         //
         // out=media:a;b;c;d (4 markers, score 4*2 = 8)

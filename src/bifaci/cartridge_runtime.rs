@@ -5991,9 +5991,9 @@ mod tests {
         assert_eq!(value_str, "mlx-community/Llama-3.2-3B-Instruct-4bit");
     }
 
-    // TEST344: file-path-array with nonexistent path fails clearly
+    // TEST6586: file-path-array with nonexistent path fails clearly
     #[test]
-    fn test344_file_path_array_invalid_json_fails() {
+    fn test6586_file_path_array_invalid_json_fails() {
         let cap = create_test_cap(
             "cap:in=media:;batch;out=media:void",
             "Test",
@@ -6048,9 +6048,9 @@ mod tests {
         );
     }
 
-    // TEST345: file-path-array with literal nonexistent path fails hard
+    // TEST6587: file-path-array with literal nonexistent path fails hard
     #[test]
-    fn test345_file_path_array_one_file_missing_fails_hard() {
+    fn test6587_file_path_array_one_file_missing_fails_hard() {
         let temp_dir = std::env::temp_dir();
         let missing_path = temp_dir.join("test345_missing.txt");
 
@@ -6341,12 +6341,12 @@ mod tests {
         std::fs::remove_file(test_file).ok();
     }
 
-    // TEST351: sequence-declared file-path arg with empty input array (CBOR
+    // TEST6588: sequence-declared file-path arg with empty input array (CBOR
     // mode) passes through as an empty CBOR Array — no implicit expansion,
     // no spurious error. Declaring `is_sequence = true` is what makes the
     // runtime emit an Array shape; URN tags are semantic only.
     #[test]
-    fn test351_file_path_array_empty_array() {
+    fn test6588_file_path_array_empty_array() {
         let mut batch_arg = CapArg::new(
             "media:enc=utf-8;file-path",
             false, // Not required

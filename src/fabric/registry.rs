@@ -2556,8 +2556,7 @@ mod alias_tests {
         );
     }
 
-    // TEST1892: an unknown alias name (not in the manifest, not cached) is a
-    // hard NotFound, never a silent empty result. alias_defver_for surfaces
+    // TEST1892: an unknown alias name is a hard not-found, never a silent empty.
     // the same. This is the "expose issues, no fallback" contract.
     #[tokio::test]
     async fn test1892_unknown_alias_is_not_found() {

@@ -345,9 +345,9 @@ mod tests {
     use super::UnixStream;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    // TEST0141: Local socket pair round trips in both directions
+    // TEST6747: Local socket pair round trips in both directions
     #[tokio::test]
-    async fn test0141_local_socket_pair_round_trips_in_both_directions() {
+    async fn test6747_local_socket_pair_round_trips_in_both_directions() {
         let (left, right) = UnixStream::pair().expect("create AF_UNIX stream pair");
         let (mut left_read, mut left_write) = left.into_split();
         let (mut right_read, mut right_write) = right.into_split();

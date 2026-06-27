@@ -655,11 +655,11 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    // TEST611: insert_schema is the production seam for non-HTTP schema injection.
+    // TEST6605: insert_schema is the production seam for non-HTTP schema injection.
     // It must persist to the in-memory cache so subsequent schema_exists/validate
     // calls succeed without network access.
     #[tokio::test]
-    async fn test611_insert_schema_populates_cache() {
+    async fn test6605_insert_schema_populates_cache() {
         let (registry, _temp_dir) = create_empty_test_registry().await;
         assert!(!registry.schema_exists(PROFILE_STR));
 
