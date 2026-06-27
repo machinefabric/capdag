@@ -22,7 +22,7 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
   - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **140**
   - …already in the 8000+ impl-specific range (correctly placed): **29**
 - Shared numbers with a parity gap (missing from ≥1 mirror): **784**
-- Shared numbers with divergent descriptions: **541**
+- Shared numbers with divergent descriptions: **535**
 - Within-mirror duplicate numbers: **0**
 
 ---
@@ -239,7 +239,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test293 | rust, go, py, objc | js | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN |
 | test299 | rust, go, py, objc | js | TEST299: Empty payload request/response roundtrip |
 | test300 | rust, py, objc | go, js | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. |
-| test301 | rust, py, objc | go, js | TEST301: transform_to_cartridge_array walks both channels and emits release-channel entries before nightly-channel entries. |
+| test301 | rust, py, objc | go, js | TEST301: Walking both channels produces release entries first. |
 | test319 | rust, go, py, objc | js | TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. |
 | test336 | rust, go, py, objc | js | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler |
 | test337 | rust, go, py, objc | js | TEST337: file-path arg without stdin source passes path as string (no conversion) |
@@ -462,16 +462,16 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test603 | rust, go, py | js, objc | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage |
 | test605 | rust, go, py | js, objc | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn |
 | test606 | rust, go, py | js, objc | TEST606: coercion_urn in/out specs match the type's media URN constant |
-| test607 | rust, go, py | js, objc | TEST607: media_urns_for_extension errors for an unknown extension. |
-| test608 | rust, go, py | js, objc | TEST608: media_urns_for_extension returns URNs after a spec with that extension is added; lookup is case-insensitive. |
+| test607 | rust, go, py | js, objc | TEST607: media_urns_for_extension returns error for unknown extension |
+| test608 | rust, go, py | js, objc | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions |
 | test609 | rust, go, py | js, objc | TEST609: get_extension_mappings returns all registered extension→URN pairs. |
-| test610 | rust, go, py | js, objc | TEST610: get_cached_media_def returns None for unknown and Some for known. |
+| test610 | rust, go, py | js, objc | TEST610: get_cached_spec returns None for unknown and Some for known |
 | test611 | rust, go, py | js, objc | TEST611: insert_schema is the production seam for non-HTTP schema injection. It must persist to the in-memory cache so subsequent schema_exists/validate calls succeed without network access. |
 | test612 | rust, go, py | js, objc | TEST612: clear_cache empties the in-memory cache for seeded schemas. |
 | test613 | rust, go, py | js, objc | TEST613: validate_cached validates against cached standard schemas |
-| test614 | rust, go, py | js, objc | TEST614: registry test construction succeeds. |
-| test616 | rust, go, py | js, objc | TEST616: StoredMediaDef converts to MediaDef preserving all fields. |
-| test617 | rust, go, py | js, objc | TEST617: normalize_media_urn produces consistent non-empty results. |
+| test614 | rust, go, py | js, objc | TEST614: Verify registry creation succeeds and cache directory exists |
+| test616 | rust, go, py | js, objc | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields |
+| test617 | rust, go, py | js, objc | TEST617: Verify normalize_media_urn produces consistent non-empty results |
 | test618 | rust, go, py | js, objc | TEST618: Verify profile schema registry creation succeeds with temp cache |
 | test619 | rust, go, py | js, objc | TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema. |
 | test620 | rust, go, py | js, objc | TEST620: Verify string schema validates strings and rejects non-strings |
@@ -1647,7 +1647,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test147
 
-- **rust**: TEST147: a registry built for test with a custom config carries that config.
+- **rust**: TEST147: Test registry for test with custom config creates registry with specified URLs
 - **go**: TEST147: Test registry for test with custom config creates registry with specified URLs
 - **py**: TEST147: Test registry for test with custom config creates registry with specified URLs
 - **js**: TEST0147: Machine serialize two edge chain
@@ -2534,7 +2534,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test301
 
-- **rust**: TEST301: transform_to_cartridge_array walks both channels and emits release-channel entries before nightly-channel entries.
+- **rust**: TEST301: Walking both channels produces release entries first.
 - **py**: TEST301: Walking both channels produces release entries first.
 - **objc**: TEST_WILDCARD_011: Specificity - wildcard has 0, specific has tag count
 
@@ -3009,29 +3009,11 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST566: with_tag rejects reserved structural keys
 - **py**: TEST566: with_tag rejects reserved structural keys
 
-### test607
-
-- **rust**: TEST607: media_urns_for_extension errors for an unknown extension.
-- **go**: TEST607: media_urns_for_extension returns error for unknown extension
-- **py**: TEST607: media_urns_for_extension returns error for unknown extension
-
-### test608
-
-- **rust**: TEST608: media_urns_for_extension returns URNs after a spec with that extension is added; lookup is case-insensitive.
-- **go**: TEST608: media_urns_for_extension returns URNs after adding a spec with extensions
-- **py**: TEST608: media_urns_for_extension returns URNs after adding a spec with extensions
-
 ### test609
 
 - **rust**: TEST609: get_extension_mappings returns all registered extension→URN pairs.
 - **go**: TEST609: get_extension_mappings returns all registered extension->URN pairs
 - **py**: TEST609: get_extension_mappings returns all registered extension->URN pairs
-
-### test610
-
-- **rust**: TEST610: get_cached_media_def returns None for unknown and Some for known.
-- **go**: TEST610: get_cached_spec returns None for unknown and Some for known
-- **py**: TEST610: get_cached_spec returns None for unknown and Some for known
 
 ### test611
 
@@ -3050,24 +3032,6 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **rust**: TEST613: validate_cached validates against cached standard schemas
 - **go**: TEST613: ValidateCached validates against seeded schemas
 - **py**: TEST613: validate_cached validates against seeded schemas
-
-### test614
-
-- **rust**: TEST614: registry test construction succeeds.
-- **go**: TEST614: Verify registry creation succeeds and cache directory exists
-- **py**: TEST614: Verify registry creation succeeds and cache directory exists
-
-### test616
-
-- **rust**: TEST616: StoredMediaDef converts to MediaDef preserving all fields.
-- **go**: TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields
-- **py**: TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields
-
-### test617
-
-- **rust**: TEST617: normalize_media_urn produces consistent non-empty results.
-- **go**: TEST617: Verify normalize_media_urn produces consistent non-empty results
-- **py**: TEST617: Verify normalize_media_urn produces consistent non-empty results
 
 ### test618
 

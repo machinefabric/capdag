@@ -2606,7 +2606,7 @@ mod parity_port_tests {
         s
     }
 
-    // TEST147: a registry built for test with a custom config carries that config.
+    // TEST147: Test registry for test with custom config creates registry with specified URLs
     #[test]
     fn test147_registry_for_test_with_custom_config() {
         let config = RegistryConfig::new().with_registry_url("https://example.test/registry");
@@ -2619,7 +2619,7 @@ mod parity_port_tests {
     // mirrors' test288/test289 are the same behavior under a different number
     // and are reconciled by number-alignment, not duplicated here.)
 
-    // TEST607: media_urns_for_extension errors for an unknown extension.
+    // TEST607: media_urns_for_extension returns error for unknown extension
     #[test]
     fn test607_media_urns_for_extension_unknown() {
         let registry = FabricRegistry::new_for_test();
@@ -2627,8 +2627,7 @@ mod parity_port_tests {
         assert!(format!("{err}").contains("zzzzunknown"));
     }
 
-    // TEST608: media_urns_for_extension returns URNs after a spec with that
-    // extension is added; lookup is case-insensitive.
+    // TEST608: media_urns_for_extension returns URNs after adding a spec with extensions
     #[test]
     fn test608_media_urns_for_extension_populated() {
         let registry = FabricRegistry::new_for_test();
@@ -2661,7 +2660,7 @@ mod parity_port_tests {
         assert!(exts.contains("epub"));
     }
 
-    // TEST610: get_cached_media_def returns None for unknown and Some for known.
+    // TEST610: get_cached_spec returns None for unknown and Some for known
     #[test]
     fn test610_get_cached_media_def() {
         let registry = FabricRegistry::new_for_test();
@@ -2671,13 +2670,13 @@ mod parity_port_tests {
         assert_eq!(got.title, "Test Spec");
     }
 
-    // TEST614: registry test construction succeeds.
+    // TEST614: Verify registry creation succeeds and cache directory exists
     #[test]
     fn test614_registry_creation() {
         let _registry = FabricRegistry::new_for_test();
     }
 
-    // TEST616: StoredMediaDef converts to MediaDef preserving all fields.
+    // TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields
     #[test]
     fn test616_stored_media_def_to_def() {
         let mut s = spec_with_ext("media:ext=pdf", "PDF Document", "application/pdf", &["pdf"]);
@@ -2691,7 +2690,7 @@ mod parity_port_tests {
         assert_eq!(def.extensions, vec!["pdf".to_string()]);
     }
 
-    // TEST617: normalize_media_urn produces consistent non-empty results.
+    // TEST617: Verify normalize_media_urn produces consistent non-empty results
     #[test]
     fn test617_normalize_media_urn() {
         let u1 = normalize_media_urn("media:string");
