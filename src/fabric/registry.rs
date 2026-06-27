@@ -212,18 +212,20 @@ impl CacheEntryExt for AliasCacheEntry {
 // URN NORMALISATION
 // =============================================================================
 
-fn normalize_cap_urn(urn: &str) -> String {
-    match crate::CapUrn::from_string(urn) {
-        Ok(parsed) => parsed.to_string(),
-        Err(_) => urn.to_string(),
-    }
+fn normalize_cap_urn(urn: &str) -> Result<String, FabricRegistryError> {
+    crate::CapUrn::from_string(urn)
+        .map(|parsed| parsed.to_string())
+        .map_err(|e| {
+            FabricRegistryError::ParseError(format!("malformed cap URN '{}': {}", urn, e))
+        })
 }
 
-fn normalize_media_urn(urn: &str) -> String {
-    match crate::MediaUrn::from_string(urn) {
-        Ok(parsed) => parsed.to_string(),
-        Err(_) => urn.to_string(),
-    }
+fn normalize_media_urn(urn: &str) -> Result<String, FabricRegistryError> {
+    crate::MediaUrn::from_string(urn)
+        .map(|parsed| parsed.to_string())
+        .map_err(|e| {
+            FabricRegistryError::ParseError(format!("malformed media URN '{}': {}", urn, e))
+        })
 }
 
 /// Distinguishes domain on the background-fetch queue. Pairs URN with
@@ -512,7 +514,13 @@ impl FabricRegistry {
         let mut identity = identity_cap();
         identity.version = self.manifest_version;
         let urn = identity.urn_string();
-        let normalized_urn = normalize_cap_urn(&urn);
+        // The identity cap is a STANDARD_CAP synthesized in-process from a
+        // fixed definition; its URN is an internal invariant, never user
+        // input. If it fails to parse the build/standard-cap definition is
+        // broken — fail hard rather than cache under a raw key.
+        let normalized_urn = normalize_cap_urn(&urn).unwrap_or_else(|e| {
+            panic!("BUG: malformed URN reached ensure_identity_cap: {}", e)
+        });
         if let Ok(mut cached_caps) = self.cached_caps.lock() {
             if !cached_caps.contains_key(&normalized_urn) {
                 cached_caps.insert(normalized_urn.clone(), identity);
@@ -548,7 +556,7 @@ impl FabricRegistry {
                 .await?;
             return Box::pin(self.get_cap(&target)).await;
         }
-        let normalized_urn = normalize_cap_urn(urn);
+        let normalized_urn = normalize_cap_urn(urn)?;
         if let Some(cap) = self
             .cached_caps
             .lock()
@@ -908,7 +916,10 @@ impl FabricRegistry {
         let manifest_version = self.manifest_version;
         let cache_revision_tx = self.cache_revision_tx.clone();
         set.spawn(async move {
-            let normalized_urn = normalize_cap_urn(&urn);
+            let normalized_urn = match normalize_cap_urn(&urn) {
+                Ok(n) => n,
+                Err(e) => return (urn, Err(e)),
+            };
             let defver = match {
                 let m = manifest.lock();
                 m.ok().and_then(|m| m.caps.get(&normalized_urn).copied())
@@ -953,7 +964,14 @@ impl FabricRegistry {
 
     /// Synchronous cap lookup that warms its own cache. See module docs.
     pub fn get_cached_cap(&self, urn: &str) -> Option<Cap> {
-        let normalized_urn = normalize_cap_urn(urn);
+        // Callers reach this latency-critical sync path with the string form
+        // of an already-parsed typed `CapUrn` (e.g. `edge.cap_urn.to_string()`).
+        // A typed URN cannot serialize to something unparseable; if it does,
+        // upstream typed-URN construction is corrupt — fail hard rather than
+        // miscategorize a malformed URN as a benign cache miss (`None`).
+        let normalized_urn = normalize_cap_urn(urn).unwrap_or_else(|e| {
+            panic!("BUG: malformed URN reached get_cached_cap: {}", e)
+        });
         if let Some(cap) = self
             .cached_caps
             .lock()
@@ -1029,7 +1047,12 @@ impl FabricRegistry {
     /// for asynchronous cache hydration and rely on cache revision events to
     /// retry graph admission.
     pub fn get_cached_cap_in_memory(&self, urn: &str) -> Option<Cap> {
-        let normalized_urn = normalize_cap_urn(urn);
+        // Same invariant as `get_cached_cap`: input is the string form of a
+        // typed `CapUrn`. A parse failure here is a corrupt typed URN upstream,
+        // not a cache miss — fail hard.
+        let normalized_urn = normalize_cap_urn(urn).unwrap_or_else(|e| {
+            panic!("BUG: malformed URN reached get_cached_cap_in_memory: {}", e)
+        });
         self.cached_caps
             .lock()
             .ok()
@@ -1038,7 +1061,12 @@ impl FabricRegistry {
 
     /// Request asynchronous hydration of a cap definition without waiting.
     pub fn request_cap_cache_hydration(&self, urn: &str) {
-        let normalized_urn = normalize_cap_urn(urn);
+        // The sole caller has already parsed this URN with `CapUrn::from_string`
+        // before requesting hydration; a parse failure here is therefore an
+        // upstream invariant violation, not a recoverable condition — fail hard.
+        let normalized_urn = normalize_cap_urn(urn).unwrap_or_else(|e| {
+            panic!("BUG: malformed URN reached request_cap_cache_hydration: {}", e)
+        });
         if let Ok(defver) = self.cap_defver(&normalized_urn) {
             self.enqueue_for_background_fetch(FetchKey::Cap {
                 urn: normalized_urn,
@@ -1087,7 +1115,13 @@ impl FabricRegistry {
         if let Ok(mut cached_caps) = self.cached_caps.lock() {
             for mut cap in caps {
                 let urn = cap.urn_string();
-                let normalized_urn = normalize_cap_urn(&urn);
+                // `urn` is the serialized form of this `Cap`'s own typed URN;
+                // it must round-trip. A parse failure means the in-memory `Cap`
+                // is structurally corrupt — fail hard rather than cache under a
+                // raw key.
+                let normalized_urn = normalize_cap_urn(&urn).unwrap_or_else(|e| {
+                    panic!("BUG: malformed URN reached add_caps_to_cache: {}", e)
+                });
                 if cap.version == 0 && pin >= 1 {
                     cap.version = pin;
                 }
@@ -1121,7 +1155,7 @@ impl FabricRegistry {
                 .await?;
             return Box::pin(self.get_media_def(&target)).await;
         }
-        let normalized = normalize_media_urn(urn);
+        let normalized = normalize_media_urn(urn)?;
         if let Some(spec) = self
             .cached_media_defs
             .lock()
@@ -1167,7 +1201,12 @@ impl FabricRegistry {
 
     /// Synchronous media-def lookup that warms its own cache.
     pub fn get_cached_media_def(&self, urn: &str) -> Option<StoredMediaDef> {
-        let normalized = normalize_media_urn(urn);
+        // Latency-critical sync path; callers pass the string form of a typed
+        // `MediaUrn`. A parse failure is an upstream typed-URN corruption, not a
+        // cache miss — fail hard rather than return a misleading `None`.
+        let normalized = normalize_media_urn(urn).unwrap_or_else(|e| {
+            panic!("BUG: malformed URN reached get_cached_media_def: {}", e)
+        });
         if let Some(spec) = self
             .cached_media_defs
             .lock()
@@ -1287,7 +1326,12 @@ impl FabricRegistry {
     /// version (same "test forgot to set it" handling as
     /// `add_caps_to_cache`).
     pub fn insert_cached_media_def_for_test(&self, mut spec: StoredMediaDef) {
-        let normalized = normalize_media_urn(&spec.urn);
+        // `spec.urn` is the canonical URN of the media def being inserted; if it
+        // does not parse the fixture is structurally invalid — fail hard rather
+        // than cache under a raw key.
+        let normalized = normalize_media_urn(&spec.urn).unwrap_or_else(|e| {
+            panic!("BUG: malformed URN reached insert_cached_media_def_for_test: {}", e)
+        });
         let pin = self.manifest_version;
         if spec.version == 0 && pin >= 1 {
             spec.version = pin;
@@ -1360,13 +1404,13 @@ impl FabricRegistry {
     /// manifest. Public so external callers (e.g. fetchcartridge) can
     /// resolve URN → (urn, defver) before issuing a network request.
     pub fn cap_defver_for(&self, urn: &str) -> Result<u32, FabricRegistryError> {
-        let normalized = normalize_cap_urn(urn);
+        let normalized = normalize_cap_urn(urn)?;
         self.cap_defver(&normalized)
     }
 
     /// As `cap_defver_for` but for media URNs.
     pub fn media_defver_for(&self, urn: &str) -> Result<u32, FabricRegistryError> {
-        let normalized = normalize_media_urn(urn);
+        let normalized = normalize_media_urn(urn)?;
         self.media_defver(&normalized)
     }
 
@@ -1450,7 +1494,10 @@ impl FabricRegistry {
                     continue;
                 }
                 let urn = cache_entry.definition.urn_string();
-                caps.insert(normalize_cap_urn(&urn), cache_entry.definition);
+                // A cached entry whose URN no longer parses is a corrupt cache
+                // entry; surface it as an error rather than silently insert it
+                // under a raw, unnormalized key.
+                caps.insert(normalize_cap_urn(&urn)?, cache_entry.definition);
             }
             let _ = is_v0_layer;
             is_v0_layer = false;
@@ -1508,7 +1555,9 @@ impl FabricRegistry {
                     let _ = fs::remove_file(&path);
                     continue;
                 }
-                specs.insert(normalize_media_urn(&cache_entry.spec.urn), cache_entry.spec);
+                // Corrupt cache entry (URN no longer parses) surfaces as an
+                // error rather than a silent raw-key insertion.
+                specs.insert(normalize_media_urn(&cache_entry.spec.urn)?, cache_entry.spec);
             }
         }
         Ok(specs)
@@ -1927,24 +1976,28 @@ async fn fetch_one_cap_atomic(
     // (`media:`) is the identity / wildcard sentinel — it has no
     // fetchable spec and must be skipped.
     let mut referenced: Vec<String> = Vec::new();
-    let push = |v: &mut Vec<String>, s: &str| {
-        let n = normalize_media_urn(s);
+    // A malformed media URN here means the fetched cap body is corrupt; the
+    // closure returns the parse error so the atomic fetch fails rather than
+    // caching a cap that references an unnormalizable media URN.
+    let push = |v: &mut Vec<String>, s: &str| -> Result<(), FabricRegistryError> {
+        let n = normalize_media_urn(s)?;
         if n != "media:" && !v.contains(&n) {
             v.push(n);
         }
+        Ok(())
     };
-    push(&mut referenced, cap.urn.in_spec());
-    push(&mut referenced, cap.urn.out_spec());
+    push(&mut referenced, cap.urn.in_spec())?;
+    push(&mut referenced, cap.urn.out_spec())?;
     for arg in &cap.args {
-        push(&mut referenced, &arg.media_urn);
+        push(&mut referenced, &arg.media_urn)?;
         for source in &arg.sources {
             if let ArgSource::Stdin { stdin } = source {
-                push(&mut referenced, stdin);
+                push(&mut referenced, stdin)?;
             }
         }
     }
     if let Some(out) = &cap.output {
-        push(&mut referenced, &out.media_urn);
+        push(&mut referenced, &out.media_urn)?;
     }
 
     for media_urn in &referenced {
@@ -2708,10 +2761,39 @@ mod parity_port_tests {
     // TEST617: Verify normalize_media_urn produces consistent non-empty results
     #[test]
     fn test617_normalize_media_urn() {
-        let u1 = normalize_media_urn("media:string");
-        let u2 = normalize_media_urn("media:string");
+        let u1 = normalize_media_urn("media:string").expect("valid media URN normalizes");
+        let u2 = normalize_media_urn("media:string").expect("valid media URN normalizes");
         assert!(!u1.is_empty());
         assert_eq!(u1, u2);
+    }
+
+    // TEST6396: A malformed cap URN must FAIL HARD with a ParseError, not be
+    // passed through raw (the old fallback) and surface later as a misleading
+    // NotFound. The `out` value below contains an unquoted `=`, which the cap
+    // grammar rejects. Against the old `Err(_) => urn.to_string()` fallback,
+    // `normalize_cap_urn` returned the raw string and `cap_defver` then reported
+    // "not part of manifest" (a NotFound); this test asserts the truthful error.
+    #[tokio::test]
+    async fn test6396_malformed_cap_urn_fails_hard() {
+        let malformed = "cap:coerce;in=\"media:integer;numeric\";out=media:enc=utf-8";
+
+        // Direct normalization path.
+        let direct = normalize_cap_urn(malformed);
+        assert!(
+            matches!(direct, Err(FabricRegistryError::ParseError(_))),
+            "normalize_cap_urn on malformed URN must be ParseError, got {direct:?}"
+        );
+
+        // Public path (get_cap) must surface ParseError, NOT NotFound.
+        let registry = FabricRegistry::new_for_test();
+        let err = registry
+            .get_cap(malformed)
+            .await
+            .expect_err("malformed cap URN must not resolve");
+        assert!(
+            matches!(err, FabricRegistryError::ParseError(_)),
+            "get_cap on malformed URN must be ParseError (not NotFound), got {err:?}"
+        );
     }
 
     // TEST908: cached caps remain accessible while offline.
@@ -2749,7 +2831,7 @@ mod parity_port_tests {
     // The per-cap registry URL: SHA-256 hex of the canonical cap URN under the
     // `/caps/` prefix. Mirrors the construction in `cap_url_and_cache_path`.
     fn cap_registry_url(config: &RegistryConfig, cap_urn: &str) -> String {
-        let normalized = normalize_cap_urn(cap_urn);
+        let normalized = normalize_cap_urn(cap_urn).expect("test passes a valid cap URN");
         let mut hasher = Sha256::new();
         hasher.update(normalized.as_bytes());
         format!("{}/caps/{:x}", config.registry_base_url, hasher.finalize())
