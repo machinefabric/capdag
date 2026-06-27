@@ -2363,9 +2363,9 @@ mod tests {
         );
     }
 
-    // TEST1124: CBOR decode REJECTS STREAM_END frame missing chunk_count field
+    // TEST907: CBOR decode REJECTS STREAM_END frame missing chunk_count field
     #[test]
-    fn test1124_cbor_rejects_stream_end_without_chunk_count() {
+    fn test907_cbor_rejects_stream_end_without_chunk_count() {
         use crate::bifaci::io::{decode_frame, encode_frame};
 
         let req_id = MessageId::new_uuid();

@@ -8,7 +8,7 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
 
 | Mirror | Numbered tests |
 |---|---|
-| rust | 1137 |
+| rust | 1146 |
 | go | 943 |
 | py | 1023 |
 | js | 348 |
@@ -21,8 +21,8 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
 - Solo (in exactly 1 mirror): **173**
   - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **144**
   - …already in the 8000+ impl-specific range (correctly placed): **29**
-- Shared numbers with a parity gap (missing from ≥1 mirror): **782**
-- Shared numbers with divergent descriptions: **532**
+- Shared numbers with a parity gap (missing from ≥1 mirror): **781**
+- Shared numbers with divergent descriptions: **540**
 - Within-mirror duplicate numbers: **0**
 
 ---
@@ -191,7 +191,6 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test86 | rust, go, js, objc | py | / The system-prompt URN must be matched BEFORE the textable / catch-all; otherwise the prompt body would be the system / prompt's content and the actual upstream text would be / discarded. This test pins the conformance both ways: system / prompt conforms to textable (so the catch-all WOULD swallow it), / AND system prompt conforms to its own marker (so the dedicated / branch matches when it runs first). |
 | test87 | rust, go, js, objc | py | / The model-spec URN is rich but has its own dedicated branch / because the handler knows the canonical full URN. Verify it / doesn't accidentally conform to any of the parameter patterns / (which would route the model-spec content into a numeric slot). |
 | test99 | rust, go, js, objc | py | TEST099: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=. |
-| test147 | go, py, js, objc | rust | TEST147: Test registry for test with custom config creates registry with specified URLs |
 | test183 | go, js, objc | rust, py | Test0183_IntegrationMediaUrnResolution verifies media URN resolution |
 | test209 | go, js, objc | rust, py | Test0209_IntegrationMediaDefConstruction verifies media.MediaDef construction |
 | test242 | rust, go, py, objc | js | TEST242: Test CartridgeResponse::Streaming concatenated capacity is pre-allocated correctly for large payloads |
@@ -464,16 +463,16 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test603 | rust, go, py | js, objc | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage |
 | test605 | rust, go, py | js, objc | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn |
 | test606 | rust, go, py | js, objc | TEST606: coercion_urn in/out specs match the type's media URN constant |
-| test607 | go, py | rust, js, objc | TEST607: media_urns_for_extension returns error for unknown extension |
-| test608 | go, py | rust, js, objc | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions |
-| test609 | go, py | rust, js, objc | TEST609: get_extension_mappings returns all registered extension->URN pairs |
-| test610 | go, py | rust, js, objc | TEST610: get_cached_spec returns None for unknown and Some for known |
+| test607 | rust, go, py | js, objc | TEST607: media_urns_for_extension errors for an unknown extension. |
+| test608 | rust, go, py | js, objc | TEST608: media_urns_for_extension returns URNs after a spec with that extension is added; lookup is case-insensitive. |
+| test609 | rust, go, py | js, objc | TEST609: get_extension_mappings returns all registered extension→URN pairs. |
+| test610 | rust, go, py | js, objc | TEST610: get_cached_media_def returns None for unknown and Some for known. |
 | test611 | rust, go, py | js, objc | TEST611: insert_schema is the production seam for non-HTTP schema injection. It must persist to the in-memory cache so subsequent schema_exists/validate calls succeed without network access. |
 | test612 | rust, go, py | js, objc | TEST612: clear_cache empties the in-memory cache for seeded schemas. |
 | test613 | rust, go, py | js, objc | TEST613: validate_cached validates against cached standard schemas |
-| test614 | go, py | rust, js, objc | TEST614: Verify registry creation succeeds and cache directory exists |
-| test616 | go, py | rust, js, objc | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields |
-| test617 | go, py | rust, js, objc | TEST617: Verify normalize_media_urn produces consistent non-empty results |
+| test614 | rust, go, py | js, objc | TEST614: registry test construction succeeds. |
+| test616 | rust, go, py | js, objc | TEST616: StoredMediaDef converts to MediaDef preserving all fields. |
+| test617 | rust, go, py | js, objc | TEST617: normalize_media_urn produces consistent non-empty results. |
 | test618 | rust, go, py | js, objc | TEST618: Verify profile schema registry creation succeeds with temp cache |
 | test619 | rust, go, py | js, objc | TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema. |
 | test620 | rust, go, py | js, objc | TEST620: Verify string schema validates strings and rejects non-strings |
@@ -708,7 +707,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test903 | rust, py, objc | go, js | TEST903: Verify CHUNK frame can store chunk_index and checksum fields |
 | test904 | rust, py, objc | go, js | TEST904: Verify STREAM_END frame can store chunk_count field |
 | test907 | py, objc | rust, go, js | TEST907: Offline flag blocks fetch_from_registry without making HTTP request |
-| test908 | py, objc | rust, go, js | TEST908: Cached caps remain accessible when offline |
+| test908 | rust, py, objc | go, js | TEST908: cached caps remain accessible while offline. |
 | test910 | rust, objc | go, py, js | TEST910: map_progress output is monotonic for monotonically increasing input |
 | test911 | rust, objc | go, py, js | TEST911: map_progress output is bounded within [base, base+weight] |
 | test912 | rust, objc | go, py, js | TEST912: ProgressMapper correctly maps through a CapProgressFn |
@@ -1652,6 +1651,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test147
 
+- **rust**: TEST147: a registry built for test with a custom config carries that config.
 - **go**: TEST147: Test registry for test with custom config creates registry with specified URLs
 - **py**: TEST147: Test registry for test with custom config creates registry with specified URLs
 - **js**: TEST0147: Machine serialize two edge chain
@@ -3008,6 +3008,30 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST566: with_tag rejects reserved structural keys
 - **py**: TEST566: with_tag rejects reserved structural keys
 
+### test607
+
+- **rust**: TEST607: media_urns_for_extension errors for an unknown extension.
+- **go**: TEST607: media_urns_for_extension returns error for unknown extension
+- **py**: TEST607: media_urns_for_extension returns error for unknown extension
+
+### test608
+
+- **rust**: TEST608: media_urns_for_extension returns URNs after a spec with that extension is added; lookup is case-insensitive.
+- **go**: TEST608: media_urns_for_extension returns URNs after adding a spec with extensions
+- **py**: TEST608: media_urns_for_extension returns URNs after adding a spec with extensions
+
+### test609
+
+- **rust**: TEST609: get_extension_mappings returns all registered extension→URN pairs.
+- **go**: TEST609: get_extension_mappings returns all registered extension->URN pairs
+- **py**: TEST609: get_extension_mappings returns all registered extension->URN pairs
+
+### test610
+
+- **rust**: TEST610: get_cached_media_def returns None for unknown and Some for known.
+- **go**: TEST610: get_cached_spec returns None for unknown and Some for known
+- **py**: TEST610: get_cached_spec returns None for unknown and Some for known
+
 ### test611
 
 - **rust**: TEST611: insert_schema is the production seam for non-HTTP schema injection. It must persist to the in-memory cache so subsequent schema_exists/validate calls succeed without network access.
@@ -3025,6 +3049,24 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **rust**: TEST613: validate_cached validates against cached standard schemas
 - **go**: TEST613: ValidateCached validates against seeded schemas
 - **py**: TEST613: validate_cached validates against seeded schemas
+
+### test614
+
+- **rust**: TEST614: registry test construction succeeds.
+- **go**: TEST614: Verify registry creation succeeds and cache directory exists
+- **py**: TEST614: Verify registry creation succeeds and cache directory exists
+
+### test616
+
+- **rust**: TEST616: StoredMediaDef converts to MediaDef preserving all fields.
+- **go**: TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields
+- **py**: TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields
+
+### test617
+
+- **rust**: TEST617: normalize_media_urn produces consistent non-empty results.
+- **go**: TEST617: Verify normalize_media_urn produces consistent non-empty results
+- **py**: TEST617: Verify normalize_media_urn produces consistent non-empty results
 
 ### test618
 
@@ -3802,6 +3844,12 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.
 - **py**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.
 - **js**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact-value tag (e.g. ext=png) scores 4.
+
+### test908
+
+- **rust**: TEST908: cached caps remain accessible while offline.
+- **py**: TEST908: Cached caps remain accessible when offline
+- **objc**: TEST908: Cached caps remain accessible when offline
 
 ### test920
 
@@ -4863,7 +4911,7 @@ _None._
 | test144 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test145 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test146 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test147 | shared | · | ✓ | ✓ | ✓ | ✓ | shared |
+| test147 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test148 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test149 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test150 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
@@ -5285,16 +5333,16 @@ _None._
 | test603 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test605 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test606 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test607 | shared | · | ✓ | ✓ | · | · | shared |
-| test608 | shared | · | ✓ | ✓ | · | · | shared |
-| test609 | shared | · | ✓ | ✓ | · | · | shared |
-| test610 | shared | · | ✓ | ✓ | · | · | shared |
+| test607 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test608 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test609 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test610 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test611 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test612 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test613 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test614 | shared | · | ✓ | ✓ | · | · | shared |
-| test616 | shared | · | ✓ | ✓ | · | · | shared |
-| test617 | shared | · | ✓ | ✓ | · | · | shared |
+| test614 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test616 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test617 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test618 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test619 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test620 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -5539,7 +5587,7 @@ _None._
 | test905 | shared | ✓ | · | · | · | · | solo |
 | test906 | shared | ✓ | · | · | · | · | solo |
 | test907 | shared | · | · | ✓ | · | ✓ | shared |
-| test908 | shared | · | · | ✓ | · | ✓ | shared |
+| test908 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test909 | shared | · | · | · | · | ✓ | solo |
 | test910 | shared | ✓ | · | · | · | ✓ | shared |
 | test911 | shared | ✓ | · | · | · | ✓ | shared |

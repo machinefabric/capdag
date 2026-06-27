@@ -2573,3 +2573,160 @@ mod alias_tests {
         assert!(registry.resolve_alias_cached("bad:name").is_none());
     }
 }
+
+// =============================================================================
+// PARITY PORTS — shared tests that existed in the mirrors but were missing
+// from the Rust reference. Same number, same behavior, same method.
+// =============================================================================
+
+#[cfg(test)]
+mod parity_port_tests {
+    use super::*;
+
+    fn spec(urn: &str, title: &str) -> StoredMediaDef {
+        StoredMediaDef {
+            urn: urn.to_string(),
+            version: 0,
+            media_type: "application/octet-stream".to_string(),
+            title: title.to_string(),
+            profile_uri: None,
+            schema: None,
+            description: None,
+            documentation: None,
+            validation: None,
+            metadata: None,
+            extensions: Vec::new(),
+        }
+    }
+
+    fn spec_with_ext(urn: &str, title: &str, media_type: &str, exts: &[&str]) -> StoredMediaDef {
+        let mut s = spec(urn, title);
+        s.media_type = media_type.to_string();
+        s.extensions = exts.iter().map(|e| e.to_string()).collect();
+        s
+    }
+
+    // TEST147: a registry built for test with a custom config carries that config.
+    #[test]
+    fn test147_registry_for_test_with_custom_config() {
+        let config = RegistryConfig::new().with_registry_url("https://example.test/registry");
+        let registry = FabricRegistry::new_for_test_with_config(config);
+        assert_eq!(registry.config().registry_base_url, "https://example.test/registry");
+    }
+
+    // (Media documentation propagation/round-trip is already covered by the
+    // Rust reference's test1131/test1132/test1133 in media/spec.rs; the
+    // mirrors' test288/test289 are the same behavior under a different number
+    // and are reconciled by number-alignment, not duplicated here.)
+
+    // TEST607: media_urns_for_extension errors for an unknown extension.
+    #[test]
+    fn test607_media_urns_for_extension_unknown() {
+        let registry = FabricRegistry::new_for_test();
+        let err = registry.media_urns_for_extension("zzzzunknown").unwrap_err();
+        assert!(format!("{err}").contains("zzzzunknown"));
+    }
+
+    // TEST608: media_urns_for_extension returns URNs after a spec with that
+    // extension is added; lookup is case-insensitive.
+    #[test]
+    fn test608_media_urns_for_extension_populated() {
+        let registry = FabricRegistry::new_for_test();
+        registry.insert_cached_media_def_for_test(spec_with_ext(
+            "media:ext=pdf",
+            "PDF Document",
+            "application/pdf",
+            &["pdf"],
+        ));
+        let urns = registry.media_urns_for_extension("pdf").unwrap();
+        assert!(!urns.is_empty());
+        assert!(urns.iter().any(|u| u.contains("pdf")));
+        let urns_upper = registry.media_urns_for_extension("PDF").unwrap();
+        assert_eq!(urns, urns_upper);
+    }
+
+    // TEST609: get_extension_mappings returns all registered extension→URN pairs.
+    #[test]
+    fn test609_get_extension_mappings() {
+        let registry = FabricRegistry::new_for_test();
+        registry.insert_cached_media_def_for_test(spec_with_ext(
+            "media:ext=pdf", "PDF", "application/octet-stream", &["pdf"],
+        ));
+        registry.insert_cached_media_def_for_test(spec_with_ext(
+            "media:ext=epub", "EPUB", "application/octet-stream", &["epub"],
+        ));
+        let mappings = registry.get_extension_mappings().unwrap();
+        let exts: HashSet<String> = mappings.iter().map(|(e, _)| e.clone()).collect();
+        assert!(exts.contains("pdf"));
+        assert!(exts.contains("epub"));
+    }
+
+    // TEST610: get_cached_media_def returns None for unknown and Some for known.
+    #[test]
+    fn test610_get_cached_media_def() {
+        let registry = FabricRegistry::new_for_test();
+        assert!(registry.get_cached_media_def("media:nonexistent;xyzzy").is_none());
+        registry.insert_cached_media_def_for_test(spec("media:enc=utf-8;test;spec", "Test Spec"));
+        let got = registry.get_cached_media_def("media:enc=utf-8;test;spec").unwrap();
+        assert_eq!(got.title, "Test Spec");
+    }
+
+    // TEST614: registry test construction succeeds.
+    #[test]
+    fn test614_registry_creation() {
+        let _registry = FabricRegistry::new_for_test();
+    }
+
+    // TEST616: StoredMediaDef converts to MediaDef preserving all fields.
+    #[test]
+    fn test616_stored_media_def_to_def() {
+        let mut s = spec_with_ext("media:ext=pdf", "PDF Document", "application/pdf", &["pdf"]);
+        s.profile_uri = Some("https://capdag.com/schema/pdf".to_string());
+        s.description = Some("PDF document data".to_string());
+        let def = s.to_media_def_def();
+        assert_eq!(def.urn, "media:ext=pdf");
+        assert_eq!(def.media_type, "application/pdf");
+        assert_eq!(def.title, "PDF Document");
+        assert_eq!(def.description.as_deref(), Some("PDF document data"));
+        assert_eq!(def.extensions, vec!["pdf".to_string()]);
+    }
+
+    // TEST617: normalize_media_urn produces consistent non-empty results.
+    #[test]
+    fn test617_normalize_media_urn() {
+        let u1 = normalize_media_urn("media:string");
+        let u2 = normalize_media_urn("media:string");
+        assert!(!u1.is_empty());
+        assert_eq!(u1, u2);
+    }
+
+    // TEST908: cached caps remain accessible while offline.
+    #[tokio::test]
+    async fn test908_cached_caps_accessible_when_offline() {
+        use crate::cap::definition::{Cap, CapArg, CapOutput};
+        let registry = FabricRegistry::new_for_test();
+        let urn = crate::CapUrn::from_string("cap:in=media:void;test-offline;out=media:void").unwrap();
+        let cap = Cap {
+            urn,
+            version: 0,
+            title: "Test Cap".to_string(),
+            cap_description: None,
+            documentation: None,
+            metadata: std::collections::HashMap::new(),
+            command: "test".to_string(),
+            args: Vec::<CapArg>::new(),
+            output: Some(CapOutput::new("media:void".to_string(), "void".to_string())),
+            metadata_json: None,
+            registered_by: None,
+            supported_model_types: Vec::new(),
+            default_model_spec: None,
+        };
+        registry.add_caps_to_cache(vec![cap]);
+        registry.set_offline(true);
+        let got = registry
+            .get_cap("cap:in=media:void;test-offline;out=media:void")
+            .await
+            .expect("cached cap accessible offline");
+        assert_eq!(got.title, "Test Cap");
+    }
+}

@@ -1342,12 +1342,12 @@ mod tests {
     // Identity verification end-to-end tests
     // =========================================================================
 
-    // TEST906: Full path identity verification: engine → host (attach_cartridge) → cartridge
+    // TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge
     //
     // This verifies that attach_cartridge completes identity verification end-to-end
     // and the cartridge is ready to handle subsequent requests.
     #[tokio::test]
-    async fn test906_full_path_identity_verification() {
+    async fn test489_full_path_identity_verification() {
         use crate::bifaci::host_runtime::CartridgeHostRuntime;
 
         let manifest = r#"{"name":"IdentityE2E","version":"1.0","channel":"release","registry_url":null,"description":"Identity test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","command":"test","args":[]}]}]}"#;
@@ -1488,12 +1488,12 @@ mod tests {
         cartridge_handle.await.unwrap();
     }
 
-    // TEST0146: Identity verification with multiple cartridges through single relay
+    // TEST490: Identity verification with multiple cartridges through single relay
     //
     // Both cartridges must pass identity verification independently before any
     // real requests are routed.
     #[tokio::test]
-    async fn test0146_identity_verification_multiple_cartridges() {
+    async fn test490_identity_verification_multiple_cartridges() {
         use crate::bifaci::host_runtime::CartridgeHostRuntime;
 
         let manifest_a = r#"{"name":"CartridgeA","version":"1.0","channel":"release","registry_url":null,"description":"Cartridge A","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},{"urn":"cap:in=\"media:void\";alpha;out=\"media:void\"","title":"Alpha","command":"alpha","args":[]}]}]}"#;

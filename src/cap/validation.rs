@@ -1622,9 +1622,9 @@ mod tests {
         );
     }
 
-    // TEST0123: RULE11 - void-input cap with stdin source rejected
+    // TEST1294: RULE11 - void-input cap with stdin source rejected
     #[test]
-    fn test0123_rule11_void_input_with_stdin_rejected() {
+    fn test1294_rule11_void_input_with_stdin_rejected() {
         let cap = make_test_cap_with_args(vec![CapArg::new(
             MEDIA_STRING,
             true,
@@ -1642,9 +1642,9 @@ mod tests {
         );
     }
 
-    // TEST0124: RULE11 - non-void-input cap without stdin source rejected
+    // TEST1295: RULE11 - non-void-input cap without stdin source rejected
     #[test]
-    fn test0124_rule11_non_void_input_without_stdin_rejected() {
+    fn test1295_rule11_non_void_input_without_stdin_rejected() {
         let urn = CapUrn::from_string(r#"cap:in="media:enc=utf-8";test;out="media:record""#).unwrap();
         let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
         cap.add_arg(CapArg::new(

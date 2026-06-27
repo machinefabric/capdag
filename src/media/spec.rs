@@ -1092,14 +1092,14 @@ mod tests {
         assert_eq!(resolved.extensions.len(), 2);
     }
 
-    // TEST1131: Documentation propagates from MediaDef through resolve_media_urn
+    // TEST288: Documentation propagates from MediaDef through resolve_media_urn
     // into ResolvedMediaDef.
     //
     // This is the resolution path used by every consumer that asks the
     // registry for a media def — info panels, the cap navigator, the UI
     // — so a regression here makes the new field invisible everywhere.
     #[tokio::test]
-    async fn test1131_media_documentation_propagates_through_resolve() {
+    async fn test288_media_documentation_propagates_through_resolve() {
         let registry = test_registry().await;
         let body = "## Markdown body\n\nWith `code` and a [link](https://example.com).";
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
@@ -1130,10 +1130,10 @@ mod tests {
         assert_eq!(resolved.description.as_deref(), Some("short desc"));
     }
 
-    // TEST1132: MediaDef serializes documentation only when present and
+    // TEST289: MediaDef serializes documentation only when present and
     // round-trips losslessly. Mirrors TEST1127/1128 for the cap side.
     #[test]
-    fn test1132_media_def_def_documentation_round_trip() {
+    fn test289_media_def_def_documentation_round_trip() {
         let body = "Body with newline\nand backslash \\";
         let with_doc = MediaDef {
             urn: "media:rt-test".to_string(),
