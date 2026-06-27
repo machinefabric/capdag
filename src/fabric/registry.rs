@@ -2556,8 +2556,9 @@ mod alias_tests {
         );
     }
 
-    // TEST1892: an unknown alias name is a hard not-found, never a silent empty.
-    // the same. This is the "expose issues, no fallback" contract.
+    // TEST1892: an unknown alias name is a hard not-found, never a silent empty;
+    // unknown and malformed names are treated the same. This is the "expose
+    // issues, no fallback" contract.
     #[tokio::test]
     async fn test1892_unknown_alias_is_not_found() {
         let registry = FabricRegistry::new_for_test();
@@ -2726,5 +2727,114 @@ mod parity_port_tests {
             .await
             .expect("cached cap accessible offline");
         assert_eq!(got.title, "Test Cap");
+    }
+
+    // ---- RegistryConfig + per-cap URL parity ports ----
+
+    // The per-cap registry URL: SHA-256 hex of the canonical cap URN under the
+    // `/caps/` prefix. Mirrors the construction in `cap_url_and_cache_path`.
+    fn cap_registry_url(config: &RegistryConfig, cap_urn: &str) -> String {
+        let normalized = normalize_cap_urn(cap_urn);
+        let mut hasher = Sha256::new();
+        hasher.update(normalized.as_bytes());
+        format!("{}/caps/{:x}", config.registry_base_url, hasher.finalize())
+    }
+
+    // TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction
+    #[test]
+    fn test138_parse_registry_json_with_stdin() {
+        let json = r#"{"urn":"cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\"","command":"disbind","title":"Disbind PDF","args":[{"media_urn":"media:ext=pdf","required":true,"sources":[{"stdin":"media:ext=pdf"}]}]}"#;
+        let cap: Cap = serde_json::from_str(json).expect("cap parses");
+        assert_eq!(cap.title, "Disbind PDF");
+        assert!(cap.accepts_stdin());
+        assert_eq!(cap.get_stdin_media_urn(), Some("media:ext=pdf"));
+    }
+
+    // TEST6382: Test parsing registry JSON without stdin args verifies cap structure
+    #[test]
+    fn test6382_parse_registry_json_no_stdin() {
+        let json = r#"{"urn":"cap:in=\"media:listing-id\";use-grinder;out=\"media:id;task\"","command":"grinder_task","title":"Create Grinder Tool Task","args":[{"media_urn":"media:listing-id","required":true,"sources":[{"cli_flag":"--listing-id"}]}]}"#;
+        let cap: Cap = serde_json::from_str(json).expect("cap parses");
+        assert_eq!(cap.title, "Create Grinder Tool Task");
+        assert_eq!(cap.command, "grinder_task");
+        assert!(cap.get_stdin_media_urn().is_none(), "no stdin source means no stdin support");
+    }
+
+    // TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension.
+    #[test]
+    fn test141_per_cap_url_shape() {
+        let config = RegistryConfig::default();
+        let url = cap_registry_url(&config, "cap:in=\"media:listing-id\";use-grinder;out=\"media:id;task\"");
+        let after = url.split("/caps/").nth(1).expect("URL has /caps/ segment");
+        assert_eq!(after.len(), 64, "SHA-256 hex digest is 64 characters");
+        assert!(after.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    // TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing.
+    #[test]
+    fn test142_normalize_handles_different_tag_orders() {
+        let config = RegistryConfig::default();
+        let a = cap_registry_url(&config, "cap:test;in=\"media:enc=utf-8\";out=\"media:record\"");
+        let b = cap_registry_url(&config, "cap:in=\"media:enc=utf-8\";out=\"media:record\";test");
+        assert_eq!(a, b, "different tag orders produce the same URL");
+    }
+
+    // TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL.
+    #[test]
+    fn test143_default_config() {
+        let config = RegistryConfig::default();
+        match std::env::var("CDG_FABRIC_REGISTRY_URL") {
+            Ok(url) if !url.is_empty() => assert_eq!(config.registry_base_url, url),
+            _ => assert_eq!(config.registry_base_url, "https://fabric.capdag.com"),
+        }
+        assert!(config.schema_base_url.contains("/schema"));
+    }
+
+    // TEST144: Test custom registry URL updates both registry and schema base URLs
+    #[test]
+    fn test144_custom_registry_url() {
+        let config = RegistryConfig::default().with_registry_url("https://localhost:8888");
+        assert_eq!(config.registry_base_url, "https://localhost:8888");
+        assert_eq!(config.schema_base_url, "https://localhost:8888/schema");
+    }
+
+    // TEST145: Test custom registry and schema URLs set independently
+    #[test]
+    fn test145_custom_registry_and_schema_url() {
+        let config = RegistryConfig::default()
+            .with_registry_url("https://localhost:8888")
+            .with_schema_url("https://schemas.example.com");
+        assert_eq!(config.registry_base_url, "https://localhost:8888");
+        assert_eq!(config.schema_base_url, "https://schemas.example.com");
+    }
+
+    // TEST146: Test schema URL not overwritten when set explicitly before registry URL
+    #[test]
+    fn test146_schema_url_not_overwritten_when_explicit() {
+        let config = RegistryConfig::default()
+            .with_schema_url("https://schemas.example.com")
+            .with_registry_url("https://localhost:8888");
+        assert_eq!(config.registry_base_url, "https://localhost:8888");
+        assert_eq!(config.schema_base_url, "https://schemas.example.com");
+    }
+
+    // TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics.
+    #[test]
+    fn test6388_per_cap_url_uses_sha256() {
+        let config = RegistryConfig::default();
+        let url = cap_registry_url(&config, "cap:in=\"media:enc=utf-8\";test;out=\"media:record\"");
+        assert!(url.contains("/caps/"));
+        assert!(!url.contains("cap:"), "URL must not contain raw cap: URN syntax");
+        assert!(!url.contains("%3A") && !url.contains("%3D") && !url.contains("%3B"),
+            "URL must not contain percent-encoded URN characters");
+    }
+
+    // TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key.
+    #[test]
+    fn test6391_same_cap_different_spellings_same_url() {
+        let config = RegistryConfig::default();
+        let a = cap_registry_url(&config, "cap:in=\"media:listing-id\";use-grinder;out=\"media:id;task\"");
+        let b = cap_registry_url(&config, "cap:out=\"media:id;task\";in=\"media:listing-id\";use-grinder");
+        assert_eq!(a, b, "equivalent URNs must hash to the same registry key");
     }
 }

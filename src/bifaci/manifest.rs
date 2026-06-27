@@ -700,4 +700,63 @@ mod tests {
     fn test1874_registry_url_from_build_env_rejects_empty_string() {
         let _ = registry_url_from_build_env(Some(""));
     }
+
+    // TEST6363: Cap manifest with page_url — the optional page_url is carried
+    // and serialized as `page_url`.
+    #[test]
+    fn test6363_cap_manifest_with_page_url() {
+        let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
+        let cap = Cap::new(urn, "Metadata Extractor".to_string(), "extract-metadata".to_string());
+        let manifest = CapManifest::new(
+            "TestComponent".to_string(),
+            "0.1.0".to_string(),
+            CartridgeChannel::Release,
+            None,
+            "A test component for validation".to_string(),
+            vec![default_group(vec![cap])],
+        )
+        .with_author("Test Author".to_string())
+        .with_page_url("https://github.com/example/test".to_string());
+
+        assert_eq!(manifest.page_url.as_deref(), Some("https://github.com/example/test"));
+        let json = serde_json::to_string(&manifest).unwrap();
+        assert!(
+            json.contains("\"page_url\":\"https://github.com/example/test\""),
+            "expected page_url in serialized form, got: {}",
+            json
+        );
+    }
+
+    // TEST6371: Cap manifest compatibility — cartridge-style and provider-style
+    // manifests serialize to the same JSON shape (same keys).
+    #[test]
+    fn test6371_cap_manifest_compatibility() {
+        let urn = CapUrn::from_string(&test_urn("process")).unwrap();
+        let cap = Cap::new(urn, "Data Processor".to_string(), "process".to_string());
+        let cartridge = CapManifest::new(
+            "CartridgeComponent".to_string(),
+            "0.1.0".to_string(),
+            CartridgeChannel::Release,
+            None,
+            "Cartridge-style component".to_string(),
+            vec![default_group(vec![cap.clone()])],
+        );
+        let provider = CapManifest::new(
+            "ProviderComponent".to_string(),
+            "0.1.0".to_string(),
+            CartridgeChannel::Release,
+            None,
+            "Provider-style component".to_string(),
+            vec![default_group(vec![cap])],
+        );
+        let cartridge_map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&serde_json::to_string(&cartridge).unwrap()).unwrap();
+        let provider_map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&serde_json::to_string(&provider).unwrap()).unwrap();
+        assert_eq!(cartridge_map.len(), provider_map.len());
+        for key in ["name", "version", "description", "cap_groups", "channel"] {
+            assert!(cartridge_map.contains_key(key), "missing key {key}");
+            assert!(provider_map.contains_key(key), "missing key {key}");
+        }
+    }
 }
