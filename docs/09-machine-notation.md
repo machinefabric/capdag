@@ -111,6 +111,21 @@ The serializer produces canonical aliases as `edge_<i>` and canonical node names
 
 The only constraint on alias and node names is the lexical form (`(ALPHA | "_") (ALNUM | "_" | "-")*`) and that no node name may collide with a header alias.
 
+### 5.1 Fabric cap aliases (auto-resolved cap-position names)
+
+A wiring's cap position (`loop_cap`) normally names a **local header**. If the name is **not** defined by a local header, it is taken to be a **fabric cap alias** and resolved through the registry — an identifier with no local definition is resolved as an alias before it is declared undefined. The resolved cap URN is used as if a header had defined it:
+
+```
+[doc -> csv2json -> out]
+```
+
+Here `csv2json` has no header, so it is resolved as a cap alias to its target cap URN (e.g. `cap:convert-format;in="media:fmt=csv;list;record";out="media:fmt=json;list;record"`). Rules:
+
+- **Local shadows registry.** A name defined by a local header is used as written; the registry alias of the same name is never consulted.
+- **Cap position requires a cap.** An alias whose target is a *media* URN in cap position is a hard error (`MachineSyntaxError::AliasNotACap`). Media URNs are implicit in notation, so media aliases are never resolved in a wiring.
+- **Still undefined if unknown.** A cap-position name that is neither a local header nor a registered cap alias raises `MachineSyntaxError::UndefinedAlias` — the alias mechanism never masks a genuinely undefined name.
+- **Warm-up.** The synchronous resolver consults the in-memory alias cache; the async entry point (`parse_machine_with_node_names_async`) pre-warms the alias and its target cap before the sync resolver runs. Aliases resolve to canonical cap URNs, so canonical serialization is unaffected (the serializer always emits resolved URNs, never alias names).
+
 ---
 
 ## 6. Strands and Connected Components
@@ -236,7 +251,8 @@ Building a `Machine` from notation can fail in several distinct ways:
 | `MachineSyntaxError::ParseError` | parser | Pest grammar parse failed (malformed brackets, unrecognized tokens, etc.). |
 | `MachineSyntaxError::UnterminatedStatement` | parser | A bracket `[` was opened but never closed with `]`. |
 | `MachineSyntaxError::DuplicateAlias` | parser | Two header statements define the same alias. |
-| `MachineSyntaxError::UndefinedAlias` | parser | A wiring references an alias that no header defines. |
+| `MachineSyntaxError::UndefinedAlias` | parser | A wiring's cap-position name is neither a local header nor a registered fabric cap alias. |
+| `MachineSyntaxError::AliasNotACap` | parser | A wiring's cap-position name resolves to a fabric alias whose target is a media URN, not a cap. |
 | `MachineSyntaxError::NodeAliasCollision` | parser | A wiring uses a node name that is also a header alias. |
 | `MachineSyntaxError::InvalidWiring` | parser | Two URNs bound to the same node name are not on the same specialization chain (`is_comparable` returns false). |
 | `MachineSyntaxError::InvalidCapUrn` | parser | A cap URN in a header failed to parse. |

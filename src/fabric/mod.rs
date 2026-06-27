@@ -12,4 +12,5 @@
 //! NOT cached. This keeps the cap cache consistent with its media-def
 //! footprint.
 
+pub mod alias;
 pub mod registry;

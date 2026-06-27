@@ -71,6 +71,7 @@ use pest_derive::Parser;
 use crate::cap::registry::FabricRegistry;
 use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::MediaUrn;
+use crate::FabricRegistryError;
 
 use super::error::{MachineParseError, MachineSyntaxError};
 use super::graph::{Machine, MachineStrand, NodeId};
@@ -218,6 +219,52 @@ pub fn parse_machine_with_node_names(
     }
     if wirings.is_empty() {
         return Err(MachineSyntaxError::Empty.into());
+    }
+
+    // Phase 3b: cap-alias resolution against the fabric registry.
+    //
+    // A wiring's cap-position name (`loop_cap`) that is NOT defined by a
+    // local header is taken to be a fabric **cap alias** and resolved
+    // through the registry: an identifier without a local definition is an
+    // alias, resolved before we conclude it is undefined. The resolved cap
+    // URN is injected into `alias_map` as if a header had defined it, so
+    // the rest of the pipeline is unchanged. Media URNs never appear in a
+    // wiring (they are implicit), so only cap aliases are resolved here; an
+    // alias that points at a media URN in cap position is a hard error.
+    //
+    // The lookup is synchronous and in-memory (`resolve_alias_cached`); the
+    // async wrapper (`parse_machine_with_node_names_async`) pre-warms the
+    // alias cache before this runs. A name that resolves to nothing is left
+    // alone — phase 4 surfaces it as `UndefinedAlias`.
+    {
+        // Collect the distinct cap-position names first to avoid mutating
+        // `alias_map` while iterating the wirings.
+        let mut unresolved_cap_names: Vec<String> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for w in &wirings {
+            if !alias_map.contains_key(&w.cap_alias) && seen.insert(w.cap_alias.clone()) {
+                unresolved_cap_names.push(w.cap_alias.clone());
+            }
+        }
+        for name in unresolved_cap_names {
+            // A token containing ':' is a URN, not an alias — but the
+            // grammar's `alias` rule already forbids ':' in a cap-position
+            // name, so any name reaching here is alias-shaped. Resolve it.
+            let Some(target) = registry.resolve_alias_cached(&name) else {
+                continue; // not a known alias → phase 4 yields UndefinedAlias
+            };
+            let cap_urn = CapUrn::from_string(&target).map_err(|_| {
+                MachineSyntaxError::AliasNotACap {
+                    alias: name.clone(),
+                    target: target.clone(),
+                }
+            })?;
+            // Synthetic position past every real statement so duplicate
+            // detection (which compares positions) never mistakes an
+            // injected alias for a user-written header.
+            let synthetic_pos = headers.len() + wirings.len() + alias_map.len();
+            alias_map.insert(name, (cap_urn, synthetic_pos));
+        }
     }
 
     // Phase 4: derive node-name → MediaUrn bindings.
@@ -449,19 +496,87 @@ fn extract_header_cap_urns(input: &str) -> Result<Vec<String>, MachineParseError
     Ok(urns)
 }
 
+/// Run only the pest grammar parse over `input` and return, in textual
+/// order with duplicates suppressed, the cap-position names in wirings
+/// (`loop_cap`) that are NOT defined by a local header. These are the
+/// candidate **cap aliases** the async warm-up must hydrate before the
+/// synchronous resolver runs.
+fn extract_unresolved_cap_alias_names(input: &str) -> Result<Vec<String>, MachineParseError> {
+    let pairs = MachineParser::parse(Rule::program, input.trim()).map_err(|e| {
+        MachineSyntaxError::ParseError {
+            details: format!("{}", e),
+        }
+    })?;
+
+    let program = pairs
+        .into_iter()
+        .next()
+        .expect("pest produces a program rule");
+
+    // First pass: collect every header alias (these shadow aliases).
+    // Second pass: collect cap-position names not in that set.
+    let mut header_aliases: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut cap_names: Vec<(String, bool)> = Vec::new(); // (name, is_wiring_cap_position)
+
+    for pair in program.into_inner() {
+        if pair.as_rule() != Rule::stmt {
+            continue;
+        }
+        let inner = pair.into_inner().next().expect("stmt wraps inner");
+        let content = inner
+            .into_inner()
+            .next()
+            .expect("inner wraps header or wiring");
+        match content.as_rule() {
+            Rule::header => {
+                let mut ip = content.into_inner();
+                let alias = ip.next().expect("header has alias").as_str().to_string();
+                header_aliases.insert(alias);
+            }
+            Rule::wiring => {
+                let mut ip = content.into_inner();
+                let _source = ip.next();
+                let _arrow = ip.next();
+                let loop_cap = ip.next().expect("wiring has loop_cap");
+                let (_is_loop, cap_alias) = parse_loop_cap(loop_cap);
+                cap_names.push((cap_alias, true));
+            }
+            _ => {}
+        }
+    }
+
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    for (name, _) in cap_names {
+        if header_aliases.contains(&name) {
+            continue;
+        }
+        if seen.insert(name.clone()) {
+            out.push(name);
+        }
+    }
+    Ok(out)
+}
+
 /// Async parallel of `parse_machine_with_node_names`.
 ///
 /// Differs from the sync version only in that it pre-warms the
-/// `FabricRegistry`'s cap cache via `get_cap(...).await` for
-/// every cap URN declared in the notation's headers BEFORE
-/// running the existing sync resolver. After the warm-up the
-/// resolver's synchronous `get_cached_cap` lookups all hit cache,
-/// so the resolver code is unchanged.
+/// `FabricRegistry`'s caches BEFORE running the existing sync resolver:
 ///
-/// Use this from any `async` context where the registry may
-/// need to fetch caps over the network — notably the scenarios
-/// integration tests, which run with internet access and do not
-/// pre-load any bundled catalog.
+/// 1. Every cap URN declared in a header is fetched via `get_cap`.
+/// 2. Every cap-position name in a wiring that is NOT a local header is
+///    treated as a **cap alias**: the alias is resolved (warming the alias
+///    cache) and its target cap is fetched (warming the cap cache). An
+///    alias that points at a media URN in cap position is a hard error
+///    here, matching the synchronous resolver's `AliasNotACap`.
+///
+/// After the warm-up the resolver's synchronous `get_cached_cap` and
+/// `resolve_alias_cached` lookups all hit cache, so the resolver code is
+/// unchanged.
+///
+/// Use this from any `async` context where the registry may need to fetch
+/// caps over the network — notably the scenarios integration tests, which
+/// run with internet access and do not pre-load any bundled catalog.
 pub async fn parse_machine_with_node_names_async(
     input: &str,
     registry: &FabricRegistry,
@@ -476,6 +591,51 @@ pub async fn parse_machine_with_node_names_async(
                 details: format!("registry could not resolve cap: {}", e),
             })?;
     }
+
+    // Warm cap aliases used in wirings without a local header. A name that
+    // is not a registered alias is left alone (the sync resolver reports it
+    // as UndefinedAlias); a name whose alias points at a media URN is a
+    // hard error in cap position.
+    let alias_names = extract_unresolved_cap_alias_names(input)?;
+    for name in &alias_names {
+        match registry
+            .resolve_alias_typed(name, Some(crate::AliasTargetKind::Cap))
+            .await
+        {
+            Ok(target_cap_urn) => {
+                registry.get_cap(&target_cap_urn).await.map_err(|e| {
+                    MachineSyntaxError::InvalidCapUrn {
+                        alias: name.clone(),
+                        details: format!(
+                            "alias resolved to cap '{}' but the registry could not load it: {}",
+                            target_cap_urn, e
+                        ),
+                    }
+                })?;
+            }
+            Err(FabricRegistryError::NotFound(_)) => {
+                // Not a registered alias — defer to the sync resolver's
+                // UndefinedAlias. (A genuinely undefined local name.)
+            }
+            Err(FabricRegistryError::ValidationError(details)) => {
+                // Alias exists but points at a media URN (wrong kind for a
+                // cap position), or the name is malformed. Surface now.
+                return Err(MachineSyntaxError::InvalidCapUrn {
+                    alias: name.clone(),
+                    details,
+                }
+                .into());
+            }
+            Err(e) => {
+                return Err(MachineSyntaxError::InvalidCapUrn {
+                    alias: name.clone(),
+                    details: format!("alias resolution failed: {}", e),
+                }
+                .into());
+            }
+        }
+    }
+
     parse_machine_with_node_names(input, registry)
 }
 
@@ -839,6 +999,120 @@ mod tests {
                 MachineParseError::Syntax(MachineSyntaxError::UndefinedAlias { .. })
             ),
             "undefined alias must produce a MachineParseError::Syntax(UndefinedAlias), got {:?}",
+            err
+        );
+    }
+
+    use crate::StoredAlias;
+
+    // Build a registry with the `extract` cap cached AND a `pdf2text` alias
+    // pointing at that cap's URN, so the alias can be used in a wiring
+    // without a local header.
+    fn extract_with_alias_registry() -> (FabricRegistry, String) {
+        let extract_urn = "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"";
+        let extract = build_cap(
+            extract_urn,
+            "extract",
+            &["media:ext=pdf"],
+            "media:enc=utf-8;ext=txt",
+        );
+        let canonical = extract.urn_string();
+        let registry = registry_with(vec![extract]);
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "pdf2text".to_string(),
+            target: canonical.clone(),
+            version: 1,
+        });
+        (registry, canonical)
+    }
+
+    // TEST1883: a cap-position name with no local header is resolved as a
+    // fabric cap alias. The wiring uses `pdf2text` where a cap is expected;
+    // it must resolve to the aliased cap URN and produce a one-edge strand
+    // whose cap URN is the alias target. A broken resolver would either
+    // fail (treating it as undefined) or wire the wrong cap.
+    #[test]
+    fn test1883_cap_position_alias_resolves_to_cap() {
+        let (registry, canonical) = extract_with_alias_registry();
+        // No header for `pdf2text` — it must resolve via the alias.
+        let notation = "[doc -> pdf2text -> txt]";
+        let machine = parse_machine(notation, &registry).expect("alias must resolve");
+        assert_eq!(machine.strand_count(), 1);
+        let strand = &machine.strands()[0];
+        assert_eq!(strand.edges().len(), 1);
+        assert_eq!(strand.edges()[0].cap_urn.to_string(), canonical);
+    }
+
+    // TEST1884: a local header alias shadows a fabric alias of the same
+    // name. If `pdf2text` is BOTH a header (bound to one cap) and a
+    // registered alias (pointing at another cap), the header wins. This
+    // pins the precedence rule: local definitions shadow registry aliases.
+    #[test]
+    fn test1884_local_header_shadows_cap_alias() {
+        let (registry, _alias_target) = extract_with_alias_registry();
+        // Add a DIFFERENT cap that the header binds `pdf2text` to.
+        let other_urn = "cap:other;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"";
+        let other = build_cap(
+            other_urn,
+            "other",
+            &["media:ext=pdf"],
+            "media:enc=utf-8;ext=txt",
+        );
+        let other_canonical = other.urn_string();
+        registry.add_caps_to_cache(vec![other]);
+        let notation = format!("[pdf2text {}]\n[doc -> pdf2text -> txt]", other_urn);
+        let machine = parse_machine(&notation, &registry).expect("must parse");
+        // The header binding (other_urn), not the alias target, must win.
+        assert_eq!(
+            machine.strands()[0].edges()[0].cap_urn.to_string(),
+            other_canonical
+        );
+    }
+
+    // TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard
+    // error — the cap position requires a cap. This proves the type-correct
+    // enforcement in notation: a media alias cannot stand in for a cap.
+    #[test]
+    fn test1885_cap_position_alias_to_media_is_error() {
+        let extract = build_cap(
+            "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"",
+            "extract",
+            &["media:ext=pdf"],
+            "media:enc=utf-8;ext=txt",
+        );
+        let registry = registry_with(vec![extract]);
+        // `jsondoc` resolves to a media URN, not a cap.
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "jsondoc".to_string(),
+            target: "media:fmt=json;record".to_string(),
+            version: 1,
+        });
+        let notation = "[doc -> jsondoc -> out]";
+        let err = parse_machine(notation, &registry).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                MachineParseError::Syntax(MachineSyntaxError::AliasNotACap { .. })
+            ),
+            "a media alias in cap position must raise AliasNotACap, got {:?}",
+            err
+        );
+    }
+
+    // TEST1886: a cap-position name that is neither a local header nor a
+    // registered alias still raises UndefinedAlias. The alias mechanism
+    // must not mask a genuinely undefined name.
+    #[test]
+    fn test1886_unregistered_cap_name_is_undefined_alias() {
+        let registry = extract_with_alias_registry().0;
+        let notation = "[doc -> nosuchalias -> out]";
+        let err = parse_machine(notation, &registry).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                MachineParseError::Syntax(MachineSyntaxError::UndefinedAlias { .. })
+            ),
+            "an unregistered cap-position name must raise UndefinedAlias, got {:?}",
             err
         );
     }

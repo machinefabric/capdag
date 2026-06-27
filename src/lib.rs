@@ -62,6 +62,10 @@ pub use media::spec::*;
 
 // Unified fabric registry — caps + media defs in one type
 pub use fabric::registry::{FabricRegistry, FabricRegistryError, RegistryConfig, StoredMediaDef};
+pub use fabric::alias::{
+    classify_alias_target, is_alias_token, normalize_alias_name, token_is_urn, AliasNameError,
+    AliasTargetKind, StoredAlias,
+};
 
 // Build-time-baked fabric manifest version (see capdag/build.rs).
 pub use fabric_manifest_version::FABRIC_MANIFEST_VERSION;

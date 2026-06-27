@@ -20,8 +20,10 @@
 //! the media cache (and the extension index).
 
 use crate::cap::definition::ArgSource;
+use crate::fabric::alias::{classify_alias_target, normalize_alias_name, AliasTargetKind};
 use crate::media::spec::MediaDef;
 use crate::Cap;
+use crate::StoredAlias;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -163,6 +165,13 @@ struct MediaCacheEntry {
     ttl_hours: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AliasCacheEntry {
+    alias: StoredAlias,
+    cached_at: u64,
+    ttl_hours: u64,
+}
+
 trait CacheEntryExt {
     fn cached_at(&self) -> u64;
     fn ttl_hours(&self) -> u64;
@@ -190,6 +199,14 @@ impl CacheEntryExt for MediaCacheEntry {
         self.ttl_hours
     }
 }
+impl CacheEntryExt for AliasCacheEntry {
+    fn cached_at(&self) -> u64 {
+        self.cached_at
+    }
+    fn ttl_hours(&self) -> u64 {
+        self.ttl_hours
+    }
+}
 
 // =============================================================================
 // URN NORMALISATION
@@ -210,11 +227,13 @@ fn normalize_media_urn(urn: &str) -> String {
 }
 
 /// Distinguishes domain on the background-fetch queue. Pairs URN with
-/// defver so the consumer always hits the right R2 path.
+/// defver so the consumer always hits the right R2 path. Alias keys carry
+/// the (normalized) alias name instead of a URN.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum FetchKey {
     Cap { urn: String, defver: u32 },
     Media { urn: String, defver: u32 },
+    Alias { name: String, defver: u32 },
 }
 
 /// A versioned registry snapshot. Mirrors `fabric/manifest.schema.json`
@@ -236,6 +255,11 @@ pub struct Manifest {
     pub caps: HashMap<String, u32>,
     #[serde(default)]
     pub media: HashMap<String, u32>,
+    /// Map from normalized alias name to its per-definition version. Each
+    /// alias resolves to exactly one cap or media URN; the body (the
+    /// `name -> target` mapping) lives at `aliases/<sha256-of-name>/<defver>.json`.
+    #[serde(default)]
+    pub aliases: HashMap<String, u32>,
 }
 
 impl Manifest {
@@ -247,6 +271,7 @@ impl Manifest {
             previous: version.saturating_sub(1),
             caps: HashMap::new(),
             media: HashMap::new(),
+            aliases: HashMap::new(),
         }
     }
 }
@@ -266,6 +291,10 @@ pub struct FabricRegistry {
     cache_dir: PathBuf,
     cached_caps: Arc<Mutex<HashMap<String, Cap>>>,
     cached_media_defs: Arc<Mutex<HashMap<String, StoredMediaDef>>>,
+    /// Normalized alias name → resolved `StoredAlias`. Populated from the
+    /// `aliases/<sha>/<defver>.json` cache on disk and the background/sync
+    /// fetch path, filtered to the pinned manifest's defvers.
+    cached_aliases: Arc<Mutex<HashMap<String, StoredAlias>>>,
     /// Lower-case extension → list of canonical media URNs.
     extension_index: Arc<Mutex<HashMap<String, Vec<String>>>>,
     config: RegistryConfig,
@@ -323,8 +352,9 @@ impl FabricRegistry {
         let cache_dir = Self::default_cache_root()?;
         let caps_dir = cache_dir.join("caps");
         let media_dir = cache_dir.join("media");
+        let aliases_dir = cache_dir.join("aliases");
         let manifests_dir = cache_dir.join("manifests");
-        for d in [&caps_dir, &media_dir, &manifests_dir] {
+        for d in [&caps_dir, &media_dir, &aliases_dir, &manifests_dir] {
             fs::create_dir_all(d).map_err(|e| {
                 FabricRegistryError::CacheError(format!(
                     "Failed to create cache directory {:?}: {}",
@@ -353,6 +383,7 @@ impl FabricRegistry {
 
         let mut cached_caps_map = Self::load_all_cached_caps(&caps_dir)?;
         let mut cached_specs_map = Self::load_all_cached_media_defs(&media_dir)?;
+        let mut cached_aliases_map = Self::load_all_cached_aliases(&aliases_dir)?;
         // Filter loaded caches by manifest pin: only retain entries
         // whose URN's defver in the manifest matches the cached entry's
         // own version. At v0 the manifest is empty and we retain
@@ -365,11 +396,19 @@ impl FabricRegistry {
             cached_specs_map.retain(|urn, spec| {
                 manifest.media.get(urn).copied().unwrap_or(0) == spec.version
             });
+            cached_aliases_map.retain(|name, alias| {
+                manifest.aliases.get(name).copied().unwrap_or(0) == alias.version
+            });
+        } else {
+            // Aliases are a versioned-regime concept; there is no v0
+            // flat-path alias. At v0 the alias cache is always empty.
+            cached_aliases_map.clear();
         }
         let extension_index_map = Self::build_extension_index(&cached_specs_map);
 
         let cached_caps = Arc::new(Mutex::new(cached_caps_map));
         let cached_media_defs = Arc::new(Mutex::new(cached_specs_map));
+        let cached_aliases = Arc::new(Mutex::new(cached_aliases_map));
         let extension_index = Arc::new(Mutex::new(extension_index_map));
         let manifest_arc = Arc::new(Mutex::new(manifest));
         let fetch_in_queue = Arc::new(Mutex::new(HashSet::new()));
@@ -385,6 +424,7 @@ impl FabricRegistry {
                     cache_dir.clone(),
                     Arc::clone(&cached_caps),
                     Arc::clone(&cached_media_defs),
+                    Arc::clone(&cached_aliases),
                     Arc::clone(&extension_index),
                     Arc::clone(&manifest_arc),
                     Arc::clone(&fetch_in_queue),
@@ -402,6 +442,7 @@ impl FabricRegistry {
             cache_dir,
             cached_caps,
             cached_media_defs,
+            cached_aliases,
             extension_index,
             config,
             manifest_version,
@@ -479,7 +520,19 @@ impl FabricRegistry {
     /// Get a cap from in-memory cache or fetch from registry. Atomic with
     /// respect to referenced media defs: a cap whose media-def footprint
     /// can't be fully fetched is not cached and the call returns `Err`.
+    ///
+    /// `urn` may be a cap URN (`cap:...`) or an **alias** (a contiguous
+    /// token with no `:`). An alias is resolved first; because this is the
+    /// typed cap boundary, an alias whose target is not a cap URN is a hard
+    /// error (`ValidationError`) — we never silently return a media def
+    /// where a cap was demanded.
     pub async fn get_cap(&self, urn: &str) -> Result<Cap, FabricRegistryError> {
+        if crate::is_alias_token(urn) {
+            let target = self
+                .resolve_alias_typed(urn, Some(AliasTargetKind::Cap))
+                .await?;
+            return Box::pin(self.get_cap(&target)).await;
+        }
         let normalized_urn = normalize_cap_urn(urn);
         if let Some(cap) = self
             .cached_caps
@@ -553,6 +606,158 @@ impl FabricRegistry {
                 normalized_urn, self.manifest_version
             ))
         })
+    }
+
+    // -------------------------------------------------------------------------
+    // ALIAS API
+    // -------------------------------------------------------------------------
+
+    /// Resolve a normalized alias name to its defver under the pinned
+    /// manifest. Aliases exist only in the versioned regime: at v0 there
+    /// are no aliases, so any alias lookup is a hard `NotFound`. At v >= 1
+    /// the name must be in the manifest's `aliases` map.
+    fn alias_defver(&self, normalized_name: &str) -> Result<u32, FabricRegistryError> {
+        if self.manifest_version == 0 {
+            return Err(FabricRegistryError::NotFound(format!(
+                "alias '{}' cannot resolve: registry is pinned at v0 (aliases are a versioned-regime concept)",
+                normalized_name
+            )));
+        }
+        let m = self.manifest.lock().map_err(|e| {
+            FabricRegistryError::CacheError(format!("Failed to lock manifest: {}", e))
+        })?;
+        m.aliases.get(normalized_name).copied().ok_or_else(|| {
+            FabricRegistryError::NotFound(format!(
+                "alias '{}' is not part of manifest v{}",
+                normalized_name, self.manifest_version
+            ))
+        })
+    }
+
+    /// Resolve an alias name to the cap or media URN it points at, fetching
+    /// the alias body if it is not already cached. The input is normalized
+    /// per the alias name rules; a malformed name is a hard error.
+    ///
+    /// This is the **untyped** entry point: it returns whatever the alias
+    /// targets (cap or media URN). Callers that demand a specific type use
+    /// the typed boundaries (`get_cap` / `get_media_def`) or
+    /// [`resolve_alias_typed`].
+    pub async fn resolve_alias(&self, name: &str) -> Result<String, FabricRegistryError> {
+        let alias = self.get_alias(name).await?;
+        Ok(alias.target)
+    }
+
+    /// Resolve an alias and assert its target kind. If `expected` is
+    /// `Some(kind)` and the resolved target is a different kind, fail hard
+    /// — this is what makes a typed lookup ("give me a media") reject an
+    /// alias that points at the other kind. `None` accepts either kind.
+    pub async fn resolve_alias_typed(
+        &self,
+        name: &str,
+        expected: Option<AliasTargetKind>,
+    ) -> Result<String, FabricRegistryError> {
+        let alias = self.get_alias(name).await?;
+        let actual = classify_alias_target(&alias.target).ok_or_else(|| {
+            FabricRegistryError::ValidationError(format!(
+                "alias '{}' target '{}' is neither a cap nor a media URN",
+                alias.name, alias.target
+            ))
+        })?;
+        if let Some(expected_kind) = expected {
+            if actual != expected_kind {
+                return Err(FabricRegistryError::ValidationError(format!(
+                    "alias '{}' resolves to a {} URN ('{}') but a {} was required here",
+                    alias.name,
+                    actual.as_str(),
+                    alias.target,
+                    expected_kind.as_str()
+                )));
+            }
+        }
+        Ok(alias.target)
+    }
+
+    /// Fetch the full `StoredAlias` for a name (cache-first, then network).
+    pub async fn get_alias(&self, name: &str) -> Result<StoredAlias, FabricRegistryError> {
+        let normalized = normalize_alias_name(name).map_err(|e| {
+            FabricRegistryError::ValidationError(format!("invalid alias name: {}", e))
+        })?;
+        if let Some(alias) = self
+            .cached_aliases
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&normalized).cloned())
+        {
+            return Ok(alias);
+        }
+        let defver = self.alias_defver(&normalized)?;
+        fetch_one_alias(
+            &self.client,
+            &self.cache_dir,
+            &self.cached_aliases,
+            &self.offline_flag,
+            &self.config,
+            &self.cache_revision_tx,
+            &normalized,
+            defver,
+        )
+        .await
+    }
+
+    /// Synchronous, in-memory-only alias resolution. Returns the target
+    /// URN if the alias is already in the warm cache, else `None`. Used by
+    /// synchronous call sites (the machine-notation resolver) after an
+    /// async pre-warm has populated the cache. Returns `None` (not an
+    /// error) for a malformed name so callers can treat "not a valid alias"
+    /// and "not a cached alias" uniformly as "no resolution".
+    pub fn resolve_alias_cached(&self, name: &str) -> Option<String> {
+        let normalized = normalize_alias_name(name).ok()?;
+        self.cached_aliases
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&normalized).map(|a| a.target.clone()))
+    }
+
+    /// Request that the background fetcher hydrate an alias into the cache.
+    /// Non-blocking; the alias becomes available to `resolve_alias_cached`
+    /// once the fetch completes. A malformed name or an unknown alias is a
+    /// no-op (nothing is enqueued).
+    pub fn request_alias_cache_hydration(&self, name: &str) {
+        let Ok(normalized) = normalize_alias_name(name) else {
+            return;
+        };
+        if let Ok(defver) = self.alias_defver(&normalized) {
+            self.enqueue_for_background_fetch(FetchKey::Alias {
+                name: normalized,
+                defver,
+            });
+        }
+    }
+
+    /// Look up an alias name's pinned defver under this registry's manifest
+    /// without fetching the body. Public so external callers can pre-check
+    /// alias membership.
+    pub fn alias_defver_for(&self, name: &str) -> Result<u32, FabricRegistryError> {
+        let normalized = normalize_alias_name(name).map_err(|e| {
+            FabricRegistryError::ValidationError(format!("invalid alias name: {}", e))
+        })?;
+        self.alias_defver(&normalized)
+    }
+
+    /// Test-only: insert an alias directly into the in-memory cache and
+    /// register its defver in the manifest, bypassing the network. Mirrors
+    /// `add_caps_to_cache` / `insert_cached_media_def_for_test`.
+    pub fn insert_cached_alias_for_test(&self, alias: StoredAlias) {
+        let name = alias.name.clone();
+        let version = alias.version;
+        if let Ok(mut guard) = self.cached_aliases.lock() {
+            guard.insert(name.clone(), alias);
+        }
+        if self.manifest_version >= 1 {
+            if let Ok(mut m) = self.manifest.lock() {
+                m.aliases.insert(name, version);
+            }
+        }
     }
 
     /// Get multiple caps at once - fails if any cap is not available.
@@ -890,7 +1095,17 @@ impl FabricRegistry {
     // -------------------------------------------------------------------------
 
     /// Get a media def from cache or fetch from registry.
+    ///
+    /// `urn` may be a media URN (`media:...`) or an **alias** (no `:`). An
+    /// alias is resolved first; because this is the typed media boundary,
+    /// an alias whose target is not a media URN is a hard error.
     pub async fn get_media_def(&self, urn: &str) -> Result<StoredMediaDef, FabricRegistryError> {
+        if crate::is_alias_token(urn) {
+            let target = self
+                .resolve_alias_typed(urn, Some(AliasTargetKind::Media))
+                .await?;
+            return Box::pin(self.get_media_def(&target)).await;
+        }
         let normalized = normalize_media_urn(urn);
         if let Some(spec) = self
             .cached_media_defs
@@ -1100,6 +1315,9 @@ impl FabricRegistry {
         if let Ok(mut g) = self.cached_media_defs.lock() {
             g.clear();
         }
+        if let Ok(mut g) = self.cached_aliases.lock() {
+            g.clear();
+        }
         if let Ok(mut g) = self.extension_index.lock() {
             g.clear();
         }
@@ -1107,7 +1325,7 @@ impl FabricRegistry {
             fs::remove_dir_all(&self.cache_dir).map_err(|e| {
                 FabricRegistryError::CacheError(format!("Failed to clear cache directory: {}", e))
             })?;
-            for sub in ["caps", "media", "manifests"] {
+            for sub in ["caps", "media", "aliases", "manifests"] {
                 fs::create_dir_all(self.cache_dir.join(sub)).map_err(|e| {
                     FabricRegistryError::CacheError(format!(
                         "Failed to recreate cache directory: {}",
@@ -1281,6 +1499,61 @@ impl FabricRegistry {
         Ok(specs)
     }
 
+    /// Walk the alias cache directory (`aliases/<sha>/<defver>.json`) and
+    /// load every cached `StoredAlias` keyed by its normalized name.
+    /// Aliases are versioned-only — there is no v0 flat path and no TTL
+    /// expiry (a published defver is immutable).
+    fn load_all_cached_aliases(
+        aliases_dir: &Path,
+    ) -> Result<HashMap<String, StoredAlias>, FabricRegistryError> {
+        let mut aliases = HashMap::new();
+        if !aliases_dir.exists() {
+            return Ok(aliases);
+        }
+        let mut stack: Vec<PathBuf> = vec![aliases_dir.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(&dir).map_err(|e| {
+                FabricRegistryError::CacheError(format!(
+                    "Failed to read alias cache directory {:?}: {}",
+                    dir, e
+                ))
+            })? {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(e) => {
+                        tracing::warn!("Failed to read alias cache entry: {}", e);
+                        continue;
+                    }
+                };
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                    continue;
+                }
+                let content = match fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("Failed to read alias cache file {:?}: {}", path, e);
+                        continue;
+                    }
+                };
+                let cache_entry: AliasCacheEntry = match serde_json::from_str(&content) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse alias cache file {:?}: {}", path, e);
+                        let _ = fs::remove_file(&path);
+                        continue;
+                    }
+                };
+                aliases.insert(cache_entry.alias.name.clone(), cache_entry.alias);
+            }
+        }
+        Ok(aliases)
+    }
+
     fn build_extension_index(
         specs: &HashMap<String, StoredMediaDef>,
     ) -> HashMap<String, Vec<String>> {
@@ -1321,9 +1594,11 @@ impl FabricRegistry {
         let cache_dir = PathBuf::from("/tmp/capdag-test-cache");
         let _ = fs::create_dir_all(cache_dir.join("caps"));
         let _ = fs::create_dir_all(cache_dir.join("media"));
+        let _ = fs::create_dir_all(cache_dir.join("aliases"));
         let _ = fs::create_dir_all(cache_dir.join("manifests"));
         let cached_caps = Arc::new(Mutex::new(HashMap::new()));
         let cached_media_defs = Arc::new(Mutex::new(HashMap::new()));
+        let cached_aliases = Arc::new(Mutex::new(HashMap::new()));
         let extension_index = Arc::new(Mutex::new(HashMap::new()));
         let manifest_arc = Arc::new(Mutex::new(Manifest::empty(manifest_version)));
         let fetch_in_queue = Arc::new(Mutex::new(HashSet::new()));
@@ -1340,6 +1615,7 @@ impl FabricRegistry {
                     cache_dir.clone(),
                     Arc::clone(&cached_caps),
                     Arc::clone(&cached_media_defs),
+                    Arc::clone(&cached_aliases),
                     Arc::clone(&extension_index),
                     Arc::clone(&manifest_arc),
                     Arc::clone(&fetch_in_queue),
@@ -1357,6 +1633,7 @@ impl FabricRegistry {
             cache_dir,
             cached_caps,
             cached_media_defs,
+            cached_aliases,
             extension_index,
             config,
             manifest_version,
@@ -1433,6 +1710,152 @@ fn media_url_and_cache_path(
                 .join(format!("{}.json", defver)),
         )
     }
+}
+
+/// Build the R2 URL for a per-alias object at the given defver. Aliases
+/// are keyed by `sha256(normalized_name)` and are versioned-only (defver
+/// >= 1); there is no v0 flat path.
+fn alias_url_and_cache_path(
+    cache_dir: &Path,
+    config: &RegistryConfig,
+    normalized_name: &str,
+    defver: u32,
+) -> (String, PathBuf) {
+    let mut hasher = Sha256::new();
+    hasher.update(normalized_name.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    (
+        format!("{}/aliases/{}/{}.json", config.registry_base_url, hash, defver),
+        cache_dir
+            .join("aliases")
+            .join(&hash)
+            .join(format!("{}.json", defver)),
+    )
+}
+
+/// Fetch a single alias body at its pinned defver, validate it, and cache
+/// it in memory + on disk. The fetched body's `name` and `version` must
+/// match what was requested (a registry that serves a mismatched object
+/// is a hard error, never silently accepted), and the `target` must parse
+/// as a cap or media URN.
+#[allow(clippy::too_many_arguments)]
+async fn fetch_one_alias(
+    client: &reqwest::Client,
+    cache_dir: &Path,
+    cached_aliases: &Arc<Mutex<HashMap<String, StoredAlias>>>,
+    offline_flag: &Arc<AtomicBool>,
+    config: &RegistryConfig,
+    cache_revision_tx: &watch::Sender<u64>,
+    normalized_name: &str,
+    defver: u32,
+) -> Result<StoredAlias, FabricRegistryError> {
+    if offline_flag.load(Ordering::Relaxed) {
+        return Err(FabricRegistryError::NetworkBlocked(format!(
+            "offline: cannot fetch alias '{}'",
+            normalized_name
+        )));
+    }
+    if defver < 1 {
+        return Err(FabricRegistryError::NotFound(format!(
+            "alias '{}' has non-positive defver {}; aliases are versioned-only",
+            normalized_name, defver
+        )));
+    }
+    let (url, cache_path) =
+        alias_url_and_cache_path(cache_dir, config, normalized_name, defver);
+    let response = client.get(&url).send().await.map_err(|e| {
+        FabricRegistryError::HttpError(format!("Failed to fetch alias '{}': {}", normalized_name, e))
+    })?;
+    if !response.status().is_success() {
+        return Err(FabricRegistryError::NotFound(format!(
+            "alias '{}' not found in registry (HTTP {}) at {}",
+            normalized_name,
+            response.status(),
+            url
+        )));
+    }
+    let body = response.text().await.map_err(|e| {
+        FabricRegistryError::HttpError(format!(
+            "Failed to read alias '{}' body: {}",
+            normalized_name, e
+        ))
+    })?;
+    let alias: StoredAlias = serde_json::from_str(&body).map_err(|e| {
+        FabricRegistryError::ParseError(format!("Failed to parse alias '{}': {}", normalized_name, e))
+    })?;
+    validate_fetched_alias(&alias, normalized_name, defver)?;
+    cache_alias_entry(&alias, &cache_path, cached_aliases, cache_revision_tx)?;
+    Ok(alias)
+}
+
+/// Shared validation for an alias body fetched from the registry or
+/// hydrated from cache: name and version must match the request, and the
+/// target must classify as a cap or media URN.
+fn validate_fetched_alias(
+    alias: &StoredAlias,
+    expected_name: &str,
+    expected_defver: u32,
+) -> Result<(), FabricRegistryError> {
+    if alias.name != expected_name {
+        return Err(FabricRegistryError::ParseError(format!(
+            "alias object name '{}' does not match requested name '{}'",
+            alias.name, expected_name
+        )));
+    }
+    if alias.version != expected_defver {
+        return Err(FabricRegistryError::ParseError(format!(
+            "alias '{}' object reports version {} but manifest pins defver {}",
+            alias.name, alias.version, expected_defver
+        )));
+    }
+    if classify_alias_target(&alias.target).is_none() {
+        return Err(FabricRegistryError::ValidationError(format!(
+            "alias '{}' target '{}' is neither a cap nor a media URN",
+            alias.name, alias.target
+        )));
+    }
+    Ok(())
+}
+
+/// Write an alias entry to the in-memory cache and the on-disk cache,
+/// publishing a cache-revision bump.
+fn cache_alias_entry(
+    alias: &StoredAlias,
+    cache_path: &Path,
+    cached_aliases: &Arc<Mutex<HashMap<String, StoredAlias>>>,
+    cache_revision_tx: &watch::Sender<u64>,
+) -> Result<(), FabricRegistryError> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let entry = AliasCacheEntry {
+        alias: alias.clone(),
+        cached_at: now,
+        ttl_hours: CACHE_DURATION_HOURS,
+    };
+    if let Some(parent) = cache_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            FabricRegistryError::CacheError(format!(
+                "Failed to create alias cache dir {:?}: {}",
+                parent, e
+            ))
+        })?;
+    }
+    let serialized = serde_json::to_string(&entry).map_err(|e| {
+        FabricRegistryError::CacheError(format!("Failed to serialize alias cache entry: {}", e))
+    })?;
+    fs::write(cache_path, serialized).map_err(|e| {
+        FabricRegistryError::CacheError(format!(
+            "Failed to write alias cache file {:?}: {}",
+            cache_path, e
+        ))
+    })?;
+    if let Ok(mut guard) = cached_aliases.lock() {
+        guard.insert(alias.name.clone(), alias.clone());
+    }
+    publish_cache_revision(cache_revision_tx);
+    Ok(())
 }
 
 /// Atomic cap fetcher. Fetches the cap body, then ensures every media URN
@@ -1778,6 +2201,7 @@ async fn run_fetch_consumer(
     cache_dir: PathBuf,
     cached_caps: Arc<Mutex<HashMap<String, Cap>>>,
     cached_media_defs: Arc<Mutex<HashMap<String, StoredMediaDef>>>,
+    cached_aliases: Arc<Mutex<HashMap<String, StoredAlias>>>,
     extension_index: Arc<Mutex<HashMap<String, Vec<String>>>>,
     manifest: Arc<Mutex<Manifest>>,
     fetch_in_queue: Arc<Mutex<HashSet<FetchKey>>>,
@@ -1871,6 +2295,45 @@ async fn run_fetch_consumer(
                     }
                 }
             }
+            FetchKey::Alias {
+                name: normalized_name,
+                defver,
+            } => {
+                let already_cached = cached_aliases
+                    .lock()
+                    .ok()
+                    .map(|m| m.contains_key(normalized_name))
+                    .unwrap_or(false);
+                if !already_cached {
+                    match fetch_one_alias(
+                        &client,
+                        &cache_dir,
+                        &cached_aliases,
+                        &offline_flag,
+                        &config,
+                        &cache_revision_tx,
+                        normalized_name,
+                        *defver,
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            tracing::debug!(
+                                target: "capdag::fabric::registry::fetch_consumer",
+                                name = %normalized_name, defver = %defver,
+                                "Background-fetched alias; cache is now warm."
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "capdag::fabric::registry::fetch_consumer",
+                                name = %normalized_name, defver = %defver, error = %e,
+                                "Background alias fetch failed; name dropped from queue (no retry)."
+                            );
+                        }
+                    }
+                }
+            }
         }
         if let Ok(mut in_queue) = fetch_in_queue.lock() {
             in_queue.remove(&key);
@@ -1904,4 +2367,209 @@ pub enum FabricRegistryError {
 
     #[error("No media def registered for extension: {0}")]
     ExtensionNotFound(String),
+}
+
+// =============================================================================
+// ALIAS TESTS
+// =============================================================================
+
+#[cfg(test)]
+mod alias_tests {
+    use super::*;
+    use crate::cap::definition::{Cap, CapArg, CapOutput};
+    use crate::CapUrn;
+
+    fn cap_with_urn(urn_str: &str) -> Cap {
+        let urn = CapUrn::from_string(urn_str).expect("valid cap urn");
+        Cap {
+            urn,
+            version: 1,
+            title: "T".to_string(),
+            cap_description: None,
+            documentation: None,
+            metadata: std::collections::HashMap::new(),
+            command: "test://cap".to_string(),
+            args: vec![CapArg::new(
+                "media:ext=pdf".to_string(),
+                true,
+                vec![ArgSource::Stdin {
+                    stdin: "media:ext=pdf".to_string(),
+                }],
+            )],
+            output: Some(CapOutput::new(
+                "media:enc=utf-8".to_string(),
+                "out".to_string(),
+            )),
+            metadata_json: None,
+            registered_by: None,
+            supported_model_types: Vec::new(),
+            default_model_spec: None,
+        }
+    }
+
+    fn media_spec(urn: &str) -> StoredMediaDef {
+        StoredMediaDef {
+            version: 1,
+            urn: urn.to_string(),
+            media_type: "application/json".to_string(),
+            title: format!("title:{urn}"),
+            profile_uri: None,
+            schema: None,
+            description: None,
+            documentation: None,
+            validation: None,
+            metadata: None,
+            extensions: Vec::new(),
+        }
+    }
+
+    // TEST1887: the Manifest type round-trips an `aliases` map through serde.
+    // The wire shape (name -> defver) must deserialize into Manifest.aliases
+    // and serialize back identically. A regression here would silently drop
+    // the alias section from a fetched manifest.
+    #[test]
+    fn test1887_manifest_serde_round_trips_aliases() {
+        let json = r#"{"version":1,"previous":0,"caps":{},"media":{},"aliases":{"pdf2text":3,"jsondoc":1}}"#;
+        let m: Manifest = serde_json::from_str(json).expect("manifest parses");
+        assert_eq!(m.aliases.get("pdf2text").copied(), Some(3));
+        assert_eq!(m.aliases.get("jsondoc").copied(), Some(1));
+        let back = serde_json::to_value(&m).expect("serializes");
+        assert_eq!(back["aliases"]["pdf2text"], 3);
+        assert_eq!(back["aliases"]["jsondoc"], 1);
+    }
+
+    // TEST1888: resolve_alias returns the alias target untyped. Seeding a
+    // media alias and resolving it yields the media URN; a malformed alias
+    // name is rejected before any lookup.
+    #[tokio::test]
+    async fn test1888_resolve_alias_returns_target() {
+        let registry = FabricRegistry::new_for_test();
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "jsondoc".to_string(),
+            target: "media:fmt=json;record".to_string(),
+            version: 1,
+        });
+        let target = registry.resolve_alias("jsondoc").await.expect("resolves");
+        assert_eq!(target, "media:fmt=json;record");
+        // Case-insensitive: the same alias resolves regardless of input case.
+        let upper = registry.resolve_alias("JSONDoc").await.expect("resolves");
+        assert_eq!(upper, "media:fmt=json;record");
+        // Malformed name fails hard (not silently None).
+        assert!(registry.resolve_alias("bad:name").await.is_err());
+    }
+
+    // TEST1889: resolve_alias_typed enforces the expected kind. A media
+    // alias requested as a cap fails hard; requested as media (or untyped)
+    // succeeds. This is the typed-boundary contract.
+    #[tokio::test]
+    async fn test1889_resolve_alias_typed_enforces_kind() {
+        let registry = FabricRegistry::new_for_test();
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "jsondoc".to_string(),
+            target: "media:fmt=json;record".to_string(),
+            version: 1,
+        });
+        // Correct kind: ok.
+        assert!(registry
+            .resolve_alias_typed("jsondoc", Some(AliasTargetKind::Media))
+            .await
+            .is_ok());
+        // Untyped: ok.
+        assert!(registry
+            .resolve_alias_typed("jsondoc", None)
+            .await
+            .is_ok());
+        // Wrong kind: hard error.
+        let err = registry
+            .resolve_alias_typed("jsondoc", Some(AliasTargetKind::Cap))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, FabricRegistryError::ValidationError(_)),
+            "a media alias demanded as a cap must be a ValidationError, got {err:?}"
+        );
+    }
+
+    // TEST1890: get_cap accepts a cap alias and returns the aliased cap; a
+    // media alias passed to get_cap fails hard (typed boundary). This proves
+    // alias substitution AND type enforcement at the registry's cap surface.
+    #[tokio::test]
+    async fn test1890_get_cap_via_alias_and_type_mismatch() {
+        let registry = FabricRegistry::new_for_test();
+        let cap_urn = "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8\"";
+        let cap = cap_with_urn(cap_urn);
+        let canonical = cap.urn_string();
+        registry.add_caps_to_cache(vec![cap]);
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "pdf2text".to_string(),
+            target: canonical.clone(),
+            version: 1,
+        });
+        // Cap alias → the aliased cap.
+        let got = registry.get_cap("pdf2text").await.expect("cap alias resolves");
+        assert_eq!(got.urn_string(), canonical);
+
+        // Media alias passed to the cap boundary → hard error.
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "jsondoc".to_string(),
+            target: "media:fmt=json;record".to_string(),
+            version: 1,
+        });
+        let err = registry.get_cap("jsondoc").await.unwrap_err();
+        assert!(
+            matches!(err, FabricRegistryError::ValidationError(_)),
+            "a media alias at get_cap must be a ValidationError, got {err:?}"
+        );
+    }
+
+    // TEST1891: get_media_def accepts a media alias and returns the aliased
+    // spec; a cap alias passed to get_media_def fails hard.
+    #[tokio::test]
+    async fn test1891_get_media_def_via_alias_and_type_mismatch() {
+        let registry = FabricRegistry::new_for_test();
+        registry.insert_cached_media_def_for_test(media_spec("media:fmt=json;record"));
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "jsondoc".to_string(),
+            target: "media:fmt=json;record".to_string(),
+            version: 1,
+        });
+        let spec = registry
+            .get_media_def("jsondoc")
+            .await
+            .expect("media alias resolves");
+        assert_eq!(spec.urn, "media:fmt=json;record");
+
+        // A cap alias at the media boundary → hard error.
+        let cap_urn = "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8\"";
+        let cap = cap_with_urn(cap_urn);
+        let canonical = cap.urn_string();
+        registry.add_caps_to_cache(vec![cap]);
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "pdf2text".to_string(),
+            target: canonical,
+            version: 1,
+        });
+        let err = registry.get_media_def("pdf2text").await.unwrap_err();
+        assert!(
+            matches!(err, FabricRegistryError::ValidationError(_)),
+            "a cap alias at get_media_def must be a ValidationError, got {err:?}"
+        );
+    }
+
+    // TEST1892: an unknown alias name (not in the manifest, not cached) is a
+    // hard NotFound, never a silent empty result. alias_defver_for surfaces
+    // the same. This is the "expose issues, no fallback" contract.
+    #[tokio::test]
+    async fn test1892_unknown_alias_is_not_found() {
+        let registry = FabricRegistry::new_for_test();
+        let err = registry.get_alias("nosuchalias").await.unwrap_err();
+        assert!(
+            matches!(err, FabricRegistryError::NotFound(_)),
+            "unknown alias must be NotFound, got {err:?}"
+        );
+        assert!(registry.alias_defver_for("nosuchalias").is_err());
+        // resolve_alias_cached returns None for an unknown (and for malformed).
+        assert!(registry.resolve_alias_cached("nosuchalias").is_none());
+        assert!(registry.resolve_alias_cached("bad:name").is_none());
+    }
 }

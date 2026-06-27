@@ -91,9 +91,16 @@ pub enum MachineSyntaxError {
     #[error("invalid cap URN in header '{alias}': {details}")]
     InvalidCapUrn { alias: String, details: String },
 
-    /// A wiring statement references an alias that was never defined in a header.
-    #[error("wiring references undefined alias '{alias}'")]
+    /// A wiring statement references a name that is neither a local
+    /// header alias nor a registered cap alias in the fabric registry.
+    #[error("wiring references undefined alias '{alias}' (not a local header and not a registered cap alias)")]
     UndefinedAlias { alias: String },
+
+    /// A wiring's cap-position name resolved to a fabric alias, but that
+    /// alias points at a media URN rather than a cap URN. The cap position
+    /// requires a cap.
+    #[error("alias '{alias}' in cap position resolves to a media URN ('{target}'), but a cap is required there")]
+    AliasNotACap { alias: String, target: String },
 
     /// Two header statements define the same alias.
     #[error("duplicate alias '{alias}' (first defined at statement {first_position})")]
