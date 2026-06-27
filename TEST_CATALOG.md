@@ -1,4 +1,4 @@
-# Rust Test Catalog
+# CapDag (Rust) Test Catalog
 
 **Total Tests:** 1137
 
@@ -10,10 +10,9 @@
 
 **Numbering Mismatches:** 0
 
-**⚠ Duplicate test numbers detected: 1 number(s) used more than once.**
-Unique numbered tests are listed first. Duplicate-number entries are grouped after them and marked with ⚠. Unnumbered tests are listed in their own group.
+All numbered test numbers are unique.
 
-This catalog lists all tests in the Rust codebase.
+This catalog lists all tests in the CapDag (Rust) codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -507,6 +506,7 @@ This catalog lists all tests in the Rust codebase.
 | test549 | `test549_is_numeric` | TEST549: is_numeric returns true only when numeric marker tag is present | src/urn/media_urn.rs:1271 |
 | test550 | `test550_is_bool` | TEST550: is_bool returns true only when bool marker tag is present | src/urn/media_urn.rs:1288 |
 | test551 | `test551_is_file_path` | TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. | src/urn/media_urn.rs:1303 |
+| test552 | `test552_is_csv_recognizes_ext_csv_and_bare_marker` | TEST552: is_csv recognizes the CANONICAL published CSV media, which spells the format as the `ext=csv` extension tag — not a bare `csv` marker. Every datacartridge convert-format/collect-records cap declares its CSV media as `media:fmt=csv;list;record` (see MEDIA_CSV), so an is_csv() that only checked the bare marker returned false for real CSV media, collapsing it to a text list and breaking list<->csv conversion with "Unsupported conversion: TextableList -> TextableList". This test pins both accepted spellings and would FAIL against the old marker-only implementation. | src/urn/media_urn.rs:928 |
 | test555 | `test555_with_tag_and_without_tag` | TEST555: with_tag adds a tag and without_tag removes it | src/urn/media_urn.rs:1315 |
 | test556 | `test556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | src/urn/media_urn.rs:1332 |
 | test557 | `test557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | src/urn/media_urn.rs:1345 |
@@ -988,35 +988,6 @@ This catalog lists all tests in the Rust codebase.
 | test1189 | `test1189_resolve_strand_canonical_anchor_order_is_stable` | TEST1189: Strand resolution keeps canonical anchor ordering stable across equivalent inputs. | src/machine/resolve.rs:1111 |
 | test1190 | `test1190_resolve_strand_inverse_format_converters_no_cycle` | TEST1190: Inverse format converters resolve without introducing a cycle in the strand graph. | src/machine/resolve.rs:1143 |
 | test1191 | `test1191_resolve_strand_disbind_pdf_with_file_path_slot_identity` | TEST1191: Disbinding a PDF with a file-path slot preserves the expected identity of the slot binding. | src/machine/resolve.rs:1207 |
-| test1192 | `test1192_parse_simple_header_and_wiring` | TEST1192: Parsing a simple header and wiring produces a valid AST with both statements. | src/machine/notation_ast.rs:1704 |
-| test1193 | `test1193_parse_empty_returns_error` | TEST1193: Parsing empty notation returns an error in the AST. | src/machine/notation_ast.rs:1729 |
-| test1194 | `test1194_parse_invalid_returns_partial_ast` | TEST1194: Parsing invalid notation still returns a partial AST alongside the error. | src/machine/notation_ast.rs:1737 |
-| test1195 | `test1195_parse_loop_wiring` | TEST1195: Parsing loop wiring records the loop structure in the notation AST. | src/machine/notation_ast.rs:1748 |
-| test1196 | `test1196_parse_fan_in_group` | TEST1196: Parsing a fan-in group records grouped input sources correctly. | src/machine/notation_ast.rs:1772 |
-| test1197 | `test1197_context_after_open_bracket` | TEST1197: Completion context after an opening bracket identifies header-start context. | src/machine/notation_ast.rs:1804 |
-| test1198 | `test1198_context_after_cap_prefix` | TEST1198: Completion context after the cap prefix identifies cap-URN editing context. | src/machine/notation_ast.rs:1811 |
-| test1199 | `test1199_context_in_media_urn` | TEST1199: Completion context inside a media URN is recognized correctly. | src/machine/notation_ast.rs:1819 |
-| test1200 | `test1200_context_after_arrow` | TEST1200: Completion context after an arrow identifies the expected next token position. | src/machine/notation_ast.rs:1827 |
-| test1201 | `test1201_context_outside_brackets` | TEST1201: Completion context outside brackets is recognized as the outer notation context. | src/machine/notation_ast.rs:1834 |
-| test1202 | `test1202_semantic_tokens_simple` | TEST1202: Semantic token generation marks the expected token kinds for simple notation. | src/machine/notation_ast.rs:1845 |
-| test1203 | `test1203_editor_model_entity_hover_for_alias_definition` | TEST1203: Editor model hover metadata resolves correctly for an alias definition. | src/machine/notation_ast.rs:1916 |
-| test1204 | `test1204_editor_model_entity_hover_for_wiring_source_node` | TEST1204: Editor model hover metadata resolves correctly for a wiring source node reference. | src/machine/notation_ast.rs:1937 |
-| test1205 | `test1205_editor_model_entity_hover_for_loop_keyword` | TEST1205: Editor model hover metadata resolves correctly for the loop keyword. | src/machine/notation_ast.rs:1952 |
-| test1206 | `test1206_editor_model_graph_contains_nodes_and_edges` | TEST1206: The editor model graph includes the expected nodes and edges from parsed notation. | src/machine/notation_ast.rs:1971 |
-| test1207 | `test1207_editor_model_cap_alias_and_arrows_share_token_id_with_graph_cap` | TEST1207: Cap alias tokens and arrow tokens share the same graph token identity for the cap. | src/machine/notation_ast.rs:2000 |
-| test1208 | `test1208_editor_model_node_references_share_token_id_with_graph_node` | TEST1208: Node references share the same token identity as their graph node in the editor model. | src/machine/notation_ast.rs:2045 |
-| test1209 | `test1209_parse_line_based_header_and_wiring` | TEST1209: Parsing line-based headers and wirings produces the expected AST. | src/machine/notation_ast.rs:2095 |
-| test1210 | `test1210_parse_mixed_bracketed_and_line_based` | TEST1210: Parsing mixed bracketed and line-based notation works within the same document. | src/machine/notation_ast.rs:2113 |
-| test1211 | `test1211_line_based_completion_context_header` | TEST1211: Line-based completion recognizes header context at the current cursor. | src/machine/notation_ast.rs:2130 |
-| test1212 | `test1212_line_based_completion_context_wiring` | TEST1212: Line-based completion recognizes wiring context at the current cursor. | src/machine/notation_ast.rs:2137 |
-| test1213 | `test1213_line_based_completion_context_existing_wiring_source` | TEST1213: Line-based completion recognizes an existing wiring source context. | src/machine/notation_ast.rs:2144 |
-| test1214 | `test1214_bracketed_completion_context_existing_wiring_source` | TEST1214: Bracketed completion recognizes an existing wiring source context. | src/machine/notation_ast.rs:2152 |
-| test1215 | `test1215_line_based_completion_context_start` | TEST1215: Line-based completion recognizes the start-of-line notation context. | src/machine/notation_ast.rs:2160 |
-| test1216 | `test1216_loop_keyword_suggested_only_for_sequence_source` | TEST1216: Loop keyword completion is suggested only when the source is a sequence. | src/machine/notation_ast.rs:2167 |
-| test1217 | `test1217_loop_keyword_not_suggested_for_scalar_source` | TEST1217: Loop keyword completion is not suggested for scalar sources. | src/machine/notation_ast.rs:2182 |
-| test1218 | `test1218_line_based_semantic_tokens_no_brackets` | TEST1218: Semantic tokens are produced correctly for line-based notation without brackets. | src/machine/notation_ast.rs:2197 |
-| test1219 | `test1219_byte_offset_to_position_works` | TEST1219: Byte offsets are converted to line and character positions correctly. | src/machine/notation_ast.rs:2228 |
-| test1220 | `test1220_line_char_to_offset_works` | TEST1220: Line and character coordinates are converted back to byte offsets correctly. | src/machine/notation_ast.rs:2255 |
 | test1221 | `test1221_refine_with_matching_adapter` | TEST1221: Matching value adapters refine the base media URN when the value fits. | src/input_resolver/value_adapter_registry.rs:150 |
 | test1222 | `test1222_refine_no_matching_adapter` | TEST1222: Base URNs without a registered adapter are returned unchanged. | src/input_resolver/value_adapter_registry.rs:162 |
 | test1223 | `test1223_refine_adapter_returns_none` | TEST1223: Adapters that decline to refine leave the original media URN intact. | src/input_resolver/value_adapter_registry.rs:172 |
@@ -1140,6 +1111,7 @@ This catalog lists all tests in the Rust codebase.
 | test1877 | `test1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | src/cartridge_discovery.rs:701 |
 | test1878 | `test1878_bundled_provider_without_baked_hash_is_rejected` | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. | src/cartridge_discovery.rs:722 |
 | test1879 | `test1879_sync_roster_adds_and_removes_registered_dir_live` | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | src/bifaci/host_runtime.rs:5634 |
+| test1880 | `test1880_alias_name_normalization_rules` | TEST1880: alias name normalization lowercases and accepts the allowed character class; rejects colon, whitespace, and out-of-class chars with the right error. A broken validator would let a URN-shaped or whitespace name through, or mangle a valid name. | src/fabric/alias.rs:137 |
 | test1881 | `test1881_token_urn_vs_alias_detection` | TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact. | src/fabric/alias.rs:163 |
 | test1882 | `test1882_classify_alias_target_by_prefix` | TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. The typed-boundary enforcement in the registry depends on this. | src/fabric/alias.rs:175 |
 | test1883 | `test1883_cap_position_alias_resolves_to_cap` | TEST1883: a cap-position name with no local header is resolved as a fabric cap alias. The wiring uses `pdf2text` where a cap is expected; it must resolve to the aliased cap URN and produce a one-edge strand whose cap URN is the alias target. A broken resolver would either fail (treating it as undefined) or wire the wrong cap. | src/machine/parser.rs:1035 |
@@ -1152,26 +1124,38 @@ This catalog lists all tests in the Rust codebase.
 | test1890 | `test1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. | src/fabric/registry.rs:2497 |
 | test1891 | `test1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | src/fabric/registry.rs:2528 |
 | test1892 | `test1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name (not in the manifest, not cached) is a hard NotFound, never a silent empty result. alias_defver_for surfaces the same. This is the "expose issues, no fallback" contract. | src/fabric/registry.rs:2563 |
-| | | | |
-| test1880 ⚠ | `test1880_alias_name_normalization_rules` | TEST1880: alias name normalization lowercases and accepts the allowed character class; rejects colon, whitespace, and out-of-class chars with the right error. A broken validator would let a URN-shaped or whitespace name through, or mangle a valid name. | src/fabric/alias.rs:137 |
-| test1880 ⚠ | `test1880_is_csv_recognizes_ext_csv_and_bare_marker` | TEST1880: is_csv recognizes the CANONICAL published CSV media, which spells the format as the `ext=csv` extension tag — not a bare `csv` marker. Every datacartridge convert-format/collect-records cap declares its CSV media as `media:fmt=csv;list;record` (see MEDIA_CSV), so an is_csv() that only checked the bare marker returned false for real CSV media, collapsing it to a text list and breaking list<->csv conversion with "Unsupported conversion: TextableList -> TextableList". This test pins both accepted spellings and would FAIL against the old marker-only implementation. | src/urn/media_urn.rs:928 |
-
+| test8000 | `test8000_parse_simple_header_and_wiring` | TEST8000: Parsing a simple header and wiring produces a valid AST with both statements. | src/machine/notation_ast.rs:1704 |
+| test8001 | `test8001_parse_empty_returns_error` | TEST8001: Parsing empty notation returns an error in the AST. | src/machine/notation_ast.rs:1729 |
+| test8002 | `test8002_parse_invalid_returns_partial_ast` | TEST8002: Parsing invalid notation still returns a partial AST alongside the error. | src/machine/notation_ast.rs:1737 |
+| test8003 | `test8003_parse_loop_wiring` | TEST8003: Parsing loop wiring records the loop structure in the notation AST. | src/machine/notation_ast.rs:1748 |
+| test8004 | `test8004_parse_fan_in_group` | TEST8004: Parsing a fan-in group records grouped input sources correctly. | src/machine/notation_ast.rs:1772 |
+| test8005 | `test8005_context_after_open_bracket` | TEST8005: Completion context after an opening bracket identifies header-start context. | src/machine/notation_ast.rs:1804 |
+| test8006 | `test8006_context_after_cap_prefix` | TEST8006: Completion context after the cap prefix identifies cap-URN editing context. | src/machine/notation_ast.rs:1811 |
+| test8007 | `test8007_context_in_media_urn` | TEST8007: Completion context inside a media URN is recognized correctly. | src/machine/notation_ast.rs:1819 |
+| test8008 | `test8008_context_after_arrow` | TEST8008: Completion context after an arrow identifies the expected next token position. | src/machine/notation_ast.rs:1827 |
+| test8009 | `test8009_context_outside_brackets` | TEST8009: Completion context outside brackets is recognized as the outer notation context. | src/machine/notation_ast.rs:1834 |
+| test8010 | `test8010_semantic_tokens_simple` | TEST8010: Semantic token generation marks the expected token kinds for simple notation. | src/machine/notation_ast.rs:1845 |
+| test8011 | `test8011_editor_model_entity_hover_for_alias_definition` | TEST8011: Editor model hover metadata resolves correctly for an alias definition. | src/machine/notation_ast.rs:1916 |
+| test8012 | `test8012_editor_model_entity_hover_for_wiring_source_node` | TEST8012: Editor model hover metadata resolves correctly for a wiring source node reference. | src/machine/notation_ast.rs:1937 |
+| test8013 | `test8013_editor_model_entity_hover_for_loop_keyword` | TEST8013: Editor model hover metadata resolves correctly for the loop keyword. | src/machine/notation_ast.rs:1952 |
+| test8014 | `test8014_editor_model_graph_contains_nodes_and_edges` | TEST8014: The editor model graph includes the expected nodes and edges from parsed notation. | src/machine/notation_ast.rs:1971 |
+| test8015 | `test8015_editor_model_cap_alias_and_arrows_share_token_id_with_graph_cap` | TEST8015: Cap alias tokens and arrow tokens share the same graph token identity for the cap. | src/machine/notation_ast.rs:2000 |
+| test8016 | `test8016_editor_model_node_references_share_token_id_with_graph_node` | TEST8016: Node references share the same token identity as their graph node in the editor model. | src/machine/notation_ast.rs:2045 |
+| test8017 | `test8017_parse_line_based_header_and_wiring` | TEST8017: Parsing line-based headers and wirings produces the expected AST. | src/machine/notation_ast.rs:2095 |
+| test8018 | `test8018_parse_mixed_bracketed_and_line_based` | TEST8018: Parsing mixed bracketed and line-based notation works within the same document. | src/machine/notation_ast.rs:2113 |
+| test8019 | `test8019_line_based_completion_context_header` | TEST8019: Line-based completion recognizes header context at the current cursor. | src/machine/notation_ast.rs:2130 |
+| test8020 | `test8020_line_based_completion_context_wiring` | TEST8020: Line-based completion recognizes wiring context at the current cursor. | src/machine/notation_ast.rs:2137 |
+| test8021 | `test8021_line_based_completion_context_existing_wiring_source` | TEST8021: Line-based completion recognizes an existing wiring source context. | src/machine/notation_ast.rs:2144 |
+| test8022 | `test8022_bracketed_completion_context_existing_wiring_source` | TEST8022: Bracketed completion recognizes an existing wiring source context. | src/machine/notation_ast.rs:2152 |
+| test8023 | `test8023_line_based_completion_context_start` | TEST8023: Line-based completion recognizes the start-of-line notation context. | src/machine/notation_ast.rs:2160 |
+| test8024 | `test8024_loop_keyword_suggested_only_for_sequence_source` | TEST8024: Loop keyword completion is suggested only when the source is a sequence. | src/machine/notation_ast.rs:2167 |
+| test8025 | `test8025_loop_keyword_not_suggested_for_scalar_source` | TEST8025: Loop keyword completion is not suggested for scalar sources. | src/machine/notation_ast.rs:2182 |
+| test8026 | `test8026_line_based_semantic_tokens_no_brackets` | TEST8026: Semantic tokens are produced correctly for line-based notation without brackets. | src/machine/notation_ast.rs:2197 |
+| test8027 | `test8027_byte_offset_to_position_works` | TEST8027: Byte offsets are converted to line and character positions correctly. | src/machine/notation_ast.rs:2228 |
+| test8028 | `test8028_line_char_to_offset_works` | TEST8028: Line and character coordinates are converted back to byte offsets correctly. | src/machine/notation_ast.rs:2255 |
 ---
 
-## ⚠ Duplicate Test Numbers
-
-The following test numbers are assigned to more than one function. Keep the first occurrence at the existing number and renumber the rest using the suggested free numbers below.
-
-### test1880 (2 occurrences)
-
-- `test1880_alias_name_normalization_rules` — src/fabric/alias.rs:137
-- `test1880_is_csv_recognizes_ext_csv_and_bare_marker` — src/urn/media_urn.rs:928
-
-**Suggested free number(s):** test1871
-
----
-
-*Generated from Rust source tree*
+*Generated from CapDag (Rust) source tree*
 *Total tests: 1137*
 *Total numbered tests: 1137*
 *Total unnumbered tests: 0*

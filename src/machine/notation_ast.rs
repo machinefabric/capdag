@@ -1699,9 +1699,9 @@ fn span_to_token(span: &NotationSpan, token_type: SemanticTokenType) -> Semantic
 mod tests {
     use super::*;
 
-    // TEST1192: Parsing a simple header and wiring produces a valid AST with both statements.
+    // TEST8000: Parsing a simple header and wiring produces a valid AST with both statements.
     #[test]
-    fn test1192_parse_simple_header_and_wiring() {
+    fn test8000_parse_simple_header_and_wiring() {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
@@ -1724,17 +1724,17 @@ mod tests {
         assert!(ast.node_media.contains_key("text"));
     }
 
-    // TEST1193: Parsing empty notation returns an error in the AST.
+    // TEST8001: Parsing empty notation returns an error in the AST.
     #[test]
-    fn test1193_parse_empty_returns_error() {
+    fn test8001_parse_empty_returns_error() {
         let ast = parse_notation_ast("");
         assert!(matches!(ast.error, Some(MachineSyntaxError::Empty)));
         assert!(ast.statements.is_empty());
     }
 
-    // TEST1194: Parsing invalid notation still returns a partial AST alongside the error.
+    // TEST8002: Parsing invalid notation still returns a partial AST alongside the error.
     #[test]
-    fn test1194_parse_invalid_returns_partial_ast() {
+    fn test8002_parse_invalid_returns_partial_ast() {
         let input = "[extract cap:in=broken";
         let ast = parse_notation_ast(input);
 
@@ -1743,9 +1743,9 @@ mod tests {
         assert!(!ast.bracket_spans.is_empty() || ast.statements.is_empty());
     }
 
-    // TEST1195: Parsing loop wiring records the loop structure in the notation AST.
+    // TEST8003: Parsing loop wiring records the loop structure in the notation AST.
     #[test]
-    fn test1195_parse_loop_wiring() {
+    fn test8003_parse_loop_wiring() {
         let input = concat!(
             r#"[p2t cap:in="media:page";page-to-text;out="media:ext=txt"]"#,
             "\n[pages -> LOOP p2t -> texts]"
@@ -1767,9 +1767,9 @@ mod tests {
         assert_eq!(wiring.cap_alias, "p2t");
     }
 
-    // TEST1196: Parsing a fan-in group records grouped input sources correctly.
+    // TEST8004: Parsing a fan-in group records grouped input sources correctly.
     #[test]
-    fn test1196_parse_fan_in_group() {
+    fn test8004_parse_fan_in_group() {
         let input = concat!(
             r#"[describe cap:in="media:ext=png;image";describe;out="media:ext=txt"]"#,
             "\n[(thumbnail, model_spec) -> describe -> description]"
@@ -1799,39 +1799,39 @@ mod tests {
     // Completion context detection
     // =========================================================================
 
-    // TEST1197: Completion context after an opening bracket identifies header-start context.
+    // TEST8005: Completion context after an opening bracket identifies header-start context.
     #[test]
-    fn test1197_context_after_open_bracket() {
+    fn test8005_context_after_open_bracket() {
         let (ctx, _) = get_completion_context("[", 0, 1);
         assert_eq!(ctx, CompletionContextType::HeaderStart);
     }
 
-    // TEST1198: Completion context after the cap prefix identifies cap-URN editing context.
+    // TEST8006: Completion context after the cap prefix identifies cap-URN editing context.
     #[test]
-    fn test1198_context_after_cap_prefix() {
+    fn test8006_context_after_cap_prefix() {
         let (ctx, prefix) = get_completion_context("[alias cap:", 0, 11);
         assert_eq!(ctx, CompletionContextType::CapUrn);
         assert!(prefix.starts_with("cap:"));
     }
 
-    // TEST1199: Completion context inside a media URN is recognized correctly.
+    // TEST8007: Completion context inside a media URN is recognized correctly.
     #[test]
-    fn test1199_context_in_media_urn() {
+    fn test8007_context_in_media_urn() {
         let (ctx, prefix) = get_completion_context(r#"[alias cap:in="media:pd"#, 0, 22);
         assert_eq!(ctx, CompletionContextType::MediaUrn);
         assert!(prefix.starts_with("media:"));
     }
 
-    // TEST1200: Completion context after an arrow identifies the expected next token position.
+    // TEST8008: Completion context after an arrow identifies the expected next token position.
     #[test]
-    fn test1200_context_after_arrow() {
+    fn test8008_context_after_arrow() {
         let (ctx, _) = get_completion_context("[doc -> ", 0, 8);
         assert_eq!(ctx, CompletionContextType::WiringTarget);
     }
 
-    // TEST1201: Completion context outside brackets is recognized as the outer notation context.
+    // TEST8009: Completion context outside brackets is recognized as the outer notation context.
     #[test]
-    fn test1201_context_outside_brackets() {
+    fn test8009_context_outside_brackets() {
         let (ctx, _) = get_completion_context("hello", 0, 3);
         assert_eq!(ctx, CompletionContextType::HeaderStart);
     }
@@ -1840,9 +1840,9 @@ mod tests {
     // Semantic tokens
     // =========================================================================
 
-    // TEST1202: Semantic token generation marks the expected token kinds for simple notation.
+    // TEST8010: Semantic token generation marks the expected token kinds for simple notation.
     #[test]
-    fn test1202_semantic_tokens_simple() {
+    fn test8010_semantic_tokens_simple() {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
@@ -1911,9 +1911,9 @@ mod tests {
             .expect("expected an entity at the given position")
     }
 
-    // TEST1203: Editor model hover metadata resolves correctly for an alias definition.
+    // TEST8011: Editor model hover metadata resolves correctly for an alias definition.
     #[test]
-    fn test1203_editor_model_entity_hover_for_alias_definition() {
+    fn test8011_editor_model_entity_hover_for_alias_definition() {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
@@ -1932,9 +1932,9 @@ mod tests {
         );
     }
 
-    // TEST1204: Editor model hover metadata resolves correctly for a wiring source node reference.
+    // TEST8012: Editor model hover metadata resolves correctly for a wiring source node reference.
     #[test]
-    fn test1204_editor_model_entity_hover_for_wiring_source_node() {
+    fn test8012_editor_model_entity_hover_for_wiring_source_node() {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
@@ -1947,9 +1947,9 @@ mod tests {
         assert!(md.contains("node"), "node hover should identify type");
     }
 
-    // TEST1205: Editor model hover metadata resolves correctly for the loop keyword.
+    // TEST8013: Editor model hover metadata resolves correctly for the loop keyword.
     #[test]
-    fn test1205_editor_model_entity_hover_for_loop_keyword() {
+    fn test8013_editor_model_entity_hover_for_loop_keyword() {
         let input = concat!(
             r#"[p2t cap:in="media:page";page-to-text;out="media:ext=txt"]"#,
             "\n[pages -> LOOP p2t -> texts]"
@@ -1966,9 +1966,9 @@ mod tests {
         );
     }
 
-    // TEST1206: The editor model graph includes the expected nodes and edges from parsed notation.
+    // TEST8014: The editor model graph includes the expected nodes and edges from parsed notation.
     #[test]
-    fn test1206_editor_model_graph_contains_nodes_and_edges() {
+    fn test8014_editor_model_graph_contains_nodes_and_edges() {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
@@ -1995,9 +1995,9 @@ mod tests {
         assert_eq!(edge_count, 2, "expected one input edge and one output edge");
     }
 
-    // TEST1207: Cap alias tokens and arrow tokens share the same graph token identity for the cap.
+    // TEST8015: Cap alias tokens and arrow tokens share the same graph token identity for the cap.
     #[test]
-    fn test1207_editor_model_cap_alias_and_arrows_share_token_id_with_graph_cap() {
+    fn test8015_editor_model_cap_alias_and_arrows_share_token_id_with_graph_cap() {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
@@ -2040,9 +2040,9 @@ mod tests {
         }
     }
 
-    // TEST1208: Node references share the same token identity as their graph node in the editor model.
+    // TEST8016: Node references share the same token identity as their graph node in the editor model.
     #[test]
-    fn test1208_editor_model_node_references_share_token_id_with_graph_node() {
+    fn test8016_editor_model_node_references_share_token_id_with_graph_node() {
         // Same node name referenced from two wirings should resolve to
         // ONE logical token and ONE graph node with a shared token_id.
         let input = concat!(
@@ -2090,9 +2090,9 @@ mod tests {
     // Line-based mode
     // =========================================================================
 
-    // TEST1209: Parsing line-based headers and wirings produces the expected AST.
+    // TEST8017: Parsing line-based headers and wirings produces the expected AST.
     #[test]
-    fn test1209_parse_line_based_header_and_wiring() {
+    fn test8017_parse_line_based_header_and_wiring() {
         let input = r#"extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"
 doc -> extract -> text"#;
         let ast = parse_notation_ast(input);
@@ -2108,9 +2108,9 @@ doc -> extract -> text"#;
         assert!(ast.alias_map.contains_key("extract"));
     }
 
-    // TEST1210: Parsing mixed bracketed and line-based notation works within the same document.
+    // TEST8018: Parsing mixed bracketed and line-based notation works within the same document.
     #[test]
-    fn test1210_parse_mixed_bracketed_and_line_based() {
+    fn test8018_parse_mixed_bracketed_and_line_based() {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]
 doc -> extract -> text"#;
         let ast = parse_notation_ast(input);
@@ -2125,46 +2125,46 @@ doc -> extract -> text"#;
         assert_eq!(ast.bracket_spans.len(), 1);
     }
 
-    // TEST1211: Line-based completion recognizes header context at the current cursor.
+    // TEST8019: Line-based completion recognizes header context at the current cursor.
     #[test]
-    fn test1211_line_based_completion_context_header() {
+    fn test8019_line_based_completion_context_header() {
         let (ctx, _) = get_completion_context("extract cap:", 0, 12);
         assert_eq!(ctx, CompletionContextType::CapUrn);
     }
 
-    // TEST1212: Line-based completion recognizes wiring context at the current cursor.
+    // TEST8020: Line-based completion recognizes wiring context at the current cursor.
     #[test]
-    fn test1212_line_based_completion_context_wiring() {
+    fn test8020_line_based_completion_context_wiring() {
         let (ctx, _) = get_completion_context("doc -> ", 0, 7);
         assert_eq!(ctx, CompletionContextType::WiringTarget);
     }
 
-    // TEST1213: Line-based completion recognizes an existing wiring source context.
+    // TEST8021: Line-based completion recognizes an existing wiring source context.
     #[test]
-    fn test1213_line_based_completion_context_existing_wiring_source() {
+    fn test8021_line_based_completion_context_existing_wiring_source() {
         let (ctx, prefix) = get_completion_context("document -> extract -> text", 0, 3);
         assert_eq!(ctx, CompletionContextType::WiringSource);
         assert_eq!(prefix, "doc");
     }
 
-    // TEST1214: Bracketed completion recognizes an existing wiring source context.
+    // TEST8022: Bracketed completion recognizes an existing wiring source context.
     #[test]
-    fn test1214_bracketed_completion_context_existing_wiring_source() {
+    fn test8022_bracketed_completion_context_existing_wiring_source() {
         let (ctx, prefix) = get_completion_context("[document -> extract -> text]", 0, 4);
         assert_eq!(ctx, CompletionContextType::WiringSource);
         assert_eq!(prefix, "doc");
     }
 
-    // TEST1215: Line-based completion recognizes the start-of-line notation context.
+    // TEST8023: Line-based completion recognizes the start-of-line notation context.
     #[test]
-    fn test1215_line_based_completion_context_start() {
+    fn test8023_line_based_completion_context_start() {
         let (ctx, _) = get_completion_context("ex", 0, 2);
         assert_eq!(ctx, CompletionContextType::HeaderStart);
     }
 
-    // TEST1216: Loop keyword completion is suggested only when the source is a sequence.
+    // TEST8024: Loop keyword completion is suggested only when the source is a sequence.
     #[test]
-    fn test1216_loop_keyword_suggested_only_for_sequence_source() {
+    fn test8024_loop_keyword_suggested_only_for_sequence_source() {
         let ast = parse_notation_ast(concat!(
             r#"p2t cap:in="media:page";page-to-text;out="media:ext=txt""#,
             "\n",
@@ -2177,9 +2177,9 @@ doc -> extract -> text"#;
         );
     }
 
-    // TEST1217: Loop keyword completion is not suggested for scalar sources.
+    // TEST8025: Loop keyword completion is not suggested for scalar sources.
     #[test]
-    fn test1217_loop_keyword_not_suggested_for_scalar_source() {
+    fn test8025_loop_keyword_not_suggested_for_scalar_source() {
         let ast = parse_notation_ast(concat!(
             r#"extract cap:in="media:ext=pdf";extract;out="media:ext=txt""#,
             "\n",
@@ -2192,9 +2192,9 @@ doc -> extract -> text"#;
         );
     }
 
-    // TEST1218: Semantic tokens are produced correctly for line-based notation without brackets.
+    // TEST8026: Semantic tokens are produced correctly for line-based notation without brackets.
     #[test]
-    fn test1218_line_based_semantic_tokens_no_brackets() {
+    fn test8026_line_based_semantic_tokens_no_brackets() {
         let input = r#"extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"
 doc -> extract -> text"#;
         let ast = parse_notation_ast(input);
@@ -2223,9 +2223,9 @@ doc -> extract -> text"#;
     // Position conversion
     // =========================================================================
 
-    // TEST1219: Byte offsets are converted to line and character positions correctly.
+    // TEST8027: Byte offsets are converted to line and character positions correctly.
     #[test]
-    fn test1219_byte_offset_to_position_works() {
+    fn test8027_byte_offset_to_position_works() {
         let text = "line0\nline1\nline2";
         assert_eq!(
             byte_offset_to_position(text, 0),
@@ -2250,9 +2250,9 @@ doc -> extract -> text"#;
         );
     }
 
-    // TEST1220: Line and character coordinates are converted back to byte offsets correctly.
+    // TEST8028: Line and character coordinates are converted back to byte offsets correctly.
     #[test]
-    fn test1220_line_char_to_offset_works() {
+    fn test8028_line_char_to_offset_works() {
         let text = "line0\nline1\nline2";
         assert_eq!(line_char_to_offset(text, 0, 0), Some(0));
         assert_eq!(line_char_to_offset(text, 1, 0), Some(6));

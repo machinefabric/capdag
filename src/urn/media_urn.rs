@@ -916,7 +916,7 @@ mod tests {
         assert!(!MediaUrn::from_string("media:enc=utf-8").unwrap().is_json());
     }
 
-    // TEST1880: is_csv recognizes the CANONICAL published CSV media, which spells
+    // TEST552: is_csv recognizes the CANONICAL published CSV media, which spells
     // the format as the `ext=csv` extension tag — not a bare `csv` marker. Every
     // datacartridge convert-format/collect-records cap declares its CSV media as
     // `media:fmt=csv;list;record` (see MEDIA_CSV), so an is_csv() that
@@ -925,7 +925,7 @@ mod tests {
     // conversion: TextableList -> TextableList". This test pins both accepted
     // spellings and would FAIL against the old marker-only implementation.
     #[test]
-    fn test1880_is_csv_recognizes_ext_csv_and_bare_marker() {
+    fn test552_is_csv_recognizes_ext_csv_and_bare_marker() {
         // The canonical published form (ext=csv) — the one that regressed.
         assert!(
             MediaUrn::from_string(MEDIA_CSV).unwrap().is_csv(),
