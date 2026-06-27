@@ -1,4 +1,4 @@
-# CapDag (Rust) Test Catalog
+# Rust Test Catalog
 
 **Total Tests:** 1163
 
@@ -12,7 +12,7 @@
 
 All numbered test numbers are unique.
 
-This catalog lists all tests in the CapDag (Rust) codebase.
+This catalog lists all tests in the Rust codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -1181,7 +1181,7 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test8028 | `test8028_line_char_to_offset_works` | TEST8028: Line and character coordinates are converted back to byte offsets correctly. | src/machine/notation_ast.rs:2255 |
 ---
 
-*Generated from CapDag (Rust) source tree*
+*Generated from Rust source tree*
 *Total tests: 1163*
 *Total numbered tests: 1163*
 *Total unnumbered tests: 0*
