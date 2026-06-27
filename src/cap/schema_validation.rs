@@ -246,7 +246,7 @@ mod tests {
         // longer carry inline media defs.
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
             version: 0,
-            urn: "my:user-data.v1".to_string(),
+            urn: "media:fmt=json;record;user-data".to_string(),
             media_type: "application/json".to_string(),
             title: "User Data".to_string(),
             profile_uri: Some("https://example.com/schema/user-data".to_string()),
@@ -259,7 +259,7 @@ mod tests {
         });
 
         let arg = CapArg::new(
-            "my:user-data.v1",
+            "media:fmt=json;record;user-data",
             true,
             vec![ArgSource::Position { position: 0 }],
         );
@@ -289,7 +289,7 @@ mod tests {
         // longer carry inline media defs.
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
             version: 0,
-            urn: "my:user-data.v1".to_string(),
+            urn: "media:fmt=json;record;user-data".to_string(),
             media_type: "application/json".to_string(),
             title: "User Data".to_string(),
             profile_uri: Some("https://example.com/schema/user-data".to_string()),
@@ -302,7 +302,7 @@ mod tests {
         });
 
         let arg = CapArg::new(
-            "my:user-data.v1",
+            "media:fmt=json;record;user-data",
             true,
             vec![ArgSource::Position { position: 0 }],
         );
@@ -333,7 +333,7 @@ mod tests {
         // longer carry inline media defs.
         registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
             version: 0,
-            urn: "my:query-result.v1".to_string(),
+            urn: "media:fmt=json;query-result;record".to_string(),
             media_type: "application/json".to_string(),
             title: "Query Result".to_string(),
             profile_uri: Some("https://example.com/schema/query-result".to_string()),
@@ -345,7 +345,7 @@ mod tests {
             extensions: Vec::new(),
         });
 
-        let output = CapOutput::new("my:query-result.v1", "Query result");
+        let output = CapOutput::new("media:fmt=json;query-result;record", "Query result");
 
         let valid_value = json!({"result": "success", "timestamp": "2023-01-01T00:00:00Z"});
         assert!(validator
