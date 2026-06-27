@@ -2141,8 +2141,7 @@ mod tests {
         assert_eq!(n.channel, CartridgeChannel::Nightly);
     }
 
-    // TEST301: transform_to_cartridge_array walks both channels and emits
-    // release-channel entries before nightly-channel entries.
+    // TEST301: Walking both channels produces release entries first.
     #[test]
     fn test301_transform_walks_both_channels_release_first() {
         let release_entry = build_registry_entry(

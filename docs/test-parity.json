@@ -2148,8 +2148,8 @@
       "canonical": {
         "rust": {
           "function": "test301_transform_walks_both_channels_release_first",
-          "description": "TEST301: transform_to_cartridge_array walks both channels and emits release-channel entries before nightly-channel entries.",
-          "location": "src/bifaci/cartridge_repo.rs:2147"
+          "description": "TEST301: Walking both channels produces release entries first.",
+          "location": "src/bifaci/cartridge_repo.rs:2146"
         },
         "py": {
           "function": "test_301_transform_walks_both_channels_release_first",
@@ -2182,7 +2182,7 @@
         "rust": {
           "function": "test319_update_cache_rejects_malformed_cap_urn",
           "description": "TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear.",
-          "location": "src/bifaci/cartridge_repo.rs:2510"
+          "location": "src/bifaci/cartridge_repo.rs:2509"
         },
         "go": {
           "function": "Test319_update_cache_rejects_malformed_cap_urn",
@@ -10344,7 +10344,7 @@
       "canonical": {
         "rust": {
           "function": "test607_media_urns_for_extension_unknown",
-          "description": "TEST607: media_urns_for_extension errors for an unknown extension.",
+          "description": "TEST607: media_urns_for_extension returns error for unknown extension",
           "location": "src/fabric/registry.rs:2624"
         },
         "go": {
@@ -10378,8 +10378,8 @@
       "canonical": {
         "rust": {
           "function": "test608_media_urns_for_extension_populated",
-          "description": "TEST608: media_urns_for_extension returns URNs after a spec with that extension is added; lookup is case-insensitive.",
-          "location": "src/fabric/registry.rs:2633"
+          "description": "TEST608: media_urns_for_extension returns URNs after adding a spec with extensions",
+          "location": "src/fabric/registry.rs:2632"
         },
         "go": {
           "function": "Test608_media_urns_for_extension_populated",
@@ -10413,7 +10413,7 @@
         "rust": {
           "function": "test609_get_extension_mappings",
           "description": "TEST609: get_extension_mappings returns all registered extension\u2192URN pairs.",
-          "location": "src/fabric/registry.rs:2650"
+          "location": "src/fabric/registry.rs:2649"
         },
         "go": {
           "function": "Test609_get_extension_mappings",
@@ -10446,8 +10446,8 @@
       "canonical": {
         "rust": {
           "function": "test610_get_cached_media_def",
-          "description": "TEST610: get_cached_media_def returns None for unknown and Some for known.",
-          "location": "src/fabric/registry.rs:2666"
+          "description": "TEST610: get_cached_spec returns None for unknown and Some for known",
+          "location": "src/fabric/registry.rs:2665"
         },
         "go": {
           "function": "Test610_get_cached_spec",
@@ -10583,8 +10583,8 @@
       "canonical": {
         "rust": {
           "function": "test614_registry_creation",
-          "description": "TEST614: registry test construction succeeds.",
-          "location": "src/fabric/registry.rs:2676"
+          "description": "TEST614: Verify registry creation succeeds and cache directory exists",
+          "location": "src/fabric/registry.rs:2675"
         },
         "go": {
           "function": "Test614_registry_creation",
@@ -10617,8 +10617,8 @@
       "canonical": {
         "rust": {
           "function": "test616_stored_media_def_to_def",
-          "description": "TEST616: StoredMediaDef converts to MediaDef preserving all fields.",
-          "location": "src/fabric/registry.rs:2682"
+          "description": "TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields",
+          "location": "src/fabric/registry.rs:2681"
         },
         "go": {
           "function": "Test616_stored_media_def_to_def",
@@ -10651,8 +10651,8 @@
       "canonical": {
         "rust": {
           "function": "test617_normalize_media_urn",
-          "description": "TEST617: normalize_media_urn produces consistent non-empty results.",
-          "location": "src/fabric/registry.rs:2696"
+          "description": "TEST617: Verify normalize_media_urn produces consistent non-empty results",
+          "location": "src/fabric/registry.rs:2695"
         },
         "go": {
           "function": "Test617_normalize_media_urn",
@@ -19091,7 +19091,7 @@
         "rust": {
           "function": "test908_cached_caps_accessible_when_offline",
           "description": "TEST908: cached caps remain accessible while offline.",
-          "location": "src/fabric/registry.rs:2705"
+          "location": "src/fabric/registry.rs:2704"
         },
         "py": {
           "function": "test_908_cached_caps_accessible_when_offline",
