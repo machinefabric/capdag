@@ -1,8 +1,8 @@
 # Rust Test Catalog
 
-**Total Tests:** 1124
+**Total Tests:** 1137
 
-**Numbered Tests:** 1124
+**Numbered Tests:** 1137
 
 **Unnumbered Tests:** 0
 
@@ -10,7 +10,8 @@
 
 **Numbering Mismatches:** 0
 
-All numbered test numbers are unique.
+**⚠ Duplicate test numbers detected: 1 number(s) used more than once.**
+Unique numbered tests are listed first. Duplicate-number entries are grouped after them and marked with ⚠. Unnumbered tests are listed in their own group.
 
 This catalog lists all tests in the Rust codebase.
 
@@ -929,9 +930,9 @@ This catalog lists all tests in the Rust codebase.
 | test1131 | `test1131_media_documentation_propagates_through_resolve` | TEST1131: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. | src/media/spec.rs:1102 |
 | test1132 | `test1132_media_def_def_documentation_round_trip` | TEST1132: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side. | src/media/spec.rs:1136 |
 | test1133 | `test1133_media_def_def_documentation_lifecycle` | TEST1133: MediaDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body). | src/media/spec.rs:1180 |
-| test1134 | `test1134_all_abstraction_error_variants_are_machine_abstraction_error` | TEST1134: All MachineAbstractionError variants are of type MachineAbstractionError and are convertible to MachineParseError::Resolution. This pins the error hierarchy so a refactor that accidentally changes the type relationship is caught immediately. | src/machine/error.rs:156 |
+| test1134 | `test1134_all_abstraction_error_variants_are_machine_abstraction_error` | TEST1134: All MachineAbstractionError variants are of type MachineAbstractionError and are convertible to MachineParseError::Resolution. This pins the error hierarchy so a refactor that accidentally changes the type relationship is caught immediately. | src/machine/error.rs:163 |
 | test1135 | `test1135_strand_node_urn_returns_media_urn_at_node_id` | TEST1135: MachineStrand::node_urn(id) returns the MediaUrn at that NodeId. For a single-cap strand (pdf → extract → txt), there are exactly two nodes and each returns a valid URN. | src/machine/graph.rs:649 |
-| test1136 | `test1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with an undefined cap alias raises MachineParseError wrapping MachineSyntaxError::UndefinedAlias. This pins the error path so an alias lookup failure is always surfaced as a syntax error (not a resolution error or a panic). | src/machine/parser.rs:832 |
+| test1136 | `test1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with an undefined cap alias raises MachineParseError wrapping MachineSyntaxError::UndefinedAlias. This pins the error path so an alias lookup failure is always surfaced as a syntax error (not a resolution error or a panic). | src/machine/parser.rs:992 |
 | test1137 | `test1137_two_strand_machine_serializes_to_notation_containing_both_ops` | TEST1137: A machine built from two independent strands serializes to a non-empty notation string that contains both op tags. Checks that multi-strand serialization doesn't lose or merge strands. | src/machine/serializer.rs:624 |
 | test1138 | `test1138_assignment_bindings_are_sorted_by_cap_arg_media_urn` | TEST1138: EdgeAssignmentBinding list is sorted by cap_arg_media_urn for canonical form. A two-source cap whose args are added in reverse-alphabetical order must still produce bindings sorted alphabetically by cap_arg_media_urn, enabling canonical comparison regardless of creation order. | src/machine/resolve.rs:1274 |
 | test1139 | `test1139_resolve_inputs_confirmed_delegates_to_detect_file_confirmed` | TEST1139: resolve_inputs_confirmed delegates to detect_file_confirmed and returns the resolved URN for each file. A mock invoker returning a single URN must propagate through to the ResolvedInputSet. | src/input_resolver/resolver.rs:772 |
@@ -942,9 +943,9 @@ This catalog lists all tests in the Rust codebase.
 | test1144 | `test1144_content_structure_helpers_and_display` | TEST1144: ContentStructure is_list/is_record helpers and Display implementation are correct | src/input_resolver/types.rs:284 |
 | test1145 | `test1145_resolved_input_set_uses_equivalent_media_and_file_count_cardinality` | TEST1145: ResolvedInputSet uses URN equivalence for common_media and file count for is_sequence | src/input_resolver/types.rs:296 |
 | test1146 | `test1146_input_resolver_error_display_and_source` | TEST1146: InputResolverError Display and source() implementations produce correct messages | src/input_resolver/types.rs:334 |
-| test1147 | `test1147_machine_syntax_error_display_is_specific` | TEST1147: MachineSyntaxError Display includes position and detail for each variant | src/machine/error.rs:185 |
-| test1148 | `test1148_machine_parse_error_from_syntax_preserves_variant` | TEST1148: MachineParseError::from(MachineSyntaxError) preserves the syntax error variant | src/machine/error.rs:199 |
-| test1149 | `test1149_machine_parse_error_from_resolution_preserves_variant` | TEST1149: MachineParseError::from(MachineAbstractionError) preserves the resolution error variant | src/machine/error.rs:215 |
+| test1147 | `test1147_machine_syntax_error_display_is_specific` | TEST1147: MachineSyntaxError Display includes position and detail for each variant | src/machine/error.rs:192 |
+| test1148 | `test1148_machine_parse_error_from_syntax_preserves_variant` | TEST1148: MachineParseError::from(MachineSyntaxError) preserves the syntax error variant | src/machine/error.rs:206 |
+| test1149 | `test1149_machine_parse_error_from_resolution_preserves_variant` | TEST1149: MachineParseError::from(MachineAbstractionError) preserves the resolution error variant | src/machine/error.rs:222 |
 | test1150 | `test1150_add_cap_and_basic_traversal` | TEST1150: Adding one cap creates one edge and makes its output reachable in one step. | src/planner/live_cap_fab.rs:1412 |
 | test1151 | `test1151_exact_vs_conformance_matching` | TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives. | src/planner/live_cap_fab.rs:1444 |
 | test1152 | `test1152_multi_step_path` | TEST1152: Path finding returns the expected two-cap chain through an intermediate media type. | src/planner/live_cap_fab.rs:1522 |
@@ -958,15 +959,15 @@ This catalog lists all tests in the Rust codebase.
 | test1160 | `test1160_machine_run_new_stores_canonical_notation` | TEST1160: Creating a MachineRun stores the canonical notation and starts in the pending state. | src/machine/graph.rs:745 |
 | test1161 | `test1161_simple_linear_chain_conversion` | TEST1161: Converting a simple linear plan produces resolved edges for the cap-to-cap chain. | src/orchestrator/plan_converter.rs:237 |
 | test1162 | `test1162_heartbeat_frame_with_memory_meta` | TEST1162: Heartbeat frames preserve self-reported memory values stored in metadata. | src/bifaci/frame.rs:1337 |
-| test1163 | `test1163_parse_single_strand_two_caps_connected_via_shared_node` | TEST1163: Parsing one connected strand yields a single machine strand with both caps connected by the shared node. | src/machine/parser.rs:635 |
-| test1164 | `test1164_parse_two_disconnected_strands_yields_two_machine_strands` | TEST1164: Parsing two disconnected strand definitions yields two separate machine strands. | src/machine/parser.rs:657 |
-| test1165 | `test1165_parse_unknown_cap_in_registry_fails_hard` | TEST1165: Parsing fails hard when a referenced cap is missing from the registry cache. | src/machine/parser.rs:706 |
-| test1166 | `test1166_parse_duplicate_alias_is_syntax_error` | TEST1166: Duplicate header aliases are reported as syntax errors. | src/machine/parser.rs:722 |
-| test1167 | `test1167_parse_undefined_alias_is_syntax_error` | TEST1167: Wiring that references an undefined alias is reported as a syntax error. | src/machine/parser.rs:737 |
-| test1168 | `test1168_parse_node_alias_collision_with_header_alias_fails_hard` | TEST1168: Parsing rejects node names that collide with declared cap aliases. | src/machine/parser.rs:751 |
-| test1169 | `test1169_parse_loop_marker_sets_is_loop_on_resolved_edge` | TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step. | src/machine/parser.rs:769 |
-| test1170 | `test1170_parse_then_serialize_round_trips_to_canonical_form` | TEST1170: Parsing and then serializing machine notation round-trips to the canonical form. | src/machine/parser.rs:792 |
-| test1171 | `test1171_parse_empty_notation_is_syntax_error` | TEST1171: Empty machine notation is rejected as a syntax error. | src/machine/parser.rs:819 |
+| test1163 | `test1163_parse_single_strand_two_caps_connected_via_shared_node` | TEST1163: Parsing one connected strand yields a single machine strand with both caps connected by the shared node. | src/machine/parser.rs:795 |
+| test1164 | `test1164_parse_two_disconnected_strands_yields_two_machine_strands` | TEST1164: Parsing two disconnected strand definitions yields two separate machine strands. | src/machine/parser.rs:817 |
+| test1165 | `test1165_parse_unknown_cap_in_registry_fails_hard` | TEST1165: Parsing fails hard when a referenced cap is missing from the registry cache. | src/machine/parser.rs:866 |
+| test1166 | `test1166_parse_duplicate_alias_is_syntax_error` | TEST1166: Duplicate header aliases are reported as syntax errors. | src/machine/parser.rs:882 |
+| test1167 | `test1167_parse_undefined_alias_is_syntax_error` | TEST1167: Wiring that references an undefined alias is reported as a syntax error. | src/machine/parser.rs:897 |
+| test1168 | `test1168_parse_node_alias_collision_with_header_alias_fails_hard` | TEST1168: Parsing rejects node names that collide with declared cap aliases. | src/machine/parser.rs:911 |
+| test1169 | `test1169_parse_loop_marker_sets_is_loop_on_resolved_edge` | TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step. | src/machine/parser.rs:929 |
+| test1170 | `test1170_parse_then_serialize_round_trips_to_canonical_form` | TEST1170: Parsing and then serializing machine notation round-trips to the canonical form. | src/machine/parser.rs:952 |
+| test1171 | `test1171_parse_empty_notation_is_syntax_error` | TEST1171: Empty machine notation is rejected as a syntax error. | src/machine/parser.rs:979 |
 | test1172 | `test1172_serialize_two_step_strand_emits_global_aliases_and_node_names` | TEST1172: Serializing a two-step strand emits the expected aliases and node names. | src/machine/serializer.rs:515 |
 | test1173 | `test1173_serialize_then_parse_round_trip_preserves_strict_equivalence` | TEST1173: Serializing and reparsing a machine preserves strict machine equivalence. | src/machine/serializer.rs:538 |
 | test1174 | `test1174_line_based_format_round_trips_to_same_machine` | TEST1174: The line-based notation format round-trips back to the same machine. | src/machine/serializer.rs:558 |
@@ -1139,12 +1140,40 @@ This catalog lists all tests in the Rust codebase.
 | test1877 | `test1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | src/cartridge_discovery.rs:701 |
 | test1878 | `test1878_bundled_provider_without_baked_hash_is_rejected` | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. | src/cartridge_discovery.rs:722 |
 | test1879 | `test1879_sync_roster_adds_and_removes_registered_dir_live` | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | src/bifaci/host_runtime.rs:5634 |
-| test1880 | `test1880_is_csv_recognizes_ext_csv_and_bare_marker` | TEST1880: is_csv recognizes the CANONICAL published CSV media, which spells the format as the `ext=csv` extension tag — not a bare `csv` marker. Every datacartridge convert-format/collect-records cap declares its CSV media as `media:fmt=csv;list;record` (see MEDIA_CSV), so an is_csv() that only checked the bare marker returned false for real CSV media, collapsing it to a text list and breaking list<->csv conversion with "Unsupported conversion: TextableList -> TextableList". This test pins both accepted spellings and would FAIL against the old marker-only implementation. | src/urn/media_urn.rs:928 |
+| test1881 | `test1881_token_urn_vs_alias_detection` | TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact. | src/fabric/alias.rs:163 |
+| test1882 | `test1882_classify_alias_target_by_prefix` | TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. The typed-boundary enforcement in the registry depends on this. | src/fabric/alias.rs:175 |
+| test1883 | `test1883_cap_position_alias_resolves_to_cap` | TEST1883: a cap-position name with no local header is resolved as a fabric cap alias. The wiring uses `pdf2text` where a cap is expected; it must resolve to the aliased cap URN and produce a one-edge strand whose cap URN is the alias target. A broken resolver would either fail (treating it as undefined) or wire the wrong cap. | src/machine/parser.rs:1035 |
+| test1884 | `test1884_local_header_shadows_cap_alias` | TEST1884: a local header alias shadows a fabric alias of the same name. If `pdf2text` is BOTH a header (bound to one cap) and a registered alias (pointing at another cap), the header wins. This pins the precedence rule: local definitions shadow registry aliases. | src/machine/parser.rs:1051 |
+| test1885 | `test1885_cap_position_alias_to_media_is_error` | TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error — the cap position requires a cap. This proves the type-correct enforcement in notation: a media alias cannot stand in for a cap. | src/machine/parser.rs:1076 |
+| test1886 | `test1886_unregistered_cap_name_is_undefined_alias` | TEST1886: a cap-position name that is neither a local header nor a registered alias still raises UndefinedAlias. The alias mechanism must not mask a genuinely undefined name. | src/machine/parser.rs:1106 |
+| test1887 | `test1887_manifest_serde_round_trips_aliases` | TEST1887: the Manifest type round-trips an `aliases` map through serde. The wire shape (name -> defver) must deserialize into Manifest.aliases and serialize back identically. A regression here would silently drop the alias section from a fetched manifest. | src/fabric/registry.rs:2431 |
+| test1888 | `test1888_resolve_alias_returns_target` | TEST1888: resolve_alias returns the alias target untyped. Seeding a media alias and resolving it yields the media URN; a malformed alias name is rejected before any lookup. | src/fabric/registry.rs:2445 |
+| test1889 | `test1889_resolve_alias_typed_enforces_kind` | TEST1889: resolve_alias_typed enforces the expected kind. A media alias requested as a cap fails hard; requested as media (or untyped) succeeds. This is the typed-boundary contract. | src/fabric/registry.rs:2465 |
+| test1890 | `test1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. | src/fabric/registry.rs:2497 |
+| test1891 | `test1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | src/fabric/registry.rs:2528 |
+| test1892 | `test1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name (not in the manifest, not cached) is a hard NotFound, never a silent empty result. alias_defver_for surfaces the same. This is the "expose issues, no fallback" contract. | src/fabric/registry.rs:2563 |
+| | | | |
+| test1880 ⚠ | `test1880_alias_name_normalization_rules` | TEST1880: alias name normalization lowercases and accepts the allowed character class; rejects colon, whitespace, and out-of-class chars with the right error. A broken validator would let a URN-shaped or whitespace name through, or mangle a valid name. | src/fabric/alias.rs:137 |
+| test1880 ⚠ | `test1880_is_csv_recognizes_ext_csv_and_bare_marker` | TEST1880: is_csv recognizes the CANONICAL published CSV media, which spells the format as the `ext=csv` extension tag — not a bare `csv` marker. Every datacartridge convert-format/collect-records cap declares its CSV media as `media:fmt=csv;list;record` (see MEDIA_CSV), so an is_csv() that only checked the bare marker returned false for real CSV media, collapsing it to a text list and breaking list<->csv conversion with "Unsupported conversion: TextableList -> TextableList". This test pins both accepted spellings and would FAIL against the old marker-only implementation. | src/urn/media_urn.rs:928 |
+
+---
+
+## ⚠ Duplicate Test Numbers
+
+The following test numbers are assigned to more than one function. Keep the first occurrence at the existing number and renumber the rest using the suggested free numbers below.
+
+### test1880 (2 occurrences)
+
+- `test1880_alias_name_normalization_rules` — src/fabric/alias.rs:137
+- `test1880_is_csv_recognizes_ext_csv_and_bare_marker` — src/urn/media_urn.rs:928
+
+**Suggested free number(s):** test1871
+
 ---
 
 *Generated from Rust source tree*
-*Total tests: 1124*
-*Total numbered tests: 1124*
+*Total tests: 1137*
+*Total numbered tests: 1137*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 0*
