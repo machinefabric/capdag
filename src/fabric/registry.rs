@@ -515,12 +515,24 @@ impl FabricRegistry {
         identity.version = self.manifest_version;
         let urn = identity.urn_string();
         // The identity cap is a STANDARD_CAP synthesized in-process from a
-        // fixed definition; its URN is an internal invariant, never user
-        // input. If it fails to parse the build/standard-cap definition is
-        // broken — fail hard rather than cache under a raw key.
-        let normalized_urn = normalize_cap_urn(&urn).unwrap_or_else(|e| {
-            panic!("BUG: malformed URN reached ensure_identity_cap: {}", e)
-        });
+        // fixed definition, so its URN should always parse. If it ever does
+        // not, that is a build-time defect in the standard-cap definition — but
+        // we surface it as a loud error and skip caching the identity cap
+        // rather than panic. A bad URN must never crash registry construction
+        // (and the whole app with it); downstream identity resolution will then
+        // fail with its own clean, handled error instead.
+        let normalized_urn = match normalize_cap_urn(&urn) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::error!(
+                    target: "capdag::fabric::registry",
+                    urn = %urn, error = %e,
+                    "ensure_identity_cap: the standard identity cap URN does not parse; \
+                     identity cap will not be cached (this is a standard-cap definition bug)"
+                );
+                return;
+            }
+        };
         if let Ok(mut cached_caps) = self.cached_caps.lock() {
             if !cached_caps.contains_key(&normalized_urn) {
                 cached_caps.insert(normalized_urn.clone(), identity);
@@ -964,14 +976,23 @@ impl FabricRegistry {
 
     /// Synchronous cap lookup that warms its own cache. See module docs.
     pub fn get_cached_cap(&self, urn: &str) -> Option<Cap> {
-        // Callers reach this latency-critical sync path with the string form
-        // of an already-parsed typed `CapUrn` (e.g. `edge.cap_urn.to_string()`).
-        // A typed URN cannot serialize to something unparseable; if it does,
-        // upstream typed-URN construction is corrupt — fail hard rather than
-        // miscategorize a malformed URN as a benign cache miss (`None`).
-        let normalized_urn = normalize_cap_urn(urn).unwrap_or_else(|e| {
-            panic!("BUG: malformed URN reached get_cached_cap: {}", e)
-        });
+        // A malformed URN cannot be in the cache and cannot be fetched, so it
+        // resolves to `None` — the same graceful "not available" outcome this
+        // method already returns for a cache miss, a fetch error, or a deadline.
+        // We log it (it usually signals an upstream bug passing a non-canonical
+        // string) but never panic: this is a latency-critical lookup reached
+        // from many call sites, and a bad URN must degrade, not crash the app.
+        let normalized_urn = match normalize_cap_urn(urn) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(
+                    target: "capdag::fabric::registry",
+                    urn = %urn, error = %e,
+                    "get_cached_cap received a malformed URN; treating as not found"
+                );
+                return None;
+            }
+        };
         if let Some(cap) = self
             .cached_caps
             .lock()
@@ -1047,12 +1068,21 @@ impl FabricRegistry {
     /// for asynchronous cache hydration and rely on cache revision events to
     /// retry graph admission.
     pub fn get_cached_cap_in_memory(&self, urn: &str) -> Option<Cap> {
-        // Same invariant as `get_cached_cap`: input is the string form of a
-        // typed `CapUrn`. A parse failure here is a corrupt typed URN upstream,
-        // not a cache miss — fail hard.
-        let normalized_urn = normalize_cap_urn(urn).unwrap_or_else(|e| {
-            panic!("BUG: malformed URN reached get_cached_cap_in_memory: {}", e)
-        });
+        // A malformed URN is not in the in-memory cache — return `None`, the
+        // same graceful outcome as a cache miss. Log it (it usually means an
+        // upstream bug handed us a non-canonical string) but never panic; this
+        // is a latency-critical planner path that must degrade, not crash.
+        let normalized_urn = match normalize_cap_urn(urn) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(
+                    target: "capdag::fabric::registry",
+                    urn = %urn, error = %e,
+                    "get_cached_cap_in_memory received a malformed URN; treating as not found"
+                );
+                return None;
+            }
+        };
         self.cached_caps
             .lock()
             .ok()
@@ -1061,12 +1091,20 @@ impl FabricRegistry {
 
     /// Request asynchronous hydration of a cap definition without waiting.
     pub fn request_cap_cache_hydration(&self, urn: &str) {
-        // The sole caller has already parsed this URN with `CapUrn::from_string`
-        // before requesting hydration; a parse failure here is therefore an
-        // upstream invariant violation, not a recoverable condition — fail hard.
-        let normalized_urn = normalize_cap_urn(urn).unwrap_or_else(|e| {
-            panic!("BUG: malformed URN reached request_cap_cache_hydration: {}", e)
-        });
+        // A malformed URN cannot be hydrated — there is nothing to enqueue, so
+        // this is a graceful no-op (with a warning). Never panic: hydration is
+        // a best-effort background request and a bad URN must not crash the app.
+        let normalized_urn = match normalize_cap_urn(urn) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(
+                    target: "capdag::fabric::registry",
+                    urn = %urn, error = %e,
+                    "request_cap_cache_hydration received a malformed URN; nothing to hydrate"
+                );
+                return;
+            }
+        };
         if let Ok(defver) = self.cap_defver(&normalized_urn) {
             self.enqueue_for_background_fetch(FetchKey::Cap {
                 urn: normalized_urn,
@@ -1115,13 +1153,22 @@ impl FabricRegistry {
         if let Ok(mut cached_caps) = self.cached_caps.lock() {
             for mut cap in caps {
                 let urn = cap.urn_string();
-                // `urn` is the serialized form of this `Cap`'s own typed URN;
-                // it must round-trip. A parse failure means the in-memory `Cap`
-                // is structurally corrupt — fail hard rather than cache under a
-                // raw key.
-                let normalized_urn = normalize_cap_urn(&urn).unwrap_or_else(|e| {
-                    panic!("BUG: malformed URN reached add_caps_to_cache: {}", e)
-                });
+                // `urn` is the serialized form of this `Cap`'s own typed URN, so
+                // it should round-trip. If it doesn't, the `Cap` is structurally
+                // corrupt: skip it (with a warning) rather than cache it under a
+                // raw, unresolvable key — and never panic, so one bad cap in a
+                // batch can't crash the app or drop the rest of the batch.
+                let normalized_urn = match normalize_cap_urn(&urn) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "capdag::fabric::registry",
+                            urn = %urn, error = %e,
+                            "add_caps_to_cache skipping a cap whose URN does not parse"
+                        );
+                        continue;
+                    }
+                };
                 if cap.version == 0 && pin >= 1 {
                     cap.version = pin;
                 }
@@ -1201,12 +1248,22 @@ impl FabricRegistry {
 
     /// Synchronous media-def lookup that warms its own cache.
     pub fn get_cached_media_def(&self, urn: &str) -> Option<StoredMediaDef> {
-        // Latency-critical sync path; callers pass the string form of a typed
-        // `MediaUrn`. A parse failure is an upstream typed-URN corruption, not a
-        // cache miss — fail hard rather than return a misleading `None`.
-        let normalized = normalize_media_urn(urn).unwrap_or_else(|e| {
-            panic!("BUG: malformed URN reached get_cached_media_def: {}", e)
-        });
+        // A malformed URN cannot be in the cache and cannot be fetched, so it
+        // resolves to `None` — the same graceful "not available" outcome as a
+        // cache miss. Log it (it usually means an upstream bug passed a
+        // non-canonical string) but never panic: this latency-critical lookup
+        // must degrade, not crash the app.
+        let normalized = match normalize_media_urn(urn) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(
+                    target: "capdag::fabric::registry",
+                    urn = %urn, error = %e,
+                    "get_cached_media_def received a malformed URN; treating as not found"
+                );
+                return None;
+            }
+        };
         if let Some(spec) = self
             .cached_media_defs
             .lock()
@@ -1326,12 +1383,23 @@ impl FabricRegistry {
     /// version (same "test forgot to set it" handling as
     /// `add_caps_to_cache`).
     pub fn insert_cached_media_def_for_test(&self, mut spec: StoredMediaDef) {
-        // `spec.urn` is the canonical URN of the media def being inserted; if it
-        // does not parse the fixture is structurally invalid — fail hard rather
-        // than cache under a raw key.
-        let normalized = normalize_media_urn(&spec.urn).unwrap_or_else(|e| {
-            panic!("BUG: malformed URN reached insert_cached_media_def_for_test: {}", e)
-        });
+        // `spec.urn` is the canonical URN of the media def being inserted. If it
+        // does not parse, skip the insert (with a warning) rather than cache it
+        // under a raw, unresolvable key — and never panic, so a malformed
+        // fixture surfaces as the test failing on the missing def, and a bad URN
+        // can never crash this `pub` method's (technically production-reachable)
+        // caller.
+        let normalized = match normalize_media_urn(&spec.urn) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(
+                    target: "capdag::fabric::registry",
+                    urn = %spec.urn, error = %e,
+                    "insert_cached_media_def_for_test skipping a media def whose URN does not parse"
+                );
+                return;
+            }
+        };
         let pin = self.manifest_version;
         if spec.version == 0 && pin >= 1 {
             spec.version = pin;
