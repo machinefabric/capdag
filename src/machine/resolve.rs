@@ -1315,4 +1315,41 @@ mod tests {
             slot_urns
         );
     }
+
+    // TEST1308: A wiring set that feeds a cap's output back into an ancestor
+    // forms a cycle and must fail hard with CyclicMachineStrand carrying the
+    // strand index. Cycle: node 0 → cap A → node 1 → cap B → node 0.
+    #[test]
+    fn test1308_cyclic_strand_fails_hard() {
+        let urn_a = "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8;ext=txt\"";
+        let urn_b = "cap:in=\"media:enc=utf-8;ext=txt\";op-b;out=\"media:ext=pdf\"";
+        let cap_a = build_cap(urn_a, "op_a", &["media:ext=pdf"], "media:enc=utf-8;ext=txt");
+        let cap_b = build_cap(urn_b, "op_b", &["media:enc=utf-8;ext=txt"], "media:ext=pdf");
+        let registry = registry_with(vec![cap_a, cap_b]);
+
+        let nodes = vec![media("media:ext=pdf"), media("media:enc=utf-8;ext=txt")];
+        // node 0 -> cap_a -> node 1  and  node 1 -> cap_b -> node 0 (cycle)
+        let wirings = vec![
+            PreInternedWiring {
+                cap_urn: CapUrn::from_string(urn_a).unwrap(),
+                source_node_ids: vec![0],
+                target_node_id: 1,
+                is_loop: false,
+            },
+            PreInternedWiring {
+                cap_urn: CapUrn::from_string(urn_b).unwrap(),
+                source_node_ids: vec![1],
+                target_node_id: 0,
+                is_loop: false,
+            },
+        ];
+
+        let err = resolve_pre_interned(nodes, &wirings, &registry, 5).unwrap_err();
+        match err {
+            MachineAbstractionError::CyclicMachineStrand { strand_index } => {
+                assert_eq!(strand_index, 5);
+            }
+            other => panic!("expected CyclicMachineStrand, got {other:?}"),
+        }
+    }
 }

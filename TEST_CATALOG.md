@@ -1,8 +1,8 @@
 # CapDag (Rust) Test Catalog
 
-**Total Tests:** 1137
+**Total Tests:** 1146
 
-**Numbered Tests:** 1137
+**Numbered Tests:** 1146
 
 **Unnumbered Tests:** 0
 
@@ -161,6 +161,7 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test0144 | `test0144_no_handler_returns_err` | TEST0144: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | src/bifaci/in_process_host.rs:1159 |
 | test0145 | `test0145_manifest_includes_all_caps` | TEST0145: InProcessCartridgeHost manifest includes identity cap and handler caps | src/bifaci/in_process_host.rs:1198 |
 | test0146 | `test0146_identity_verification_multiple_cartridges` | TEST0146: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed. | src/bifaci/integration_tests.rs:1496 |
+| test147 | `test147_registry_for_test_with_custom_config` | TEST147: a registry built for test with a custom config carries that config. | src/fabric/registry.rs:2611 |
 | test148 | `test148_cap_manifest_creation` | TEST148: Manifest creation with cap groups | src/bifaci/manifest.rs:264 |
 | test149 | `test149_cap_manifest_with_author` | TEST149: Author field | src/bifaci/manifest.rs:392 |
 | test150 | `test150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | src/bifaci/manifest.rs:415 |
@@ -549,9 +550,16 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test603 | `test603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | src/cap/response.rs:285 |
 | test605 | `test605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | src/standard/caps.rs:1191 |
 | test606 | `test606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | src/standard/caps.rs:1219 |
+| test607 | `test607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension errors for an unknown extension. | src/fabric/registry.rs:2624 |
+| test608 | `test608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after a spec with that extension is added; lookup is case-insensitive. | src/fabric/registry.rs:2633 |
+| test609 | `test609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension→URN pairs. | src/fabric/registry.rs:2650 |
+| test610 | `test610_get_cached_media_def` | TEST610: get_cached_media_def returns None for unknown and Some for known. | src/fabric/registry.rs:2666 |
 | test611 | `test611_insert_schema_populates_cache` | TEST611: insert_schema is the production seam for non-HTTP schema injection. It must persist to the in-memory cache so subsequent schema_exists/validate calls succeed without network access. | src/media/profile.rs:662 |
 | test612 | `test612_clear_cache` | TEST612: clear_cache empties the in-memory cache for seeded schemas. | src/media/profile.rs:700 |
 | test613 | `test613_validate_cached` | TEST613: validate_cached validates against cached standard schemas | src/media/profile.rs:717 |
+| test614 | `test614_registry_creation` | TEST614: registry test construction succeeds. | src/fabric/registry.rs:2676 |
+| test616 | `test616_stored_media_def_to_def` | TEST616: StoredMediaDef converts to MediaDef preserving all fields. | src/fabric/registry.rs:2682 |
+| test617 | `test617_normalize_media_urn` | TEST617: normalize_media_urn produces consistent non-empty results. | src/fabric/registry.rs:2696 |
 | test618 | `test618_registry_creation` | TEST618: Verify profile schema registry creation succeeds with temp cache | src/media/profile.rs:517 |
 | test619 | `test619_fresh_registry_cache_is_empty` | TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema. | src/media/profile.rs:526 |
 | test620 | `test620_string_validation` | TEST620: Verify string schema validates strings and rejects non-strings | src/media/profile.rs:539 |
@@ -789,6 +797,7 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test904 | `test904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | src/bifaci/frame.rs:1744 |
 | test905 | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:4879 |
 | test906 | `test906_full_path_identity_verification` | TEST906: Full path identity verification: engine → host (attach_cartridge) → cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests. | src/bifaci/integration_tests.rs:1350 |
+| test908 | `test908_cached_caps_accessible_when_offline` | TEST908: cached caps remain accessible while offline. | src/fabric/registry.rs:2705 |
 | test910 | `test910_map_progress_monotonic` | TEST910: map_progress output is monotonic for monotonically increasing input | src/orchestrator/executor.rs:1734 |
 | test911 | `test911_map_progress_bounded` | TEST911: map_progress output is bounded within [base, base+weight] | src/orchestrator/executor.rs:1752 |
 | test912 | `test912_progress_mapper_reports_through_parent` | TEST912: ProgressMapper correctly maps through a CapProgressFn | src/orchestrator/executor.rs:1773 |
@@ -1156,8 +1165,8 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 ---
 
 *Generated from CapDag (Rust) source tree*
-*Total tests: 1137*
-*Total numbered tests: 1137*
+*Total tests: 1146*
+*Total numbered tests: 1146*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 0*
