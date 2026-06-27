@@ -8,7 +8,7 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
 
 | Mirror | Numbered tests |
 |---|---|
-| rust | 1146 |
+| rust | 1148 |
 | go | 943 |
 | py | 1023 |
 | js | 348 |
@@ -16,13 +16,13 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
 
 ## Summary
 
-- Distinct numbered tests across all mirrors: **1250**
+- Distinct numbered tests across all mirrors: **1246**
 - Shared (in ≥2 mirrors): **1077**
-- Solo (in exactly 1 mirror): **173**
-  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **144**
+- Solo (in exactly 1 mirror): **169**
+  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **140**
   - …already in the 8000+ impl-specific range (correctly placed): **29**
-- Shared numbers with a parity gap (missing from ≥1 mirror): **781**
-- Shared numbers with divergent descriptions: **540**
+- Shared numbers with a parity gap (missing from ≥1 mirror): **784**
+- Shared numbers with divergent descriptions: **541**
 - Within-mirror duplicate numbers: **0**
 
 ---
@@ -67,7 +67,6 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test896 | objc | `test896_fullPathEngineReqToCartridgeResponse` | TEST896: All cap input media defs that represent user files must have extensions. These are the entry points — the file types users can right-click on. | Tests/BifaciTests/IntegrationTests.swift:636 |
 | test897 | objc | `test897_cartridgeErrorFlowsToEngine` | TEST897: Verify that specific cap output URNs resolve to the correct extension. This catches misconfigurations where a spec exists but has the wrong extension. | Tests/BifaciTests/IntegrationTests.swift:703 |
 | test905 | rust | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:4879 |
-| test906 | rust | `test906_full_path_identity_verification` | TEST906: Full path identity verification: engine → host (attach_cartridge) → cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests. | src/bifaci/integration_tests.rs:1350 |
 | test909 | objc | `test909_map_progress_deterministic` | TEST909: set_offline(false) restores fetch ability (would fail with HTTP error, not NetworkBlocked) | Tests/CapDAGTests/CSProgressMapperTests.m:34 |
 | test916 | rust | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:1904 |
 | test938 | py | `test_938_different_caps_different_hashes` | TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape). | tests/test_registry.py:192 |
@@ -83,11 +82,8 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test1121 | rust | `test1121_cbor_array_file_paths_in_cbor_mode` | TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support) | src/bifaci/cartridge_runtime.rs:7278 |
 | test1122 | rust | `test1122_full_path_engine_req_to_cartridge_response` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | src/bifaci/integration_tests.rs:194 |
 | test1123 | rust | `test1123_cartridge_error_flows_to_engine` | TEST1123: Cartridge ERR frame flows back to engine through relay | src/bifaci/integration_tests.rs:313 |
-| test1124 | rust | `test1124_cbor_rejects_stream_end_without_chunk_count` | TEST1124: CBOR decode REJECTS STREAM_END frame missing chunk_count field | src/bifaci/frame.rs:2368 |
 | test1125 | rust | `test1125_map_progress_basic_mapping` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | src/orchestrator/executor.rs:1705 |
 | test1126 | rust | `test1126_map_progress_deterministic` | TEST1126: map_progress is deterministic — same inputs always produce same output | src/orchestrator/executor.rs:1723 |
-| test1131 | rust | `test1131_media_documentation_propagates_through_resolve` | TEST1131: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. | src/media/spec.rs:1102 |
-| test1132 | rust | `test1132_media_def_def_documentation_round_trip` | TEST1132: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side. | src/media/spec.rs:1136 |
 | test1235 | py | `test_1235_disc_1_plain_text_eliminates_model_specs` | TEST1235: Plain text without model-spec syntax eliminates model-spec TXT candidates. | tests/test_input_resolver.py:421 |
 | test1243 | rust | `test1243_roundtrip_serialize_deserialize` | TEST1243: Cartridge JSON round-trips through serde without losing required fields. | src/bifaci/cartridge_json.rs:508 |
 | test1244 | rust | `test1244_dev_install_omits_optional_fields` | TEST1244: Dev-installed cartridge metadata omits registry-only package fields when serialized. | src/bifaci/cartridge_json.rs:616 |
@@ -191,6 +187,9 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test86 | rust, go, js, objc | py | / The system-prompt URN must be matched BEFORE the textable / catch-all; otherwise the prompt body would be the system / prompt's content and the actual upstream text would be / discarded. This test pins the conformance both ways: system / prompt conforms to textable (so the catch-all WOULD swallow it), / AND system prompt conforms to its own marker (so the dedicated / branch matches when it runs first). |
 | test87 | rust, go, js, objc | py | / The model-spec URN is rich but has its own dedicated branch / because the handler knows the canonical full URN. Verify it / doesn't accidentally conform to any of the parameter patterns / (which would route the model-spec content into a numeric slot). |
 | test99 | rust, go, js, objc | py | TEST099: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=. |
+| test123 | go, py, js, objc | rust | TEST0123: Cap exists |
+| test124 | go, py, js, objc | rust | Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError verifies the ErrNoEdges case. |
+| test146 | go, py, js, objc | rust | TEST146: Test schema URL not overwritten when set explicitly before registry URL |
 | test183 | go, js, objc | rust, py | Test0183_IntegrationMediaUrnResolution verifies media URN resolution |
 | test209 | go, js, objc | rust, py | Test0209_IntegrationMediaDefConstruction verifies media.MediaDef construction |
 | test242 | rust, go, py, objc | js | TEST242: Test CartridgeResponse::Streaming concatenated capacity is pre-allocated correctly for large payloads |
@@ -232,15 +231,15 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test285 | rust, go, py, objc | js | TEST285: Simple request-response flow (REQ → END with payload) |
 | test286 | rust, go, py, objc | js | TEST286: Streaming response with multiple CHUNK frames |
 | test287 | rust, go, py, objc | js | TEST287: Host-initiated heartbeat |
-| test288 | go, objc | rust, py, js | TEST0288: Documentation propagates from MediaDef through ResolveMediaUrn into ResolvedMediaDef. Verifies description and documentation remain distinct. |
-| test289 | go, objc | rust, py, js | TEST0289: MediaDef serializes documentation only when present and round-trips losslessly. When nil, the field must be omitted entirely. |
+| test288 | rust, go, objc | py, js | TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. |
+| test289 | rust, go, objc | py, js | TEST289: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side. |
 | test290 | rust, go, py, objc | js | TEST290: Limit negotiation picks minimum |
 | test291 | rust, go, py, objc | js | TEST291: Binary payload roundtrip (all 256 byte values) |
 | test292 | rust, go, py, objc | js | TEST292: Sequential requests get distinct MessageIds |
 | test293 | rust, go, py, objc | js | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN |
 | test299 | rust, go, py, objc | js | TEST299: Empty payload request/response roundtrip |
 | test300 | rust, py, objc | go, js | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. |
-| test301 | py, objc | rust, go, js | TEST301: Walking both channels produces release entries first. |
+| test301 | rust, py, objc | go, js | TEST301: transform_to_cartridge_array walks both channels and emits release-channel entries before nightly-channel entries. |
 | test319 | rust, go, py, objc | js | TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. |
 | test336 | rust, go, py, objc | js | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler |
 | test337 | rust, go, py, objc | js | TEST337: file-path arg without stdin source passes path as string (no conversion) |
@@ -359,8 +358,8 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test486 | rust, py, objc | go, js | TEST486: attach_cartridge rejects cartridge that fails identity verification |
 | test487 | rust, py, objc | go, js | TEST487: RelaySwitch construction verifies identity through relay chain |
 | test488 | rust, py, objc | go, js | TEST488: RelaySwitch construction fails when master's identity verification fails |
-| test489 | py, objc | rust, go, js | TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge |
-| test490 | py, objc | rust, go, js | TEST490: Identity verification with multiple cartridges through single relay |
+| test489 | rust, py, objc | go, js | TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests. |
+| test490 | rust, py, objc | go, js | TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed. |
 | test491 | rust, go, py, objc | js | TEST491: Frame::chunk constructor requires and sets chunk_index and checksum |
 | test492 | rust, go, py, objc | js | TEST492: Frame::stream_end constructor requires and sets chunk_count |
 | test493 | rust, go, py, objc | js | TEST493: compute_checksum produces correct FNV-1a hash for known test vectors |
@@ -706,7 +705,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test902 | rust, py, objc | go, js | TEST902: Verify FNV-1a checksum handles empty data |
 | test903 | rust, py, objc | go, js | TEST903: Verify CHUNK frame can store chunk_index and checksum fields |
 | test904 | rust, py, objc | go, js | TEST904: Verify STREAM_END frame can store chunk_count field |
-| test907 | py, objc | rust, go, js | TEST907: Offline flag blocks fetch_from_registry without making HTTP request |
+| test907 | rust, py, objc | go, js | TEST907: CBOR decode REJECTS STREAM_END frame missing chunk_count field |
 | test908 | rust, py, objc | go, js | TEST908: cached caps remain accessible while offline. |
 | test910 | rust, objc | go, py, js | TEST910: map_progress output is monotonic for monotonically increasing input |
 | test911 | rust, objc | go, py, js | TEST911: map_progress output is bounded within [base, base+weight] |
@@ -934,11 +933,11 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1291 | rust, go, py | js, objc | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. The ForEach/Collect edges must not block round-trip discovery. |
 | test1292 | rust, go, py | js, objc | TEST1292: BFS and IDDFS agree that round-trip targets exist. If BFS says target X is reachable from source X, IDDFS must find at least one path. |
 | test1293 | rust, go, py | js, objc | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. Identity-only round trips (no real transformation) must be excluded. |
-| test1294 | go, py, js | rust, objc | TEST1294: RULE11 - void-input cap with stdin source rejected |
-| test1295 | go, py, js | rust, objc | TEST1295: RULE11 - non-void-input cap without stdin source rejected |
+| test1294 | rust, go, py, js | objc | TEST1294: RULE11 - void-input cap with stdin source rejected |
+| test1295 | rust, go, py, js | objc | TEST1295: RULE11 - non-void-input cap without stdin source rejected |
 | test1296 | rust, go, py, js | objc | TEST1296: RULE11 - void-input cap with only cli_flag sources passes |
 | test1297 | rust, go, py, js | objc | TEST1297: RULE11 - non-void-input cap with stdin source passes |
-| test1308 | py, js | rust, go, objc | TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError. |
+| test1308 | rust, py, js | go, objc | TEST1308: A wiring set that feeds a cap's output back into an ancestor forms a cycle and must fail hard with CyclicMachineStrand carrying the strand index. Cycle: node 0 → cap A → node 1 → cap B → node 0. |
 | test1500 | rust, objc | go, py, js | / TEST1500: The default central registry's URL hashes to a stable, / pre-computed slug. If this value ever changes silently it means / either the encoding rule shifted or the hashing algorithm / changed — either way every installed cartridge would land in / the wrong directory and stop being discovered. The slug is / pinned as a literal so a regression is loud. |
 | test1501 | rust, objc | go, py, js | / TEST1501: `None` (dev cartridge) maps to the literal `dev` and / never to a hex slug. The dev sentinel must remain / distinguishable from registry slugs by length alone — no / caller should ever hash the string "dev" to get this value. |
 | test1502 | rust, objc | go, py, js | / TEST1502: The URL is treated as raw bytes — adding a trailing / slash, changing case, or appending a query string yields a / different slug. Proves we are not normalizing the URL behind / the operator's back; if they typed two URLs that look "the / same" but differ byte-wise, those are two distinct registries. |
@@ -1459,7 +1458,6 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test123
 
-- **rust**: TEST0123: RULE11 - void-input cap with stdin source rejected
 - **go**: TEST0123: Cap exists
 - **py**: TEST123: Test adding caps to the registry cache and retrieving them
 - **js**: TEST0123: Machine line based loop
@@ -1467,7 +1465,6 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test124
 
-- **rust**: TEST0124: RULE11 - non-void-input cap without stdin source rejected
 - **go**: Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError verifies the ErrNoEdges case.
 - **py**: TEST124: Test registry configuration builder sets registry and schema URLs
 - **js**: TEST0124: Machine line based fan in
@@ -1643,7 +1640,6 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test146
 
-- **rust**: TEST0146: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed.
 - **go**: TEST146: Test schema URL not overwritten when set explicitly before registry URL
 - **py**: TEST146: Test schema URL not overwritten when set explicitly before registry URL
 - **js**: --- Machine serializer tests (mirrors serializer.rs tests) ---
@@ -2520,11 +2516,13 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test288
 
+- **rust**: TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere.
 - **go**: TEST0288: Documentation propagates from MediaDef through ResolveMediaUrn into ResolvedMediaDef. Verifies description and documentation remain distinct.
 - **objc**: TEST_WILDCARD_003: cap:out collapses to the same illegal bare top form
 
 ### test289
 
+- **rust**: TEST289: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side.
 - **go**: TEST0289: MediaDef serializes documentation only when present and round-trips losslessly. When nil, the field must be omitted entirely.
 - **objc**: TEST_WILDCARD_004: cap:in;out collapses to the same illegal bare top form
 
@@ -2536,6 +2534,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test301
 
+- **rust**: TEST301: transform_to_cartridge_array walks both channels and emits release-channel entries before nightly-channel entries.
 - **py**: TEST301: Walking both channels produces release entries first.
 - **objc**: TEST_WILDCARD_011: Specificity - wildcard has 0, specific has tag count
 
@@ -2911,11 +2910,13 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test489
 
+- **rust**: TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests.
 - **py**: TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge
 - **objc**: TEST489: add_master dynamically connects new host to running switch
 
 ### test490
 
+- **rust**: TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed.
 - **py**: TEST490: Identity verification with multiple cartridges through single relay
 - **objc**: TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed.
 
@@ -3845,6 +3846,12 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.
 - **js**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact-value tag (e.g. ext=png) scores 4.
 
+### test907
+
+- **rust**: TEST907: CBOR decode REJECTS STREAM_END frame missing chunk_count field
+- **py**: TEST907: Offline flag blocks fetch_from_registry without making HTTP request
+- **objc**: TEST907: Offline flag blocks fetch_from_registry without making HTTP request
+
 ### test908
 
 - **rust**: TEST908: cached caps remain accessible while offline.
@@ -4409,6 +4416,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test1308
 
+- **rust**: TEST1308: A wiring set that feeds a cap's output back into an ancestor forms a cycle and must fail hard with CyclicMachineStrand carrying the strand index. Cycle: node 0 → cap A → node 1 → cap B → node 0.
 - **py**: TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError.
 - **js**: TEST1308: builder rejects structural keys on tag/marker
 
@@ -4887,8 +4895,8 @@ _None._
 | test120 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test121 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test122 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test123 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test124 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test123 | shared | · | ✓ | ✓ | ✓ | ✓ | shared |
+| test124 | shared | · | ✓ | ✓ | ✓ | ✓ | shared |
 | test125 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test126 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test127 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
@@ -4910,7 +4918,7 @@ _None._
 | test143 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test144 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test145 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test146 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test146 | shared | · | ✓ | ✓ | ✓ | ✓ | shared |
 | test147 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test148 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test149 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
@@ -5052,8 +5060,8 @@ _None._
 | test285 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test286 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test287 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test288 | shared | · | ✓ | · | · | ✓ | shared |
-| test289 | shared | · | ✓ | · | · | ✓ | shared |
+| test288 | shared | ✓ | ✓ | · | · | ✓ | shared |
+| test289 | shared | ✓ | ✓ | · | · | ✓ | shared |
 | test290 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test291 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test292 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -5065,7 +5073,7 @@ _None._
 | test298 | shared | · | · | · | · | ✓ | solo |
 | test299 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test300 | shared | ✓ | · | ✓ | · | ✓ | shared |
-| test301 | shared | · | · | ✓ | · | ✓ | shared |
+| test301 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test302 | shared | · | · | · | · | ✓ | solo |
 | test303 | shared | · | · | · | · | ✓ | solo |
 | test304 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
@@ -5227,8 +5235,8 @@ _None._
 | test486 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test487 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test488 | shared | ✓ | · | ✓ | · | ✓ | shared |
-| test489 | shared | · | · | ✓ | · | ✓ | shared |
-| test490 | shared | · | · | ✓ | · | ✓ | shared |
+| test489 | shared | ✓ | · | ✓ | · | ✓ | shared |
+| test490 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test491 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test492 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test493 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -5585,8 +5593,7 @@ _None._
 | test903 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test904 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test905 | shared | ✓ | · | · | · | · | solo |
-| test906 | shared | ✓ | · | · | · | · | solo |
-| test907 | shared | · | · | ✓ | · | ✓ | shared |
+| test907 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test908 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test909 | shared | · | · | · | · | ✓ | solo |
 | test910 | shared | ✓ | · | · | · | ✓ | shared |
@@ -5721,15 +5728,12 @@ _None._
 | test1121 | shared | ✓ | · | · | · | · | solo |
 | test1122 | shared | ✓ | · | · | · | · | solo |
 | test1123 | shared | ✓ | · | · | · | · | solo |
-| test1124 | shared | ✓ | · | · | · | · | solo |
 | test1125 | shared | ✓ | · | · | · | · | solo |
 | test1126 | shared | ✓ | · | · | · | · | solo |
 | test1127 | shared | ✓ | ✓ | · | · | · | shared |
 | test1128 | shared | ✓ | ✓ | · | · | · | shared |
 | test1129 | shared | ✓ | ✓ | · | · | · | shared |
 | test1130 | shared | ✓ | ✓ | · | · | · | shared |
-| test1131 | shared | ✓ | · | · | · | · | solo |
-| test1132 | shared | ✓ | · | · | · | · | solo |
 | test1133 | shared | ✓ | ✓ | · | · | · | shared |
 | test1134 | shared | ✓ | · | ✓ | · | · | shared |
 | test1135 | shared | ✓ | · | ✓ | · | · | shared |
@@ -5853,8 +5857,8 @@ _None._
 | test1291 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1292 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1293 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1294 | shared | · | ✓ | ✓ | ✓ | · | shared |
-| test1295 | shared | · | ✓ | ✓ | ✓ | · | shared |
+| test1294 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test1295 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test1296 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test1297 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test1298 | shared | · | · | · | ✓ | · | solo |
@@ -5865,7 +5869,7 @@ _None._
 | test1305 | shared | · | · | · | ✓ | · | solo |
 | test1306 | shared | · | · | · | ✓ | · | solo |
 | test1307 | shared | · | · | · | ✓ | · | solo |
-| test1308 | shared | · | · | ✓ | ✓ | · | shared |
+| test1308 | shared | ✓ | · | ✓ | ✓ | · | shared |
 | test1309 | shared | · | · | ✓ | · | · | solo |
 | test1310 | shared | · | · | ✓ | · | · | solo |
 | test1311 | shared | · | · | ✓ | · | · | solo |
