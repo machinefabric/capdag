@@ -3096,14 +3096,14 @@ mod tests {
         (reader, writer)
     }
 
-    // TEST480: parse_cap_groups_from_manifest classifies failures by kind
+    // TEST6600: parse_cap_groups_from_manifest classifies failures by kind
     //
     // Manifest JSON that parses but lacks CAP_IDENTITY is `Incompatible`
     // (schema-rejected). Manifest bytes that don't parse as CapManifest are
     // `ManifestInvalid` (JSON-level failure). The split lets the host's
     // attachment-error reporter surface the right kind to the UI.
     #[test]
-    fn test480_parse_cap_groups_rejects_manifest_without_identity() {
+    fn test6600_parse_cap_groups_rejects_manifest_without_identity() {
         // JSON-valid manifest, missing CAP_IDENTITY → Incompatible.
         let manifest = r#"{"name":"Test","version":"1.0","channel":"release","registry_url":null,"description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\"media:void\";convert;out=\"media:void\"","title":"Test","command":"test","args":[]}],"adapter_urns":[]}]}"#;
         let result = parse_cap_groups_from_manifest(manifest.as_bytes());
@@ -3430,12 +3430,12 @@ mod tests {
         assert!(!runtime.cartridges[0].running);
     }
 
-    // TEST414: aggregate_installed_cartridges() is empty before any
+    // TEST6594: aggregate_installed_cartridges() is empty before any
     // cartridge with a resolvable identity is attached. A binary path
     // that does not exist on disk has no identity (`installed_identity`
     // is `None`) and therefore does not appear in the relay payload.
     #[test]
-    fn test414_capabilities_empty_initially() {
+    fn test6594_capabilities_empty_initially() {
         let runtime = CartridgeHostRuntime::new();
         assert!(
             runtime.aggregate_installed_cartridges().is_empty(),
@@ -4785,12 +4785,12 @@ mod tests {
         cartridge_handle.await.unwrap();
     }
 
-    // TEST661: Cartridge death keeps caps advertised for on-demand respawn.
+    // TEST6623: Cartridge death keeps caps advertised for on-demand respawn.
     // The cartridge's `cap_groups` survive process death, so the host can
     // continue advertising the cartridge's caps and the relay can route
     // a fresh REQ to it (which triggers an on-demand respawn).
     #[tokio::test]
-    async fn test661_cartridge_death_keeps_caps_advertised() {
+    async fn test6623_cartridge_death_keeps_caps_advertised() {
         // Real on-disk file so sha256 hashing succeeds and the cartridge
         // gets a valid installed_identity — required for inventory advertisement.
         let bin_dir = tempfile::tempdir().expect("create temp dir");

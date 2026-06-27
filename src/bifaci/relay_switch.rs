@@ -5422,7 +5422,7 @@ mod tests {
     /// reattach to whichever slot is found first by the linear
     /// scan, leaving the other slot stuck unhealthy forever.
     #[tokio::test]
-    async fn test0135_relay_switch_new_rejects_duplicate_ids() {
+    async fn test6745_relay_switch_new_rejects_duplicate_ids() {
         let (sock_a, _sock_a_other) = UnixStream::pair().unwrap();
         let (sock_b, _sock_b_other) = UnixStream::pair().unwrap();
 
@@ -5741,9 +5741,9 @@ mod tests {
         );
     }
 
-    // TEST0138: All masters ready true when expectation met
+    // TEST6746: All masters ready true when expectation met
     #[tokio::test]
-    async fn test0138_all_masters_ready_true_when_expectation_met() {
+    async fn test6746_all_masters_ready_true_when_expectation_met() {
         // 2 masters connected, 2 expected, both healthy with caps —
         // the only state where readiness should fire.
         let switch = build_switch_with_n_masters(2).await;
