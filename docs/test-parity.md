@@ -8,21 +8,21 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
 
 | Mirror | Numbered tests |
 |---|---|
-| rust | 1162 |
-| go | 1142 |
-| py | 1095 |
+| rust | 1163 |
+| go | 1143 |
+| py | 1096 |
 | js | 348 |
-| objc | 815 |
+| objc | 816 |
 
 ## Summary
 
-- Distinct numbered tests across all mirrors: **1595**
-- Shared (in ≥2 mirrors): **1060**
+- Distinct numbered tests across all mirrors: **1596**
+- Shared (in ≥2 mirrors): **1061**
 - Solo (in exactly 1 mirror): **535**
   - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **505**
   - …already in the 8000+ impl-specific range (correctly placed): **30**
-- Shared numbers with a parity gap (missing from ≥1 mirror): **913**
-- Shared numbers with divergent descriptions: **151**
+- Shared numbers with a parity gap (missing from ≥1 mirror): **914**
+- Shared numbers with divergent descriptions: **150**
 - Within-mirror duplicate numbers: **0**
 
 ---
@@ -52,8 +52,8 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test87 | rust | `test0087_model_spec_does_not_conform_to_any_numeric_parameter` | / The model-spec URN is rich but has its own dedicated branch / because the handler knows the canonical full URN. Verify it / doesn't accidentally conform to any of the parameter patterns / (which would route the model-spec content into a numeric slot). | tests/cap_arg_stream_dispatch.rs:237 |
 | test121 | rust | `test0121_step_title_query_filters_paths_server_side` | TEST0121: Step title query filters paths server side | src/planner/live_cap_fab.rs:2626 |
 | test122 | rust | `test0122_step_title_query_constrains_streaming_progress_counts` | TEST0122: Step title query constrains streaming progress counts | src/planner/live_cap_fab.rs:2668 |
-| test123 | go | `Test0123_CapExists` | TEST0123: Cap exists | cap/registry_test.go:113 |
-| test124 | go | `Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError` | Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError verifies the ErrNoEdges case. | machine/machine_test.go:488 |
+| test123 | go | `Test0123_CapExists` | TEST0123: Cap exists | cap/registry_test.go:115 |
+| test124 | go | `Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError` | Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError verifies the ErrNoEdges case. | machine/machine_test.go:485 |
 | test130 | rust | `test0130_registry_cache_revision_rebuilds_live_cap_fab_without_capability_change` | TEST0130: A cartridge can advertise a cap before the registry cache has finished hydrating that cap's canonical definition. LiveCapFab must retry the already-advertised aggregate capability set when the registry cache later warms; otherwise the cap remains absent from machine selection until an unrelated cartridge reconnect occurs. | src/bifaci/relay_switch.rs:3642 |
 | test131 | rust | `test0131_runtime_identity_probe_required_on_empty_to_nonempty_transition` | TEST0131: When a master initially advertises empty caps (so `add_master` skips the identity probe) and later sends a RelayNotify update with non-empty caps, the relay must run an end-to-end identity probe before the new caps become routable. A master that fails to answer the runtime probe with the expected nonce echo must end up unhealthy with `last_error` populated, and its caps must NOT appear in the cap_table. This test guards the wire-protocol regression where the RelayNotify-update path published caps without re-verifying identity end-to-end. Removing the runtime probe re-introduces the hole; this test fails loudly when that happens. | src/bifaci/relay_switch.rs:4753 |
 | test183 | go | `Test0183_IntegrationMediaUrnResolution` | Test0183_IntegrationMediaUrnResolution verifies media URN resolution | bifaci/integration_test.go:163 |
@@ -78,7 +78,7 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test889 | rust | `test889_execute_single_edge_dag` | TEST889: Execute single-edge DAG (test-edge1) | tests/orchestrator_integration.rs:367 |
 | test905 | rust | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:4879 |
 | test916 | rust | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:1904 |
-| test938 | py | `test_938_different_caps_different_hashes` | TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape). | tests/test_registry.py:213 |
+| test938 | py | `test_938_different_caps_different_hashes` | TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape). | tests/test_registry.py:212 |
 | test943 | rust | `test943_same_media_different_names_is_not_a_cycle` | TEST943: Two nodes with the same media type but different names are two distinct graph positions — NOT a loop. The identity cap has `in = out` by type, so its upstream and downstream node carry the same media URN; this must not collapse them into a self-loop. Node identity comes from the user-written name, not the media URN. | tests/orchestrator_integration.rs:660 |
 | test951 | rust | `test951_fan_in_pattern` | TEST951: Multi-input DAG (fan-in pattern) | tests/orchestrator_integration.rs:577 |
 | test952 | rust | `test952_execute_large_payload` | TEST952: Execute large payload (test-large cap) | tests/orchestrator_integration.rs:524 |
@@ -166,7 +166,7 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6183 | go | `Test6183_OutputValidator_WithSchemaValidation` | TEST6183: Output validator  with schema validation | cap/schema_validation_test.go:356 |
 | test6184 | go | `Test6184_CapValidationCoordinator_EndToEnd` | TEST6184: Cap validation coordinator  end to end | cap/schema_validation_test.go:415 |
 | test6185 | go | `Test6185_FileSchemaResolver_ErrorHandling` | TEST6185: File schema resolver  error handling | cap/schema_validation_test.go:530 |
-| test6186 | go | `Test6186_RegistryGetCap` | TEST136 (deleted): exercised the private `cacheKey` method on the unified FabricRegistry. The on-disk cache filename scheme is an implementation detail of the persistence layer; equivalent observable behavior — that two equivalent URNs land in the same cache slot — is covered by Test140 (`same_cap_different_spellings_same_url`). Rust and Python dropped this; this deletion keeps the Go mirror in parity. | cap/registry_test.go:40 |
+| test6186 | go | `Test6186_RegistryGetCap` | TEST136 (deleted): exercised the private `cacheKey` method on the unified FabricRegistry. The on-disk cache filename scheme is an implementation detail of the persistence layer; equivalent observable behavior — that two equivalent URNs land in the same cache slot — is covered by Test140 (`same_cap_different_spellings_same_url`). Rust and Python dropped this; this deletion keeps the Go mirror in parity. | cap/registry_test.go:42 |
 | test6189 | py | `test_6189_same_cap_different_spellings_same_hash` | TEST6189: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request. | tests/test_registry.py:150 |
 | test6200 | objc | `test6200_csCapManifestWithPageUrl` | MARK: - CSCapManifest With PageUrl Test | Tests/BifaciTests/ManifestTests.swift:277 |
 | test6201 | js | `test6201_emptyCapIsIllegal` | TEST6201: cap: (empty) is the illegal bare top form | capdag.test.js:3010 |
@@ -263,21 +263,21 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6322 | objc | `test6322_BuilderMissingInSpecFails` | TEST6322: Builder missing in spec fails | Tests/CapDAGTests/CSCapUrnBuilderTests.m:111 |
 | test6323 | js | `test6323_Machine_unterminatedBracketFails` | TEST6323: Machine unterminated bracket fails | capdag.test.js:3385 |
 | test6324 | objc | `test6324_BuilderMissingOutSpecFails` | TEST6324: Builder missing out spec fails | Tests/CapDAGTests/CSCapUrnBuilderTests.m:125 |
-| test6325 | go | `Test6325_RegistryValidation` | TEST6325: Registry validation | cap/registry_test.go:54 |
+| test6325 | go | `Test6325_RegistryValidation` | TEST6325: Registry validation | cap/registry_test.go:56 |
 | test6326 | py | `test_6326_max_chunk_plus_one_splits_into_two_chunks` | TEST6326: Test payload of max_chunk + 1 bytes produces exactly two chunks | tests/test_cbor_io.py:795 |
 | test6327 | js | `test6327_Machine_lineBasedSimpleChain` | --- Machine parser line-based mode tests --- | capdag.test.js:3394 |
 | test6328 | objc | `test6328_BuilderEmptyBuildFailsWithMissingInSpec` | TEST6328: Builder empty build fails with missing in spec | Tests/CapDAGTests/CSCapUrnBuilderTests.m:139 |
-| test6329 | go | `Test6329_CacheOperations` | TEST6329: Cache operations | cap/registry_test.go:69 |
+| test6329 | go | `Test6329_CacheOperations` | TEST6329: Cache operations | cap/registry_test.go:71 |
 | test6331 | js | `test6331_Machine_lineBasedTwoStepChain` | TEST6331: Machine line based two step chain | capdag.test.js:3408 |
 | test6332 | objc | `test6332_BuilderTagIgnoresInOut` | TEST6332: Builder tag ignores in out | Tests/CapDAGTests/CSCapUrnBuilderTests.m:149 |
-| test6333 | py | `test_6333_registry_add_caps_to_cache` | TEST6333: Test adding caps to the registry cache and retrieving them | tests/test_registry.py:320 |
+| test6333 | py | `test_6333_registry_add_caps_to_cache` | TEST6333: Test adding caps to the registry cache and retrieving them | tests/test_registry.py:319 |
 | test6334 | js | `test6334_Machine_lineBasedLoop` | TEST6334: Machine line based loop | capdag.test.js:3419 |
 | test6335 | objc | `test6335_BuilderMinimalValid` | TEST6335: Builder minimal valid | Tests/CapDAGTests/CSCapUrnBuilderTests.m:159 |
-| test6336 | py | `test_6336_registry_config_builder_pattern` | TEST6336: Test registry configuration builder sets registry and schema URLs | tests/test_registry.py:334 |
+| test6336 | py | `test_6336_registry_config_builder_pattern` | TEST6336: Test registry configuration builder sets registry and schema URLs | tests/test_registry.py:333 |
 | test6337 | js | `test6337_Machine_lineBasedFanIn` | TEST6337: Machine line based fan in | capdag.test.js:3429 |
 | test6338 | objc | `test6338_BuilderComplex` | TEST6338: Builder complex | Tests/CapDAGTests/CSCapUrnBuilderTests.m:179 |
 | test6339 | go | `Test6339_CapUrn_JSONSerialization` | JSON serialization test (not numbered in Rust) | urn/cap_urn_test.go:1442 |
-| test6340 | py | `test_6340_normalize_urn_with_trailing_semicolon` | TEST6340: normalize_cap_urn strips trailing semicolons, producing the same canonical form with or without a trailing semicolon | tests/test_registry.py:345 |
+| test6340 | py | `test_6340_normalize_urn_with_trailing_semicolon` | TEST6340: normalize_cap_urn strips trailing semicolons, producing the same canonical form with or without a trailing semicolon | tests/test_registry.py:344 |
 | test6341 | js | `test6341_Machine_mixedBracketedAndLineBased` | TEST6341: Machine mixed bracketed and line based | capdag.test.js:3443 |
 | test6342 | objc | `test6342_BuilderWildcards` | TEST6342: Builder wildcards | Tests/CapDAGTests/CSCapUrnBuilderTests.m:221 |
 | test6343 | go | `Test6343_ParseSimple` | Mirror-specific coverage: Test parsing simple media URN verifies correct structure with no version, subtype, or profile | urn/media_urn_test.go:14 |
@@ -360,9 +360,9 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6438 | js | `test6438_Machine_builderWithLoop` | TEST6438: Machine builder with loop | capdag.test.js:3958 |
 | test6439 | js | `test6439_Machine_builderChaining` | TEST6439: Machine builder chaining | capdag.test.js:3971 |
 | test6440 | js | `test6440_Machine_builderEquivalentToParsed` | TEST6440: Machine builder equivalent to parsed | capdag.test.js:3980 |
-| test6441 | objc | `test6441_GetCapDefinitionReal` | TEST6441: Get cap definition real | Tests/CapDAGTests/CSFabricRegistryTests.m:118 |
+| test6441 | objc | `test6441_GetCapDefinitionReal` | TEST6441: Get cap definition real | Tests/CapDAGTests/CSFabricRegistryTests.m:149 |
 | test6442 | js | `test6442_Machine_builderRoundTrip` | TEST6442: Machine builder round trip | capdag.test.js:3993 |
-| test6443 | objc | `test6443_ValidateCapCanonical` | TEST6443: Validate cap canonical | Tests/CapDAGTests/CSFabricRegistryTests.m:139 |
+| test6443 | objc | `test6443_ValidateCapCanonical` | TEST6443: Validate cap canonical | Tests/CapDAGTests/CSFabricRegistryTests.m:170 |
 | test6444 | js | `test6444_Machine_capUrnIsEquivalent` | --- CapUrn.isEquivalent/isComparable tests --- | capdag.test.js:4005 |
 | test6445 | objc | `test6445_SourceWithData` | TEST6445: Source with data | Tests/CapDAGTests/CSStdinSourceTests.m:15 |
 | test6446 | js | `test6446_Machine_capUrnIsComparable` | TEST6446: Machine cap urn is comparable | capdag.test.js:4014 |
@@ -501,7 +501,7 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6645 | go | `Test6645_argument_resolution_string_representations` | TEST6645: Tests ArgumentResolution String() returns correct snake_case names ArgumentInfo.Resolution is serialized to JSON using String(). Verifies that each resolution variant maps to the correct identifier expected by API consumers. | planner/plan_builder_test.go:52 |
 | test6646 | go | `Test6646_analyze_path_arguments_stdin_is_from_input_file` | TEST6646: Tests AnalyzePathArguments classifies stdin arg as FromInputFile for first cap Verifies that the argument analysis correctly identifies input-file arguments when the cap's stdin arg media URN matches the cap's in_spec. | planner/plan_builder_test.go:71 |
 | test6647 | go | `Test6647_analyze_path_arguments_user_input_arg_appears_in_slots` | TEST6647: Tests AnalyzePathArguments puts RequiresUserInput args in slots and sets CanExecuteWithoutInput=false Verifies that caps with non-stdin, non-default arguments are identified as requiring user input, appear in slots, and the requirements reflect that execution cannot proceed without them. | planner/plan_builder_test.go:112 |
-| test6649 | go | `Test6649_rejects_foreach_paired_collect` | TEST6649: PlanToResolvedGraph rejects plans containing ForEach-paired Collect nodes Verifies that Collect nodes without OutputMediaUrn (ForEach-paired) are rejected | orchestrator/orchestrator_test.go:622 |
+| test6649 | go | `Test6649_rejects_foreach_paired_collect` | TEST6649: PlanToResolvedGraph rejects plans containing ForEach-paired Collect nodes Verifies that Collect nodes without OutputMediaUrn (ForEach-paired) are rejected | orchestrator/orchestrator_test.go:628 |
 | test6650 | objc | `test6650_findPathsMultiStep` | TEST6650: Multi-step path through intermediate node | Tests/CapDAGTests/CSLiveCapFabTests.m:153 |
 | test6651 | objc | `test6651_findPathsEmptyWhenNoPath` | TEST6651: Empty when target unreachable | Tests/CapDAGTests/CSLiveCapFabTests.m:175 |
 | test6652 | objc | `test6652_getReachableTargetsAll` | TEST6652: BFS finds multiple direct targets | Tests/CapDAGTests/CSLiveCapFabTests.m:191 |
@@ -522,7 +522,7 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6692 | py | `test_6692_assignment_bindings_sorted_by_slot_urn` | Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form | tests/test_machine.py:633 |
 | test6693 | py | `test_6693_resolve_inputs_confirmed_wraps_detect_file_confirmed` | TEST6693: Resolve inputs confirmed wraps detect file confirmed | tests/test_input_resolver.py:569 |
 | test6698 | py | `test_6698_parse_machine_shared_node_name_yields_one_strand` | TEST6698: Two caps whose wirings share a node name are folded into a single strand with two edges. | tests/test_machine.py:407 |
-| test6700 | go | `Test6700_line_based_format_round_trips` | TEST6700: Line-based notation format round-trips back to the same machine. ToMachineNotationFormatted(NotationFormatLineBased) must not contain '[', and re-parsing must yield an equivalent machine. | machine/machine_test.go:807 |
+| test6700 | go | `Test6700_line_based_format_round_trips` | TEST6700: Line-based notation format round-trips back to the same machine. ToMachineNotationFormatted(NotationFormatLineBased) must not contain '[', and re-parsing must yield an equivalent machine. | machine/machine_test.go:804 |
 | test6703 | py | `test_6703_match_sources_to_args_single_trivial` | TEST6703: Source-to-arg matching: single source picks the unique arg. | tests/test_machine.py:258 |
 | test6709 | py | `test_6709_two_step_chain_shares_intermediate_node` | TEST6709: Resolving a strand with two chained caps shares the intermediate node. | tests/test_machine.py:150 |
 | test6710 | py | `test_6710_resolve_strand_foreach_sets_is_loop_on_next_cap` | TEST6710: A ForEach step immediately preceding a CAP step marks that cap edge as is_loop=True. | tests/test_machine.py:500 |
@@ -1434,6 +1434,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1890 | rust, go, py, objc | js | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. |
 | test1891 | rust, go, py, objc | js | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. |
 | test1892 | rust, go, py, objc | js | TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the "expose issues, no fallback" contract. |
+| test1893 | rust, go, py, objc | js | TEST1893: The on-disk cache root is namespaced per registry origin, so a prod-populated cache can never satisfy a staging lookup (and vice versa). Without this, a `CDG_FABRIC_REGISTRY_URL=staging` run reuses the prod-cached manifest/caps under one shared `capdag/` directory and resolves against the wrong snapshot — the bug that made `--staging` appear not to reach the scenario tests. This pins three properties: distinct origins → distinct roots; same origin → identical root (deterministic, so caching actually hits); and the slug is the same `slug_for` scheme the cartridge registry layout uses. |
 | test6207 | go, objc | rust, py, js | Mirror-specific coverage: Test that concatenated() returns full payload while final_payload() returns only last chunk |
 | test6282 | go, py, js, objc | rust | TEST6282: Test resolving a custom media URN from a registry-seeded media def |
 | test6283 | go, py, js, objc | rust | TEST6283: Test resolving a custom record media def carrying a schema from a registry-seeded media def |
@@ -1486,7 +1487,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 - **rust**: TEST099: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
 - **go**: TEST99: A media def with no enc= tag is not text-representable. The old is_binary/is_text axis is gone; text is identified by the presence of an encoding (HasEncoding), so "binary" is simply the absence of one.
-- **py**: TEST099: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
+- **py**: TEST99: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
 - **js**: TEST99: Test ResolvedMediaDef is_binary returns true when enc tag is absent
 - **objc**: TEST99: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
 
@@ -1531,7 +1532,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 ### test129
 
 - **rust**: / Contract #2 — the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one — / the more dangerous bug because it silently drops / in-flight continuation frames.
-- **go**: TEST129: Contract #2 — the GC drops the OLDEST entries by touch-sequence, not arbitrary keys. Seed a known age distribution and assert the post-GC keyset is exactly what the test computes should survive (test recomputes independently of production code). A regression where the GC e.g. iterates the HashMap and drops the first N (HashMap iteration order is arbitrary in Rust) would still pass contract #1 but fail this one — the more dangerous bug because it silently drops in-flight continuation frames.
+- **go**: TEST129: / Contract #2 — the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one — / the more dangerous bug because it silently drops / in-flight continuation frames.
 - **py**: TEST129: The GC drops the OLDEST entries by touch-sequence, not arbitrary keys; the post-GC keyset is exactly what the test computes should survive.
 - **objc**: / Contract #2 — the GC drops the OLDEST entries by / `touchedAt`, not arbitrary keys. We seed a known age / distribution and recompute the expected victim set / independently of the production code, then assert that / the post-GC table contains exactly the entries the test / computed should survive. / / A regression where the GC e.g. iterates the dictionary and / drops the first N entries (dictionary iteration order is / arbitrary in Swift) would still pass contract #1 but fail / this one — so this is the assertion that catches a "wrong / victims" bug, which is the more dangerous one (silently / drops in-flight continuation frames).
 
@@ -1772,19 +1773,19 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary)
 - **objc**: TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error). Mirrors Rust test415_req_for_known_cap_triggers_spawn: production install layout — versioned cartridge directory with cartridge.json (carrying the channel) plus an entry-point binary that isn't executable, so spawn fails.
 
+### test422
+
+- **rust**: TEST422: Cartridge death sends ERR for all pending requests via relay
+- **go**: TEST422: a cartridge that dies mid-request must not wedge the host — Run() must exit cleanly once the cartridge is gone and the relay disconnects. Mirrors the Rust reference test (host_runtime.rs test422_cartridge_death_sends_err_for_pending_requests): the engine sends REQ+END then drops the relay connection (in real use it would time out the pending request); the contract under test is that the runtime tears down gracefully rather than blocking forever on a response the dead cartridge will never send. Delivery of the CARTRIDGE_DIED ERR to the engine is best-effort and NOT guaranteed before teardown, so asserting its receipt would over-specify beyond the reference contract.
+- **py**: TEST422: Cartridge death sends ERR for all pending requests via relay
+- **objc**: TEST422: Cartridge death sends ERR for all pending requests via relay
+
 ### test435
 
 - **rust**: TEST435: URN matching (exact vs accepts())
 - **go**: TEST435: URN matching (exact vs accepts())
 - **py**: TEST435: URN matching (exact vs accepts())
 - **objc**: TEST435: URN matching (exact vs accepts()) Dispatch is contravariant on input (request input must conform to provider input — i.e. request can be more specific) and covariant on output (provider output must conform to request output — i.e. provider can be more specific). A request whose input is in a different type family than any registered provider has no handler.
-
-### test487
-
-- **rust**: TEST487: RelaySwitch construction verifies identity through relay chain
-- **go**: TEST487: RelaySwitch construction succeeds when master's identity verification passes
-- **py**: TEST487: RelaySwitch construction verifies identity through relay chain
-- **objc**: TEST487: RelaySwitch construction verifies identity through relay chain
 
 ### test489
 
@@ -1995,20 +1996,6 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **js**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.
 - **objc**: TEST891: Semantic direction specificity - more media URN tags = higher specificity (mirror-local variant of TEST052)
 
-### test915
-
-- **rust**: TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding.
-- **go**: TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding.
-- **py**: TEST915: Per-group subdivision produces monotonic, bounded progress for N groups
-- **objc**: TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding.
-
-### test917
-
-- **rust**: TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded)
-- **go**: TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded)
-- **py**: TEST917: High-frequency progress emission does not violate bounds
-- **objc**: TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded)
-
 ### test921
 
 - **rust**: TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order
@@ -2069,14 +2056,14 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 ### test987
 
 - **rust**: / Contract #3 — the secondary hard-cap pass kicks in if the / table somehow exceeds `HARD_CAP` (extreme runaway). Without / it, a single GC at the soft watermark would not be enough / to recover headroom and the table could grow without bound / between bursts.
-- **go**: TEST987: Contract #3 — the secondary hard-cap pass kicks in if the table somehow exceeds `HARD_CAP` (extreme runaway). Without it, a single GC at the soft watermark would not be enough to recover headroom and the table could grow without bound between bursts.
+- **go**: TEST987: / Contract #3 — the secondary hard-cap pass kicks in if the / table somehow exceeds `HARD_CAP` (extreme runaway). Without / it, a single GC at the soft watermark would not be enough / to recover headroom and the table could grow without bound / between bursts.
 - **py**: TEST987: The secondary hard-cap pass kicks in if the table exceeds HARD_CAP — a single eviction-fraction pass is not enough to recover headroom.
 - **objc**: / Contract #3 — the secondary "hard cap" pass kicks in if / the table somehow exceeds `hardCap` (e.g. a seed that goes / over, simulating an extreme runaway). Without the / secondary pass, a single GC at the soft watermark would / not be enough to recover headroom and the table could / grow without bound between bursts.
 
 ### test988
 
 - **rust**: / Contract #1 — the GC keeps the table strictly below the / hard cap. Seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame- / burst) and call the production GC entry point. The / post-state must be at most `SOFT_WATERMARK` entries / because the GC drops at least / `EVICTION_FRACTION × pre_state` entries in one pass and / the pre-state is below the hard cap (i.e. one pass is / enough; the secondary "hard cap" pass would only fire if / pre-state crossed the hard cap before insertion completed, / which production prevents by gc-ing on every insert).
-- **go**: TEST988: Contract #1 — the GC keeps the table strictly below the hard cap. Seed the table well above the soft watermark (matching what a runaway producer would do mid-frame- burst) and call the production GC entry point. The post-state must be at most `SOFT_WATERMARK` entries because the GC drops at least `EVICTION_FRACTION × pre_state` entries in one pass and the pre-state is below the hard cap (i.e. one pass is enough; the secondary "hard cap" pass would only fire if pre-state crossed the hard cap before insertion completed, which production prevents by gc-ing on every insert).
+- **go**: TEST988: / Contract #1 — the GC keeps the table strictly below the / hard cap. Seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame- / burst) and call the production GC entry point. The / post-state must be at most `SOFT_WATERMARK` entries / because the GC drops at least / `EVICTION_FRACTION × pre_state` entries in one pass and / the pre-state is below the hard cap (i.e. one pass is / enough; the secondary "hard cap" pass would only fire if / pre-state crossed the hard cap before insertion completed, / which production prevents by gc-ing on every insert).
 - **py**: TEST988: GC keeps the table strictly below the hard cap and the single soft-watermark pass evicts exactly EVICTION_FRACTION of the pre-state.
 - **objc**: / Contract #1 — the GC keeps the table strictly below the / hard cap. We seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame-burst) / and call the production GC entry point. The post-state / must be at most `softWatermark` entries because the GC / drops at least `evictionFraction × pre-state` entries in / one pass and the pre-state is below `hardCap` (i.e. one / pass is enough; the secondary "hard cap" pass would only / kick in if pre-state crossed the hard cap before insertion / completed, which production prevents by gc-ing on every / insert).
 
@@ -2135,7 +2122,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 - **rust**: TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming.
 - **go**: TEST1129: A capfab-shaped JSON document with a documentation field must deserialize into a Cap with the body intact.
-- **py**: TEST1129: A JSON document produced by capfab with a `documentation` field must deserialize into a Cap with the body intact.
+- **py**: TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming.
 
 ### test1130
 
@@ -2259,7 +2246,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 ### test1266
 
 - **rust**: TEST1266: Record-to-opaque structure mismatches are rejected once structure checking is enabled.
-- **go**: TEST1266: Record-to-opaque structure mismatches are rejected once structure checking is enabled. Divergence from Rust: the Rust test is #[ignore]'d ("structure mismatch detection between node media and cap input not yet implemented"). The Go orchestrator parser DOES implement this check (checkStructureCompatibility), so this test runs as a genuine assertion rather than being skipped.
+- **go**: TEST1266: Record-to-opaque structure mismatches are rejected once structure checking is enabled. Skipped, mirroring Rust's #[ignore = "structure mismatch detection between node media and cap input not yet implemented"]. The orchestrator keys node media on the strand's interned node URN (the resolver's source-to-arg assignment), so a single node carries one media URN: the produce edge's record output and the process edge's source both resolve to that same interned URN, and there is no separate opaque cap-input URN left to compare against. Detecting a record-vs-opaque mismatch between a node's media and a downstream cap's declared input requires comparing the node URN to the cap's in= spec — a check the resolver-based design does not yet perform.
 - **py**: TEST1266: Record-to-opaque structure mismatches are rejected once structure checking is enabled.
 
 ### test1273
@@ -2375,6 +2362,13 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST1889: resolve_alias_typed enforces the expected kind.
 - **objc**: TEST1889: resolve alias typed enforces the expected kind.
 
+### test1893
+
+- **rust**: TEST1893: The on-disk cache root is namespaced per registry origin, so a prod-populated cache can never satisfy a staging lookup (and vice versa). Without this, a `CDG_FABRIC_REGISTRY_URL=staging` run reuses the prod-cached manifest/caps under one shared `capdag/` directory and resolves against the wrong snapshot — the bug that made `--staging` appear not to reach the scenario tests. This pins three properties: distinct origins → distinct roots; same origin → identical root (deterministic, so caching actually hits); and the slug is the same `slug_for` scheme the cartridge registry layout uses.
+- **go**: TEST1893: The fabric registry's on-disk cache root is namespaced per registry origin. A cache populated from one origin must never be reused to satisfy a lookup against another — prod and staging serve different bytes for the same URN/version, so an origin-blind cache silently resolves against the wrong snapshot. This pins three properties: distinct origins → distinct roots; same origin → identical root (deterministic, so caching actually hits); and the slug is the same slug_for scheme the cartridge registry layout uses, living under the shared "capdag" cache directory.
+- **py**: TEST1893: Cache root is namespaced per registry origin. Without the per-origin namespace, a cache populated from one registry (prod) is reused to satisfy a lookup against a different registry (staging) — and they serve different bytes for the same URN/version, so the lookup resolves against the wrong snapshot. This pins three properties: distinct origins must NOT share a cache root; the same origin must map to a stable (deterministic) root, or caching never hits; and the slug is the same slug_for(url) scheme the cartridge registry layout uses, living directly under the shared "capdag" cache directory.
+- **objc**: TEST1893: cache root namespaced per registry origin — prod and staging serve different bytes for the same URN/version, so they must never share a cache root; the same origin must map to a stable (deterministic) root or caching never hits; and the final path component is exactly slugFor(url) under the shared "capdag" cache directory — one slug scheme across the codebase. The old origin-blind code rooted every origin at the same "capdag" directory, which makes the prod≠staging assertion below fail.
+
 ### test6207
 
 - **go**: Mirror-specific coverage: Test that concatenated() returns full payload while final_payload() returns only last chunk
@@ -2410,7 +2404,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 - **rust**: TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key.
 - **go**: TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. This is the property that makes cross-language lookups land at the same registry object regardless of which capdag implementation issued the request.
-- **py**: TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key, so the per-cap registry URL is identical regardless of URN spelling.
+- **py**: TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key.
 - **objc**: / TEST6391: Equivalent URNs (different tag order, etc.) hash to the / same key. This is the property that makes cross-language lookups / land at the same registry object regardless of which capdag / implementation issued the request. Inputs MUST quote any / multi-tag media URN value — the previous unquoted spelling / `out=media:task;id` was actually a different URN (the bare / `media:task` plus a separate `id` op tag), and treating those / two URNs as equivalent here masked a real spec violation.
 
 ### test6544
@@ -3679,6 +3673,7 @@ _None._
 | test1890 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1891 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1892 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test1893 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test6182 | shared | · | ✓ | · | · | · | solo |
 | test6183 | shared | · | ✓ | · | · | · | solo |
 | test6184 | shared | · | ✓ | · | · | · | solo |
