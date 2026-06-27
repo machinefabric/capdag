@@ -418,4 +418,109 @@ mod tests {
             panic!("Expected MediaUrnNotResolved error");
         }
     }
+
+    // TEST6314: Complex nested schema validation
+    #[tokio::test]
+    async fn test6314_complex_nested_schema_validation() {
+        let registry = test_registry().await;
+        let mut validator = SchemaValidator::new();
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "user": {
+                    "type": "object",
+                    "properties": {
+                        "profile": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "settings": {
+                                    "type": "object",
+                                    "properties": {
+                                        "theme": {"type": "string"},
+                                        "notifications": {"type": "boolean"}
+                                    }
+                                }
+                            },
+                            "required": ["name"]
+                        },
+                        "permissions": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ["read", "write", "admin"]}
+                        }
+                    },
+                    "required": ["profile", "permissions"]
+                }
+            },
+            "required": ["user"]
+        });
+
+        registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+            version: 0,
+            urn: "media:user-data;enc=utf-8;record".to_string(),
+            media_type: "application/json".to_string(),
+            title: "User Data".to_string(),
+            profile_uri: None,
+            schema: Some(schema),
+            description: None,
+            documentation: None,
+            validation: None,
+            metadata: None,
+            extensions: Vec::new(),
+        });
+
+        let arg = CapArg::new(
+            "media:user-data;enc=utf-8;record",
+            true,
+            vec![ArgSource::Position { position: 0 }],
+        );
+
+        let valid = json!({
+            "user": {
+                "profile": {"name": "John Doe", "settings": {"theme": "dark", "notifications": true}},
+                "permissions": ["read", "write"]
+            }
+        });
+        assert!(validator.validate_argument(&arg, &valid, &registry).await.is_ok());
+
+        // Invalid: permission outside the enum.
+        let invalid = json!({
+            "user": {
+                "profile": {"name": "John Doe"},
+                "permissions": ["read", "invalid_permission"]
+            }
+        });
+        assert!(validator.validate_argument(&arg, &invalid, &registry).await.is_err());
+    }
+
+    // TEST6317: Media urn resolution with registry
+    #[tokio::test]
+    async fn test6317_media_urn_resolution_with_registry() {
+        use crate::media::spec::resolve_media_urn;
+        let registry = FabricRegistry::new_for_test();
+        for (urn, mt) in [
+            ("media:enc=utf-8", "text/plain"),
+            ("media:integer;numeric", "text/plain"),
+            ("media:fmt=json;record", "application/json"),
+        ] {
+            registry.insert_cached_media_def_for_test(crate::StoredMediaDef {
+                version: 0,
+                urn: urn.to_string(),
+                media_type: mt.to_string(),
+                title: urn.to_string(),
+                profile_uri: None,
+                schema: None,
+                description: None,
+                documentation: None,
+                validation: None,
+                metadata: None,
+                extensions: Vec::new(),
+            });
+        }
+        let resolved = resolve_media_urn("media:enc=utf-8", &registry).await.unwrap();
+        assert_eq!(resolved.media_type, "text/plain");
+        let json_resolved = resolve_media_urn("media:fmt=json;record", &registry).await.unwrap();
+        assert_eq!(json_resolved.media_type, "application/json");
+    }
 }

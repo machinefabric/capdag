@@ -8,21 +8,21 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
 
 | Mirror | Numbered tests |
 |---|---|
-| rust | 1148 |
+| rust | 1162 |
 | go | 943 |
-| py | 1023 |
+| py | 1024 |
 | js | 348 |
 | objc | 815 |
 
 ## Summary
 
-- Distinct numbered tests across all mirrors: **1795**
-- Shared (in ≥2 mirrors): **1036**
-- Solo (in exactly 1 mirror): **759**
-  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **730**
-  - …already in the 8000+ impl-specific range (correctly placed): **29**
-- Shared numbers with a parity gap (missing from ≥1 mirror): **946**
-- Shared numbers with divergent descriptions: **262**
+- Distinct numbered tests across all mirrors: **1597**
+- Shared (in ≥2 mirrors): **1060**
+- Solo (in exactly 1 mirror): **537**
+  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **507**
+  - …already in the 8000+ impl-specific range (correctly placed): **30**
+- Shared numbers with a parity gap (missing from ≥1 mirror): **939**
+- Shared numbers with divergent descriptions: **143**
 - Within-mirror duplicate numbers: **0**
 
 ---
@@ -53,92 +53,44 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test121 | rust | `test0121_step_title_query_filters_paths_server_side` | TEST0121: Step title query filters paths server side | src/planner/live_cap_fab.rs:2626 |
 | test122 | rust | `test0122_step_title_query_constrains_streaming_progress_counts` | TEST0122: Step title query constrains streaming progress counts | src/planner/live_cap_fab.rs:2668 |
 | test123 | go | `Test0123_CapExists` | TEST0123: Cap exists | cap/registry_test.go:113 |
-| test124 | go | `Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError` | Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError verifies the ErrNoEdges case. | machine/machine_test.go:477 |
-| test125 | rust | `test0125_effect_none_preserves_runtime_media` | TEST0125: effect=none preserves runtime media identity | src/urn/cap_urn.rs:2767 |
-| test126 | rust | `test0126_effect_declared_uses_declared_output` | TEST0126: default effect=declared uses the declared output | src/urn/cap_urn.rs:2789 |
-| test127 | rust | `test0127_invalid_effect_none_fails_hard` | TEST0127: invalid effect=none declarations fail hard | src/urn/cap_urn.rs:2800 |
-| test128 | rust | `test0128_effect_dispatch_requires_explicit_wildcard` | TEST0128: omitted effect means declared; unconstrained effect must be explicit | src/urn/cap_urn.rs:2809 |
-| test129 | rust | `test0129_gc_evicts_oldest_entries_by_touch_sequence` | / Contract #2 — the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one — / the more dangerous bug because it silently drops / in-flight continuation frames. | src/bifaci/host_runtime.rs:5526 |
+| test124 | go | `Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError` | Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError verifies the ErrNoEdges case. | machine/machine_test.go:455 |
 | test130 | rust | `test0130_registry_cache_revision_rebuilds_live_cap_fab_without_capability_change` | TEST0130: A cartridge can advertise a cap before the registry cache has finished hydrating that cap's canonical definition. LiveCapFab must retry the already-advertised aggregate capability set when the registry cache later warms; otherwise the cap remains absent from machine selection until an unrelated cartridge reconnect occurs. | src/bifaci/relay_switch.rs:3642 |
 | test131 | rust | `test0131_runtime_identity_probe_required_on_empty_to_nonempty_transition` | TEST0131: When a master initially advertises empty caps (so `add_master` skips the identity probe) and later sends a RelayNotify update with non-empty caps, the relay must run an end-to-end identity probe before the new caps become routable. A master that fails to answer the runtime probe with the expected nonce echo must end up unhealthy with `last_error` populated, and its caps must NOT appear in the cap_table. This test guards the wire-protocol regression where the RelayNotify-update path published caps without re-verifying identity end-to-end. Removing the runtime probe re-introduces the hole; this test fails loudly when that happens. | src/bifaci/relay_switch.rs:4753 |
-| test132 | rust | `test0132_add_master_dynamic` | TEST0132: add_master dynamically connects new host to running switch | src/bifaci/relay_switch.rs:5053 |
-| test133 | rust | `test0133_reattach_by_id_preserves_slot_index` | / Reattach-by-id keeps the slot index stable. / / After a master at slot index 0 dies, a new socket added with / the same id MUST be placed into slot 0 (not appended at index 1). / Without this, request_routing entries keyed by `master_idx=0` / would dangle pointing at a permanently-unhealthy zombie slot / while the live caps came back at slot 1 — exactly the / observed bug. | src/bifaci/relay_switch.rs:5260 |
-| test134 | rust | `test0134_add_master_with_duplicate_healthy_id_errors` | / Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug — the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot. | src/bifaci/relay_switch.rs:5366 |
 | test183 | go | `Test0183_IntegrationMediaUrnResolution` | Test0183_IntegrationMediaUrnResolution verifies media URN resolution | bifaci/integration_test.go:163 |
 | test209 | go | `Test0209_IntegrationMediaDefConstruction` | Test0209_IntegrationMediaDefConstruction verifies media.MediaDef construction | bifaci/integration_test.go:214 |
 | test265 | go | `Test0265_CartridgeErrorResponse` | Mirror-specific coverage: Test cartridge ERR frame is received by host as error | bifaci/integration_test.go:504 |
 | test267 | go | `Test0267_HeartbeatDuringStreaming` | Mirror-specific coverage: Test cartridge-initiated heartbeat mid-stream is handled transparently by host | bifaci/integration_test.go:849 |
 | test269 | go | `Test0269_ArgumentsRoundtrip` | Mirror-specific coverage: Test host call with unified CBOR arguments sends correct content_type and payload | bifaci/integration_test.go:1029 |
-| test288 | rust | `test288_media_documentation_propagates_through_resolve` | TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. | src/media/spec.rs:1102 |
-| test294 | objc | `test0294_Wildcard005ExplicitAsteriskIsIllegal` | TEST_WILDCARD_005: cap:in=*;out=* is illegal | Tests/CapDAGTests/CSCapUrnTests.m:1066 |
-| test295 | objc | `test0295_Wildcard006SpecificInWildcardOutIsIllegal` | TEST_WILDCARD_006: cap:in=media:;out=* is illegal | Tests/CapDAGTests/CSCapUrnTests.m:1074 |
-| test296 | objc | `test0296_Wildcard007WildcardInSpecificOut` | TEST_WILDCARD_007: cap:in=*;out=media:text has wildcard in, specific out | Tests/CapDAGTests/CSCapUrnTests.m:1082 |
-| test297 | objc | `test0297_Wildcard008InvalidInSpecFails` | TEST_WILDCARD_008: cap:in=foo fails (invalid media URN) | Tests/CapDAGTests/CSCapUrnTests.m:1091 |
-| test298 | objc | `test0298_Wildcard009InvalidOutSpecFails` | TEST_WILDCARD_009: cap:in=media:;out=bar fails (invalid media URN) | Tests/CapDAGTests/CSCapUrnTests.m:1100 |
-| test302 | objc | `test0302_Wildcard012PreserveOtherTags` | TEST_WILDCARD_012: cap:in=media:;out=media:;test preserves other tags | Tests/CapDAGTests/CSCapUrnTests.m:1129 |
-| test303 | objc | `test0303_builderPreservesCase` | TEST0303: Test builder lowercases keys but preserves value case | Tests/CapDAGTests/CSCapUrnTests.m:1379 |
-| test311 | objc | `test0311_invalidEffectNoneFailsHard` | TEST0311: invalid effect=none declarations fail hard | Tests/CapDAGTests/CSCapUrnTests.m:1635 |
-| test313 | objc | `test0313_CapCreation` | TEST0313: Cap creation | Tests/CapDAGTests/CSCapTests.m:32 |
 | test314 | objc | `test0314_CapWithDescription` | TEST0314: Cap with description | Tests/CapDAGTests/CSCapTests.m:58 |
 | test315 | objc | `test0315_CapStdinType` | TEST0315: Cap stdin type | Tests/CapDAGTests/CSCapTests.m:80 |
-| test316 | objc | `test0316_CapMatching` | TEST0316: Cap matching | Tests/CapDAGTests/CSCapTests.m:123 |
 | test317 | objc | `test0317_CapStdinSerialization` | TEST0317: Cap stdin serialization | Tests/CapDAGTests/CSCapTests.m:148 |
 | test318 | objc | `test0318_CanonicalDictionaryDeserialization` | TEST0318: Canonical dictionary deserialization | Tests/CapDAGTests/CSCapTests.m:178 |
 | test369 | objc | `test0369_CapDocumentationOmittedWhenNil` | When documentation is nil, toDictionary must omit the field entirely. This matches the Rust serializer's skip-when-None semantics and the JS toJSON behaviour. A regression where nil is emitted as `documentation: NSNull` (or simply not omitted) would break the symmetric round-trip with Rust. | Tests/CapDAGTests/CSCapTests.m:960 |
 | test370 | objc | `test0370_MediaDefDocumentationPropagatesThroughResolve` | Documentation propagates from a mediaDefs definition through CSResolveMediaUrn into the resolved CSMediaDef. Mirrors TEST924 on the Rust side and testJS_mediaDefDocumentationPropagatesThroughResolve on the JS side. | Tests/CapDAGTests/CSCapTests.m:996 |
 | test371 | objc | `test0371_CapVersionZeroRoundTrip` | TEST0371: Cap version zero round trip | Tests/CapDAGTests/CSCapTests.m:1035 |
 | test372 | objc | `test0372_CapVersionNonZeroRoundTrip` | TEST0372: Cap version non zero round trip | Tests/CapDAGTests/CSCapTests.m:1068 |
-| test373 | objc | `test0373_AddCapAndBasicTraversal` | MARK: - Basic Tests (unnumbered, match Rust unnumbered tests) | Tests/CapDAGTests/CSLiveCapFabTests.m:32 |
-| test374 | objc | `test0374_ExactVsConformanceMatching` | TEST0374: Exact vs conformance matching | Tests/CapDAGTests/CSLiveCapFabTests.m:51 |
-| test375 | objc | `test0375_MultiStepPath` | TEST0375: Multi step path | Tests/CapDAGTests/CSLiveCapFabTests.m:82 |
-| test376 | objc | `test0376_DeterministicOrdering` | TEST0376: Deterministic ordering | Tests/CapDAGTests/CSLiveCapFabTests.m:103 |
-| test377 | objc | `test0377_SyncFromCaps` | TEST0377: Sync from caps | Tests/CapDAGTests/CSLiveCapFabTests.m:128 |
 | test394 | rust | `test394_peer_invoke_roundtrip` | TEST394: Test peer invoke round-trip (testcartridge calls itself) Disabled: LocalCartridgeRouter feature not implemented - uses non-existent modules | tests/orchestrator_integration.rs:956 |
+| test480 | objc | `test480_discardHandlerConsumesInput` | TEST480: parse_caps_from_manifest rejects manifest without CAP_IDENTITY | Tests/BifaciTests/StandardCapsTests.swift:178 |
 | test552 | rust | `test552_is_csv_recognizes_ext_csv_and_bare_marker` | TEST552: is_csv recognizes the CANONICAL published CSV media, which spells the format as the `ext=csv` extension tag — not a bare `csv` marker. Every datacartridge convert-format/collect-records cap declares its CSV media as `media:fmt=csv;list;record` (see MEDIA_CSV), so an is_csv() that only checked the bare marker returned false for real CSV media, collapsing it to a text list and breaking list<->csv conversion with "Unsupported conversion: TextableList -> TextableList". This test pins both accepted spellings and would FAIL against the old marker-only implementation. | src/urn/media_urn.rs:928 |
-| test618 | rust | `test618_registry_creation` | TEST618: Verify profile schema registry creation succeeds with temp cache | src/media/profile.rs:517 |
-| test639 | rust | `test639_wildcard_001_empty_cap_is_illegal` | TEST639: bare/default top-to-top declared form is illegal | src/urn/cap_urn.rs:2592 |
 | test651 | rust | `test651_wildcard_013_generic_forms_rejected` | TEST651: All bare/default top-to-top forms are rejected | src/urn/cap_urn.rs:2715 |
-| test654 | js | `test654_effectNonePreservesRuntimeMedia` | TEST654: effect=none preserves runtime media identity. | capdag.test.js:3201 |
-| test655 | js | `test655_effectDeclaredUsesDeclaredOutput` | TEST655: default effect=declared does not preserve runtime refinements. | capdag.test.js:3210 |
-| test656 | js | `test656_invalidEffectNoneFailsHard` | TEST656: invalid effect=none declarations fail hard at construction. | capdag.test.js:3221 |
-| test657 | js | `test657_effectDispatchRequiresExplicitWildcard` | TEST657: omitted effect means declared; unconstrained effect must be explicit. | capdag.test.js:3230 |
-| test664 | rust | `test664_running_cartridge_uses_manifest_caps` | TEST664: Attached cartridge replaces pre-registration caps with manifest caps. The pre-attach `cap_groups` (from probe-time discovery) get superseded by the post-HELLO `cap_groups` from the actual handshake. | src/bifaci/host_runtime.rs:4956 |
 | test887 | rust | `test887_execute_with_file_input` | TEST887: Execute with file-path input | tests/orchestrator_integration.rs:472 |
 | test888 | rust | `test888_execute_edge1_to_edge2_chain` | TEST888: Execute two-edge chain (test-edge1 -> test-edge2) | tests/orchestrator_integration.rs:420 |
 | test889 | rust | `test889_execute_single_edge_dag` | TEST889: Execute single-edge DAG (test-edge1) | tests/orchestrator_integration.rs:367 |
-| test896 | objc | `test896_fullPathEngineReqToCartridgeResponse` | TEST896: All cap input media defs that represent user files must have extensions. These are the entry points — the file types users can right-click on. | Tests/BifaciTests/IntegrationTests.swift:636 |
-| test897 | objc | `test897_cartridgeErrorFlowsToEngine` | TEST897: Verify that specific cap output URNs resolve to the correct extension. This catches misconfigurations where a spec exists but has the wrong extension. | Tests/BifaciTests/IntegrationTests.swift:703 |
 | test905 | rust | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:4879 |
-| test909 | objc | `test909_map_progress_deterministic` | TEST909: set_offline(false) restores fetch ability (would fail with HTTP error, not NetworkBlocked) | Tests/CapDAGTests/CSProgressMapperTests.m:34 |
 | test916 | rust | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:1904 |
 | test938 | py | `test_938_different_caps_different_hashes` | TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape). | tests/test_registry.py:192 |
 | test943 | rust | `test943_same_media_different_names_is_not_a_cycle` | TEST943: Two nodes with the same media type but different names are two distinct graph positions — NOT a loop. The identity cap has `in = out` by type, so its upstream and downstream node carry the same media URN; this must not collapse them into a self-loop. Node identity comes from the user-written name, not the media URN. | tests/orchestrator_integration.rs:660 |
-| test950 | rust | `test950_reject_cycles` | TEST950: Validate that cycles are rejected | tests/orchestrator_integration.rs:634 |
 | test951 | rust | `test951_fan_in_pattern` | TEST951: Multi-input DAG (fan-in pattern) | tests/orchestrator_integration.rs:577 |
 | test952 | rust | `test952_execute_large_payload` | TEST952: Execute large payload (test-large cap) | tests/orchestrator_integration.rs:524 |
-| test987 | rust | `test987_gc_secondary_pass_enforces_hard_cap` | / Contract #3 — the secondary hard-cap pass kicks in if the / table somehow exceeds `HARD_CAP` (extreme runaway). Without / it, a single GC at the soft watermark would not be enough / to recover headroom and the table could grow without bound / between bursts. | src/bifaci/host_runtime.rs:5580 |
-| test988 | rust | `test988_gc_reduces_table_below_soft_watermark_in_one_pass` | / Contract #1 — the GC keeps the table strictly below the / hard cap. Seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame- / burst) and call the production GC entry point. The / post-state must be at most `SOFT_WATERMARK` entries / because the GC drops at least / `EVICTION_FRACTION × pre_state` entries in one pass and / the pre-state is below the hard cap (i.e. one pass is / enough; the secondary "hard cap" pass would only fire if / pre-state crossed the hard cap before insertion completed, / which production prevents by gc-ing on every insert). | src/bifaci/host_runtime.rs:5467 |
 | test989 | rust | `test989_set_observer_none_clears_previous` | / Pins the observer-clearing contract: a setObserver(None) / after a previous registration must drop the strong ref so a / subsequent lifecycle moment doesn't fire into a torn-down / bridge. Matches the Swift `setObserver(nil)` test. | src/bifaci/host_runtime.rs:3009 |
 | test990 | rust | `test990_observer_is_optional` | / Pins the optional-observer contract: a brand-new runtime with / no observer attached must close cleanly on an empty cartridge / list. A regression here would mean the observer-firing path / became non-optional and broke every call site that doesn't / register an observer (engine in-process runtime, in-process / host tests, integration tests). | src/bifaci/host_runtime.rs:2997 |
 | test1110 | rust | `test1110_strand_round_trips_through_serde_without_losing_step_types` | TEST1110: Strand serializes to JSON and deserializes back preserving all step types | src/planner/live_cap_fab.rs:2044 |
 | test1121 | rust | `test1121_cbor_array_file_paths_in_cbor_mode` | TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support) | src/bifaci/cartridge_runtime.rs:7278 |
-| test1122 | rust | `test1122_full_path_engine_req_to_cartridge_response` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | src/bifaci/integration_tests.rs:194 |
-| test1123 | rust | `test1123_cartridge_error_flows_to_engine` | TEST1123: Cartridge ERR frame flows back to engine through relay | src/bifaci/integration_tests.rs:313 |
 | test1125 | rust | `test1125_map_progress_basic_mapping` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | src/orchestrator/executor.rs:1705 |
-| test1126 | rust | `test1126_map_progress_deterministic` | TEST1126: map_progress is deterministic — same inputs always produce same output | src/orchestrator/executor.rs:1723 |
-| test1128 | rust | `test1128_cap_documentation_omitted_when_none` | TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's "if present" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `"documentation":null` and break consumers that distinguish between absent and explicit null. | src/cap/definition.rs:1293 |
-| test1129 | rust | `test1129_cap_documentation_parses_from_capfab_json` | TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming. | src/cap/definition.rs:1320 |
-| test1130 | rust | `test1130_cap_documentation_set_and_clear_lifecycle` | TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field — for example, set_documentation accidentally writing to cap_description. | src/cap/definition.rs:1343 |
 | test1134 | rust | `test1134_all_abstraction_error_variants_are_machine_abstraction_error` | TEST1134: All MachineAbstractionError variants are of type MachineAbstractionError and are convertible to MachineParseError::Resolution. This pins the error hierarchy so a refactor that accidentally changes the type relationship is caught immediately. | src/machine/error.rs:163 |
-| test1136 | rust | `test1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with an undefined cap alias raises MachineParseError wrapping MachineSyntaxError::UndefinedAlias. This pins the error path so an alias lookup failure is always surfaced as a syntax error (not a resolution error or a panic). | src/machine/parser.rs:992 |
 | test1137 | rust | `test1137_two_strand_machine_serializes_to_notation_containing_both_ops` | TEST1137: A machine built from two independent strands serializes to a non-empty notation string that contains both op tags. Checks that multi-strand serialization doesn't lose or merge strands. | src/machine/serializer.rs:624 |
 | test1138 | rust | `test1138_assignment_bindings_are_sorted_by_cap_arg_media_urn` | TEST1138: EdgeAssignmentBinding list is sorted by cap_arg_media_urn for canonical form. A two-source cap whose args are added in reverse-alphabetical order must still produce bindings sorted alphabetically by cap_arg_media_urn, enabling canonical comparison regardless of creation order. | src/machine/resolve.rs:1274 |
 | test1139 | rust | `test1139_resolve_inputs_confirmed_delegates_to_detect_file_confirmed` | TEST1139: resolve_inputs_confirmed delegates to detect_file_confirmed and returns the resolved URN for each file. A mock invoker returning a single URN must propagate through to the ResolvedInputSet. | src/input_resolver/resolver.rs:772 |
-| test1147 | rust | `test1147_machine_syntax_error_display_is_specific` | TEST1147: MachineSyntaxError Display includes position and detail for each variant | src/machine/error.rs:192 |
-| test1178 | rust | `test1178_match_single_source_picks_unique_arg` | TEST1178: One source is assigned to the single compatible cap argument. | src/machine/resolve.rs:747 |
-| test1181 | rust | `test1181_match_two_sources_disambiguated_by_specificity` | TEST1181: Two sources are matched deterministically when specificity breaks the tie. | src/machine/resolve.rs:807 |
-| test1185 | rust | `test1185_resolve_strand_chained_caps_share_intermediate_node` | TEST1185: Resolving a chained strand reuses the intermediate node between adjacent caps. | src/machine/resolve.rs:931 |
-| test1191 | rust | `test1191_resolve_strand_disbind_pdf_with_file_path_slot_identity` | TEST1191: Disbinding a PDF with a file-path slot preserves the expected identity of the slot binding. | src/machine/resolve.rs:1207 |
 | test1235 | py | `test_1235_disc_1_plain_text_eliminates_model_specs` | TEST1235: Plain text without model-spec syntax eliminates model-spec TXT candidates. | tests/test_input_resolver.py:421 |
 | test1243 | rust | `test1243_roundtrip_serialize_deserialize` | TEST1243: Cartridge JSON round-trips through serde without losing required fields. | src/bifaci/cartridge_json.rs:508 |
 | test1244 | rust | `test1244_dev_install_omits_optional_fields` | TEST1244: Dev-installed cartridge metadata omits registry-only package fields when serialized. | src/bifaci/cartridge_json.rs:616 |
@@ -153,41 +105,21 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test1253 | rust | `test1253_process_handle_kill_unknown_pid_is_noop` | TEST1253: Killing an unknown PID is accepted as an asynchronous no-op command. | src/bifaci/host_runtime.rs:5153 |
 | test1254 | rust | `test1254_oom_kill_sends_err_with_oom_killed_code` | TEST1254: OOM shutdowns emit OOM_KILLED ERR frames for in-flight requests. | src/bifaci/host_runtime.rs:5170 |
 | test1255 | rust | `test1255_app_exit_suppresses_err_frames` | TEST1255: App-exit shutdowns suppress ERR frames and close cleanly without noise. | src/bifaci/host_runtime.rs:5297 |
-| test1261 | rust | `test1261_cap_not_found_in_registry` | TEST1261: A header cap whose definition cannot be resolved is reported as a machine-notation parse failure at the header site. | src/orchestrator/parser.rs:507 |
 | test1270 | rust | `test1270_get_own_memory_mb_returns_values` | TEST1270: Runtime memory inspection returns non-negative resident and virtual memory values. | src/bifaci/cartridge_runtime.rs:8685 |
 | test1274 | rust | `test1274_adapter_selection_cap_builder` | TEST1274: adapter_selection_cap() builds a valid Cap with correct args and output | src/standard/caps.rs:1335 |
-| test1276 | rust | `test1276_register_non_conflicting` | TEST1276: Registration of a cap group with non-conflicting adapters succeeds | src/input_resolver/adapters/registry.rs:263 |
-| test1277 | rust | `test1277_reject_conforming_overlap` | TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected | src/input_resolver/adapters/registry.rs:282 |
-| test1298 | js | `test1298_isBool` | TEST1298: is_bool returns true only when bool marker tag is present | capdag.test.js:2800 |
-| test1299 | js | `test1299_isFilePath` | TEST1299: isFilePath returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. | capdag.test.js:2814 |
-| test1302 | js | `test1302_predicateConstantConsistency` | TEST1302: predicates are consistent with constants — every constant triggers exactly the expected predicates | capdag.test.js:2833 |
-| test1303 | js | `test1303_withoutTag` | TEST1303: without_tag removes tag, rejects structural keys, case-insensitive for keys | capdag.test.js:2872 |
-| test1304 | js | `test1304_withInOutSpec` | TEST1304: with_in_spec and with_out_spec change direction specs | capdag.test.js:2892 |
-| test1305 | js | `test1305_findAllMatches` | TEST1305: CapMatcher::find_all_matches returns all matching caps sorted by specificity | capdag.test.js:2922 |
-| test1306 | js | `test1306_areCompatible` | TEST1306: CapMatcher::are_compatible detects bidirectional overlap | capdag.test.js:2940 |
-| test1307 | js | `test1307_withTagRejectsStructuralKeys` | TEST1307: with_tag rejects structural keys | capdag.test.js:2965 |
-| test1308 | rust | `test1308_cyclic_strand_fails_hard` | TEST1308: A wiring set that feeds a cap's output back into an ancestor forms a cycle and must fail hard with CyclicMachineStrand carrying the strand index. Cycle: node 0 → cap A → node 1 → cap B → node 0. | src/machine/resolve.rs:1323 |
 | test1309 | py | `test_1309_parse_machine_single_wiring_one_strand` | TEST1309: Parsing a single-cap machine notation produces one strand with one edge. | tests/test_machine.py:363 |
 | test1310 | py | `test_1310_strand_equivalence_rejects_mismatched_node_urns` | TEST1310: Two strands differing only in one node's media URN are not equivalent (Python-specific coverage). | tests/test_machine.py:472 |
 | test1311 | py | `test_1311_machine_from_string_delegates_to_parse_machine` | TEST1311: Machine.from_string is an alias for parse_machine — both produce equivalent results (Python-specific coverage). | tests/test_machine.py:533 |
-| test1312 | js | `test1312_isImage` | TEST1312: is_image returns true only when image marker tag is present | capdag.test.js:2755 |
-| test1313 | js | `test1313_isAudio` | TEST1313: is_audio returns true only when audio marker tag is present | capdag.test.js:2767 |
-| test1314 | js | `test1314_isVideo` | TEST1314: is_video returns true only when video marker tag is present | capdag.test.js:2778 |
-| test1315 | js | `test1315_isNumeric` | TEST1315: is_numeric returns true only when numeric marker tag is present | capdag.test.js:2788 |
-| test1400 | objc | `test1400_missingOutSpecDefaultsToWildcard` | TEST1400: Missing 'out' defaults to media: wildcard (mirror-local variant of TEST002 covering the out-side case) | Tests/CapDAGTests/CSCapUrnTests.m:192 |
-| test1401 | objc | `test1401_directionWildcardMatches` | TEST1401: Wildcard in/out specs accept any concrete value (mirror-local variant of TEST003's wildcard branch) | Tests/CapDAGTests/CSCapUrnTests.m:249 |
-| test1402 | objc | `test1402_invalidCharacters` | TEST1402: Invalid characters (e.g. '@') in tag keys are rejected by the parser (mirror-local variant of TEST003) | Tests/CapDAGTests/CSCapUrnTests.m:169 |
-| test1403 | objc | `test1403_equality` | TEST1403: Equality and hash of CSCapUrn identify identical URNs and distinguish direction/tag differences (mirror-local variant of TEST016) | Tests/CapDAGTests/CSCapUrnTests.m:519 |
-| test1404 | objc | `test1404_merge` | TEST1404: merge() combines tags from two cap URNs; direction comes from the other cap (mirror-local variant of TEST026's merge branch) | Tests/CapDAGTests/CSCapUrnTests.m:503 |
-| test1405 | objc | `test1405_wildcardTagDirection` | TEST1405: withWildcardTag resolves to withInSpec/withOutSpec for "in"/"out" tags, setting them to the wildcard "media:" (mirror-local variant of TEST027) | Tests/CapDAGTests/CSCapUrnTests.m:479 |
-| test1406 | objc | `test1406_valuelessTagParsing` | TEST1406: Value-less tags (bare keys like ";flag") parse as wildcards (mirror-local variant of TEST031) | Tests/CapDAGTests/CSCapUrnTests.m:149 |
-| test1407 | objc | `test1407_withTagRejectsStructuralKeys` | TEST1407: withTag rejects reserved structural keys (mirror-local) | Tests/CapDAGTests/CSCapUrnTests.m:408 |
-| test1408 | objc | `test1408_withInSpec` | TEST1408: withInSpec returns a new URN with the in= spec replaced, leaving the original unchanged (mirror-local) | Tests/CapDAGTests/CSCapUrnTests.m:418 |
-| test1409 | objc | `test1409_withOutSpec` | TEST1409: withOutSpec returns a new URN with the out= spec replaced, leaving the original unchanged (mirror-local) | Tests/CapDAGTests/CSCapUrnTests.m:428 |
-| test1410 | objc | `test1410_withoutTag` | TEST1410: withoutTag removes a tag and returns a new URN, leaving the original unchanged (mirror-local) | Tests/CapDAGTests/CSCapUrnTests.m:441 |
-| test1411 | objc | `test1411_withoutTagRejectsStructuralKeys` | TEST1411: withoutTag rejects reserved structural keys (mirror-local) | Tests/CapDAGTests/CSCapUrnTests.m:455 |
-| test1412 | objc | `test1412_directionSemanticMatching` | TEST1412: Semantic direction matching - generic provider matches specific request (mirror-local variant of TEST051) | Tests/CapDAGTests/CSCapUrnTests.m:960 |
-| test1413 | objc | `test1413_directionSemanticSpecificity` | TEST1413: Semantic direction specificity - more media URN tags = higher specificity (mirror-local variant of TEST052) | Tests/CapDAGTests/CSCapUrnTests.m:1007 |
+| test1400 | objc | `test1400_missingOutSpecDefaultsToWildcard` | TEST1400: Missing 'out' defaults to media: wildcard (mirror-local variant of TEST002 covering the out-side case) | Tests/CapDAGTests/CSCapUrnTests.m:183 |
+| test1401 | objc | `test1401_directionWildcardMatches` | TEST1401: Wildcard in/out specs accept any concrete value (mirror-local variant of TEST003's wildcard branch) | Tests/CapDAGTests/CSCapUrnTests.m:240 |
+| test1402 | objc | `test1402_invalidCharacters` | TEST1402: Invalid characters (e.g. '@') in tag keys are rejected by the parser (mirror-local variant of TEST003) | Tests/CapDAGTests/CSCapUrnTests.m:160 |
+| test1403 | objc | `test1403_equality` | TEST1403: Equality and hash of CSCapUrn identify identical URNs and distinguish direction/tag differences (mirror-local variant of TEST016) | Tests/CapDAGTests/CSCapUrnTests.m:510 |
+| test1404 | objc | `test1404_merge` | TEST1404: merge() combines tags from two cap URNs; direction comes from the other cap (mirror-local variant of TEST026's merge branch) | Tests/CapDAGTests/CSCapUrnTests.m:494 |
+| test1405 | objc | `test1405_wildcardTagDirection` | TEST1405: withWildcardTag resolves to withInSpec/withOutSpec for "in"/"out" tags, setting them to the wildcard "media:" (mirror-local variant of TEST027) | Tests/CapDAGTests/CSCapUrnTests.m:470 |
+| test1406 | objc | `test1406_valuelessTagParsing` | TEST1406: Value-less tags (bare keys like ";flag") parse as wildcards (mirror-local variant of TEST031) | Tests/CapDAGTests/CSCapUrnTests.m:140 |
+| test1408 | objc | `test1408_withInSpec` | TEST1408: withInSpec returns a new URN with the in= spec replaced, leaving the original unchanged (mirror-local) | Tests/CapDAGTests/CSCapUrnTests.m:409 |
+| test1409 | objc | `test1409_withOutSpec` | TEST1409: withOutSpec returns a new URN with the out= spec replaced, leaving the original unchanged (mirror-local) | Tests/CapDAGTests/CSCapUrnTests.m:419 |
+| test1411 | objc | `test1411_withoutTagRejectsStructuralKeys` | TEST1411: withoutTag rejects reserved structural keys (mirror-local) | Tests/CapDAGTests/CSCapUrnTests.m:446 |
 | test1414 | objc | `test1414_parseSingleEdgeDag` | TEST1414: Parse DAG with a single edge using different node names (mirror-local) | Tests/BifaciTests/OrchestratorTests.swift:100 |
 | test1415 | objc | `test1415_parseEdge1ToEdge2Chain` | TEST1415: Parse DAG chaining test_edge1 → test_edge2 (mirror-local) | Tests/BifaciTests/OrchestratorTests.swift:118 |
 | test1500 | rust | `test1500_slug_for_central_registry_is_stable` | / TEST1500: The default central registry's URL hashes to a stable, / pre-computed slug. If this value ever changes silently it means / either the encoding rule shifted or the hashing algorithm / changed — either way every installed cartridge would land in / the wrong directory and stop being discovered. The slug is / pinned as a literal so a regression is loud. | src/bifaci/cartridge_slug.rs:104 |
@@ -229,440 +161,349 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test1731 | rust | `test1731_lifecycle_default_is_discovered` | / TEST1731: `CartridgeLifecycle` defaults to `Discovered` / (the safe sentinel) — never `Operational`. Pins the / safe-default rule the doc explicitly calls out: a / freshly-constructed record without an explicit lifecycle / MUST NOT silently expose an un-inspected cartridge for / dispatch. | src/bifaci/relay_switch.rs:5981 |
 | test1732 | rust | `test1732_installed_cartridge_record_lifecycle_defaults_when_missing` | / TEST1732: An `InstalledCartridgeRecord` deserialized from a / JSON payload that omits the `lifecycle` field defaults to / `Discovered` — never `Operational`. The wire-shape contract / covered by the safe-default rule. | src/bifaci/relay_switch.rs:5995 |
 | test1733 | rust | `test1733_registry_url_scheme_validator` | / TEST1733: `validate_registry_url_scheme` accepts https / unconditionally, rejects non-https in production builds, / and accepts non-https in dev mode. Pins the deepest layer / of the HTTPS rule. | src/bifaci/relay_switch.rs:6022 |
-| test1848 | js | `test1848_capVersionNonZeroOnWire` | TEST1848: Cap with version=N round-trips with `version: N` on wire | capdag.test.js:6372 |
+| test1848 | js | `test1848_capVersionNonZeroOnWire` | TEST1848: Cap with version=N round-trips with `version: N` on wire | capdag.test.js:6319 |
 | test6182 | go | `Test6182_InputValidator_WithSchemaValidation` | TEST6182: Input validator  with schema validation | cap/schema_validation_test.go:296 |
 | test6183 | go | `Test6183_OutputValidator_WithSchemaValidation` | TEST6183: Output validator  with schema validation | cap/schema_validation_test.go:356 |
 | test6184 | go | `Test6184_CapValidationCoordinator_EndToEnd` | TEST6184: Cap validation coordinator  end to end | cap/schema_validation_test.go:415 |
 | test6185 | go | `Test6185_FileSchemaResolver_ErrorHandling` | TEST6185: File schema resolver  error handling | cap/schema_validation_test.go:530 |
 | test6186 | go | `Test6186_RegistryGetCap` | TEST136 (deleted): exercised the private `cacheKey` method on the unified FabricRegistry. The on-disk cache filename scheme is an implementation detail of the persistence layer; equivalent observable behavior — that two equivalent URNs land in the same cache slot — is covered by Test140 (`same_cap_different_spellings_same_url`). Rust and Python dropped this; this deletion keeps the Go mirror in parity. | cap/registry_test.go:40 |
-| test6187 | py | `test_6187_parse_registry_json` | TEST6187: Test parsing registry JSON without stdin args verifies cap structure | tests/test_registry.py:52 |
-| test6188 | py | `test_6188_per_cap_url_uses_sha256` | TEST6188: Per-cap URLs use SHA-256 of the canonical URN as the path key. The path scheme is /caps/<sha256-hex> — no colons, no quotes, no percent-encoding gymnastics. Same hash function across every capdag implementation guarantees a single bucket key per equivalence class. | tests/test_registry.py:123 |
 | test6189 | py | `test_6189_same_cap_different_spellings_same_hash` | TEST6189: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request. | tests/test_registry.py:150 |
 | test6200 | objc | `test6200_csCapManifestWithPageUrl` | MARK: - CSCapManifest With PageUrl Test | Tests/BifaciTests/ManifestTests.swift:277 |
-| test6202 | go | `Test6202_empty_cap_urn_defaults_to_wildcard` | TEST6202: Bare top cap is illegal; identity must be explicit effect=none | urn/cap_urn_test.go:632 |
-| test6203 | py | `test_6203_matching_semantics_wildcard_direction` | TEST6203: Matching semantics - generic legal wildcard cap matches specific caps | tests/test_cap_urn.py:683 |
+| test6201 | js | `test6201_emptyCapIsIllegal` | TEST6201: cap: (empty) is the illegal bare top form | capdag.test.js:3010 |
+| test6202 | go | `Test6202_empty_cap_urn_defaults_to_wildcard` | TEST6202: Bare top cap is illegal; identity must be explicit effect=none | urn/cap_urn_test.go:614 |
+| test6203 | py | `test_6203_matching_semantics_wildcard_direction` | TEST6203: Matching semantics - generic legal wildcard cap matches specific caps | tests/test_cap_urn.py:674 |
 | test6204 | js | `test6204_Urn` | TEST6204: Urn | capdag.test.js:118 |
 | test6205 | objc | `test6205_csCapManifestRejectsUnknownChannel` | Channel is part of the cartridge's identity; the deserializer accepts the closed enum {release, nightly} only. Anything else is a publish-pipeline bug we want to surface. | Tests/BifaciTests/ManifestTests.swift:293 |
-| test6206 | js | `test6206_CapFabAddCapPopulatesEdgesAndNodes` | Add a cap and check it becomes an edge with from/to nodes and carries the registry name we passed. This is exactly the shape the renderer depends on. | capdag.test.js:1387 |
-| test6208 | js | `test6208_CapFabGetOutgoingConformsToMatching` | getOutgoing takes a concrete source URN and returns edges whose from_spec the source conforms to. It must NOT be a plain string lookup. | capdag.test.js:1405 |
+| test6206 | js | `test6206_CapFabAddCapPopulatesEdgesAndNodes` | Add a cap and check it becomes an edge with from/to nodes and carries the registry name we passed. This is exactly the shape the renderer depends on. | capdag.test.js:1370 |
+| test6208 | js | `test6208_CapFabGetOutgoingConformsToMatching` | getOutgoing takes a concrete source URN and returns edges whose from_spec the source conforms to. It must NOT be a plain string lookup. | capdag.test.js:1388 |
 | test6209 | objc | `test6209_RunExitKillsAllManagedCartridges` | / Contract #1: when `run()` exits because the relay closed, / every running cartridge is torn down and the observer is / fired with a death notification for each. The Rust reference / enforces this by calling `kill_all_cartridges().await` at / the very end of `run()`. The Swift mirror's previous / behavior was to leak cartridges across reconnects, which is / what allowed the XPC-service NSConcreteData accumulator bug. | Tests/BifaciTests/CartridgeHostSessionLifecycleTests.swift:66 |
 | test6210 | go | `Test6210_ResponseWrapperFromText` | TEST6210: Response wrapper from text | cap/response_test.go:45 |
-| test6211 | py | `test_6211_cap_version_zero_round_trip` | TEST6211: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict | tests/test_cap.py:400 |
-| test6212 | js | `test6212_xv5InlineSpecRedefinitionDetected` | TEST6212: XV5 - Test inline media def redefinition of existing registry spec is detected and rejected | capdag.test.js:823 |
+| test6211 | py | `test_6211_cap_version_zero_round_trip` | TEST6211: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict | tests/test_cap.py:403 |
+| test6212 | js | `test6212_xv5InlineSpecRedefinitionDetected` | TEST6212: XV5 - Test inline media def redefinition of existing registry spec is detected and rejected | capdag.test.js:808 |
 | test6213 | objc | `test6213_NewHostInstancePerRelaySession` | / Contract #2 (well-behaved path): one host → one run() → / drop. The misuse path (calling run() twice) is enforced via / `precondition` and is not death-tested here — the well- / behaved path is sufficient because if the precondition were / silently disabled, the prior test (`testRunExitKills…`) / would still pass on the first invocation but the second / call would race with itself and fail intermittently. This / test documents the contract by demonstrating that a fresh / `CartridgeHost` instance is the only correct way to start / a new relay session. | Tests/BifaciTests/CartridgeHostSessionLifecycleTests.swift:141 |
 | test6214 | go | `Test6214_ResponseWrapperAsFloat` | TEST6214: Response wrapper as float | cap/response_test.go:96 |
-| test6215 | py | `test_6215_cap_version_nonzero_round_trip` | TEST6215: Cap.version nonzero round-trip — emitted in dict and restored on deserialization | tests/test_cap.py:417 |
-| test6216 | js | `test6216_xv5NewInlineSpecAllowed` | TEST6216: XV5 - Test new inline media def (not in registry) is allowed | capdag.test.js:840 |
+| test6215 | py | `test_6215_cap_version_nonzero_round_trip` | TEST6215: Cap.version nonzero round-trip — emitted in dict and restored on deserialization | tests/test_cap.py:420 |
+| test6216 | js | `test6216_xv5NewInlineSpecAllowed` | TEST6216: XV5 - Test new inline media def (not in registry) is allowed | capdag.test.js:825 |
 | test6217 | objc | `test6217_HostConstructsAndClosesWithoutAnObserver` | TEST6217: Host constructs and closes without an observer | Tests/BifaciTests/CartridgeHostObserverTests.swift:54 |
 | test6218 | go | `Test6218_ResponseWrapperAsBool` | TEST6218: Response wrapper as bool | cap/response_test.go:111 |
-| test6219 | py | `test_6219_is_empty` | TEST6219: is_empty returns true for empty response, false for non-empty | tests/test_response.py:61 |
-| test6220 | js | `test6220_xv5EmptyMediaDefsAllowed` | TEST6220: XV5 - Test empty media_defs (no inline specs) passes XV5 validation | capdag.test.js:855 |
+| test6220 | js | `test6220_xv5EmptyMediaDefsAllowed` | TEST6220: XV5 - Test empty media_defs (no inline specs) passes XV5 validation | capdag.test.js:840 |
 | test6221 | objc | `test6221_SetObserverNilClearsThePreviouslyRegisteredObserver` | TEST6221: Set observer nil clears the previously registered observer | Tests/BifaciTests/CartridgeHostObserverTests.swift:64 |
 | test6222 | go | `Test6222_ResponseWrapperIsEmpty` | TEST6222: Response wrapper is empty | cap/response_test.go:142 |
-| test6223 | py | `test_6223_size` | TEST6223: size returns exact byte count for all content types | tests/test_response.py:76 |
-| test6224 | js | `test6224_CapFabDistinctRegistryNames` | Each edge must carry the registry name it was added with. This is how the renderer colours/groups edges by provenance in browse mode. | capdag.test.js:1426 |
-| test6225 | objc | `test6225_limitsDefault` | TEST6225: Test Limits::default provides the documented default values | Tests/BifaciTests/FrameTests.swift:300 |
+| test6224 | js | `test6224_CapFabDistinctRegistryNames` | Each edge must carry the registry name it was added with. This is how the renderer colours/groups edges by provenance in browse mode. | capdag.test.js:1409 |
 | test6226 | go | `Test6226_ResponseWrapperGetContentType` | TEST6226: Response wrapper get content type | cap/response_test.go:153 |
-| test6227 | py | `test_6227_no_peer_router_rejects_all` | TEST6227: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported | tests/test_router.py:9 |
-| test6228 | js | `test6228_LlmGenerateTextUrnSpecs` | Mirror-specific coverage: llm_generate_text_urn input/output specs conform to MEDIA_STRING | capdag.test.js:1635 |
+| test6228 | js | `test6228_LlmGenerateTextUrnSpecs` | Mirror-specific coverage: llm_generate_text_urn input/output specs conform to MEDIA_STRING | capdag.test.js:1618 |
 | test6229 | objc | `test6229_b_limitsNegotiation` | TEST198 (continued): Limits negotiation picks minimum of both sides | Tests/BifaciTests/FrameTests.swift:307 |
 | test6230 | go | `Test6230_ResponseWrapperMatchesOutputType` | TEST6230: Response wrapper matches output type | cap/response_test.go:165 |
-| test6231 | py | `test_6231_wildcard_empty_cap_defaults` | TEST6231: cap: (empty) is the illegal bare top form | tests/test_cap_urn.py:907 |
-| test6232 | js | `test6232_JS_buildExtensionIndex` | These tests cover JS-specific functionality not in the Rust numbering scheme but are important for capdag-js correctness. | capdag.test.js:1666 |
-| test6233 | objc | `test6233_encodeDecodeRoundtrip` | TEST6233: Test REQ frame encode/decode roundtrip preserves all fields | Tests/BifaciTests/FrameTests.swift:360 |
+| test6231 | py | `test_6231_wildcard_empty_cap_defaults` | TEST6231: cap: (empty) is the illegal bare top form | tests/test_cap_urn.py:898 |
+| test6232 | js | `test6232_JS_buildExtensionIndex` | These tests cover JS-specific functionality not in the Rust numbering scheme but are important for capdag-js correctness. | capdag.test.js:1649 |
 | test6234 | go | `Test6234_ResponseWrapperValidateAgainstCap` | TEST6234: Response wrapper validate against cap | cap/response_test.go:251 |
-| test6235 | py | `test_6235_lookup_cap_fabric_has_defver_arg` | TEST6235: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:182 |
-| test6236 | js | `test6236_JS_mediaUrnsForExtension` | TEST6236: J s media urns for extension | capdag.test.js:1683 |
+| test6235 | py | `test_6235_lookup_cap_fabric_has_defver_arg` | TEST6235: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:181 |
+| test6236 | js | `test6236_JS_mediaUrnsForExtension` | TEST6236: J s media urns for extension | capdag.test.js:1666 |
 | test6237 | objc | `test6237_b_allFrameTypesRoundtrip` | Covers all frame types in a single loop for comprehensive roundtrip verification | Tests/BifaciTests/FrameTests.swift:894 |
 | test6238 | go | `Test6238_CapRequestHandling` | Additional existing tests below (not part of TEST108-116 sequence) | cap/definition_test.go:450 |
-| test6239 | py | `test_6239_lookup_media_def_fabric_has_defver_arg` | TEST6239: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:207 |
-| test6240 | js | `test6240_JS_getExtensionMappings` | TEST0070: J s get extension mappings | capdag.test.js:1712 |
-| test6241 | objc | `test6241_streamStartRoundtrip` | TEST6241: StreamStart encode/decode roundtrip preserves stream_id and media_urn | Tests/BifaciTests/FrameTests.swift:1075 |
-| test6242 | js | `test6242_JS_resolveMediaUrnFromSpecs` | TEST0073: J s resolve media urn from specs | capdag.test.js:1723 |
+| test6239 | py | `test_6239_lookup_media_def_fabric_has_defver_arg` | TEST6239: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:206 |
+| test6240 | js | `test6240_JS_getExtensionMappings` | TEST0070: J s get extension mappings | capdag.test.js:1695 |
+| test6242 | js | `test6242_JS_resolveMediaUrnFromSpecs` | TEST0073: J s resolve media urn from specs | capdag.test.js:1706 |
 | test6243 | objc | `test6243_b_streamStartIsSequenceRoundtrip` | TEST389b: STREAM_START with isSequence roundtrips correctly | Tests/BifaciTests/FrameTests.swift:1091 |
 | test6244 | objc | `test6244_manifestEnsureIdentityIdempotent` | Mirror-specific coverage: Manifest.ensureIdentity() adds if missing, idempotent if present | Tests/BifaciTests/StandardCapsTests.swift:71 |
 | test6245 | go | `Test6245_CapDescription` | TEST6245: Cap description | cap/definition_test.go:467 |
-| test6246 | js | `test6246_JS_capJSONSerialization` | TEST6246: J s cap j s o n serialization | capdag.test.js:1736 |
+| test6246 | js | `test6246_JS_capJSONSerialization` | TEST6246: J s cap j s o n serialization | capdag.test.js:1719 |
 | test6247 | objc | `test6247_parseFanInPattern` | Mirror-specific coverage: Parse fan-in pattern | Tests/BifaciTests/OrchestratorTests.swift:138 |
 | test6248 | go | `Test6248_CapWithMediaDefs` | TEST6248: Cap with media defs | cap/definition_test.go:480 |
-| test6249 | js | `test6249_JS_capDocumentationRoundTrip` | JS round-trip for the documentation field on Cap. Mirrors TEST920 in capdag/src/cap/definition.rs — the body is non-trivial (newlines, backticks, embedded quotes, Unicode) so escaping mismatches between JSON.stringify on this side and the Rust serializer on the other side surface as failures here. | capdag.test.js:1759 |
-| test6250 | objc | `test6250_rejectCycles` | Mirror-specific coverage: Validate that cycles are rejected | Tests/BifaciTests/OrchestratorTests.swift:163 |
+| test6249 | js | `test6249_JS_capDocumentationRoundTrip` | JS round-trip for the documentation field on Cap. Mirrors TEST920 in capdag/src/cap/definition.rs — the body is non-trivial (newlines, backticks, embedded quotes, Unicode) so escaping mismatches between JSON.stringify on this side and the Rust serializer on the other side surface as failures here. | capdag.test.js:1742 |
 | test6251 | go | `Test6251_cap_version_zero_round_trip` | TEST6251: Cap.Version zero value is omitted on serialize and defaults to 0 on deserialize. | cap/definition_test.go:613 |
-| test6253 | js | `test6253_JS_capDocumentationOmittedWhenNull` | When documentation is null, toJSON must omit the field entirely. This matches the Rust serializer's skip-when-None semantics and the ObjC toDictionary behaviour. A regression where null is emitted as `documentation: null` would break the symmetric round-trip with Rust (which has no null sentinel) and pollute generated JSON. | capdag.test.js:1781 |
+| test6253 | js | `test6253_JS_capDocumentationOmittedWhenNull` | When documentation is null, toJSON must omit the field entirely. This matches the Rust serializer's skip-when-None semantics and the ObjC toDictionary behaviour. A regression where null is emitted as `documentation: null` would break the symmetric round-trip with Rust (which has no null sentinel) and pollute generated JSON. | capdag.test.js:1764 |
 | test6254 | objc | `test6254_DotParserSimpleDigraph` | TEST: Parse simple digraph | Tests/BifaciTests/OrchestratorTests.swift:330 |
 | test6255 | go | `Test6255_cap_version_nonzero_round_trip` | TEST6255: Cap.Version non-zero value round-trips through JSON serialize/deserialize. | cap/definition_test.go:630 |
-| test6256 | py | `test_6256_register_non_conflicting` | TEST6256: Registration of a cap group with non-conflicting adapters succeeds | tests/test_input_resolver.py:485 |
-| test6257 | js | `test6257_JS_mediaDefDocumentationPropagatesThroughResolve` | Documentation propagates from a mediaDefs definition through resolveMediaUrn into the resolved MediaDef. Mirrors TEST924 on the Rust side. This is the path every UI consumer uses, so a break here makes the new field invisible everywhere downstream. | capdag.test.js:1804 |
+| test6257 | js | `test6257_JS_mediaDefDocumentationPropagatesThroughResolve` | Documentation propagates from a mediaDefs definition through resolveMediaUrn into the resolved MediaDef. Mirrors TEST924 on the Rust side. This is the path every UI consumer uses, so a break here makes the new field invisible everywhere downstream. | capdag.test.js:1787 |
 | test6258 | objc | `test6258_DotParserEdgeWithLabel` | TEST: Parse edge with label attribute | Tests/BifaciTests/OrchestratorTests.swift:350 |
 | test6259 | go | `Test6259_CapJSONRoundTrip` | TEST6259: Cap j s o n round trip | cap/definition_test.go:647 |
-| test6260 | py | `test_6260_reject_conforming_overlap` | TEST6260: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected | tests/test_input_resolver.py:492 |
-| test6261 | js | `test6261_JS_stdinSourceKindConstants` | TEST6261: J s stdin source kind constants | capdag.test.js:1835 |
+| test6261 | js | `test6261_JS_stdinSourceKindConstants` | TEST6261: J s stdin source kind constants | capdag.test.js:1818 |
 | test6262 | objc | `test6262_DotParserNodeWithAttributes` | TEST: Parse node with attributes | Tests/BifaciTests/OrchestratorTests.swift:364 |
 | test6263 | go | `Test6263_SchemaValidator_ValidateArgumentWithSchema_NilSchema` | Additional Go-specific coverage: nil schema skips direct schema validation | cap/schema_validation_test.go:97 |
-| test6264 | py | `test_6264_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST6264: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict | tests/test_cartridge_repo.py:964 |
-| test6265 | js | `test6265_JS_stdinSourceNullData` | TEST6265: J s stdin source null data | capdag.test.js:1842 |
+| test6264 | py | `test_6264_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST6264: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict | tests/test_cartridge_repo.py:932 |
+| test6265 | js | `test6265_JS_stdinSourceNullData` | TEST6265: J s stdin source null data | capdag.test.js:1825 |
 | test6266 | objc | `test6266_DotParserQuotedIdentifiers` | TEST: Parse quoted identifiers | Tests/BifaciTests/OrchestratorTests.swift:381 |
 | test6267 | go | `Test6267_SchemaValidator_ValidateOutputWithSchema_Failure` | TEST6267: Schema validator  validate output with schema  failure | cap/schema_validation_test.go:148 |
-| test6268 | py | `test_6268_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST6268: CartridgeJson fabric_manifest_version nonzero is emitted and restored | tests/test_cartridge_repo.py:984 |
-| test6269 | js | `test6269_JS_mediaDefConstruction` | TEST6269: J s media def construction | capdag.test.js:1850 |
+| test6268 | py | `test_6268_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST6268: CartridgeJson fabric_manifest_version nonzero is emitted and restored | tests/test_cartridge_repo.py:952 |
+| test6269 | js | `test6269_JS_mediaDefConstruction` | TEST6269: J s media def construction | capdag.test.js:1833 |
 | test6270 | objc | `test6270_DotParserComments` | TEST: Parse graph with comments | Tests/BifaciTests/OrchestratorTests.swift:397 |
 | test6271 | go | `Test6271_SchemaValidator_ValidateArguments_Integration` | TEST6271: Schema validator  validate arguments  integration | cap/schema_validation_test.go:180 |
-| test6272 | js | `test6272_isCollection` | Mirror-specific coverage: isCollection returns true when collection marker tag is present Mirror-specific coverage: N/A for JS (MEDIA_COLLECTION constants removed - no longer exists) | capdag.test.js:2822 |
+| test6272 | js | `test6272_isCollection` | Mirror-specific coverage: isCollection returns true when collection marker tag is present Mirror-specific coverage: N/A for JS (MEDIA_COLLECTION constants removed - no longer exists) | capdag.test.js:2784 |
 | test6273 | objc | `test6273_DotParserCapUrnLabel` | TEST: Parse cap URN label with escaped quotes | Tests/BifaciTests/OrchestratorTests.swift:413 |
 | test6274 | go | `Test6274_SchemaValidator_ArraySchemaValidation` | TEST6274: Schema validator  array schema validation | cap/schema_validation_test.go:244 |
-| test6275 | js | `test6275_Machine_emptyInput` | --- Machine parser tests (mirrors parser.rs tests) --- | capdag.test.js:3244 |
-| test6277 | js | `test6277_Machine_whitespaceOnly` | TEST0088: Machine whitespace only | capdag.test.js:3249 |
-| test6279 | js | `test6279_Machine_headerOnlyNoWirings` | TEST0089: Machine header only no wirings | capdag.test.js:3254 |
-| test6280 | js | `test6280_Machine_duplicateAlias` | TEST0090: Machine duplicate alias | capdag.test.js:3262 |
-| test6281 | objc | `test6281_outputStreamCloseWithoutStartIsNoop` | TEST6281: OutputStream empty stream sends STREAM_START and STREAM_END only | Tests/BifaciTests/StreamingAPITests.swift:385 |
+| test6275 | js | `test6275_Machine_emptyInput` | --- Machine parser tests (mirrors parser.rs tests) --- | capdag.test.js:3206 |
+| test6277 | js | `test6277_Machine_whitespaceOnly` | TEST0088: Machine whitespace only | capdag.test.js:3211 |
+| test6279 | js | `test6279_Machine_headerOnlyNoWirings` | TEST0089: Machine header only no wirings | capdag.test.js:3216 |
+| test6280 | js | `test6280_Machine_duplicateAlias` | TEST0090: Machine duplicate alias | capdag.test.js:3224 |
 | test6285 | objc | `test6285_b_outputStreamStartThenCloseEmpty` | TEST542b: OutputStream start + close sends STREAM_START + STREAM_END (empty stream) | Tests/BifaciTests/StreamingAPITests.swift:407 |
-| test6286 | js | `test6286_Machine_simpleLinearChain` | TEST0094: Machine simple linear chain | capdag.test.js:3274 |
-| test6287 | objc | `test6287_local_overrides_registry` | TEST6287: Test local media_defs definition overrides registry definition for same URN | Tests/CapDAGTests/CSMediaDefTests.m:375 |
-| test6288 | js | `test6288_Machine_twoStepChain` | TEST0095: Machine two step chain | capdag.test.js:3290 |
+| test6286 | js | `test6286_Machine_simpleLinearChain` | TEST0094: Machine simple linear chain | capdag.test.js:3236 |
+| test6287 | objc | `test6287_local_overrides_registry` | TEST6287: Test local media_defs definition overrides registry definition for same URN | Tests/CapDAGTests/CSMediaDefTests.m:370 |
+| test6288 | js | `test6288_Machine_twoStepChain` | TEST0095: Machine two step chain | capdag.test.js:3252 |
 | test6289 | objc | `test6289_c_outputStreamWriteWithoutStartThrows` | TEST542c: OutputStream write without start() throws | Tests/BifaciTests/StreamingAPITests.swift:437 |
-| test6290 | js | `test6290_Machine_fanOut` | TEST0096: Machine fan out | capdag.test.js:3305 |
+| test6290 | js | `test6290_Machine_fanOut` | TEST0096: Machine fan out | capdag.test.js:3267 |
 | test6291 | objc | `test6291_d_outputStreamDoubleStartThrows` | TEST542d: OutputStream start() twice throws | Tests/BifaciTests/StreamingAPITests.swift:453 |
-| test6292 | js | `test6292_Machine_fanInSecondaryAssignedByPriorWiring` | TEST0097: Machine fan in secondary assigned by prior wiring | capdag.test.js:3323 |
+| test6292 | js | `test6292_Machine_fanInSecondaryAssignedByPriorWiring` | TEST0097: Machine fan in secondary assigned by prior wiring | capdag.test.js:3285 |
 | test6293 | objc | `test6293_e_outputStreamModeConflictThrows` | TEST542e: OutputStream mode conflict throws (start write, call emitListItem) | Tests/BifaciTests/StreamingAPITests.swift:470 |
-| test6294 | js | `test6294_Machine_fanInSecondaryUnassignedGetsWildcard` | TEST0098: Machine fan in secondary unassigned gets wildcard | capdag.test.js:3337 |
-| test6295 | objc | `test6295_GcReducesTableBelowSoftWatermarkInOnePass` | / Contract #1 — the GC keeps the table strictly below the / hard cap. We seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame-burst) / and call the production GC entry point. The post-state / must be at most `softWatermark` entries because the GC / drops at least `evictionFraction × pre-state` entries in / one pass and the pre-state is below `hardCap` (i.e. one / pass is enough; the secondary "hard cap" pass would only / kick in if pre-state crossed the hard cap before insertion / completed, which production prevents by gc-ing on every / insert). | Tests/BifaciTests/CartridgeHostRoutingTableGCTests.swift:45 |
-| test6296 | go | `Test6296_resolved_is_binary` | TEST6296: A media def with no enc= tag is not text-representable. The old is_binary/is_text axis is gone; text is identified by the presence of an encoding (HasEncoding), so "binary" is simply the absence of one. | media/spec_test.go:179 |
-| test6298 | js | `test6298_resolvedIsText` | TEST6298: Test ResolvedMediaDef is_text returns true when enc tag is present | capdag.test.js:1120 |
-| test6299 | py | `test_6299_resolved_is_text` | TEST6299: Test ResolvedMediaDef text-representability is carried by the enc= tag | tests/test_media_def.py:263 |
-| test6300 | objc | `test6300_GcEvictsOldestEntriesByTouchedAt` | / Contract #2 — the GC drops the OLDEST entries by / `touchedAt`, not arbitrary keys. We seed a known age / distribution and recompute the expected victim set / independently of the production code, then assert that / the post-GC table contains exactly the entries the test / computed should survive. / / A regression where the GC e.g. iterates the dictionary and / drops the first N entries (dictionary iteration order is / arbitrary in Swift) would still pass contract #1 but fail / this one — so this is the assertion that catches a "wrong / victims" bug, which is the more dangerous one (silently / drops in-flight continuation frames). | Tests/BifaciTests/CartridgeHostRoutingTableGCTests.swift:108 |
-| test6301 | objc | `test6301_GcSecondaryPassEnforcesHardCap` | / Contract #3 — the secondary "hard cap" pass kicks in if / the table somehow exceeds `hardCap` (e.g. a seed that goes / over, simulating an extreme runaway). Without the / secondary pass, a single GC at the soft watermark would / not be enough to recover headroom and the table could / grow without bound between bursts. | Tests/BifaciTests/CartridgeHostRoutingTableGCTests.swift:172 |
-| test6302 | objc | `test6302_routesReqToHandler` | TEST6302: InProcessCartridgeHost routes REQ to matching handler and returns response | Tests/BifaciTests/InProcessCartridgeHostTests.swift:104 |
-| test6303 | objc | `test6303_identityVerification` | TEST6303: InProcessCartridgeHost handles identity verification (echo nonce) | Tests/BifaciTests/InProcessCartridgeHostTests.swift:188 |
-| test6304 | objc | `test6304_noHandlerReturnsErr` | TEST6304: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | Tests/BifaciTests/InProcessCartridgeHostTests.swift:249 |
-| test6305 | objc | `test6305_manifestIncludesAllCaps` | TEST6305: InProcessCartridgeHost manifest includes identity cap and handler caps | Tests/BifaciTests/InProcessCartridgeHostTests.swift:291 |
-| test6306 | js | `test6306_Machine_loopEdge` | TEST6306: Machine loop edge | capdag.test.js:3349 |
+| test6294 | js | `test6294_Machine_fanInSecondaryUnassignedGetsWildcard` | TEST0098: Machine fan in secondary unassigned gets wildcard | capdag.test.js:3299 |
+| test6306 | js | `test6306_Machine_loopEdge` | TEST6306: Machine loop edge | capdag.test.js:3311 |
 | test6307 | objc | `test6307_PressureAndKill` | / Single test: allocate 90% of RAM with incompressible CSPRNG data, monitor / memory, detect pressure (kernel or threshold), kill cartridge, verify death. / The goal is to overload the system — force the kernel into real pressure. | testcartridge-host/Sources/TestcartridgeHost/main.swift:288 |
-| test6308 | js | `test6308_Machine_undefinedAliasFails` | TEST6308: Machine undefined alias fails | capdag.test.js:3359 |
+| test6308 | js | `test6308_Machine_undefinedAliasFails` | TEST6308: Machine undefined alias fails | capdag.test.js:3321 |
 | test6309 | objc | `test6309_BuilderBasicConstruction` | TEST6309: Builder basic construction | Tests/CapDAGTests/CSCapUrnBuilderTests.m:17 |
-| test6310 | js | `test6310_Machine_nodeAliasCollision` | TEST6310: Machine node alias collision | capdag.test.js:3367 |
+| test6310 | js | `test6310_Machine_nodeAliasCollision` | TEST6310: Machine node alias collision | capdag.test.js:3329 |
 | test6311 | objc | `test6311_BuilderFluentAPI` | TEST6311: Builder fluent a p i | Tests/CapDAGTests/CSCapUrnBuilderTests.m:34 |
-| test6312 | js | `test6312_Machine_conflictingMediaTypesFail` | TEST6312: Machine conflicting media types fail | capdag.test.js:3378 |
+| test6312 | js | `test6312_Machine_conflictingMediaTypesFail` | TEST6312: Machine conflicting media types fail | capdag.test.js:3340 |
 | test6313 | objc | `test6313_BuilderDirectionAccess` | TEST6313: Builder direction access | Tests/CapDAGTests/CSCapUrnBuilderTests.m:56 |
-| test6315 | js | `test6315_Machine_multilineFormat` | TEST6315: Machine multiline format | capdag.test.js:3391 |
+| test6315 | js | `test6315_Machine_multilineFormat` | TEST6315: Machine multiline format | capdag.test.js:3353 |
 | test6316 | objc | `test6316_BuilderCustomTags` | TEST6316: Builder custom tags | Tests/CapDAGTests/CSCapUrnBuilderTests.m:74 |
-| test6318 | js | `test6318_Machine_differentAliasesSameGraph` | TEST6318: Machine different aliases same graph | capdag.test.js:3402 |
+| test6318 | js | `test6318_Machine_differentAliasesSameGraph` | TEST6318: Machine different aliases same graph | capdag.test.js:3364 |
 | test6319 | objc | `test6319_BuilderTagOverrides` | TEST6319: Builder tag overrides | Tests/CapDAGTests/CSCapUrnBuilderTests.m:93 |
 | test6320 | go | `Test6320_CustomMediaUrnResolution` | TEST6320: Custom media urn resolution | cap/schema_validation_test.go:656 |
-| test6321 | js | `test6321_Machine_malformedInputFails` | TEST6321: Machine malformed input fails | capdag.test.js:3415 |
+| test6321 | js | `test6321_Machine_malformedInputFails` | TEST6321: Machine malformed input fails | capdag.test.js:3377 |
 | test6322 | objc | `test6322_BuilderMissingInSpecFails` | TEST6322: Builder missing in spec fails | Tests/CapDAGTests/CSCapUrnBuilderTests.m:111 |
-| test6323 | js | `test6323_Machine_unterminatedBracketFails` | TEST6323: Machine unterminated bracket fails | capdag.test.js:3423 |
+| test6323 | js | `test6323_Machine_unterminatedBracketFails` | TEST6323: Machine unterminated bracket fails | capdag.test.js:3385 |
 | test6324 | objc | `test6324_BuilderMissingOutSpecFails` | TEST6324: Builder missing out spec fails | Tests/CapDAGTests/CSCapUrnBuilderTests.m:125 |
+| test6325 | go | `Test6325_RegistryValidation` | TEST6325: Registry validation | cap/registry_test.go:54 |
 | test6326 | py | `test_6326_max_chunk_plus_one_splits_into_two_chunks` | TEST6326: Test payload of max_chunk + 1 bytes produces exactly two chunks | tests/test_cbor_io.py:795 |
-| test6327 | js | `test6327_Machine_lineBasedSimpleChain` | --- Machine parser line-based mode tests --- | capdag.test.js:3432 |
+| test6327 | js | `test6327_Machine_lineBasedSimpleChain` | --- Machine parser line-based mode tests --- | capdag.test.js:3394 |
 | test6328 | objc | `test6328_BuilderEmptyBuildFailsWithMissingInSpec` | TEST6328: Builder empty build fails with missing in spec | Tests/CapDAGTests/CSCapUrnBuilderTests.m:139 |
 | test6329 | go | `Test6329_CacheOperations` | TEST6329: Cache operations | cap/registry_test.go:69 |
-| test6331 | js | `test6331_Machine_lineBasedTwoStepChain` | TEST6331: Machine line based two step chain | capdag.test.js:3446 |
+| test6331 | js | `test6331_Machine_lineBasedTwoStepChain` | TEST6331: Machine line based two step chain | capdag.test.js:3408 |
 | test6332 | objc | `test6332_BuilderTagIgnoresInOut` | TEST6332: Builder tag ignores in out | Tests/CapDAGTests/CSCapUrnBuilderTests.m:149 |
-| test6333 | py | `test_6333_registry_add_caps_to_cache` | TEST6333: Test adding caps to the registry cache and retrieving them | tests/test_registry.py:300 |
-| test6334 | js | `test6334_Machine_lineBasedLoop` | TEST6334: Machine line based loop | capdag.test.js:3457 |
+| test6333 | py | `test_6333_registry_add_caps_to_cache` | TEST6333: Test adding caps to the registry cache and retrieving them | tests/test_registry.py:299 |
+| test6334 | js | `test6334_Machine_lineBasedLoop` | TEST6334: Machine line based loop | capdag.test.js:3419 |
 | test6335 | objc | `test6335_BuilderMinimalValid` | TEST6335: Builder minimal valid | Tests/CapDAGTests/CSCapUrnBuilderTests.m:159 |
-| test6336 | py | `test_6336_registry_config_builder_pattern` | TEST6336: Test registry configuration builder sets registry and schema URLs | tests/test_registry.py:314 |
-| test6337 | js | `test6337_Machine_lineBasedFanIn` | TEST6337: Machine line based fan in | capdag.test.js:3467 |
+| test6336 | py | `test_6336_registry_config_builder_pattern` | TEST6336: Test registry configuration builder sets registry and schema URLs | tests/test_registry.py:313 |
+| test6337 | js | `test6337_Machine_lineBasedFanIn` | TEST6337: Machine line based fan in | capdag.test.js:3429 |
 | test6338 | objc | `test6338_BuilderComplex` | TEST6338: Builder complex | Tests/CapDAGTests/CSCapUrnBuilderTests.m:179 |
-| test6339 | go | `Test6339_CapUrn_JSONSerialization` | JSON serialization test (not numbered in Rust) | urn/cap_urn_test.go:1442 |
-| test6340 | py | `test_6340_normalize_urn_with_trailing_semicolon` | TEST6340: normalize_cap_urn strips trailing semicolons, producing the same canonical form with or without a trailing semicolon | tests/test_registry.py:325 |
-| test6341 | js | `test6341_Machine_mixedBracketedAndLineBased` | TEST6341: Machine mixed bracketed and line based | capdag.test.js:3481 |
+| test6339 | go | `Test6339_CapUrn_JSONSerialization` | JSON serialization test (not numbered in Rust) | urn/cap_urn_test.go:1421 |
+| test6340 | py | `test_6340_normalize_urn_with_trailing_semicolon` | TEST6340: normalize_cap_urn strips trailing semicolons, producing the same canonical form with or without a trailing semicolon | tests/test_registry.py:324 |
+| test6341 | js | `test6341_Machine_mixedBracketedAndLineBased` | TEST6341: Machine mixed bracketed and line based | capdag.test.js:3443 |
 | test6342 | objc | `test6342_BuilderWildcards` | TEST6342: Builder wildcards | Tests/CapDAGTests/CSCapUrnBuilderTests.m:221 |
 | test6343 | go | `Test6343_ParseSimple` | Mirror-specific coverage: Test parsing simple media URN verifies correct structure with no version, subtype, or profile | urn/media_urn_test.go:14 |
 | test6344 | py | `test_6344_nested_object_schema_validation` | TEST6344: Schema validation with nested object schemas | tests/test_schema_validation.py:174 |
-| test6345 | js | `test6345_Machine_lineBasedEquivalentToBracketed` | TEST6345: Machine line based equivalent to bracketed | capdag.test.js:3490 |
+| test6345 | js | `test6345_Machine_lineBasedEquivalentToBracketed` | TEST6345: Machine line based equivalent to bracketed | capdag.test.js:3452 |
 | test6346 | objc | `test6346_BuilderStaticFactory` | TEST6346: Builder static factory | Tests/CapDAGTests/CSCapUrnBuilderTests.m:247 |
 | test6347 | go | `Test6347_ParseWithSubtype` | Mirror-specific coverage: Test parsing media URN with marker tags works correctly | urn/media_urn_test.go:22 |
 | test6348 | py | `test_6348_array_schema_validation` | TEST6348: Schema validation with array schemas including minItems and item constraints | tests/test_schema_validation.py:226 |
-| test6349 | js | `test6349_Machine_lineBasedFormatSerialization` | TEST6349: Machine line based format serialization | capdag.test.js:3503 |
+| test6349 | js | `test6349_Machine_lineBasedFormatSerialization` | TEST6349: Machine line based format serialization | capdag.test.js:3465 |
 | test6350 | objc | `test6350_BuilderMatchingWithBuiltCap` | TEST6350: Builder matching with built cap | Tests/CapDAGTests/CSCapUrnBuilderTests.m:257 |
 | test6351 | go | `Test6351_ParseWithProfile` | Mirror-specific coverage: Test parsing media URN with profile extracts profile URL correctly | urn/media_urn_test.go:32 |
 | test6352 | py | `test_6352_type_constraint_validation` | TEST6352: Schema validation with type constraints (integer, number, boolean) | tests/test_schema_validation.py:269 |
-| test6353 | js | `test6353_Machine_lineBasedAndBracketedParseSameGraph` | TEST6353: Machine line based and bracketed parse same graph | capdag.test.js:3525 |
+| test6353 | js | `test6353_Machine_lineBasedAndBracketedParseSameGraph` | TEST6353: Machine line based and bracketed parse same graph | capdag.test.js:3487 |
 | test6354 | objc | `test6354_BuilderDirectionMismatchNoMatch` | TEST6354: Builder direction mismatch no match | Tests/CapDAGTests/CSCapUrnBuilderTests.m:308 |
-| test6355 | go | `Test6355_Constructor` | Mirror-specific coverage: Test simple constructor creates media URN with type tag | urn/media_urn_test.go:206 |
+| test6355 | go | `Test6355_Constructor` | Mirror-specific coverage: Test simple constructor creates media URN with type tag | urn/media_urn_test.go:203 |
 | test6356 | py | `test_6356_validate_multiple_arguments` | TEST6356: Schema validation with multiple arguments validates each independently | tests/test_schema_validation.py:303 |
-| test6357 | js | `test6357_Machine_edgeEquivalenceSameUrns` | --- Machine graph tests (mirrors graph.rs tests) --- | capdag.test.js:3551 |
+| test6357 | js | `test6357_Machine_edgeEquivalenceSameUrns` | --- Machine graph tests (mirrors graph.rs tests) --- | capdag.test.js:3513 |
 | test6358 | objc | `test6358_ArgumentValidationWithUnknownSpecFails` | Obj-C specific: unresolved spec ID fails hard during schema validation | Tests/CapDAGTests/CSSchemaValidationTests.m:141 |
-| test6359 | go | `Test6359_WithSubtypeConstructor` | Mirror-specific coverage: Test with_subtype constructor creates media URN with subtype | urn/media_urn_test.go:213 |
+| test6359 | go | `Test6359_WithSubtypeConstructor` | Mirror-specific coverage: Test with_subtype constructor creates media URN with subtype | urn/media_urn_test.go:210 |
 | test6360 | py | `test_6360_output_validation_with_details` | TEST6360: Output validation surfaces schema violation details | tests/test_schema_validation.py:356 |
-| test6361 | js | `test6361_Machine_edgeEquivalenceDifferentCapUrns` | TEST6361: Machine edge equivalence different cap urns | capdag.test.js:3568 |
+| test6361 | js | `test6361_Machine_edgeEquivalenceDifferentCapUrns` | TEST6361: Machine edge equivalence different cap urns | capdag.test.js:3530 |
 | test6362 | objc | `test6362_NonStructuredArgumentSkipsSchemaValidation` | Obj-C specific: Non-structured argument skips schema validation | Tests/CapDAGTests/CSSchemaValidationTests.m:160 |
 | test6364 | py | `test_6364_input_validation_optional_arg` | TEST6364: Input validation succeeds when optional positional argument is omitted | tests/test_validation.py:87 |
-| test6365 | js | `test6365_Machine_edgeEquivalenceDifferentTargets` | TEST6365: Machine edge equivalence different targets | capdag.test.js:3585 |
+| test6365 | js | `test6365_Machine_edgeEquivalenceDifferentTargets` | TEST6365: Machine edge equivalence different targets | capdag.test.js:3547 |
 | test6366 | objc | `test6366_OutputWithEmbeddedSchemaValidationFailure` | TEST6366: Output with embedded schema validation failure | Tests/CapDAGTests/CSSchemaValidationTests.m:233 |
 | test6367 | go | `Test6367_CapManifestValidation` | TEST6367: Cap manifest validation | bifaci/manifest_test.go:255 |
 | test6368 | py | `test_6368_input_validation_too_many_args` | TEST6368: Input validation fails with TooManyArgumentsError when extra positional args supplied | tests/test_validation.py:100 |
-| test6369 | js | `test6369_Machine_edgeEquivalenceDifferentLoopFlag` | TEST6369: Machine edge equivalence different loop flag | capdag.test.js:3602 |
+| test6369 | js | `test6369_Machine_edgeEquivalenceDifferentLoopFlag` | TEST6369: Machine edge equivalence different loop flag | capdag.test.js:3564 |
 | test6370 | objc | `test6370_IntegrationWithInputValidation` | TEST6370: Integration with input validation | Tests/CapDAGTests/CSSchemaValidationTests.m:275 |
-| test6372 | js | `test6372_Machine_edgeEquivalenceSourceOrderIndependent` | TEST6372: Machine edge equivalence source order independent | capdag.test.js:3619 |
+| test6372 | js | `test6372_Machine_edgeEquivalenceSourceOrderIndependent` | TEST6372: Machine edge equivalence source order independent | capdag.test.js:3581 |
 | test6373 | objc | `test6373_IntegrationWithOutputValidation` | TEST6373: Integration with output validation | Tests/CapDAGTests/CSSchemaValidationTests.m:346 |
-| test6374 | go | `Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase` | Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase pins every variant's string value against its proto snake_case name. New variants must be added here AND in the Rust / Swift / proto sides. | bifaci/relay_switch_test.go:855 |
-| test6375 | js | `test6375_Machine_edgeEquivalenceDifferentSourceCount` | TEST6375: Machine edge equivalence different source count | capdag.test.js:3636 |
-| test6377 | js | `test6377_Machine_graphEquivalenceSameEdges` | TEST6377: Machine graph equivalence same edges | capdag.test.js:3653 |
+| test6374 | go | `Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase` | Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase pins every variant's string value against its proto snake_case name. New variants must be added here AND in the Rust / Swift / proto sides. | bifaci/relay_switch_test.go:850 |
+| test6375 | js | `test6375_Machine_edgeEquivalenceDifferentSourceCount` | TEST6375: Machine edge equivalence different source count | capdag.test.js:3598 |
+| test6377 | js | `test6377_Machine_graphEquivalenceSameEdges` | TEST6377: Machine graph equivalence same edges | capdag.test.js:3615 |
 | test6378 | objc | `test6378_SchemaValidationErrorDetails` | TEST6378: Schema validation error details | Tests/CapDAGTests/CSSchemaValidationTests.m:508 |
-| test6379 | go | `Test6379_CartridgeAttachmentErrorJSONRoundTrips` | Test6379_CartridgeAttachmentErrorJSONRoundTrips verifies a CartridgeAttachmentError marshals to JSON and unmarshals back without changing the kind for every variant. RelayNotify wire payload is JSON; a single-variant regression breaks the entire per-master parse. | bifaci/relay_switch_test.go:883 |
-| test6380 | js | `test6380_Machine_graphEquivalenceReorderedEdges` | TEST6380: Machine graph equivalence reordered edges | capdag.test.js:3669 |
+| test6379 | go | `Test6379_CartridgeAttachmentErrorJSONRoundTrips` | Test6379_CartridgeAttachmentErrorJSONRoundTrips verifies a CartridgeAttachmentError marshals to JSON and unmarshals back without changing the kind for every variant. RelayNotify wire payload is JSON; a single-variant regression breaks the entire per-master parse. | bifaci/relay_switch_test.go:878 |
+| test6380 | js | `test6380_Machine_graphEquivalenceReorderedEdges` | TEST6380: Machine graph equivalence reordered edges | capdag.test.js:3631 |
 | test6381 | objc | `test6381_BuiltinSpecIdsResolve` | TEST6381: Builtin spec ids resolve | Tests/CapDAGTests/CSSchemaValidationTests.m:555 |
-| test6382 | go | `Test6382_parse_registry_json` | TEST6382: Test parsing registry JSON without stdin args verifies cap structure | cap/registry_test.go:79 |
-| test6383 | js | `test6383_Machine_graphNotEquivalentDifferentEdgeCount` | TEST6383: Machine graph not equivalent different edge count | capdag.test.js:3685 |
+| test6383 | js | `test6383_Machine_graphNotEquivalentDifferentEdgeCount` | TEST6383: Machine graph not equivalent different edge count | capdag.test.js:3647 |
 | test6384 | objc | `test6384_MediaDefsWithoutSchemaSkipsValidation` | TEST6384: Media defs without schema skips validation | Tests/CapDAGTests/CSSchemaValidationTests.m:610 |
-| test6386 | js | `test6386_Machine_graphNotEquivalentDifferentCap` | TEST6386: Machine graph not equivalent different cap | capdag.test.js:3700 |
+| test6386 | js | `test6386_Machine_graphNotEquivalentDifferentCap` | TEST6386: Machine graph not equivalent different cap | capdag.test.js:3662 |
 | test6387 | objc | `test6387_SchemaValidationPerformance` | TEST6387: Schema validation performance | Tests/CapDAGTests/CSSchemaValidationTests.m:637 |
-| test6389 | js | `test6389_Machine_graphEmpty` | TEST6389: Machine graph empty | capdag.test.js:3714 |
+| test6389 | js | `test6389_Machine_graphEmpty` | TEST6389: Machine graph empty | capdag.test.js:3676 |
 | test6390 | objc | `test6390_FullCapValidationWithMediaDefs` | TEST6390: Full cap validation with media defs | Tests/CapDAGTests/CSSchemaValidationTests.m:696 |
-| test6391 | go | `Test6391_same_cap_different_spellings_same_url` | TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. This is the property that makes cross-language lookups land at the same registry object regardless of which capdag implementation issued the request. | cap/registry_test.go:150 |
-| test6392 | js | `test6392_Machine_graphEmptyEquivalence` | TEST6392: Machine graph empty equivalence | capdag.test.js:3721 |
-| test6393 | objc | `test6393_sameCapDifferentSpellingsSameURL` | / TEST6393: Equivalent URNs (different tag order, etc.) hash to the / same key. This is the property that makes cross-language lookups / land at the same registry object regardless of which capdag / implementation issued the request. Inputs MUST quote any / multi-tag media URN value — the previous unquoted spelling / `out=media:task;id` was actually a different URN (the bare / `media:task` plus a separate `id` op tag), and treating those / two URNs as equivalent here masked a real spec violation. | Tests/CapDAGTests/CSFabricRegistryTests.m:87 |
-| test6395 | js | `test6395_Machine_rootSourcesLinearChain` | TEST6395: Machine root sources linear chain | capdag.test.js:3728 |
-| test6396 | py | `test_6396_normalize_handles_different_tag_orders` | TEST6396: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:203 |
-| test6397 | js | `test6397_Machine_leafTargetsLinearChain` | TEST6397: Machine leaf targets linear chain | capdag.test.js:3743 |
-| test6398 | js | `test6398_Machine_rootSourcesFanIn` | TEST6398: Machine root sources fan in | capdag.test.js:3758 |
+| test6392 | js | `test6392_Machine_graphEmptyEquivalence` | TEST6392: Machine graph empty equivalence | capdag.test.js:3683 |
+| test6395 | js | `test6395_Machine_rootSourcesLinearChain` | TEST6395: Machine root sources linear chain | capdag.test.js:3690 |
+| test6397 | js | `test6397_Machine_leafTargetsLinearChain` | TEST6397: Machine leaf targets linear chain | capdag.test.js:3705 |
+| test6398 | js | `test6398_Machine_rootSourcesFanIn` | TEST6398: Machine root sources fan in | capdag.test.js:3720 |
 | test6399 | objc | `test6399_glob_pattern_detection` | Mirror-specific: glob pattern detection is an objc-only helper used by the resolver internals. Rust uses globwalk; these checks exercise the BSD glob detection logic. | Tests/CapDAGTests/CSInputResolverTests.m:506 |
-| test6400 | js | `test6400_Machine_displayEdge` | TEST6400: Machine display edge | capdag.test.js:3771 |
+| test6400 | js | `test6400_Machine_displayEdge` | TEST6400: Machine display edge | capdag.test.js:3733 |
 | test6401 | objc | `test6401_resolved_input_set_total_size` | Mirror-specific: CSResolvedInputSet aggregates totalSize across files | Tests/CapDAGTests/CSInputResolverTests.m:515 |
-| test6402 | js | `test6402_Machine_displayGraph` | TEST6402: Machine display graph | capdag.test.js:3783 |
+| test6402 | js | `test6402_Machine_displayGraph` | TEST6402: Machine display graph | capdag.test.js:3745 |
 | test6403 | objc | `test6403_MetadataPropagationFromObjectDef` | TEST6403: Metadata propagation from object def | Tests/CapDAGTests/CSMediaDefTests.m:25 |
-| test6404 | js | `test6404_Machine_serializeSingleEdge` | --- Machine serializer tests (mirrors serializer.rs tests) --- | capdag.test.js:3796 |
+| test6404 | js | `test6404_Machine_serializeSingleEdge` | --- Machine serializer tests (mirrors serializer.rs tests) --- | capdag.test.js:3758 |
 | test6405 | objc | `test6405_MetadataNilByDefault` | TEST6405: Metadata nil by default | Tests/CapDAGTests/CSMediaDefTests.m:56 |
-| test6406 | js | `test6406_Machine_serializeTwoEdgeChain` | TEST6406: Machine serialize two edge chain | capdag.test.js:3812 |
-| test6407 | objc | `test6407_MetadataWithValidation` | TEST6407: Metadata with validation | Tests/CapDAGTests/CSMediaDefTests.m:75 |
-| test6408 | js | `test6408_Machine_serializeEmptyGraph` | TEST6408: Machine serialize empty graph | capdag.test.js:3826 |
-| test6409 | objc | `test6409_capManifestCreation` | TEST6409: Cap manifest construction stores name, version, channel, description, and the cap_groups verbatim. | Tests/BifaciTests/ManifestTests.swift:28 |
-| test6410 | js | `test6410_Machine_roundtripSingleEdge` | TEST6410: Machine roundtrip single edge | capdag.test.js:3831 |
+| test6406 | js | `test6406_Machine_serializeTwoEdgeChain` | TEST6406: Machine serialize two edge chain | capdag.test.js:3774 |
+| test6408 | js | `test6408_Machine_serializeEmptyGraph` | TEST6408: Machine serialize empty graph | capdag.test.js:3788 |
+| test6410 | js | `test6410_Machine_roundtripSingleEdge` | TEST6410: Machine roundtrip single edge | capdag.test.js:3793 |
 | test6411 | objc | `test6411_capManifestWithAuthor` | TEST6411: Author field round-trips through CSCapManifest.withAuthor. | Tests/BifaciTests/ManifestTests.swift:49 |
 | test6412 | objc | `test6412_capManifestJsonRoundtrip` | TEST6412: JSON roundtrip preserves channel and cap_groups. | Tests/BifaciTests/ManifestTests.swift:63 |
-| test6413 | js | `test6413_Machine_roundtripTwoEdgeChain` | TEST6413: Machine roundtrip two edge chain | capdag.test.js:3845 |
-| test6414 | objc | `test6414_capManifestRequiredFields` | TEST6414: Manifest deserialization fails when any required field is missing — including channel, which is part of the cartridge's identity. There is no fallback default; missing means broken. | Tests/BifaciTests/ManifestTests.swift:138 |
-| test6415 | js | `test6415_Machine_roundtripFanOut` | TEST6415: Machine roundtrip fan out | capdag.test.js:3860 |
-| test6416 | objc | `test6416_capManifestWithMultipleCaps` | TEST6416: Multiple caps across multiple cap_groups serialize and deserialize correctly, preserving group structure. | Tests/BifaciTests/ManifestTests.swift:176 |
-| test6417 | js | `test6417_Machine_roundtripLoopEdge` | TEST6417: Machine roundtrip loop edge | capdag.test.js:3876 |
-| test6418 | objc | `test6418_capManifestEmptyCapGroups` | TEST6418: An empty cap_groups list round-trips without losing the channel / version envelope. | Tests/BifaciTests/ManifestTests.swift:212 |
-| test6419 | js | `test6419_Machine_serializationIsDeterministic` | TEST6419: Machine serialization is deterministic | capdag.test.js:3890 |
-| test6420 | objc | `test6420_capManifestOptionalAuthorField` | TEST6420: Optional author field on CSCapManifest is nil by default and round-trips through `withAuthor`. | Tests/BifaciTests/ManifestTests.swift:236 |
-| test6421 | js | `test6421_Machine_reorderedEdgesProduceSameNotation` | TEST6421: Machine reordered edges produce same notation | capdag.test.js:3904 |
+| test6413 | js | `test6413_Machine_roundtripTwoEdgeChain` | TEST6413: Machine roundtrip two edge chain | capdag.test.js:3807 |
+| test6415 | js | `test6415_Machine_roundtripFanOut` | TEST6415: Machine roundtrip fan out | capdag.test.js:3822 |
+| test6417 | js | `test6417_Machine_roundtripLoopEdge` | TEST6417: Machine roundtrip loop edge | capdag.test.js:3838 |
+| test6419 | js | `test6419_Machine_serializationIsDeterministic` | TEST6419: Machine serialization is deterministic | capdag.test.js:3852 |
+| test6421 | js | `test6421_Machine_reorderedEdgesProduceSameNotation` | TEST6421: Machine reordered edges produce same notation | capdag.test.js:3866 |
 | test6422 | objc | `test6422_componentMetadataAccessors` | TEST6422: CSCapManifest exposes name / version / channel / description / cap_groups via its accessors. The Obj-C bridge is schema-equivalent to the Swift `Manifest` struct. | Tests/BifaciTests/ManifestTests.swift:254 |
-| test6423 | go | `Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings` | Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings is the engine→Go-host (or Swift→Go-host) decode path: incoming JSON uses the snake_case wire format, and the Go side must resolve each string into the matching variant. CartridgeAttachmentErrorKind is just `type ... string`, so this test is also a check that the JSON unmarshaller doesn't normalise/lowercase/etc the bytes behind our backs. | bifaci/relay_switch_test.go:931 |
+| test6423 | go | `Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings` | Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings is the engine→Go-host (or Swift→Go-host) decode path: incoming JSON uses the snake_case wire format, and the Go side must resolve each string into the matching variant. CartridgeAttachmentErrorKind is just `type ... string`, so this test is also a check that the JSON unmarshaller doesn't normalise/lowercase/etc the bytes behind our backs. | bifaci/relay_switch_test.go:926 |
 | test6424 | objc | `test6424_ResolveMediaUrnNotFound` | TEST6424: Resolve media urn not found | Tests/CapDAGTests/CSMediaDefTests.m:112 |
 | test6425 | objc | `test6425_ExtensionsPropagationFromObjectDef` | Extensions field tests | Tests/CapDAGTests/CSMediaDefTests.m:124 |
 | test6426 | objc | `test6426_ExtensionsEmptyWhenNotSet` | TEST6426: Extensions empty when not set | Tests/CapDAGTests/CSMediaDefTests.m:148 |
-| test6427 | objc | `test6427_ExtensionsWithMetadataAndValidation` | TEST6427: Extensions with metadata and validation | Tests/CapDAGTests/CSMediaDefTests.m:168 |
 | test6428 | go | `Test6428_IntegrationVersionlessCapCreation` | Test6428_IntegrationVersionlessCapCreation verifies caps can be created without version fields | bifaci/integration_test.go:47 |
-| test6429 | js | `test6429_Machine_multilineSerializeFormat` | TEST6429: Machine multiline serialize format | capdag.test.js:3921 |
-| test6430 | objc | `test6430_MultipleExtensions` | TEST6430: Multiple extensions | Tests/CapDAGTests/CSMediaDefTests.m:201 |
+| test6429 | js | `test6429_Machine_multilineSerializeFormat` | TEST6429: Machine multiline serialize format | capdag.test.js:3883 |
 | test6431 | go | `Test6431_IntegrationCaseInsensitiveUrns` | Test6431_IntegrationCaseInsensitiveUrns verifies URNs are case-insensitive | bifaci/integration_test.go:75 |
-| test6432 | js | `test6432_Machine_aliasFromOpTag` | Aliases are pure-index `edge_<N>` regardless of the cap's tags; there is no privileged `op` tag to derive a friendlier name from. | capdag.test.js:3937 |
+| test6432 | js | `test6432_Machine_aliasFromOpTag` | Aliases are pure-index `edge_<N>` regardless of the cap's tags; there is no privileged `op` tag to derive a friendlier name from. | capdag.test.js:3899 |
 | test6433 | go | `Test6433_IntegrationCapValidation` | Test6433_IntegrationCapValidation verifies cap schema validation | bifaci/integration_test.go:119 |
-| test6434 | js | `test6434_Machine_aliasFallbackWithoutOpTag` | TEST6434: Machine alias fallback without op tag | capdag.test.js:3949 |
+| test6434 | js | `test6434_Machine_aliasFallbackWithoutOpTag` | TEST6434: Machine alias fallback without op tag | capdag.test.js:3911 |
 | test6435 | objc | `test6435_RegistryValidCapCheck` | Registry validator tests removed - not part of current API | Tests/CapDAGTests/CSFabricRegistryTests.m:52 |
-| test6436 | js | `test6436_Machine_duplicateOpTagsDisambiguated` | Pure-index aliases inherently disambiguate edges that share a marker tag. | capdag.test.js:3961 |
-| test6437 | js | `test6437_Machine_builderSingleEdge` | --- Machine builder tests --- | capdag.test.js:3983 |
-| test6438 | js | `test6438_Machine_builderWithLoop` | TEST6438: Machine builder with loop | capdag.test.js:3996 |
-| test6439 | js | `test6439_Machine_builderChaining` | TEST6439: Machine builder chaining | capdag.test.js:4009 |
-| test6440 | js | `test6440_Machine_builderEquivalentToParsed` | TEST6440: Machine builder equivalent to parsed | capdag.test.js:4018 |
+| test6436 | js | `test6436_Machine_duplicateOpTagsDisambiguated` | Pure-index aliases inherently disambiguate edges that share a marker tag. | capdag.test.js:3923 |
+| test6437 | js | `test6437_Machine_builderSingleEdge` | --- Machine builder tests --- | capdag.test.js:3945 |
+| test6438 | js | `test6438_Machine_builderWithLoop` | TEST6438: Machine builder with loop | capdag.test.js:3958 |
+| test6439 | js | `test6439_Machine_builderChaining` | TEST6439: Machine builder chaining | capdag.test.js:3971 |
+| test6440 | js | `test6440_Machine_builderEquivalentToParsed` | TEST6440: Machine builder equivalent to parsed | capdag.test.js:3980 |
 | test6441 | objc | `test6441_GetCapDefinitionReal` | TEST6441: Get cap definition real | Tests/CapDAGTests/CSFabricRegistryTests.m:118 |
-| test6442 | js | `test6442_Machine_builderRoundTrip` | TEST6442: Machine builder round trip | capdag.test.js:4031 |
+| test6442 | js | `test6442_Machine_builderRoundTrip` | TEST6442: Machine builder round trip | capdag.test.js:3993 |
 | test6443 | objc | `test6443_ValidateCapCanonical` | TEST6443: Validate cap canonical | Tests/CapDAGTests/CSFabricRegistryTests.m:139 |
-| test6444 | js | `test6444_Machine_capUrnIsEquivalent` | --- CapUrn.isEquivalent/isComparable tests --- | capdag.test.js:4043 |
+| test6444 | js | `test6444_Machine_capUrnIsEquivalent` | --- CapUrn.isEquivalent/isComparable tests --- | capdag.test.js:4005 |
 | test6445 | objc | `test6445_SourceWithData` | TEST6445: Source with data | Tests/CapDAGTests/CSStdinSourceTests.m:15 |
-| test6446 | js | `test6446_Machine_capUrnIsComparable` | TEST6446: Machine cap urn is comparable | capdag.test.js:4052 |
+| test6446 | js | `test6446_Machine_capUrnIsComparable` | TEST6446: Machine cap urn is comparable | capdag.test.js:4014 |
 | test6447 | objc | `test6447_SourceWithFileReference` | TEST6447: Source with file reference | Tests/CapDAGTests/CSStdinSourceTests.m:31 |
-| test6448 | js | `test6448_Machine_capUrnInMediaUrn` | TEST6448: Machine cap urn in media urn | capdag.test.js:4060 |
-| test6449 | js | `test6449_Machine_capUrnOutMediaUrn` | TEST6449: Machine cap urn out media urn | capdag.test.js:4068 |
-| test6450 | js | `test6450_Machine_mediaUrnIsEquivalent` | --- MediaUrn.isEquivalent/isComparable tests --- | capdag.test.js:4077 |
-| test6451 | js | `test6451_Machine_mediaUrnIsComparable` | TEST6451: Machine media urn is comparable | capdag.test.js:4086 |
-| test6452 | js | `test6452_Machine_parseMachineWithAST_headerLocation` | Phase 0A: Position tracking tests | capdag.test.js:4099 |
-| test6453 | js | `test6453_Machine_parseMachineWithAST_wiringLocation` | TEST6453: Machine parse machine with a s t wiring location | capdag.test.js:4116 |
-| test6454 | js | `test6454_Machine_parseMachineWithAST_multilinePositions` | TEST6454: Machine parse machine with a s t multiline positions | capdag.test.js:4131 |
-| test6455 | js | `test6455_Machine_parseMachineWithAST_fanInSourceLocations` | TEST6455: Machine parse machine with a s t fan in source locations | capdag.test.js:4141 |
-| test6456 | js | `test6456_Machine_parseMachineWithAST_aliasMap` | TEST6456: Machine parse machine with a s t alias map | capdag.test.js:4153 |
-| test6457 | js | `test6457_Machine_parseMachineWithAST_nodeMedia` | TEST6457: Machine parse machine with a s t node media | capdag.test.js:4172 |
-| test6458 | js | `test6458_Machine_errorLocation_parseError` | TEST6458: Machine error location parse error | capdag.test.js:4185 |
-| test6459 | js | `test6459_Machine_errorLocation_duplicateAlias` | TEST6459: Machine error location duplicate alias | capdag.test.js:4196 |
-| test6460 | js | `test6460_Machine_errorLocation_undefinedAlias` | TEST6460: Machine error location undefined alias | capdag.test.js:4211 |
+| test6448 | js | `test6448_Machine_capUrnInMediaUrn` | TEST6448: Machine cap urn in media urn | capdag.test.js:4022 |
+| test6449 | js | `test6449_Machine_capUrnOutMediaUrn` | TEST6449: Machine cap urn out media urn | capdag.test.js:4030 |
+| test6450 | js | `test6450_Machine_mediaUrnIsEquivalent` | --- MediaUrn.isEquivalent/isComparable tests --- | capdag.test.js:4039 |
+| test6451 | js | `test6451_Machine_mediaUrnIsComparable` | TEST6451: Machine media urn is comparable | capdag.test.js:4048 |
+| test6452 | js | `test6452_Machine_parseMachineWithAST_headerLocation` | Phase 0A: Position tracking tests | capdag.test.js:4061 |
+| test6453 | js | `test6453_Machine_parseMachineWithAST_wiringLocation` | TEST6453: Machine parse machine with a s t wiring location | capdag.test.js:4078 |
+| test6454 | js | `test6454_Machine_parseMachineWithAST_multilinePositions` | TEST6454: Machine parse machine with a s t multiline positions | capdag.test.js:4093 |
+| test6455 | js | `test6455_Machine_parseMachineWithAST_fanInSourceLocations` | TEST6455: Machine parse machine with a s t fan in source locations | capdag.test.js:4103 |
+| test6456 | js | `test6456_Machine_parseMachineWithAST_aliasMap` | TEST6456: Machine parse machine with a s t alias map | capdag.test.js:4115 |
+| test6457 | js | `test6457_Machine_parseMachineWithAST_nodeMedia` | TEST6457: Machine parse machine with a s t node media | capdag.test.js:4134 |
+| test6458 | js | `test6458_Machine_errorLocation_parseError` | TEST6458: Machine error location parse error | capdag.test.js:4147 |
+| test6459 | js | `test6459_Machine_errorLocation_duplicateAlias` | TEST6459: Machine error location duplicate alias | capdag.test.js:4158 |
+| test6460 | js | `test6460_Machine_errorLocation_undefinedAlias` | TEST6460: Machine error location undefined alias | capdag.test.js:4173 |
 | test6461 | objc | `test6461_DataSourceWithEmptyData` | TEST6461: Data source with empty data | Tests/CapDAGTests/CSStdinSourceTests.m:54 |
-| test6462 | js | `test6462_Machine_toMermaid_linearChain` | Phase 0C: Machine.toMermaid() tests | capdag.test.js:4225 |
-| test6463 | js | `test6463_Machine_toMermaid_loopEdge` | TEST6463: Machine to mermaid loop edge | capdag.test.js:4244 |
-| test6464 | js | `test6464_Machine_toMermaid_emptyGraph` | TEST6464: Machine to mermaid empty graph | capdag.test.js:4256 |
-| test6465 | js | `test6465_Machine_toMermaid_fanIn` | TEST6465: Machine to mermaid fan in | capdag.test.js:4263 |
-| test6466 | js | `test6466_Machine_toMermaid_fanOut` | TEST6466: Machine to mermaid fan out | capdag.test.js:4275 |
-| test6467 | js | `test6467_Machine_capRegistryEntry_construction` | Phase 0B: FabricRegistryClient tests | capdag.test.js:4295 |
-| test6468 | js | `test6468_Machine_mediaRegistryEntry_construction` | TEST6468: Machine media registry entry construction | capdag.test.js:4319 |
-| test6469 | js | `test6469_Machine_capRegistryClient_construction` | TEST6469: Machine cap registry client construction | capdag.test.js:4333 |
-| test6470 | js | `test6470_Machine_capRegistryEntry_defaults` | TEST6470: Machine cap registry entry defaults | capdag.test.js:4341 |
-| test6471 | js | `test6471_Renderer_cardinalityLabel_allFourCases` | TEST6471: Renderer cardinality label all four cases | capdag.test.js:4407 |
-| test6472 | js | `test6472_Renderer_cardinalityLabel_usesUnicodeArrow` | TEST6472: Renderer cardinality label uses unicode arrow | capdag.test.js:4415 |
-| test6473 | js | `test6473_Renderer_cardinalityFromCap_findsStdinArgNotFirstArg` | TEST6473: Renderer cardinality from cap finds stdin arg not first arg | capdag.test.js:4424 |
-| test6474 | js | `test6474_Renderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing` | TEST6474: Renderer cardinality from cap scalar defaults when fields missing | capdag.test.js:4449 |
-| test6475 | js | `test6475_Renderer_cardinalityFromCap_outputOnlySequence` | TEST6475: Renderer cardinality from cap output only sequence | capdag.test.js:4458 |
-| test6476 | js | `test6476_Renderer_cardinalityFromCap_rejectsStringIsSequence` | TEST6476: Renderer cardinality from cap rejects string is sequence | capdag.test.js:4470 |
+| test6462 | js | `test6462_Machine_toMermaid_linearChain` | Phase 0C: Machine.toMermaid() tests | capdag.test.js:4187 |
+| test6463 | js | `test6463_Machine_toMermaid_loopEdge` | TEST6463: Machine to mermaid loop edge | capdag.test.js:4206 |
+| test6464 | js | `test6464_Machine_toMermaid_emptyGraph` | TEST6464: Machine to mermaid empty graph | capdag.test.js:4218 |
+| test6465 | js | `test6465_Machine_toMermaid_fanIn` | TEST6465: Machine to mermaid fan in | capdag.test.js:4225 |
+| test6466 | js | `test6466_Machine_toMermaid_fanOut` | TEST6466: Machine to mermaid fan out | capdag.test.js:4237 |
+| test6467 | js | `test6467_Machine_capRegistryEntry_construction` | Phase 0B: FabricRegistryClient tests | capdag.test.js:4257 |
+| test6468 | js | `test6468_Machine_mediaRegistryEntry_construction` | TEST6468: Machine media registry entry construction | capdag.test.js:4281 |
+| test6469 | js | `test6469_Machine_capRegistryClient_construction` | TEST6469: Machine cap registry client construction | capdag.test.js:4295 |
+| test6470 | js | `test6470_Machine_capRegistryEntry_defaults` | TEST6470: Machine cap registry entry defaults | capdag.test.js:4303 |
+| test6471 | js | `test6471_Renderer_cardinalityLabel_allFourCases` | TEST6471: Renderer cardinality label all four cases | capdag.test.js:4369 |
+| test6472 | js | `test6472_Renderer_cardinalityLabel_usesUnicodeArrow` | TEST6472: Renderer cardinality label uses unicode arrow | capdag.test.js:4377 |
+| test6473 | js | `test6473_Renderer_cardinalityFromCap_findsStdinArgNotFirstArg` | TEST6473: Renderer cardinality from cap finds stdin arg not first arg | capdag.test.js:4386 |
+| test6474 | js | `test6474_Renderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing` | TEST6474: Renderer cardinality from cap scalar defaults when fields missing | capdag.test.js:4411 |
+| test6475 | js | `test6475_Renderer_cardinalityFromCap_outputOnlySequence` | TEST6475: Renderer cardinality from cap output only sequence | capdag.test.js:4420 |
+| test6476 | js | `test6476_Renderer_cardinalityFromCap_rejectsStringIsSequence` | TEST6476: Renderer cardinality from cap rejects string is sequence | capdag.test.js:4432 |
 | test6477 | objc | `test6477_DataSourceWithBinaryContent` | TEST6477: Data source with binary content | Tests/CapDAGTests/CSStdinSourceTests.m:65 |
-| test6478 | js | `test6478_Renderer_cardinalityFromCap_throwsOnNonObject` | TEST6478: Renderer cardinality from cap throws on non object | capdag.test.js:4484 |
-| test6479 | js | `test6479_Renderer_canonicalMediaUrn_normalizesTagOrder` | TEST6479: Renderer canonical media urn normalizes tag order | capdag.test.js:4504 |
-| test6480 | js | `test6480_Renderer_canonicalMediaUrn_preservesValueTags` | TEST6480: Renderer canonical media urn preserves value tags | capdag.test.js:4514 |
-| test6481 | js | `test6481_Renderer_canonicalMediaUrn_rejectsCapUrn` | TEST6481: Renderer canonical media urn rejects cap urn | capdag.test.js:4520 |
-| test6482 | js | `test6482_Renderer_mediaNodeLabel_rejectsUrnDerivedLabels` | TEST6482: Renderer media node label rejects urn derived labels | capdag.test.js:4533 |
-| test6483 | js | `test6483_Renderer_buildBrowseGraphData_rejectsMissingMediaTitles` | TEST6483: Renderer build browse graph data rejects missing media titles | capdag.test.js:4548 |
-| test6484 | js | `test6484_Renderer_validateStrandStep_rejectsUnknownVariant` | TEST6484: Renderer validate strand step rejects unknown variant | capdag.test.js:4606 |
+| test6478 | js | `test6478_Renderer_cardinalityFromCap_throwsOnNonObject` | TEST6478: Renderer cardinality from cap throws on non object | capdag.test.js:4446 |
+| test6479 | js | `test6479_Renderer_canonicalMediaUrn_normalizesTagOrder` | TEST6479: Renderer canonical media urn normalizes tag order | capdag.test.js:4466 |
+| test6480 | js | `test6480_Renderer_canonicalMediaUrn_preservesValueTags` | TEST6480: Renderer canonical media urn preserves value tags | capdag.test.js:4476 |
+| test6481 | js | `test6481_Renderer_canonicalMediaUrn_rejectsCapUrn` | TEST6481: Renderer canonical media urn rejects cap urn | capdag.test.js:4482 |
+| test6482 | js | `test6482_Renderer_mediaNodeLabel_rejectsUrnDerivedLabels` | TEST6482: Renderer media node label rejects urn derived labels | capdag.test.js:4495 |
+| test6483 | js | `test6483_Renderer_buildBrowseGraphData_rejectsMissingMediaTitles` | TEST6483: Renderer build browse graph data rejects missing media titles | capdag.test.js:4510 |
+| test6484 | js | `test6484_Renderer_validateStrandStep_rejectsUnknownVariant` | TEST6484: Renderer validate strand step rejects unknown variant | capdag.test.js:4568 |
 | test6485 | objc | `test6485_FileReferenceWithAllFields` | TEST6485: File reference with all fields | Tests/CapDAGTests/CSStdinSourceTests.m:79 |
-| test6486 | js | `test6486_Renderer_validateStrandStep_requiresBooleanIsSequence` | TEST6486: Renderer validate strand step requires boolean is sequence | capdag.test.js:4624 |
-| test6487 | js | `test6487_Renderer_classifyStrandCapSteps_capFlags` | TEST6487: Renderer classify strand cap steps cap flags | capdag.test.js:4647 |
-| test6488 | js | `test6488_Renderer_classifyStrandCapSteps_nestedForks` | TEST6488: Renderer classify strand cap steps nested forks | capdag.test.js:4669 |
-| test6489 | js | `test6489_Renderer_buildStrandGraphData_singleCapPlain` | TEST6489: Renderer build strand graph data single cap plain | capdag.test.js:4700 |
+| test6486 | js | `test6486_Renderer_validateStrandStep_requiresBooleanIsSequence` | TEST6486: Renderer validate strand step requires boolean is sequence | capdag.test.js:4586 |
+| test6487 | js | `test6487_Renderer_classifyStrandCapSteps_capFlags` | TEST6487: Renderer classify strand cap steps cap flags | capdag.test.js:4609 |
+| test6488 | js | `test6488_Renderer_classifyStrandCapSteps_nestedForks` | TEST6488: Renderer classify strand cap steps nested forks | capdag.test.js:4631 |
+| test6489 | js | `test6489_Renderer_buildStrandGraphData_singleCapPlain` | TEST6489: Renderer build strand graph data single cap plain | capdag.test.js:4662 |
 | test6490 | objc | `test6490_StandaloneCollectNode` | MARK: - Standalone Collect Node Tests | Tests/CapDAGTests/CSPlanDecompositionTests.m:63 |
-| test6491 | js | `test6491_Renderer_buildStrandGraphData_sequenceShowsCardinality` | TEST6491: Renderer build strand graph data sequence shows cardinality | capdag.test.js:4728 |
-| test6492 | js | `test6492_Renderer_buildStrandGraphData_foreachCollectSpan` | TEST6492: Renderer build strand graph data foreach collect span | capdag.test.js:4749 |
-| test6493 | js | `test6493_Renderer_buildStrandGraphData_standaloneCollect` | TEST6493: Renderer build strand graph data standalone collect | capdag.test.js:4801 |
-| test6494 | js | `test6494_Renderer_buildStrandGraphData_unclosedForEachBody` | TEST6494: Renderer build strand graph data unclosed for each body | capdag.test.js:4829 |
-| test6495 | js | `test6495_Renderer_buildStrandGraphData_nestedForEachThrows` | TEST6495: Renderer build strand graph data nested for each throws | capdag.test.js:4867 |
-| test6496 | js | `test6496_Renderer_collapseStrand_singleCapBodyKeepsCapOwnLabel` | TEST6496: Renderer collapse strand single cap body keeps cap own label | capdag.test.js:4896 |
-| test6497 | js | `test6497_Renderer_collapseStrand_unclosedForEachBodyCollapses` | TEST6497: Renderer collapse strand unclosed for each body collapses | capdag.test.js:4949 |
-| test6498 | js | `test6498_Renderer_collapseStrand_standaloneCollectCollapses` | TEST6498: Renderer collapse strand standalone collect collapses | capdag.test.js:5006 |
-| test6499 | js | `test6499_Renderer_collapseStrand_sequenceProducingCapBeforeForeach` | TEST6499: Renderer collapse strand sequence producing cap before foreach | capdag.test.js:5050 |
-| test6500 | js | `test6500_Renderer_collapseStrand_plainCapMergesTrailingOutput` | TEST6500: Renderer collapse strand plain cap merges trailing output | capdag.test.js:5115 |
-| test6501 | js | `test6501_Renderer_collapseStrand_plainCapDistinctTargetNoMerge` | TEST6501: Renderer collapse strand plain cap distinct target no merge | capdag.test.js:5152 |
-| test6502 | js | `test6502_Renderer_validateStrandPayload_missingSourceMediaUrn` | TEST6502: Renderer validate strand payload missing source media urn | capdag.test.js:5179 |
-| test6503 | js | `test6503_Renderer_validateBodyOutcome_rejectsNegativeIndex` | ---------------- run builder ---------------- | capdag.test.js:5192 |
-| test6504 | js | `test6504_Renderer_buildRunGraphData_pagesSuccessesAndFailures` | TEST6504: Renderer build run graph data pages successes and failures | capdag.test.js:5203 |
-| test6505 | js | `test6505_Renderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace` | TEST6505: Renderer build run graph data failure without failed cap renders full trace | capdag.test.js:5274 |
-| test6506 | js | `test6506_Renderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap` | TEST6506: Renderer build run graph data uses cap urn is equivalent for failed cap | capdag.test.js:5313 |
-| test6507 | js | `test6507_Renderer_buildRunGraphData_backboneHasNoForeachNode` | TEST6507: Renderer build run graph data backbone has no foreach node | capdag.test.js:5373 |
-| test6508 | js | `test6508_Renderer_buildRunGraphData_allFailedDropsTargetPlaceholder` | TEST6508: Renderer build run graph data all failed drops target placeholder | capdag.test.js:5428 |
-| test6509 | js | `test6509_Renderer_buildRunGraphData_unclosedForeachSuccessNoMerge` | TEST6509: Renderer build run graph data unclosed foreach success no merge | capdag.test.js:5494 |
-| test6510 | js | `test6510_Renderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget` | TEST6510: Renderer build run graph data closed foreach success merges at collect target | capdag.test.js:5556 |
-| test6511 | js | `test6511_Renderer_validateEditorGraphPayload_rejectsUnknownKind` | ---------------- editor-graph builder ---------------- | capdag.test.js:5611 |
-| test6512 | js | `test6512_Renderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges` | TEST6512: Renderer build editor graph data collapses caps into labeled edges | capdag.test.js:5626 |
-| test6513 | js | `test6513_Renderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass` | TEST6513: Renderer build editor graph data loop marked edge gets loop class | capdag.test.js:5665 |
-| test6514 | js | `test6514_Renderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags` | TEST6514: Renderer build editor graph data cardinality from data slot sequence flags | capdag.test.js:5684 |
-| test6515 | js | `test6515_Renderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped` | TEST6515: Renderer build editor graph data cap without complete args is dropped | capdag.test.js:5704 |
-| test6516 | js | `test6516_Renderer_buildEditorGraphData_rejectsEdgeWithMissingSource` | TEST6516: Renderer build editor graph data rejects edge with missing source | capdag.test.js:5722 |
-| test6517 | js | `test6517_Renderer_buildResolvedMachineGraphData_singleStrandLinearChain` | ---------------- resolved-machine builder ---------------- | capdag.test.js:5738 |
-| test6518 | js | `test6518_Renderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass` | TEST6518: Renderer build resolved machine graph data loop edge gets loop class | capdag.test.js:5797 |
-| test6519 | js | `test6519_Renderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment` | TEST6519: Renderer build resolved machine graph data fan in produces edge per assignment | capdag.test.js:5832 |
-| test6520 | js | `test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint` | TEST6520: Renderer build resolved machine graph data multi strand keeps strands disjoint | capdag.test.js:5873 |
-| test6521 | js | `test6521_Renderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard` | TEST6521: Renderer build resolved machine graph data duplicate node id across strands fails hard | capdag.test.js:5936 |
-| test6522 | js | `test6522_Renderer_validateResolvedMachinePayload_rejectsMissingFields` | TEST6522: Renderer validate resolved machine payload rejects missing fields | capdag.test.js:5972 |
+| test6491 | js | `test6491_Renderer_buildStrandGraphData_sequenceShowsCardinality` | TEST6491: Renderer build strand graph data sequence shows cardinality | capdag.test.js:4690 |
+| test6492 | js | `test6492_Renderer_buildStrandGraphData_foreachCollectSpan` | TEST6492: Renderer build strand graph data foreach collect span | capdag.test.js:4711 |
+| test6493 | js | `test6493_Renderer_buildStrandGraphData_standaloneCollect` | TEST6493: Renderer build strand graph data standalone collect | capdag.test.js:4763 |
+| test6494 | js | `test6494_Renderer_buildStrandGraphData_unclosedForEachBody` | TEST6494: Renderer build strand graph data unclosed for each body | capdag.test.js:4791 |
+| test6495 | js | `test6495_Renderer_buildStrandGraphData_nestedForEachThrows` | TEST6495: Renderer build strand graph data nested for each throws | capdag.test.js:4829 |
+| test6496 | js | `test6496_Renderer_collapseStrand_singleCapBodyKeepsCapOwnLabel` | TEST6496: Renderer collapse strand single cap body keeps cap own label | capdag.test.js:4858 |
+| test6497 | js | `test6497_Renderer_collapseStrand_unclosedForEachBodyCollapses` | TEST6497: Renderer collapse strand unclosed for each body collapses | capdag.test.js:4911 |
+| test6498 | js | `test6498_Renderer_collapseStrand_standaloneCollectCollapses` | TEST6498: Renderer collapse strand standalone collect collapses | capdag.test.js:4968 |
+| test6499 | js | `test6499_Renderer_collapseStrand_sequenceProducingCapBeforeForeach` | TEST6499: Renderer collapse strand sequence producing cap before foreach | capdag.test.js:5012 |
+| test6500 | js | `test6500_Renderer_collapseStrand_plainCapMergesTrailingOutput` | TEST6500: Renderer collapse strand plain cap merges trailing output | capdag.test.js:5077 |
+| test6501 | js | `test6501_Renderer_collapseStrand_plainCapDistinctTargetNoMerge` | TEST6501: Renderer collapse strand plain cap distinct target no merge | capdag.test.js:5114 |
+| test6502 | js | `test6502_Renderer_validateStrandPayload_missingSourceMediaUrn` | TEST6502: Renderer validate strand payload missing source media urn | capdag.test.js:5141 |
+| test6503 | js | `test6503_Renderer_validateBodyOutcome_rejectsNegativeIndex` | ---------------- run builder ---------------- | capdag.test.js:5154 |
+| test6504 | js | `test6504_Renderer_buildRunGraphData_pagesSuccessesAndFailures` | TEST6504: Renderer build run graph data pages successes and failures | capdag.test.js:5165 |
+| test6505 | js | `test6505_Renderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace` | TEST6505: Renderer build run graph data failure without failed cap renders full trace | capdag.test.js:5236 |
+| test6506 | js | `test6506_Renderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap` | TEST6506: Renderer build run graph data uses cap urn is equivalent for failed cap | capdag.test.js:5275 |
+| test6507 | js | `test6507_Renderer_buildRunGraphData_backboneHasNoForeachNode` | TEST6507: Renderer build run graph data backbone has no foreach node | capdag.test.js:5335 |
+| test6508 | js | `test6508_Renderer_buildRunGraphData_allFailedDropsTargetPlaceholder` | TEST6508: Renderer build run graph data all failed drops target placeholder | capdag.test.js:5390 |
+| test6509 | js | `test6509_Renderer_buildRunGraphData_unclosedForeachSuccessNoMerge` | TEST6509: Renderer build run graph data unclosed foreach success no merge | capdag.test.js:5456 |
+| test6510 | js | `test6510_Renderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget` | TEST6510: Renderer build run graph data closed foreach success merges at collect target | capdag.test.js:5518 |
+| test6511 | js | `test6511_Renderer_validateEditorGraphPayload_rejectsUnknownKind` | ---------------- editor-graph builder ---------------- | capdag.test.js:5573 |
+| test6512 | js | `test6512_Renderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges` | TEST6512: Renderer build editor graph data collapses caps into labeled edges | capdag.test.js:5588 |
+| test6513 | js | `test6513_Renderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass` | TEST6513: Renderer build editor graph data loop marked edge gets loop class | capdag.test.js:5627 |
+| test6514 | js | `test6514_Renderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags` | TEST6514: Renderer build editor graph data cardinality from data slot sequence flags | capdag.test.js:5646 |
+| test6515 | js | `test6515_Renderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped` | TEST6515: Renderer build editor graph data cap without complete args is dropped | capdag.test.js:5666 |
+| test6516 | js | `test6516_Renderer_buildEditorGraphData_rejectsEdgeWithMissingSource` | TEST6516: Renderer build editor graph data rejects edge with missing source | capdag.test.js:5684 |
+| test6517 | js | `test6517_Renderer_buildResolvedMachineGraphData_singleStrandLinearChain` | ---------------- resolved-machine builder ---------------- | capdag.test.js:5700 |
+| test6518 | js | `test6518_Renderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass` | TEST6518: Renderer build resolved machine graph data loop edge gets loop class | capdag.test.js:5759 |
+| test6519 | js | `test6519_Renderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment` | TEST6519: Renderer build resolved machine graph data fan in produces edge per assignment | capdag.test.js:5794 |
+| test6520 | js | `test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint` | TEST6520: Renderer build resolved machine graph data multi strand keeps strands disjoint | capdag.test.js:5835 |
+| test6521 | js | `test6521_Renderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard` | TEST6521: Renderer build resolved machine graph data duplicate node id across strands fails hard | capdag.test.js:5898 |
+| test6522 | js | `test6522_Renderer_validateResolvedMachinePayload_rejectsMissingFields` | TEST6522: Renderer validate resolved machine payload rejects missing fields | capdag.test.js:5934 |
 | test6523 | objc | `test6523_CapAndForEachAreNotStandaloneCollect` | TEST6523: Cap and for each are not standalone collect | Tests/CapDAGTests/CSPlanDecompositionTests.m:76 |
 | test6524 | go | `Test6524_LogFramesDuringRequest` | Mirror-specific coverage: Test LOG frames sent during a request are transparently skipped by host | bifaci/integration_test.go:561 |
-| test6525 | objc | `test6525_InvalidCapUrn` | TEST001 variant: Test empty URN fails | Tests/CapDAGTests/CSCapUrnTests.m:139 |
+| test6525 | objc | `test6525_InvalidCapUrn` | TEST001 variant: Test empty URN fails | Tests/CapDAGTests/CSCapUrnTests.m:130 |
 | test6526 | go | `Test6526_HostInitiatedHeartbeatNoPingPong` | Mirror-specific coverage: Test host does not echo back cartridge's heartbeat response (no infinite ping-pong) | bifaci/integration_test.go:949 |
-| test6527 | objc | `test6527_Coding` | Obj-C specific: NSCoding support | Tests/CapDAGTests/CSCapUrnTests.m:533 |
+| test6527 | objc | `test6527_Coding` | Obj-C specific: NSCoding support | Tests/CapDAGTests/CSCapUrnTests.m:524 |
 | test6528 | go | `Test6528_CartridgeSuddenDisconnect` | Mirror-specific coverage: Test host receives error when cartridge closes connection unexpectedly | bifaci/integration_test.go:1106 |
 | test6529 | go | `Test6529_EndFrameNoPayload` | Mirror-specific coverage: Test END frame without payload is handled as complete response with empty data | bifaci/integration_test.go:1214 |
 | test6530 | go | `Test6530_StreamingSequenceNumbers` | Mirror-specific coverage: Test streaming response sequence numbers are contiguous and start from 0 | bifaci/integration_test.go:1270 |
 | test6531 | go | `Test6531_RequestAfterShutdown` | Mirror-specific coverage: Test host request on a closed host returns error | bifaci/integration_test.go:1346 |
 | test6532 | go | `Test6532_ArgumentsMultiple` | Mirror-specific coverage: Test multiple arguments are correctly serialized in CBOR payload | bifaci/integration_test.go:1389 |
 | test6533 | go | `Test6533_AutoChunkingReassembly` | Mirror-specific coverage: Test auto-chunking splits payload larger than max_chunk into CHUNK frames + END frame, and host concatenated() reassembles the full original data | bifaci/integration_test.go:1462 |
-| test6534 | objc | `test6534_Copying` | Obj-C specific: NSCopying support | Tests/CapDAGTests/CSCapUrnTests.m:555 |
+| test6534 | objc | `test6534_Copying` | Obj-C specific: NSCopying support | Tests/CapDAGTests/CSCapUrnTests.m:546 |
 | test6535 | go | `Test6535_ExactMaxChunkSingleEnd` | Mirror-specific coverage: Test payload exactly equal to max_chunk produces single END frame (no CHUNK frames) | bifaci/integration_test.go:1548 |
-| test6536 | objc | `test6536_Wildcard001EmptyCapIsIllegal` | TEST_WILDCARD_001: cap: (empty) is illegal | Tests/CapDAGTests/CSCapUrnTests.m:1034 |
 | test6537 | go | `Test6537_MaxChunkPlusOneSplitsIntoTwo` | Mirror-specific coverage: Test payload of max_chunk + 1 produces exactly one CHUNK frame + one END frame | bifaci/integration_test.go:1613 |
-| test6538 | objc | `test6538_Wildcard002InOnlyIsIllegal` | TEST_WILDCARD_002: cap:in collapses to the same illegal bare top form | Tests/CapDAGTests/CSCapUrnTests.m:1042 |
-| test6539 | go | `Test6539_media_documentation_propagates_through_resolve` | TEST6539: Documentation propagates from MediaDef through ResolveMediaUrn into ResolvedMediaDef. Verifies description and documentation remain distinct. | media/spec_test.go:600 |
-| test6540 | objc | `test6540_Wildcard003OutOnlyIsIllegal` | TEST_WILDCARD_003: cap:out collapses to the same illegal bare top form | Tests/CapDAGTests/CSCapUrnTests.m:1050 |
-| test6541 | objc | `test6541_Wildcard004InOutNoValuesAreIllegal` | TEST_WILDCARD_004: cap:in;out collapses to the same illegal bare top form | Tests/CapDAGTests/CSCapUrnTests.m:1058 |
-| test6542 | objc | `test6542_Wildcard010WildcardAcceptsSpecific` | TEST_WILDCARD_010: Wildcard in/out match specific caps | Tests/CapDAGTests/CSCapUrnTests.m:1109 |
-| test6543 | objc | `test6543_Wildcard011SpecificityScoring` | TEST_WILDCARD_011: Specificity - wildcard has 0, specific has tag count | Tests/CapDAGTests/CSCapUrnTests.m:1119 |
-| test6545 | objc | `test6545_effectNonePreservesRuntimeMedia` | TEST6545: effect=none preserves runtime media identity | Tests/CapDAGTests/CSCapUrnTests.m:1592 |
-| test6546 | objc | `test6546_effectDeclaredUsesDeclaredOutput` | TEST6546: default declared effect uses declared output media | Tests/CapDAGTests/CSCapUrnTests.m:1609 |
-| test6547 | objc | `test6547_effectPatchAppliesMediaDelta` | TEST655 variant: patch effect applies the declared media delta to runtime input | Tests/CapDAGTests/CSCapUrnTests.m:1622 |
-| test6548 | objc | `test6548_effectDispatchRequiresExplicitWildcard` | TEST6548: omitted effect means declared; ?effect must be explicit | Tests/CapDAGTests/CSCapUrnTests.m:1643 |
+| test6541 | objc | `test6541_Wildcard004InOutNoValuesAreIllegal` | TEST_WILDCARD_004: cap:in;out collapses to the same illegal bare top form | Tests/CapDAGTests/CSCapUrnTests.m:1049 |
+| test6547 | objc | `test6547_effectPatchAppliesMediaDelta` | TEST655 variant: patch effect applies the declared media delta to runtime input | Tests/CapDAGTests/CSCapUrnTests.m:1609 |
 | test6549 | objc | `test6549_CanonicalArgumentsDeserialization` | TEST6549: Canonical arguments deserialization | Tests/CapDAGTests/CSCapTests.m:226 |
 | test6551 | objc | `test6551_CanonicalOutputDeserialization` | TEST6551: Canonical output deserialization | Tests/CapDAGTests/CSCapTests.m:251 |
-| test6552 | py | `test_6552_cartridge_info_is_signed` | TEST6552: is_signed() requires both team_id and signed_at to be non-empty. | tests/test_cartridge_repo.py:163 |
 | test6553 | objc | `test6553_CanonicalValidationDeserialization` | TEST6553: Canonical validation deserialization | Tests/CapDAGTests/CSCapTests.m:268 |
-| test6554 | py | `test_6554_cartridge_info_build_for_platform` | TEST6554: build_for_platform returns the matching build for the latest version, None for an unknown platform. | tests/test_cartridge_repo.py:177 |
 | test6555 | objc | `test6555_CompleteCapDeserialization` | TEST6555: Complete cap deserialization | Tests/CapDAGTests/CSCapTests.m:289 |
-| test6556 | go | `Test6556_cartridge_repo_server_transform_to_array` | TEST6556: CartridgeRepoServer transforms v3 registry JSON into flat cartridge array | bifaci/cartridge_repo_test.go:203 |
-| test6557 | js | `test6557_cartridgeRepoServerTransformToArray` | TEST6557: CartridgeRepoServer walks both channels and emits a flat CartridgeInfo array preserving channel provenance. Release entries appear first. | capdag.test.js:2129 |
 | test6558 | objc | `test6558_CapManifestCreation` | MARK: - Cap Manifest Tests | Tests/CapDAGTests/CSCapTests.m:428 |
-| test6559 | go | `Test6559_cartridge_repo_server_get_cartridges` | TEST6559: CartridgeRepoServer.get_cartridges() returns all parsed cartridges | bifaci/cartridge_repo_test.go:252 |
-| test6560 | go | `Test6560_cartridge_repo_server_get_cartridge_by_id` | TEST6560: CartridgeRepoServer.get_cartridge() returns cartridge matching the given ID | bifaci/cartridge_repo_test.go:282 |
-| test6561 | objc | `test6561_CapManifestWithPageUrl` | TEST6561: Cap manifest with page url | Tests/CapDAGTests/CSCapTests.m:491 |
-| test6562 | go | `Test6562_cartridge_repo_server_search_cartridges` | TEST6562: CartridgeRepoServer.search_cartridges() filters by text query against name and description | bifaci/cartridge_repo_test.go:333 |
-| test6563 | js | `test6563_cartridgeRepoServerSearchCartridges` | TEST6563: CartridgeRepoServer.searchCartridges() filters across both channels by name/description/tags/cap titles. Cap URN strings are not substring-matched. | capdag.test.js:2213 |
 | test6564 | objc | `test6564_CapManifestDictionaryDeserialization` | TEST6564: Cap manifest dictionary deserialization | Tests/CapDAGTests/CSCapTests.m:523 |
 | test6566 | objc | `test6566_CapManifestRequiredFields` | TEST6566: Cap manifest required fields | Tests/CapDAGTests/CSCapTests.m:577 |
-| test6567 | go | `Test6567_cartridge_repo_server_get_by_cap` | TEST6567: CartridgeRepoServer.get_suggestions_for_cap() finds cartridges providing a given cap URN | bifaci/cartridge_repo_test.go:411 |
-| test6568 | js | `test6568_cartridgeRepoServerGetByCap` | TEST6568: CartridgeRepoServer.getCartridgesByCap() parses the input URN and matches each declared cap via `conformsTo`. Tag-order differences resolve because matching is order-theoretic, not string. | capdag.test.js:2254 |
 | test6569 | objc | `test6569_CapManifestWithMultipleCaps` | TEST6569: Cap manifest with multiple caps | Tests/CapDAGTests/CSCapTests.m:591 |
 | test6571 | objc | `test6571_CapManifestEmptyCaps` | TEST6571: Cap manifest empty caps | Tests/CapDAGTests/CSCapTests.m:637 |
 | test6573 | objc | `test6573_CapManifestOptionalAuthorField` | TEST6573: Cap manifest optional author field | Tests/CapDAGTests/CSCapTests.m:666 |
-| test6574 | go | `Test6574_cartridge_repo_client_get_cartridge` | TEST6574: CartridgeRepoClient.GetCartridge() retrieves by (channel, id). | bifaci/cartridge_repo_test.go:566 |
-| test6575 | js | `test6575_cartridgeRepoClientGetCartridge` | TEST6575: CartridgeRepoClient.getCartridge() requires (channel, id). Same id in the wrong channel must miss. | capdag.test.js:2329 |
-| test6576 | go | `Test6576_cartridge_repo_client_get_all_caps` | TEST6576: CartridgeRepoClient.get_all_caps() returns aggregate cap URNs from all cached cartridges | bifaci/cartridge_repo_test.go:601 |
-| test6577 | js | `test6577_cartridgeRepoClientGetAllCaps` | TEST6577: CartridgeRepoClient.getAllAvailableCaps() returns the set of normalized URNs across both channels. | capdag.test.js:2374 |
 | test6578 | objc | `test6578_ArgumentCreationWithNewAPI` | TEST6578: Argument creation with new a p i | Tests/CapDAGTests/CSCapTests.m:779 |
-| test6579 | go | `Test6579_cartridge_repo_client_needs_sync` | TEST6579: CartridgeRepoClient.needs_sync() returns true when cache TTL has expired | bifaci/cartridge_repo_test.go:666 |
 | test6580 | objc | `test6580_OutputCreationWithNewAPI` | TEST6580: Output creation with new a p i | Tests/CapDAGTests/CSCapTests.m:900 |
-| test6581 | go | `Test6581_cartridge_repo_server_client_integration` | TEST6581: Server creates registry response and client consumes it end-to-end | bifaci/cartridge_repo_test.go:685 |
-| test6582 | js | `test6582_cartridgeRepoServerClientIntegration` | TEST6582: Round-trip: server produces a v5.0 response, client consumes it, channel provenance is preserved end-to-end. | capdag.test.js:2410 |
 | test6583 | objc | `test6583_CapDocumentationRoundTrip` | Mirrors TEST920 in capdag/src/cap/definition.rs and the JS testJS_capDocumentationRoundTrip test. The body is non-trivial — multi-line, embedded backticks and double quotes, Unicode dingbat (\u2605) — so any escaping mismatch between dictionary serialization here and the Rust / JS counterparts surfaces as a failed round-trip. | Tests/CapDAGTests/CSCapTests.m:922 |
-| test6584 | go | `Test6584_FilePathArrayGlobExpansion` | TEST6584: file-path arg with is_sequence=true expands a glob to N files and the runtime delivers them as a CBOR Array of Bytes — one array item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion. | bifaci/cartridge_runtime_test.go:1026 |
-| test6585 | objc | `test6585_file_path_array_glob_expansion` | TEST6585: A sequence-declared file-path arg (isSequence=true) expands a glob into N files and the runtime delivers them as a CBOR Array of bytes — one item per matched file. List-ness comes from the arg declaration, NOT from any `;list` URN tag. TEST339: A sequence-declared file-path arg expands a glob to N files and the runtime delivers them as a CBOR Array of bytes — one item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test6585_file_path_array_glob_expansion. | Tests/BifaciTests/CartridgeRuntimeTests.swift:811 |
-| test6586 | rust | `test6586_file_path_array_invalid_json_fails` | TEST6586: file-path-array with nonexistent path fails clearly | src/bifaci/cartridge_runtime.rs:5996 |
-| test6587 | rust | `test6587_file_path_array_one_file_missing_fails_hard` | TEST6587: file-path-array with literal nonexistent path fails hard | src/bifaci/cartridge_runtime.rs:6053 |
-| test6588 | rust | `test6588_file_path_array_empty_array` | TEST6588: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array — no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only. | src/bifaci/cartridge_runtime.rs:6349 |
-| test6589 | py | `test_6589_glob_pattern_no_matches_fails_hard` | TEST6589: A glob pattern with no matches fails hard. Silent empty results mask real user mistakes (typo'd path, wrong directory), so the runtime surfaces them rather than returning an empty array. | tests/test_cartridge_runtime.py:1208 |
-| test6590 | go | `Test6590_GlobPatternSkipsDirectories` | TEST6590: Glob pattern skips directories. Mirrors Rust test355_glob_pattern_skips_directories. | bifaci/cartridge_runtime_test.go:1854 |
-| test6591 | objc | `test6591_multiple_glob_patterns_combined` | TEST6591: Multiple glob patterns combined as CBOR Array (CBOR mode). Mirrors Rust test6591_multiple_glob_patterns_combined. | Tests/BifaciTests/CartridgeRuntimeTests.swift:1396 |
-| test6592 | objc | `test6592_invalid_glob_pattern_fails` | TEST6592: Invalid glob pattern fails with a clear error. Mirrors Rust test6592_invalid_glob_pattern_fails. | Tests/BifaciTests/CartridgeRuntimeTests.swift:1524 |
-| test6593 | objc | `test6593_cbor_mode_file_path` | TEST6593: CBOR mode with file path - file-path arg in CBOR mode is auto-converted to file bytes via extract_effective_payload. Mirrors Rust test6593_cbor_mode_file_path. | Tests/BifaciTests/CartridgeRuntimeTests.swift:1928 |
-| test6594 | rust | `test6594_capabilities_empty_initially` | TEST6594: aggregate_installed_cartridges() is empty before any cartridge with a resolvable identity is attached. A binary path that does not exist on disk has no identity (`installed_identity` is `None`) and therefore does not appear in the relay payload. | src/bifaci/host_runtime.rs:3438 |
-| test6595 | py | `test_6595_capabilities_empty_initially` | TEST6595: capabilities() with registered cartridge advertises after a rebuild. Mirrors Rust: registration populates cap_groups, then a call to `_rebuild_capabilities` materialises the inventory snapshot. The run loop normally drives rebuild as cartridges attach/die; for a unit test that drives registration directly we trigger it explicitly. | tests/test_cartridge_host.py:360 |
-| test6596 | objc | `test6596_urn_matching_exact_and_accepts` | TEST6596: URN matching (exact vs accepts()) Dispatch is contravariant on input (request input must conform to provider input — i.e. request can be more specific) and covariant on output (provider output must conform to request output — i.e. provider can be more specific). A request whose input is in a different type family than any registered provider has no handler. | Tests/BifaciTests/RelaySwitchTests.swift:588 |
+| test6589 | py | `test_6589_glob_pattern_no_matches_fails_hard` | TEST6589: A glob pattern with no matches fails hard. Silent empty results mask real user mistakes (typo'd path, wrong directory), so the runtime surfaces them rather than returning an empty array. | tests/test_cartridge_runtime.py:1207 |
 | test6597 | go | `Test6597_write_chunked_chunk_index_ordering` | TEST6597: WriteResponseWithChunking splits payload into exactly N chunks per max_chunk, and chunk_index tracks ordering within the stream (0, 1, 2, ...). Note: Go assigns seq at write time (Rust assigns seq=0 and uses SeqAssigner at output stage; Go inlines the seq assignment into the write path instead). | bifaci/io_test.go:1156 |
 | test6598 | objc | `test6598_manifestValidatePassesWithIdentity` | TEST6598: CapManifest::validate() passes when CAP_IDENTITY is present | Tests/BifaciTests/StandardCapsTests.swift:41 |
 | test6599 | objc | `test6599_manifestValidateFailsWithoutIdentity` | TEST6599: CapManifest::validate() fails when CAP_IDENTITY is missing | Tests/BifaciTests/StandardCapsTests.swift:56 |
-| test6600 | rust | `test6600_parse_cap_groups_rejects_manifest_without_identity` | TEST6600: parse_cap_groups_from_manifest classifies failures by kind Manifest JSON that parses but lacks CAP_IDENTITY is `Incompatible` (schema-rejected). Manifest bytes that don't parse as CapManifest are `ManifestInvalid` (JSON-level failure). The split lets the host's attachment-error reporter surface the right kind to the UI. | src/bifaci/host_runtime.rs:3106 |
-| test6601 | objc | `test6601_addMasterDynamic` | TEST6601: add_master dynamically connects new host to running switch | Tests/BifaciTests/RelaySwitchTests.swift:843 |
 | test6602 | go | `Test6602_codec_key_constants` | TEST6602: Codec key constants match protocol spec values | bifaci/frame_test.go:1538 |
-| test6603 | go | `Test6603_flow_key_none_vs_some_xid` | TEST6603: FlowKey with empty XID differs from non-empty XID (mirrors Rust None vs Some) | bifaci/frame_test.go:1817 |
-| test6604 | go | `Test6604_relay_frames_use_uint_zero_id` | TEST6604: RelayNotify and RelayState use uint 0 as sentinel ID (not UUID) | bifaci/frame_test.go:1965 |
-| test6605 | rust | `test6605_insert_schema_populates_cache` | TEST6605: insert_schema is the production seam for non-HTTP schema injection. It must persist to the in-memory cache so subsequent schema_exists/validate calls succeed without network access. | src/media/profile.rs:662 |
 | test6606 | go | `Test6606_registry_creation` | TEST6606: A freshly constructed registry over a temp cache dir is operational: the cache directory exists on disk and the registry is usable. Inserting then reopening a registry on the same directory must load the persisted schema — this genuinely exercises the disk-cache round-trip (Rust new_with_cache_dir + load_all_cached_schemas), not just the in-memory map. | media/profile_test.go:113 |
 | test6607 | py | `test_6607_registry_creation` | TEST6607: A freshly constructed registry is operational and reports an empty cache. Schemas must be inserted explicitly — none are bundled. | tests/test_media_profile.py:103 |
-| test6608 | py | `test_6608_fresh_registry_cache_is_empty` | TEST6608: A freshly constructed registry has no cached schemas. The well-known profile URLs are not bundled into the library; callers must seed them (via insert_schema) or fetch and seed from the public registry. | tests/test_media_profile.py:111 |
-| test6609 | go | `Test6609_wildcard_empty_cap_defaults_to_media_wildcard` | TEST6609: bare top cap is illegal; identity must be explicit effect=none | urn/cap_urn_test.go:1205 |
-| test6610 | go | `Test6610_wildcard_002_in_only_defaults_out_to_media` | TEST6610: cap:in without a non-vacuous axis/tag is illegal bare top | urn/cap_urn_test.go:1529 |
-| test6611 | go | `Test6611_wildcard_003_out_only_defaults_in_to_media` | TEST6611: cap:out without a non-vacuous axis/tag is illegal bare top | urn/cap_urn_test.go:1536 |
-| test6612 | go | `Test6612_wildcard_005_explicit_asterisk_becomes_media` | TEST6612: explicit wildcard in/out is still illegal bare top | urn/cap_urn_test.go:1550 |
-| test6613 | go | `Test6613_wildcard_006_specific_in_wildcard_out` | TEST6613: top in plus wildcard out is still illegal bare top | urn/cap_urn_test.go:1557 |
-| test6615 | go | `Test6615_specificity_scoring` | TEST6615: Specificity - marker-only wildcard scores on y-axis only | urn/cap_urn_test.go:1227 |
-| test6616 | py | `test_6616_wildcard_specificity_scoring` | TEST6616: Specificity - generic marker-only cap has y-axis specificity only | tests/test_cap_urn.py:971 |
-| test6617 | py | `test_6617_wildcard_preserve_other_tags` | TEST6617: legal top-to-top generic transform preserves other tags | tests/test_cap_urn.py:980 |
-| test6618 | go | `Test6618_identity_forms_equivalent` | TEST6618: Long and short explicit identity forms are equivalent | urn/cap_urn_test.go:1239 |
-| test6619 | py | `test_6619_wildcard_identity_forms_equivalent` | TEST6619: Explicit identity forms produce the same CapUrn | tests/test_cap_urn.py:989 |
-| test6620 | js | `test6620_wildcardGenericFormsRejected` | TEST6620: Generic top-to-top spellings are all rejected. | capdag.test.js:3154 |
-| test6621 | js | `test6621_capIdentityConstantWorks` | TEST6621: CAP_IDENTITY constant names the true identity cap, not bare cap: | capdag.test.js:3175 |
-| test6622 | go | `Test6622_identity_routing_isolation` | TEST6622: Cap identity does not route as a declared-effect provider | urn/cap_urn_test.go:1265 |
-| test6623 | rust | `test6623_cartridge_death_keeps_caps_advertised` | TEST6623: Cartridge death keeps caps advertised for on-demand respawn. The cartridge's `cap_groups` survive process death, so the host can continue advertising the cartridge's caps and the relay can route a fresh REQ to it (which triggers an on-demand respawn). | src/bifaci/host_runtime.rs:4793 |
-| test6624 | py | `test_6624_running_cartridge_uses_manifest_caps` | TEST6624: Running cartridge uses manifest caps; the post-HELLO cap_groups overwrite the registration-time ones. | tests/test_cartridge_host.py:1047 |
-| test6625 | objc | `test6625_runningCartridgeUsesManifestCaps` | TEST6625: Running cartridge uses manifest caps, not known_caps | Tests/BifaciTests/RuntimeTests.swift:1217 |
-| test6626 | py | `test_6626_resolve_slot_with_populated_byte_slot_values` | TEST6626: resolve_slot_with_populated_byte_slot_values | tests/test_planner_argument_binding.py:37 |
-| test6627 | py | `test_6627_resolve_slot_falls_back_to_default` | TEST6627: resolve_slot_falls_back_to_default | tests/test_planner_argument_binding.py:54 |
-| test6628 | py | `test_6628_resolve_required_slot_no_value_returns_err` | TEST6628: resolve_required_slot_no_value_returns_err | tests/test_planner_argument_binding.py:63 |
-| test6629 | py | `test_6629_resolve_optional_slot_no_value_returns_none` | TEST6629: resolve_optional_slot_no_value_returns_none | tests/test_planner_argument_binding.py:71 |
-| test6630 | go | `Test6630_cardinality_string` | TEST6630: Tests InputCardinality String() representation | planner/cardinality_test.go:145 |
-| test6631 | objc | `test6631_cardinality_serialization` | TEST6631: Tests InputCardinality enum values are distinct (parity for Rust serde round-trip) | Tests/CapDAGTests/CSCardinalityTests.m:172 |
-| test6632 | go | `Test6632_pattern_string` | TEST6632: Tests CardinalityPattern String() representation | planner/cardinality_test.go:152 |
-| test6633 | objc | `test6633_pattern_serialization` | TEST6633: Tests CardinalityPattern enum values are distinct (parity for Rust serde round-trip) | Tests/CapDAGTests/CSCardinalityTests.m:179 |
-| test6634 | go | `Test6634_machine_result_primary_output` | TEST6634: Tests MachineResult PrimaryOutput returns populated output and nil when empty Verifies the PrimaryOutput() accessor distinguishes populated vs empty outputs maps | planner/plan_test.go:157 |
-| test6635 | go | `Test6635_iteration_edge_does_not_create_topological_dependency` | TEST6635: Tests that edge types determine dependency direction in TopologicalOrder Iteration edges must NOT create a topological dependency (ForEach body must not block ForEach node). Direct edges MUST create a dependency. Verifies that edge kind affects plan execution order. | planner/plan_test.go:174 |
-| test6636 | go | `Test6636_foreach_body_bounds_determine_extraction` | TEST6636: Tests that ForEach node's body range fields are used correctly by ExtractForEachBody The bodyEntry/bodyExit fields define which nodes are in scope. Verifies that wrong body bounds produce a different extraction than correct ones — body_exit determines what gets included. | planner/plan_test.go:206 |
-| test6637 | go | `Test6637_single_cap_plan_validates_and_orders_correctly` | TEST6637: Tests SingleCap plan passes Validate and TopologicalOrder produces correct sequence Verifies the plan is structurally sound: input_slot must precede cap_0 must precede output | planner/plan_test.go:230 |
-| test6638 | go | `Test6638_merge_strategy_values` | TEST6638: Tests MergeStrategy enum values Verifies MergeConcat and MergeZipWith have correct string representations | planner/plan_test.go:255 |
-| test6639 | go | `Test6639_output_node_registered_on_add` | TEST6639: Tests Output node is automatically registered as output_node on AddNode Verifies that Validate() accepts a plan where the Output node is the plan's only output_node | planner/plan_test.go:262 |
-| test6640 | go | `Test6640_split_and_merge_not_classified_as_cap_fanout_fanin` | TEST6640: Tests that IsCap/IsFanOut/IsFanIn return false for Split and Merge node types Verifies that node type classification methods correctly reject non-cap, non-foreach, non-collect kinds | planner/plan_test.go:299 |
-| test6641 | objc | `test6641_decompositionCoversAllCaps` | TEST6641: Full decomposition covers all cap nodes | Tests/CapDAGTests/CSPlanDecompositionTests.m:235 |
-| test6642 | objc | `test6642_prefixIsDag` | TEST6642: Prefix is valid DAG | Tests/CapDAGTests/CSPlanDecompositionTests.m:274 |
-| test6643 | objc | `test6643_bodyIsDag` | TEST6643: Body is valid DAG | Tests/CapDAGTests/CSPlanDecompositionTests.m:283 |
-| test6644 | objc | `test6644_suffixIsDag` | TEST6644: Suffix is valid DAG | Tests/CapDAGTests/CSPlanDecompositionTests.m:292 |
+| test6609 | go | `Test6609_wildcard_empty_cap_defaults_to_media_wildcard` | TEST6609: bare top cap is illegal; identity must be explicit effect=none | urn/cap_urn_test.go:1184 |
+| test6610 | go | `Test6610_wildcard_002_in_only_defaults_out_to_media` | TEST6610: cap:in without a non-vacuous axis/tag is illegal bare top | urn/cap_urn_test.go:1508 |
+| test6611 | go | `Test6611_wildcard_003_out_only_defaults_in_to_media` | TEST6611: cap:out without a non-vacuous axis/tag is illegal bare top | urn/cap_urn_test.go:1515 |
+| test6612 | go | `Test6612_wildcard_005_explicit_asterisk_becomes_media` | TEST6612: explicit wildcard in/out is still illegal bare top | urn/cap_urn_test.go:1529 |
+| test6613 | go | `Test6613_wildcard_006_specific_in_wildcard_out` | TEST6613: top in plus wildcard out is still illegal bare top | urn/cap_urn_test.go:1536 |
+| test6615 | go | `Test6615_specificity_scoring` | TEST6615: Specificity - marker-only wildcard scores on y-axis only | urn/cap_urn_test.go:1206 |
+| test6616 | py | `test_6616_wildcard_specificity_scoring` | TEST6616: Specificity - generic marker-only cap has y-axis specificity only | tests/test_cap_urn.py:962 |
+| test6617 | py | `test_6617_wildcard_preserve_other_tags` | TEST6617: legal top-to-top generic transform preserves other tags | tests/test_cap_urn.py:971 |
+| test6618 | go | `Test6618_identity_forms_equivalent` | TEST6618: Long and short explicit identity forms are equivalent | urn/cap_urn_test.go:1218 |
+| test6619 | py | `test_6619_wildcard_identity_forms_equivalent` | TEST6619: Explicit identity forms produce the same CapUrn | tests/test_cap_urn.py:980 |
+| test6620 | js | `test6620_wildcardGenericFormsRejected` | TEST6620: Generic top-to-top spellings are all rejected. | capdag.test.js:3116 |
+| test6621 | js | `test6621_capIdentityConstantWorks` | TEST6621: CAP_IDENTITY constant names the true identity cap, not bare cap: | capdag.test.js:3137 |
+| test6622 | go | `Test6622_identity_routing_isolation` | TEST6622: Cap identity does not route as a declared-effect provider | urn/cap_urn_test.go:1244 |
+| test6630 | go | `Test6630_cardinality_string` | TEST6630: Tests InputCardinality String() representation | planner/cardinality_test.go:133 |
+| test6632 | go | `Test6632_pattern_string` | TEST6632: Tests CardinalityPattern String() representation | planner/cardinality_test.go:140 |
+| test6634 | go | `Test6634_machine_result_primary_output` | TEST6634: Tests MachineResult PrimaryOutput returns populated output and nil when empty Verifies the PrimaryOutput() accessor distinguishes populated vs empty outputs maps | planner/plan_test.go:150 |
+| test6635 | go | `Test6635_iteration_edge_does_not_create_topological_dependency` | TEST6635: Tests that edge types determine dependency direction in TopologicalOrder Iteration edges must NOT create a topological dependency (ForEach body must not block ForEach node). Direct edges MUST create a dependency. Verifies that edge kind affects plan execution order. | planner/plan_test.go:167 |
+| test6636 | go | `Test6636_foreach_body_bounds_determine_extraction` | TEST6636: Tests that ForEach node's body range fields are used correctly by ExtractForEachBody The bodyEntry/bodyExit fields define which nodes are in scope. Verifies that wrong body bounds produce a different extraction than correct ones — body_exit determines what gets included. | planner/plan_test.go:199 |
+| test6637 | go | `Test6637_single_cap_plan_validates_and_orders_correctly` | TEST6637: Tests SingleCap plan passes Validate and TopologicalOrder produces correct sequence Verifies the plan is structurally sound: input_slot must precede cap_0 must precede output | planner/plan_test.go:223 |
+| test6638 | go | `Test6638_merge_strategy_values` | TEST6638: Tests MergeStrategy enum values Verifies MergeConcat and MergeZipWith have correct string representations | planner/plan_test.go:248 |
+| test6639 | go | `Test6639_output_node_registered_on_add` | TEST6639: Tests Output node is automatically registered as output_node on AddNode Verifies that Validate() accepts a plan where the Output node is the plan's only output_node | planner/plan_test.go:255 |
+| test6640 | go | `Test6640_split_and_merge_not_classified_as_cap_fanout_fanin` | TEST6640: Tests that IsCap/IsFanOut/IsFanIn return false for Split and Merge node types Verifies that node type classification methods correctly reject non-cap, non-foreach, non-collect kinds | planner/plan_test.go:291 |
 | test6645 | go | `Test6645_argument_resolution_string_representations` | TEST6645: Tests ArgumentResolution String() returns correct snake_case names ArgumentInfo.Resolution is serialized to JSON using String(). Verifies that each resolution variant maps to the correct identifier expected by API consumers. | planner/plan_builder_test.go:51 |
 | test6646 | go | `Test6646_analyze_path_arguments_stdin_is_from_input_file` | TEST6646: Tests AnalyzePathArguments classifies stdin arg as FromInputFile for first cap Verifies that the argument analysis correctly identifies input-file arguments when the cap's stdin arg media URN matches the cap's in_spec. | planner/plan_builder_test.go:70 |
 | test6647 | go | `Test6647_analyze_path_arguments_user_input_arg_appears_in_slots` | TEST6647: Tests AnalyzePathArguments puts RequiresUserInput args in slots and sets CanExecuteWithoutInput=false Verifies that caps with non-stdin, non-default arguments are identified as requiring user input, appear in slots, and the requirements reflect that execution cannot proceed without them. | planner/plan_builder_test.go:111 |
-| test6648 | go | `Test6648_rejects_foreach` | TEST6648: PlanToResolvedGraph rejects plans containing ForEach nodes Verifies that plans requiring decomposition (ForEach) are rejected before conversion | orchestrator/orchestrator_test.go:156 |
-| test6649 | go | `Test6649_rejects_foreach_paired_collect` | TEST6649: PlanToResolvedGraph rejects plans containing ForEach-paired Collect nodes Verifies that Collect nodes without OutputMediaUrn (ForEach-paired) are rejected | orchestrator/orchestrator_test.go:473 |
+| test6649 | go | `Test6649_rejects_foreach_paired_collect` | TEST6649: PlanToResolvedGraph rejects plans containing ForEach-paired Collect nodes Verifies that Collect nodes without OutputMediaUrn (ForEach-paired) are rejected | orchestrator/orchestrator_test.go:469 |
 | test6650 | objc | `test6650_findPathsMultiStep` | TEST6650: Multi-step path through intermediate node | Tests/CapDAGTests/CSLiveCapFabTests.m:153 |
 | test6651 | objc | `test6651_findPathsEmptyWhenNoPath` | TEST6651: Empty when target unreachable | Tests/CapDAGTests/CSLiveCapFabTests.m:175 |
 | test6652 | objc | `test6652_getReachableTargetsAll` | TEST6652: BFS finds multiple direct targets | Tests/CapDAGTests/CSLiveCapFabTests.m:191 |
@@ -672,67 +513,22 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6656 | objc | `test6656_findPathsTypeChain` | TEST6656: Multi-step type chain enforcement | Tests/CapDAGTests/CSLiveCapFabTests.m:267 |
 | test6657 | objc | `test6657_sortingShorterFirst` | TEST6657: Sorting prefers shorter paths | Tests/CapDAGTests/CSLiveCapFabTests.m:290 |
 | test6658 | objc | `test6658_forEachWithSequenceInput` | TEST6658: ForEach synthesized when input is a sequence | Tests/CapDAGTests/CSLiveCapFabTests.m:312 |
-| test6659 | go | `Test6659_ArgumentBindingRequiresInput` | TEST6659: ArgumentBinding RequiresInput distinguishes Slots from Literals | planner/argument_binding_test.go:289 |
 | test6660 | go | `Test6660_ArgumentBindingSerializationPreviousOutput` | TEST6660: ArgumentBinding PreviousOutput serializes/deserializes correctly | planner/argument_binding_test.go:301 |
-| test6661 | go | `Test6661_ArgumentBindingsAddFilePath` | TEST6661: ArgumentBindings AddFilePath adds InputFilePath binding | planner/argument_binding_test.go:331 |
-| test6662 | go | `Test6662_ArgumentBindingsUnresolvedSlots` | TEST6662: ArgumentBindings identifies unresolved Slot bindings | planner/argument_binding_test.go:344 |
-| test6663 | go | `Test6663_ResolveInputFilePath` | TEST6663: resolve_binding resolves InputFilePath to current file path | planner/argument_binding_test.go:359 |
-| test6664 | go | `Test6664_ResolveLiteral` | TEST6664: resolve_binding resolves Literal to JSON-encoded bytes | planner/argument_binding_test.go:382 |
-| test6665 | go | `Test6665_ResolvePreviousOutput` | TEST6665: resolve_binding extracts value from previous node output | planner/argument_binding_test.go:401 |
 | test6666 | go | `Test6666_StrandInputSingle` | TEST6666: StrandInput single constructor creates valid Single cardinality input | planner/argument_binding_test.go:425 |
 | test6667 | go | `Test6667_StrandInputSequence` | TEST6667: StrandInput sequence constructor creates valid Sequence cardinality input | planner/argument_binding_test.go:440 |
 | test6668 | go | `Test6668_CapInputFileDeserializationWithSourceMetadata` | TEST6668: CapInputFile deserializes from JSON with source metadata fields | planner/argument_binding_test.go:458 |
 | test6669 | go | `Test6669_CapInputFileDeserializationCompact` | TEST6669: CapInputFile deserializes from compact JSON | planner/argument_binding_test.go:473 |
 | test6670 | go | `Test6670_StrandInputInvalidSingle` | TEST6670: StrandInput validation detects mismatched Single cardinality with multiple files | planner/argument_binding_test.go:485 |
-| test6671 | go | `Test6671_no_duplicates_with_unique_caps` | TEST6671: Tests duplicate detection passes for caps with unique URN combinations Verifies that checkForDuplicateCaps() correctly accepts caps with different op/in/out combinations | planner/plan_builder_test.go:196 |
-| test6672 | rust | `test6672_cbor_rejects_stream_end_without_chunk_count` | TEST6672: CBOR decode REJECTS STREAM_END frame missing chunk_count field | src/bifaci/frame.rs:2368 |
-| test6673 | go | `Test6673_single_cap_plan` | TEST6673: SingleCap creates a valid plan with input_slot, cap node, and output node. | planner/plan_test.go:520 |
-| test6674 | go | `Test6674_linear_chain_plan` | TEST6674: LinearChain creates a plan with correct nodes and edges in topological order. | planner/plan_test.go:530 |
-| test6675 | go | `Test6675_empty_plan` | TEST6675: An empty MachinePlan is valid with zero nodes. | planner/plan_test.go:549 |
-| test6676 | go | `Test6676_plan_with_metadata` | TEST6676: MachinePlan stores and retrieves metadata by key. | planner/plan_test.go:556 |
-| test6677 | objc | `test6677_findFirstForeach` | MARK: - TEST6677: findFirstForeach detects ForEach | Tests/CapDAGTests/CSPlanDecompositionTests.m:85 |
-| test6678 | objc | `test6678_hasForeach` | TEST6678: hasForeach | Tests/CapDAGTests/CSPlanDecompositionTests.m:101 |
-| test6679 | go | `Test6679_cap_input_file_new` | TEST6679: NewCapInputFile creates a CapInputFile with correct path and media URN. Metadata and source fields must be nil. | planner/argument_binding_test.go:502 |
-| test6680 | go | `Test6680_cap_input_file_from_listing` | TEST6680: CapInputFileFromListing sets source_id and source_type to Listing. | planner/argument_binding_test.go:519 |
-| test6681 | go | `Test6681_cap_input_file_filename` | TEST6681: CapInputFile.Filename() extracts the basename from a full path. | planner/argument_binding_test.go:530 |
-| test6682 | go | `Test6682_argument_binding_literal_string` | TEST6682: NewLiteralStringBinding creates a Literal binding wrapping a JSON string. | planner/argument_binding_test.go:542 |
-| test6683 | objc | `test6683_symlink_to_file` | TEST6683: Symlink to file resolves to its target | Tests/CapDAGTests/CSInputResolverTests.m:241 |
-| test6684 | go | `Test6684_is_dispatchable_uses_correct_directionality` | TEST6684: Tests that IsDispatchable has correct directionality A specific provider is dispatchable for a general request; the reverse is false. | planner/plan_builder_test.go:336 |
-| test6685 | go | `Test6685_is_dispatchable_rejects_non_dispatchable` | TEST6685: Tests that IsDispatchable rejects when provider is missing a required cap tag Provider without required=yes cannot handle a request that demands required=yes. | planner/plan_builder_test.go:351 |
-| test6686 | go | `Test6686_cap_documentation_omitted_when_none` | TEST6686: When Documentation is nil, the serializer must omit the field entirely. There must be no "documentation":null — only absence. | cap/definition_test.go:557 |
-| test6687 | go | `Test6687_cap_documentation_parses_from_capfab_json` | TEST6687: A capfab-shaped JSON document with a documentation field must deserialize into a Cap with the body intact. | cap/definition_test.go:575 |
-| test6688 | go | `Test6688_cap_documentation_set_and_clear_lifecycle` | TEST6688: Documentation set/clear lifecycle must not cross-contaminate cap_description. | cap/definition_test.go:592 |
 | test6689 | py | `test_6689_abstraction_error_subclass_hierarchy` | TEST6689: All resolution error subclasses are instances of MachineAbstractionError. | tests/test_machine.py:554 |
-| test6690 | py | `test_6690_parse_machine_undefined_alias_raises_syntax_error` | TEST6690: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError. | tests/test_machine.py:590 |
 | test6691 | py | `test_6691_two_strand_machine_serializes_to_notation` | TEST6691: Machine with two strands serializes to a non-empty notation string. | tests/test_machine.py:606 |
 | test6692 | py | `test_6692_assignment_bindings_sorted_by_slot_urn` | Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form | tests/test_machine.py:631 |
-| test6693 | py | `test_6693_resolve_inputs_confirmed_wraps_detect_file_confirmed` | TEST6693: Resolve inputs confirmed wraps detect file confirmed | tests/test_input_resolver.py:574 |
-| test6694 | py | `test_6694_input_resolver_error_display_and_source` | TEST6694: InputResolverError subclass display messages and exception hierarchy are correct. | tests/test_input_resolver.py:653 |
-| test6695 | go | `Test6695_machine_syntax_error_display_is_specific` | TEST6695: MachineSyntaxError.Error() includes position and detail. invalidWiringError(7) must produce a message containing "statement 7" and "invalid wiring". | machine/machine_test.go:741 |
-| test6696 | py | `test_6696_machine_syntax_error_display_is_specific` | TEST6696: InvalidWiringError display message is human-readable and specific. | tests/test_machine.py:687 |
-| test6697 | py | `test_6697_add_cap_and_basic_traversal` | TEST6697: Adding a cap creates one edge and two node entries; reachable targets include the output. | tests/test_live_cap_fab.py:372 |
+| test6693 | py | `test_6693_resolve_inputs_confirmed_wraps_detect_file_confirmed` | TEST6693: Resolve inputs confirmed wraps detect file confirmed | tests/test_input_resolver.py:569 |
 | test6698 | py | `test_6698_parse_machine_shared_node_name_yields_one_strand` | TEST6698: Two caps whose wirings share a node name are folded into a single strand with two edges. | tests/test_machine.py:405 |
-| test6699 | py | `test_6699_parse_duplicate_alias_is_syntax_error` | TEST6699: Parsing notation that declares the same alias twice is rejected as a syntax error. | tests/test_machine.py:724 |
-| test6700 | go | `Test6700_line_based_format_round_trips` | TEST6700: Line-based notation format round-trips back to the same machine. ToMachineNotationFormatted(NotationFormatLineBased) must not contain '[', and re-parsing must yield an equivalent machine. | machine/machine_test.go:787 |
-| test6701 | go | `Test6701_render_payload_json_includes_strand_with_anchors` | TEST6701: ToRenderPayloadJSON for a populated machine includes strand with nodes, edges, input_anchor_nodes, and output_anchor_nodes. | machine/machine_test.go:1094 |
-| test6702 | go | `Test6702_match_single_source_picks_unique_arg` | TEST6702: matchSourcesToArgs assigns a single source to the single compatible cap arg. | machine/machine_test.go:815 |
+| test6700 | go | `Test6700_line_based_format_round_trips` | TEST6700: Line-based notation format round-trips back to the same machine. ToMachineNotationFormatted(NotationFormatLineBased) must not contain '[', and re-parsing must yield an equivalent machine. | machine/machine_test.go:746 |
 | test6703 | py | `test_6703_match_sources_to_args_single_trivial` | TEST6703: Source-to-arg matching: single source picks the unique arg. | tests/test_machine.py:256 |
-| test6704 | go | `Test6704_match_two_sources_disambiguated_by_specificity` | TEST6704: matchSourcesToArgs disambiguates two sources by specificity. | machine/machine_test.go:852 |
-| test6705 | py | `test_6705_match_two_sources_disambiguated_by_specificity` | TEST6705: Two sources disambiguated by specificity — unique minimum-cost assignment. | tests/test_machine.py:898 |
-| test6706 | go | `Test6706_match_ambiguous_when_two_sources_could_swap` | TEST6706: matchSourcesToArgs fails ambiguous when two identical sources can be swapped. | machine/machine_test.go:876 |
-| test6707 | go | `Test6707_resolve_strand_single_cap_produces_one_edge` | TEST6707: resolveStrand with one cap produces one edge with correct input/output anchors. | machine/machine_test.go:898 |
-| test6708 | go | `Test6708_resolve_strand_chained_caps_share_intermediate_node` | TEST6708: resolveStrand chained caps share the intermediate node (positional interning). 3 distinct nodes, not 4. | machine/machine_test.go:930 |
 | test6709 | py | `test_6709_two_step_chain_shares_intermediate_node` | TEST6709: Resolving a strand with two chained caps shares the intermediate node. | tests/test_machine.py:148 |
 | test6710 | py | `test_6710_resolve_strand_foreach_sets_is_loop_on_next_cap` | TEST6710: A ForEach step immediately preceding a CAP step marks that cap edge as is_loop=True. | tests/test_machine.py:498 |
-| test6711 | go | `Test6711_resolve_strand_inverse_format_converters_no_cycle` | TEST6711: resolveStrand with inverse format converters produces 3 distinct nodes, no cycle. | machine/machine_test.go:1021 |
-| test6712 | go | `Test6712_resolve_strand_disbind_pdf_with_file_path_slot_identity` | TEST6712: resolveStrand with a disbind cap that uses file-path slot identity (distinct from stdin URN) preserves the slot identity in the binding. | machine/machine_test.go:1055 |
 | test6713 | py | `test_6713_binding_slot_identity_is_outer_media_urn` | TEST6713: EdgeAssignmentBinding.cap_arg_media_urn is the slot identity (outer media_urn), not the stdin inner URN. | tests/test_machine.py:430 |
-| test6714 | py | `test_6714_parse_simple_machine` | TEST6714: Parsing a single-cap machine notation produces a graph with 2 nodes and 1 edge. | tests/test_orchestrator_parser.py:45 |
-| test6715 | go | `Test6715_cap_not_found_in_registry` | TEST6715: Parsing fails when a declared cap is absent from the registry. In Go the machine parser resolves caps before the orchestrator layer checks, so the error may be ErrMachineSyntaxParseFailed or ErrCapNotFound. | orchestrator/orchestrator_test.go:320 |
-| test6716 | py | `test_6716_cap_not_found_in_registry` | TEST6716: A cap URN not present in the registry cache causes a parse orchestration error. | tests/test_orchestrator_parser.py:88 |
-| test6717 | py | `test_6717_compatible_media_urns_at_shared_node` | TEST1265: Compatible media urns at shared node | tests/test_orchestrator_parser.py:221 |
-| test6718 | go | `Test6718_adapter_selection_urn_builder` | TEST6718: CapAdapterSelection has correct in/out specs (in=media: out=media:adapter-selection;json;record) | standard/caps_test.go:156 |
-| test6719 | py | `test_6719_cyclic_strand_fails_hard` | TEST6719: A wiring that forms a cycle raises CyclicMachineStrandError. | tests/test_machine.py:307 |
 | test6720 | objc | `test6720_writeAfterCloseThrowsCleanly` | TEST6720: Writing to a closed FrameWriter must throw FrameError.ioError("writer closed"), never raise an Objective-C NSException that aborts the process. | Tests/BifaciTests/FrameTests.swift:1791 |
 | test6721 | objc | `test6721_doubleCloseIsIdempotent` | TEST6721: Calling close() twice on a FrameWriter is a no-op — the second call must not throw, must not double-close the underlying fd, and must leave the writer in the closed state. | Tests/BifaciTests/FrameTests.swift:1816 |
 | test6722 | objc | `test6722_flushAfterCloseThrowsCleanly` | TEST6722: flush() on a closed FrameWriter — even with an empty buffer — must throw FrameError.ioError, not silently succeed. A flush call after close() is a programmer error and must surface, not be papered over. | Tests/BifaciTests/FrameTests.swift:1839 |
@@ -741,28 +537,9 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6725 | objc | `test6725_deinitDoesNotAccessClosedHandle` | TEST6725: A FrameWriter going through deinit must NOT touch the underlying handle's `fileDescriptor` accessor. The original bug used to deinit-flush by reading `handle.fileDescriptor`, which raises NSFileHandleOperationException on a closed handle and aborts the process. The new contract: deinit does no I/O. This test deinits a writer whose handle was closed externally, then asserts the test process is still alive (i.e. did not crash via NSException). | Tests/BifaciTests/FrameTests.swift:1932 |
 | test6726 | go | `Test6726_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST6726: CartridgeJson with FabricManifestVersion=0 (zero value) is absent on the wire. | bifaci/cartridge_json_test.go:13 |
 | test6727 | go | `Test6727_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST6727: CartridgeJson with FabricManifestVersion>0 round-trips the value correctly. | bifaci/cartridge_json_test.go:44 |
-| test6729 | objc | `test6729_canonicalize_no_constraint` | TEST6729: Canonicalize no constraint | Tests/CapDAGTests/CSCapUrnTests.m:1736 |
-| test6730 | objc | `test6730_canonicalize_must_have_any` | TEST6730: Canonicalize must have any | Tests/CapDAGTests/CSCapUrnTests.m:1770 |
-| test6731 | objc | `test6731_canonicalize_exact_value` | TEST6731: Canonicalize exact value | Tests/CapDAGTests/CSCapUrnTests.m:1804 |
-| test6732 | objc | `test6732_canonicalize_must_not_have` | TEST6732: Canonicalize must not have | Tests/CapDAGTests/CSCapUrnTests.m:1812 |
-| test6734 | rust | `test6734_reject_invalid_combinations` | TEST6734: Invalid combinations of qualifiers must be rejected by the parser. These are hard parse errors, not silently accepted shorthands. | src/urn/cap_urn.rs:3691 |
-| test6735 | rust | `test6735_axis_weighting_out_dominates` | TEST6735: Cap-URN axis weighting is lexicographic. A cap with greater out-axis specificity always outranks one with greater in-axis specificity, regardless of y-axis. | src/urn/cap_urn.rs:3721 |
-| test6736 | rust | `test6736_axis_weighting_decoded_layout` | TEST6736: Specificity composes uniformly across all three axes. For a fully-loaded cap with one of each form per axis, the total reads as out_score, in_score, y_score in distinct digit slots. | src/urn/cap_urn.rs:3756 |
-| test6737 | js | `test6737_capVersionZeroOmittedOnWire` | TEST6737: Cap with version=0 round-trips with no `version` key on wire | capdag.test.js:6360 |
-| test6738 | js | `test6738_registryUrlFromBuildEnvPassesThroughNonempty` | TEST6738: a non-empty MFR_CARTRIDGE_REGISTRY_URL passes through verbatim — a published build reports exactly the URL it was compiled with. | capdag.test.js:2582 |
-| test6739 | go | `Test6739_registry_url_from_build_env_none_for_dev` | TEST6739: an unset build-env value (nil) yields nil — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges (mirror of Rust test1873). | bifaci/manifest_test.go:392 |
-| test6740 | js | `test6740_registryUrlFromBuildEnvNoneForDev` | TEST6740: an unset env (null/undefined) yields null — a dev build has no baked registry and loads only `dev/` cartridges. | capdag.test.js:2589 |
-| test6741 | go | `Test6741_registry_url_from_build_env_rejects_empty_string` | TEST6741: an exported-but-empty value (a pointer to "") is neither a dev build nor a valid identity and MUST fail hard, so the build can never silently hash the empty string into a fake registry slug. We assert the panic AND its exact message, so a regression that dropped the check (or replaced it with a silent fallback) is caught rather than passing on a bogus empty primary registry (mirror of Rust test1874). | bifaci/manifest_test.go:402 |
-| test6742 | py | `test_6742_registry_url_from_build_env_rejects_empty_string` | TEST6742: an exported-but-empty env ("") is neither a dev build nor a valid identity and MUST fail hard, so the build can never silently hash the empty string into a fake registry slug. We assert the failure rather than letting a bogus empty primary registry ship. | tests/test_manifest.py:345 |
-| test6743 | objc | `test6743_registryUrlFromBuildEnvRejectsEmptyString` | TEST6743: an exported-but-empty env (the empty string) is neither a dev build nor a valid identity and MUST fail hard, so the build can never silently hash the empty string into a fake registry slug. We assert the failure AND its exact message — the catchable Swift analog of Rust's compile-time panic — so a regression that dropped the check (or replaced it with a silent fallback) is caught rather than passing on a bogus empty primary registry. | Tests/BifaciTests/ManifestTests.swift:331 |
-| test6744 | objc | `test6744_bundledProviderWithoutBakedHashIsRejected` |  | Tests/BifaciTests/CartridgeDiscoveryTests.swift:157 |
-| test6745 | rust | `test6745_relay_switch_new_rejects_duplicate_ids` | / `RelaySwitch::new` rejects duplicate ids in its cardinality / list. Without this guard the first reconnect would / reattach to whichever slot is found first by the linear / scan, leaving the other slot stuck unhealthy forever. | src/bifaci/relay_switch.rs:5425 |
+| test6737 | js | `test6737_capVersionZeroOmittedOnWire` | TEST6737: Cap with version=0 round-trips with no `version` key on wire | capdag.test.js:6307 |
 | test6746 | rust | `test6746_all_masters_ready_true_when_expectation_met` | TEST6746: All masters ready true when expectation met | src/bifaci/relay_switch.rs:5746 |
 | test6747 | rust | `test6747_local_socket_pair_round_trips_in_both_directions` | TEST6747: Local socket pair round trips in both directions | src/bifaci/local_socket.rs:350 |
-| test6748 | rust | `test6748_routes_req_to_handler` | TEST6748: InProcessCartridgeHost routes REQ to matching handler and returns response | src/bifaci/in_process_host.rs:999 |
-| test6749 | rust | `test6749_identity_verification` | TEST6749: InProcessCartridgeHost handles identity verification (echo nonce) | src/bifaci/in_process_host.rs:1089 |
-| test6750 | rust | `test6750_no_handler_returns_err` | TEST6750: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | src/bifaci/in_process_host.rs:1159 |
-| test6751 | rust | `test6751_manifest_includes_all_caps` | TEST6751: InProcessCartridgeHost manifest includes identity cap and handler caps | src/bifaci/in_process_host.rs:1198 |
 
 ---
 
@@ -772,9 +549,8 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 
 | Test # | Present in | Missing from | Description (first present) |
 |---|---|---|---|
-| test23 | rust, go, py, js | objc | TEST023: Test builder lowercases keys but preserves value case |
-| test28 | rust, js | go, py, objc | TEST28: Test empty cap URN is illegal after effect transition |
-| test48 | rust, go, js, objc | py | TEST048: Matching semantics - wildcard direction matches anything |
+| test28 | rust, py, js, objc | go | TEST28: Test empty cap URN is illegal after effect transition |
+| test50 | rust, go, js, objc | py | TEST050: Matching semantics - direction mismatch prevents matching |
 | test51 | rust, go, py | js, objc | TEST051: Test input validation succeeds with valid positional argument |
 | test52 | rust, go, py | js, objc | TEST052: Test input validation fails with MissingRequiredArgument when required arg missing |
 | test53 | rust, go, py | js, objc | TEST053: Test input validation fails with InvalidArgumentType when wrong type provided |
@@ -785,20 +561,16 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test90 | rust, go, py | js, objc | TEST0090: Absent scan root yields empty roster |
 | test91 | rust, go, py | js, objc | TEST0091: Missing cartridge json is manifest invalid |
 | test92 | rust, go, py | js, objc | TEST0092: Channel mismatch is bad installation |
-| test93 | rust, py | go, js, objc | TEST093: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaDef` would surface here as a missing error. |
+| test93 | rust, go, py, js | objc | TEST093: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaDef` would surface here as a missing error. |
 | test94 | rust, go, py | js, objc | TEST0094: Fabric manifest mismatch is flagged |
 | test95 | rust, go, py | js, objc | TEST095: Test MediaDef serializes with required fields and skips None fields |
 | test96 | rust, go, py | js, objc | TEST096: Test deserializing MediaDef from JSON object |
 | test97 | rust, go, py | js, objc | TEST097: Test duplicate URN validation catches duplicates |
 | test98 | rust, go, py | js, objc | TEST098: Test duplicate URN validation passes for unique URNs |
-| test99 | rust, objc | go, py, js | TEST099: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=. |
-| test104 | rust, objc | go, py, js | TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old is_text()/is_binary() delegates on ResolvedMediaDef are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text — has enc, is not JSON. |
+| test99 | rust, go, js, objc | py | TEST099: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=. |
 | test105 | rust, go, py, js | objc | TEST105: Test metadata propagates from media def def to resolved media def |
-| test106 | rust, go, py, js | objc | TEST106: Test metadata and validation can coexist in media definition |
 | test107 | rust, go, py, js | objc | TEST107: Test extensions field propagates from media def def to resolved |
-| test108 | rust, go, py, js | objc | TEST108: Test creating new cap with URN, title, and command verifies correct initialization |
 | test109 | rust, go, py, js | objc | TEST109: Test creating cap with metadata initializes and retrieves metadata correctly |
-| test110 | rust, go, py, js | objc | TEST110: Test cap matching with subset semantics for request fulfillment |
 | test111 | rust, go, py | js, objc | TEST111: Test getting and setting cap title updates correctly |
 | test112 | rust, go, py | js, objc | TEST112: Test cap equality based on URN and title matching |
 | test113 | rust, go, py | js, objc | TEST113: Test cap stdin support via args with stdin source and serialization roundtrip |
@@ -807,26 +579,33 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test118 | rust, py | go, js, objc | TEST118: A dev manifest (built without `MFR_CARTRIDGE_REGISTRY_URL`) carries `registry_url: null` and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build. |
 | test119 | rust, py | go, js, objc | TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk responses: concatenated returns all chunk data joined; final_payload returns only the last chunk. A consumer that confuses the two will silently drop all but the last chunk of a multi-chunk response. |
 | test120 | rust, go, py | js, objc | TEST0120: Registry url under dev slug is rejected |
-| test135 | go, py | rust, js, objc | TEST135: Test registry creation with temporary cache directory succeeds |
+| test125 | rust, js, objc | go, py | TEST0125: effect=none preserves runtime media identity |
+| test126 | rust, js, objc | go, py | TEST0126: default effect=declared uses the declared output |
+| test127 | rust, py, js, objc | go | TEST0127: invalid effect=none declarations fail hard |
+| test128 | rust, js, objc | go, py | TEST0128: omitted effect means declared; unconstrained effect must be explicit |
+| test129 | rust, objc | go, py, js | / Contract #2 — the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one — / the more dangerous bug because it silently drops / in-flight continuation frames. |
+| test132 | rust, objc | go, py, js | TEST0132: add_master dynamically connects new host to running switch |
+| test133 | rust, go, py, objc | js | / Reattach-by-id keeps the slot index stable. / / After a master at slot index 0 dies, a new socket added with / the same id MUST be placed into slot 0 (not appended at index 1). / Without this, request_routing entries keyed by `master_idx=0` / would dangle pointing at a permanently-unhealthy zombie slot / while the live caps came back at slot 1 — exactly the / observed bug. |
+| test134 | rust, go, py, objc | js | / Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug — the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot. |
 | test136 | rust, py | go, js, objc | TEST0136: All masters ready false when expected count unset |
 | test137 | rust, py | go, js, objc | TEST0137: All masters ready false when partially connected |
-| test138 | go, py | rust, js, objc | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction |
+| test138 | rust, go, py | js, objc | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction |
 | test139 | rust, py | go, js, objc | TEST0139: All masters ready true when masters connected but capless |
 | test140 | rust, py | go, js, objc | TEST0140: All masters ready does not overshoot |
-| test141 | go, py, objc | rust, js | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. |
-| test142 | go, objc | rust, py, js | TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing. |
-| test143 | go, py | rust, js, objc | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. |
-| test144 | go, py | rust, js, objc | TEST144: Test custom registry URL updates both registry and schema base URLs |
-| test145 | go, py | rust, js, objc | TEST145: Test custom registry and schema URLs set independently |
-| test146 | go, py | rust, js, objc | TEST146: Test schema URL not overwritten when set explicitly before registry URL |
+| test141 | rust, go, py, objc | js | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. |
+| test142 | rust, go, py, objc | js | TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing. |
+| test143 | rust, go, py | js, objc | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. |
+| test144 | rust, go, py | js, objc | TEST144: Test custom registry URL updates both registry and schema base URLs |
+| test145 | rust, go, py | js, objc | TEST145: Test custom registry and schema URLs set independently |
+| test146 | rust, go, py | js, objc | TEST146: Test schema URL not overwritten when set explicitly before registry URL |
 | test147 | rust, go, py | js, objc | TEST147: Test registry for test with custom config creates registry with specified URLs |
-| test148 | rust, go, py | js, objc | TEST148: Manifest creation with cap groups |
-| test149 | rust, go, py | js, objc | TEST149: Author field |
+| test148 | rust, go, py, objc | js | TEST148: Manifest creation with cap groups |
+| test149 | rust, go, py, objc | js | TEST149: Author field |
 | test150 | rust, go, py, js | objc | TEST150: JSON roundtrip |
-| test151 | rust, go, py | js, objc | TEST151: Missing required fields fail |
-| test152 | rust, go, py | js, objc | TEST152: Multiple caps across groups |
-| test153 | rust, go, py | js, objc | TEST153: Empty cap groups |
-| test154 | rust, go, py | js, objc | TEST154: Optional author field omitted in serialization |
+| test151 | rust, go, py, objc | js | TEST151: Missing required fields fail |
+| test152 | rust, go, py, objc | js | TEST152: Multiple caps across groups |
+| test153 | rust, go, py, objc | js | TEST153: Empty cap groups |
+| test154 | rust, go, py, objc | js | TEST154: Optional author field omitted in serialization |
 | test155 | rust, go, py | js, objc | TEST155: ComponentMetadata trait |
 | test156 | rust, py, js | go, objc | TEST156: Test creating StdinSource Data variant with byte vector |
 | test157 | rust, py, js | go, objc | TEST157: Test creating StdinSource FileReference variant with all required fields |
@@ -869,14 +648,14 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test195 | rust, go, py, objc | js | TEST195: Test Frame::default creates a Req frame (the documented default) |
 | test196 | rust, go, py, objc | js | TEST196: Test is_eof returns false when eof field is None (unset) |
 | test197 | rust, go, py, objc | js | TEST197: Test is_eof returns false when eof field is explicitly Some(false) |
-| test198 | rust, go, py | js, objc | TEST198: Test Limits::default provides the documented default values |
+| test198 | rust, go, py, objc | js | TEST198: Test Limits::default provides the documented default values |
 | test199 | rust, go, py, objc | js | TEST199: Test PROTOCOL_VERSION is 2 |
 | test200 | rust, go, py, objc | js | TEST200: Test integer key constants match the protocol specification |
 | test201 | rust, go, py, objc | js | TEST201: Test hello_with_manifest preserves binary manifest data (not just JSON text) |
 | test202 | rust, go, py, objc | js | TEST202: Test MessageId Eq/Hash semantics: equal UUIDs are equal, different ones are not |
 | test203 | rust, go, py, objc | js | TEST203: Test Uuid and Uint variants of MessageId are never equal even for coincidental byte values |
 | test204 | rust, go, py, objc | js | TEST204: Test Frame::req with empty payload stores Some(empty vec) not None |
-| test205 | rust, go, py | js, objc | TEST205: Test REQ frame encode/decode roundtrip preserves all fields |
+| test205 | rust, go, py, objc | js | TEST205: Test REQ frame encode/decode roundtrip preserves all fields |
 | test206 | rust, go, py, objc | js | TEST206: Test HELLO frame encode/decode roundtrip preserves max_frame, max_chunk, max_reorder_buffer |
 | test207 | rust, go, py, objc | js | TEST207: Test ERR frame encode/decode roundtrip preserves error code and message |
 | test208 | rust, go, py, objc | js | TEST208: Test LOG frame encode/decode roundtrip preserves level and message |
@@ -955,6 +734,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test285 | rust, go, py, objc | js | TEST285: Simple request-response flow (REQ → END with payload) |
 | test286 | rust, go, py, objc | js | TEST286: Streaming response with multiple CHUNK frames |
 | test287 | rust, go, py, objc | js | TEST287: Host-initiated heartbeat |
+| test288 | rust, go | py, js, objc | TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. |
 | test289 | rust, go | py, js, objc | TEST289: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side. |
 | test290 | rust, go, py, objc | js | TEST290: Limit negotiation picks minimum |
 | test291 | rust, go, py, objc | js | TEST291: Binary payload roundtrip (all 256 byte values) |
@@ -969,56 +749,53 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test310 | rust, go, py, js | objc | TEST310: llm_generate_text_urn() produces a valid cap URN with a UTF-8 text input and plain-text terminal output. |
 | test312 | rust, go, py, js | objc | TEST312: Test all URN builders produce parseable cap URNs |
 | test319 | rust, go, py | js, objc | TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. |
-| test320 | rust, py | go, js, objc | TEST320: Construct CartridgeInfo and verify round-trip of fields. |
-| test321 | rust, go, js | py, objc | TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty. |
-| test322 | rust, go, js | py, objc | TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise. |
+| test320 | rust, go, py, js | objc | TEST320: Construct CartridgeInfo and verify round-trip of fields. |
+| test321 | rust, go, py, js | objc | TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty. |
+| test322 | rust, go, py, js | objc | TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise. |
 | test323 | rust, go, py, js | objc | TEST323: CartridgeRepoServer requires schema 5.0 and rejects older. |
-| test324 | rust, py | go, js, objc | TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim. |
-| test325 | rust, py, js | go, objc | TEST325: get_cartridges() wraps the transformed array in the response envelope. |
-| test326 | rust, py, js | go, objc | TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces. |
-| test327 | rust, py | go, js, objc | TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings. |
-| test328 | rust, py | go, js, objc | TEST328: get_cartridges_by_category filters on the categories string list. |
-| test329 | rust, py | go, js, objc | TEST329: get_cartridges_by_cap parses the input URN and matches each cartridge cap via tagged-URN equivalence — not string ==. This proves a request URN whose tags appear in a different order than the cap's declared form still resolves. |
-| test330 | rust, py | go, js, objc | TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridge index keyed by normalized URNs. |
-| test331 | rust, py | go, js, objc | TEST331: get_suggestions_for_cap returns a suggestion when the cache has a cartridge whose cap is tagged-URN equivalent to the request, even if declared with different tag order. |
-| test332 | rust, py | go, js, objc | TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss. |
-| test333 | rust, py | go, js, objc | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. |
-| test334 | rust, py, js | go, objc | TEST334: needs_sync returns true on an empty cache, false right after a successful update. |
-| test335 | rust, py | go, js, objc | TEST335: A v4.0 nested registry round-trips through Server → CartridgeInfo → fingerprint, preserving the cap_groups structure and the signed flag. |
+| test324 | rust, go, py, js | objc | TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim. |
+| test325 | rust, go, py, js | objc | TEST325: get_cartridges() wraps the transformed array in the response envelope. |
+| test326 | rust, go, py, js | objc | TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces. |
+| test327 | rust, go, py, js | objc | TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings. |
+| test328 | rust, go, py, js | objc | TEST328: get_cartridges_by_category filters on the categories string list. |
+| test329 | rust, go, py, js | objc | TEST329: get_cartridges_by_cap parses the input URN and matches each cartridge cap via tagged-URN equivalence — not string ==. This proves a request URN whose tags appear in a different order than the cap's declared form still resolves. |
+| test330 | rust, go, py, js | objc | TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridge index keyed by normalized URNs. |
+| test331 | rust, go, py, js | objc | TEST331: get_suggestions_for_cap returns a suggestion when the cache has a cartridge whose cap is tagged-URN equivalent to the request, even if declared with different tag order. |
+| test332 | rust, go, py, js | objc | TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss. |
+| test333 | rust, go, py, js | objc | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. |
+| test334 | rust, go, py, js | objc | TEST334: needs_sync returns true on an empty cache, false right after a successful update. |
+| test335 | rust, go, py, js | objc | TEST335: A v4.0 nested registry round-trips through Server → CartridgeInfo → fingerprint, preserving the cap_groups structure and the signed flag. |
 | test336 | rust, go, py, objc | js | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler |
 | test337 | rust, go, py, objc | js | TEST337: file-path arg without stdin source passes path as string (no conversion) |
 | test338 | rust, go, py, objc | js | TEST338: file-path arg reads file via --file CLI flag |
-| test339 | rust, py | go, js, objc | TEST339: file-path-array reads multiple files with glob pattern |
+| test339 | rust, go, py, objc | js | TEST339: file-path-array reads multiple files with glob pattern |
 | test340 | rust, go, py, objc | js | TEST340: File not found error provides clear message |
 | test341 | rust, go, py, objc | js | TEST341: stdin takes precedence over file-path in source order |
 | test342 | rust, go, py, objc | js | TEST342: file-path with position 0 reads first positional arg as file |
 | test343 | rust, go, py, objc | js | TEST343: Non-file-path args are not affected by file reading |
-| test344 | go, py, objc | rust, js | TEST344: A scalar file-path arg receiving a nonexistent path fails hard with a clear error that names the path. The runtime refuses to silently swallow user mistakes like typos or wrong directories. |
-| test345 | go, py, objc | rust, js | TEST345: file-path arg with literal nonexistent path fails hard. Mirrors Rust test345_file_path_array_one_file_missing_fails_hard. |
 | test346 | rust, go, py, objc | js | TEST346: Large file (1MB) reads successfully |
 | test347 | rust, go, py, objc | js | TEST347: Empty file reads as empty bytes |
 | test348 | rust, go, py, objc | js | TEST348: file-path conversion respects source order |
 | test349 | rust, go, py, objc | js | TEST349: file-path arg with multiple sources tries all in order |
 | test350 | rust, go, py, objc | js | TEST350: Integration test - full CLI mode invocation with file-path |
-| test351 | go, py, objc | rust, js | TEST351: file-path arg in CBOR mode with empty Array returns empty. CBOR Array (not JSON-encoded) is the multi-input wire form for sequence args. Mirrors Rust test351_file_path_array_empty_array. |
 | test352 | rust, go, py, objc | js | TEST352: file permission denied error is clear (Unix-specific) |
 | test353 | rust, go, py, objc | js | TEST353: CBOR payload format matches between CLI and CBOR mode |
 | test354 | rust, go, objc | py, js | TEST354: Glob pattern with no matches fails hard (NO FALLBACK) |
-| test355 | rust, py, objc | go, js | TEST355: Glob pattern skips directories |
-| test356 | rust, go, py | js, objc | TEST356: Multiple glob patterns combined |
+| test355 | rust, go, py, objc | js | TEST355: Glob pattern skips directories |
+| test356 | rust, go, py, objc | js | TEST356: Multiple glob patterns combined |
 | test357 | rust, go, py, objc | js | TEST357: Symlinks are followed when reading files |
 | test358 | rust, go, py, objc | js | TEST358: Binary file with non-UTF8 data reads correctly |
-| test359 | rust, go, py | js, objc | TEST359: Invalid glob pattern fails with clear error |
+| test359 | rust, go, py, objc | js | TEST359: Invalid glob pattern fails with clear error |
 | test360 | rust, go, py, objc | js | TEST360: Extract effective payload handles file-path data correctly |
 | test361 | rust, go, py, objc | js | TEST361: CLI mode with file path - pass file path as command-line argument |
 | test362 | rust, go, py, objc | js | TEST362: CLI mode with binary piped in - pipe binary data via stdin This test simulates real-world conditions: - Pure binary data piped to stdin (NOT CBOR) - CLI mode detected (command arg present) - Cap accepts stdin source - Binary is chunked on-the-fly and accumulated - Handler receives complete CBOR payload |
 | test363 | rust, go, py, objc | js | TEST363: CBOR mode with chunked content - send file content streaming as chunks |
-| test364 | rust, go, py | js, objc | TEST364: CBOR mode with file path - send file path in CBOR arguments (auto-conversion) |
+| test364 | rust, go, py, objc | js | TEST364: CBOR mode with file path - send file path in CBOR arguments (auto-conversion) |
 | test365 | rust, go, py, objc | js | TEST365: Frame::stream_start stores request_id, stream_id, and media_urn |
 | test366 | rust, go, py, objc | js | TEST366: Frame::stream_end stores request_id and stream_id |
 | test367 | rust, go, py, objc | js | TEST367: StreamStart frame with empty stream_id still constructs (validation happens elsewhere) |
 | test368 | rust, go, py, objc | js | TEST368: StreamStart frame with empty media_urn still constructs (validation happens elsewhere) |
-| test389 | rust, go, py | js, objc | TEST389: StreamStart encode/decode roundtrip preserves stream_id and media_urn |
+| test389 | rust, go, py, objc | js | TEST389: StreamStart encode/decode roundtrip preserves stream_id and media_urn |
 | test390 | rust, go, py, objc | js | TEST390: StreamEnd encode/decode roundtrip preserves stream_id, no media_urn |
 | test395 | rust, go, py, objc | js | TEST395: Small payload (< max_chunk) produces correct CBOR arguments |
 | test396 | rust, go, py, objc | js | TEST396: Large payload (> max_chunk) accumulates across chunks correctly |
@@ -1039,7 +816,6 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test411 | rust, go, py, objc | js | TEST411: Socket close detection (both directions) |
 | test412 | rust, go, py, objc | js | TEST412: Bidirectional concurrent frame flow through relay |
 | test413 | rust, go, py, objc | js | TEST413: Register cartridge adds entries to cap_table. The cap_table stores canonical URN strings (alphabetical tag order, no unnecessary quotes around single-tag media URNs). The input forms below get canonicalized at parse-time and the table reads back as the canonical form. |
-| test414 | go, objc | rust, py, js | TEST414: capabilities() returns empty JSON initially (no running cartridges) |
 | test415 | rust, go, py, objc | js | TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary) |
 | test416 | rust, go, py, objc | js | TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities |
 | test417 | rust, go, py, objc | js | TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges) |
@@ -1060,7 +836,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test432 | rust, go, py, objc | js | TEST432: Empty masters list creates empty switch, add_master works |
 | test433 | rust, go, py, objc | js | TEST433: Capability aggregation deduplicates caps |
 | test434 | rust, go, py, objc | js | TEST434: Limits negotiation takes minimum |
-| test435 | rust, go, py | js, objc | TEST435: URN matching (exact vs accepts()) |
+| test435 | rust, go, py, objc | js | TEST435: URN matching (exact vs accepts()) |
 | test436 | rust, go, py, objc | js | TEST436: Verify FNV-1a checksum function produces consistent results |
 | test437 | rust, go, py, objc | js | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates |
 | test438 | rust, go, py, objc | js | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set |
@@ -1094,7 +870,6 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test476 | rust, go, py | js, objc | TEST476: validate() fails without CAP_IDENTITY |
 | test478 | rust, py, objc | go, js | TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction |
 | test479 | rust, py, objc | go, js | TEST479: Custom identity Op overrides auto-registered default |
-| test480 | py, objc | rust, go, js | TEST480: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY |
 | test481 | rust, py, objc | go, js | TEST481: verify_identity succeeds with standard identity echo handler |
 | test482 | rust, py, objc | go, js | TEST482: verify_identity fails when cartridge returns ERR on identity call |
 | test483 | rust, py, objc | go, js | TEST483: verify_identity fails when connection closes before response |
@@ -1130,7 +905,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test514 | rust, go, py, objc | js | TEST514: ReorderBuffer with XID cleanup doesn't affect different XID |
 | test515 | rust, go, py, objc | js | TEST515: ReorderBuffer overflow error includes diagnostic information |
 | test516 | rust, go, py, objc | js | TEST516: ReorderBuffer stale error includes diagnostic information |
-| test517 | rust, py, objc | go, js | TEST517: FlowKey with None XID differs from Some(xid) |
+| test517 | rust, go, py, objc | js | TEST517: FlowKey with None XID differs from Some(xid) |
 | test518 | rust, go, py, objc | js | TEST518: ReorderBuffer handles zero-length ready vec correctly |
 | test519 | rust, go, py, objc | js | TEST519: ReorderBuffer state persists across accept calls |
 | test520 | rust, go, py, objc | js | TEST520: ReorderBuffer max_buffer_per_flow is per-flow not global |
@@ -1141,7 +916,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test525 | rust, go, py, objc | js | TEST525: RelayNotify with empty manifest is valid |
 | test526 | rust, go, py, objc | js | TEST526: RelayState with empty payload is valid |
 | test527 | rust, go, py, objc | js | TEST527: RelayNotify with large manifest roundtrips correctly |
-| test528 | rust, py, objc | go, js | TEST528: RelayNotify and RelayState use MessageId::Uint(0) |
+| test528 | rust, go, py, objc | js | TEST528: RelayNotify and RelayState use MessageId::Uint(0) |
 | test529 | rust, py, objc | go, js | TEST529: InputStream recv yields chunks in order |
 | test530 | rust, py, objc | go, js | TEST530: InputStream::collect_bytes concatenates byte chunks |
 | test531 | rust, py, objc | go, js | TEST531: InputStream::collect_bytes handles text chunks |
@@ -1155,28 +930,19 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test539 | rust, py, objc | go, js | TEST539: OutputStream sends STREAM_START on first write |
 | test540 | rust, py, objc | go, js | TEST540: OutputStream::close sends STREAM_END with correct chunk_count |
 | test541 | rust, py, objc | go, js | TEST541: OutputStream chunks large data correctly |
-| test542 | rust, py | go, js, objc | TEST542: OutputStream empty stream sends STREAM_START and STREAM_END only |
+| test542 | rust, py, objc | go, js | TEST542: OutputStream empty stream sends STREAM_START and STREAM_END only |
 | test543 | rust, py, objc | go, js | TEST543: PeerCall::arg creates OutputStream with correct stream_id |
 | test544 | rust, go, py, objc | js | TEST544: PeerCall::finish sends END frame |
 | test545 | rust, go, py, objc | js | TEST545: PeerCall::finish returns PeerResponse with data |
-| test546 | rust, go, py, objc | js | TEST546: is_image returns true only when image marker tag is present |
-| test547 | rust, go, py, objc | js | TEST547: is_audio returns true only when audio marker tag is present |
-| test548 | rust, go, py, objc | js | TEST548: is_video returns true only when video marker tag is present |
-| test549 | rust, go, py, objc | js | TEST549: is_numeric returns true only when numeric marker tag is present |
-| test550 | rust, go, py, objc | js | TEST550: is_bool returns true only when bool marker tag is present |
-| test551 | rust, go, py, objc | js | TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. |
 | test555 | rust, go, py, objc | js | TEST555: with_tag adds a tag and without_tag removes it |
 | test556 | rust, go, py | js, objc | TEST556: image_media_urn_for_ext creates valid image media URN |
 | test557 | rust, go, py | js, objc | TEST557: audio_media_urn_for_ext creates valid audio media URN |
-| test558 | rust, go, py, objc | js | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates |
-| test559 | rust, go, py | js, objc | TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys |
-| test560 | rust, go, py | js, objc | TEST560: with_in_spec and with_out_spec change direction specs |
+| test560 | rust, go, py, js | objc | TEST560: with_in_spec and with_out_spec change direction specs |
 | test561 | rust, go, py | js, objc | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn |
 | test562 | rust, go, py | js, objc | TEST562: canonical_option returns None for None input, canonical string for Some |
-| test563 | rust, go, py | js, objc | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity |
-| test564 | rust, go, py | js, objc | TEST564: CapMatcher::are_compatible detects bidirectional overlap |
+| test563 | rust, go, py, js | objc | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity |
+| test564 | rust, go, py, js | objc | TEST564: CapMatcher::are_compatible detects bidirectional overlap |
 | test565 | rust, go, py | js, objc | TEST565: tags_to_string returns only tags portion without prefix |
-| test566 | rust, go, py | js, objc | TEST566: with_tag rejects structural keys |
 | test567 | rust, go, py | js, objc | TEST567: conforms_to_str and accepts_str work with string arguments |
 | test568 | rust, go, py | js, objc | TEST568: is_dispatchable with different tag order in output spec |
 | test578 | rust, go, py | js, objc | TEST578: RULE1 - duplicate media_urns rejected |
@@ -1199,8 +965,8 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test595 | rust, go, py | js, objc | TEST595: with_args constructor stores args correctly |
 | test596 | rust, go, py | js, objc | TEST596: with_full_definition constructor stores all fields |
 | test598 | rust, go, py | js, objc | TEST598: CapOutput lifecycle — set_output, set/clear metadata |
-| test599 | rust, go | py, js, objc | TEST599: is_empty returns true for empty response, false for non-empty |
-| test600 | rust, go | py, js, objc | TEST600: size returns exact byte count for all content types |
+| test599 | rust, go, py | js, objc | TEST599: is_empty returns true for empty response, false for non-empty |
+| test600 | rust, go, py | js, objc | TEST600: size returns exact byte count for all content types |
 | test601 | rust, go, py | js, objc | TEST601: get_content_type returns correct MIME type for each variant |
 | test602 | rust, go, py | js, objc | TEST602: as_type on binary response returns error (cannot deserialize binary) |
 | test603 | rust, go, py | js, objc | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage |
@@ -1210,13 +976,13 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test608 | rust, go, py | js, objc | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions |
 | test609 | rust, go, py | js, objc | TEST609: get_extension_mappings returns all registered extension→URN pairs. |
 | test610 | rust, go, py | js, objc | TEST610: get_cached_spec returns None for unknown and Some for known |
-| test611 | go, py | rust, js, objc | TEST611: InsertSchema seeds the cache so subsequent validation hits a real compiled schema rather than the skip-on-unknown path. A registry that silently dropped inserts would let validation calls return nil even for inputs that violate the schema. |
 | test612 | rust, go, py | js, objc | TEST612: clear_cache empties the in-memory cache for seeded schemas. |
 | test613 | rust, go, py | js, objc | TEST613: validate_cached validates against cached standard schemas |
-| test614 | rust, go, py | js, objc | TEST614: Verify registry creation succeeds and cache directory exists |
+| test614 | rust, go, py, objc | js | TEST614: Verify registry creation succeeds and cache directory exists |
 | test616 | rust, go, py | js, objc | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields |
 | test617 | rust, go, py | js, objc | TEST617: Verify normalize_media_urn produces consistent non-empty results |
-| test619 | rust, go | py, js, objc | TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema. |
+| test618 | rust, go, py | js, objc | TEST618: Verify profile schema registry creation succeeds with temp cache |
+| test619 | rust, go, py | js, objc | TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema. |
 | test620 | rust, go, py | js, objc | TEST620: Verify string schema validates strings and rejects non-strings |
 | test621 | rust, go, py | js, objc | TEST621: Verify integer schema validates integers and rejects floats and strings |
 | test622 | rust, go, py | js, objc | TEST622: Verify number schema validates integers and floats, rejects strings |
@@ -1235,33 +1001,31 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test635 | rust, py | go, js, objc | TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields fall back to empty. |
 | test636 | rust, py | go, js, objc | TEST636: CartridgeInfo with null version/description/author still deserializes (the null_as_empty_string deserializer is the only tolerated coercion — every other malformed input is a hard error). |
 | test637 | rust, py | go, js, objc | TEST637: A full /api/cartridges-shaped response with two cartridges and nested cap_groups round-trips through the response wrapper. |
-| test638 | rust, go, objc | py, js | TEST638: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported |
-| test640 | rust, py, js | go, objc | TEST640: cap:in defaults to the same illegal bare top form |
-| test641 | rust, py, js | go, objc | TEST641: cap:out defaults to the same illegal bare top form |
+| test638 | rust, go, py, objc | js | TEST638: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported |
+| test639 | rust, objc | go, py, js | TEST639: bare/default top-to-top declared form is illegal |
+| test640 | rust, py, js, objc | go | TEST640: cap:in defaults to the same illegal bare top form |
+| test641 | rust, py, js, objc | go | TEST641: cap:out defaults to the same illegal bare top form |
 | test642 | rust, go, py, js | objc | TEST642: cap:in;out becomes the same illegal bare top form |
-| test643 | rust, py, js | go, objc | TEST643: cap:in=*;out=* is the same illegal bare top form |
-| test644 | rust, py, js | go, objc | TEST644: cap:in=media:;out=* is the same illegal bare top form |
-| test645 | rust, go, py, js | objc | TEST645: cap:in=*;out=media:text has wildcard in, specific out |
-| test646 | rust, go, py, js | objc | TEST646: cap:in=foo fails (invalid media URN) |
-| test647 | rust, go, py, js | objc | TEST647: cap:in=media:;out=bar fails (invalid media URN) |
-| test648 | rust, js | go, py, objc | TEST648: Wildcard in/out match specific caps |
-| test649 | rust, js | go, py, objc | TEST649: Specificity - wildcard has 0, specific has tag count |
-| test650 | rust, go, js | py, objc | TEST650: cap:in=media:;out=media:;test preserves other tags |
+| test643 | rust, py, js, objc | go | TEST643: cap:in=*;out=* is the same illegal bare top form |
+| test644 | rust, py, js, objc | go | TEST644: cap:in=media:;out=* is the same illegal bare top form |
+| test648 | rust, js, objc | go, py | TEST648: Wildcard in/out match specific caps |
+| test649 | rust, js, objc | go, py | TEST649: Specificity - wildcard has 0, specific has tag count |
+| test650 | rust, go, js, objc | py | TEST650: cap:in=media:;out=media:;test preserves other tags |
 | test652 | rust, go, py | js, objc | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form |
-| test653 | rust, py, js | go, objc | TEST653: invalid effect=none declarations fail at construction |
+| test653 | rust, js | go, py, objc | TEST653: invalid effect=none declarations fail at construction |
 | test658 | rust, objc | go, py, js | TEST658: InProcessCartridgeHost handles heartbeat by echoing same ID |
 | test659 | rust, objc | go, py, js | TEST659: InProcessCartridgeHost handler error returns ERR frame |
 | test660 | rust, objc | go, py, js | TEST660: InProcessCartridgeHost closest-specificity routing prefers specific over identity |
-| test661 | py, objc | rust, go, js | TEST661: Cartridge death keeps known_caps advertised for on-demand respawn |
 | test662 | rust, py, objc | go, js | TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet). |
 | test663 | rust, py, objc | go, js | TEST663: Cartridge with hello_failed is permanently removed from capabilities |
+| test664 | rust, py, objc | go, js | TEST664: Attached cartridge replaces pre-registration caps with manifest caps. The pre-attach `cap_groups` (from probe-time discovery) get superseded by the post-HELLO `cap_groups` from the actual handshake. |
 | test665 | rust, py, objc | go, js | TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view. |
 | test666 | rust, py | go, js, objc | TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match |
 | test667 | rust, go, py, objc | js | TEST667: verify_chunk_checksum detects corrupted payload |
-| test668 | rust, go | py, js, objc | TEST668: resolve_binding returns byte values when slot is populated with data |
-| test669 | rust, go | py, js, objc | TEST669: resolve_binding falls back to cap default value when slot has no data |
-| test670 | rust, go | py, js, objc | TEST670: resolve_binding returns error when required slot has no value and no default |
-| test671 | rust, go | py, js, objc | TEST671: resolve_binding returns None when optional slot has no value and no default |
+| test668 | rust, go, py | js, objc | TEST668: resolve_binding returns byte values when slot is populated with data |
+| test669 | rust, go, py | js, objc | TEST669: resolve_binding falls back to cap default value when slot has no data |
+| test670 | rust, go, py | js, objc | TEST670: resolve_binding returns error when required slot has no value and no default |
+| test671 | rust, go, py | js, objc | TEST671: resolve_binding returns None when optional slot has no value and no default |
 | test675 | rust, py | go, js, objc | TEST675: build_request_frames with full media URN preserves it in STREAM_START frame |
 | test676 | rust, py | go, js, objc | TEST676: Full round-trip: build_request_frames → extract streams → find_stream succeeds |
 | test677 | rust, py | go, js, objc | TEST677: build_request_frames with BASE URN → find_stream with FULL URN FAILS This documents the root cause of the cartridge_client.rs bug: sender used "media:llm-generation-request" (base), receiver looked for "media:fmt=json;llm-generation-request;record" (full). is_equivalent requires exact tag set match, so base != full. |
@@ -1285,8 +1049,8 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test711 | rust, go, py, objc | js | TEST711: Tests shape chain analysis for simple linear one-to-one capability chains Verifies chains with no fan-out are valid and require no transformation |
 | test712 | rust, go, py, objc | js | TEST712: Tests shape chain analysis detects fan-out points in capability chains Fan-out requires is_sequence=true on the cap's output, not a "list" URN tag |
 | test713 | rust, go, py, objc | js | TEST713: Tests shape chain analysis handles empty capability chains correctly Verifies empty chains are valid and require no transformation |
-| test714 | rust, py | go, js, objc | TEST714: Tests InputCardinality serializes and deserializes correctly to/from JSON Verifies JSON round-trip preserves cardinality values |
-| test715 | rust, py | go, js, objc | TEST715: Tests CardinalityPattern serializes and deserializes correctly to/from JSON Verifies JSON round-trip preserves pattern values with snake_case formatting |
+| test714 | rust, py, objc | go, js | TEST714: Tests InputCardinality serializes and deserializes correctly to/from JSON Verifies JSON round-trip preserves cardinality values |
+| test715 | rust, py, objc | go, js | TEST715: Tests CardinalityPattern serializes and deserializes correctly to/from JSON Verifies JSON round-trip preserves pattern values with snake_case formatting |
 | test716 | rust, go, py | js, objc | TEST716: Tests CapInputCollection empty collection has zero files and folders Verifies is_empty() returns true and counts are zero for new collection |
 | test717 | rust, go, py | js, objc | TEST717: Tests CapInputCollection correctly counts files in flat collection Verifies total_file_count() returns 2 for collection with 2 files, no folders |
 | test718 | rust, go, py | js, objc | TEST718: Tests CapInputCollection correctly counts files and folders in nested structure Verifies total_file_count() includes subfolder files and total_folder_count() counts subfolders |
@@ -1331,17 +1095,17 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test757 | rust, go, py, objc | js | TEST757: extract_foreach_body fails for non-ForEach node |
 | test758 | rust, go, py, objc | js | TEST758: extract_suffix_from extracts collect → cap_post → output |
 | test759 | rust, go, py, objc | js | TEST759: extract_suffix_from fails for nonexistent node |
-| test760 | rust, go, py | js, objc | TEST760: Full decomposition roundtrip — prefix + body + suffix cover all cap nodes |
-| test761 | rust, go, py | js, objc | TEST761: Prefix sub-plan can be topologically sorted (is a valid DAG) |
-| test762 | rust, go, py | js, objc | TEST762: Body sub-plan can be topologically sorted (is a valid DAG) |
-| test763 | rust, go, py | js, objc | TEST763: Suffix sub-plan can be topologically sorted (is a valid DAG) |
+| test760 | rust, go, py, objc | js | TEST760: Full decomposition roundtrip — prefix + body + suffix cover all cap nodes |
+| test761 | rust, go, py, objc | js | TEST761: Prefix sub-plan can be topologically sorted (is a valid DAG) |
+| test762 | rust, go, py, objc | js | TEST762: Body sub-plan can be topologically sorted (is a valid DAG) |
+| test763 | rust, go, py, objc | js | TEST763: Suffix sub-plan can be topologically sorted (is a valid DAG) |
 | test764 | rust, go, py, objc | js | TEST764: extract_prefix_to with InputSlot as target (trivial prefix) |
 | test765 | rust, go, py | js, objc | TEST765: Tests validation_to_json() returns None for empty validation constraints Verifies that default MediaValidation with no constraints produces JSON None |
 | test766 | rust, go, py | js, objc | TEST766: Tests validation_to_json() converts MediaValidation with constraints to JSON Verifies that min/max validation rules are correctly serialized as JSON fields |
 | test767 | rust, py | go, js, objc | TEST767: Tests ArgumentInfo struct serialization to JSON Verifies that argument metadata including resolution status and validation is correctly serialized |
 | test768 | rust, py | go, js, objc | TEST768: Tests PathArgumentRequirements structure for single-step execution paths Verifies that argument requirements are correctly organized by step with resolution information |
 | test769 | rust, py | go, js, objc | TEST769: Tests PathArgumentRequirements tracking of required user-input slots Verifies that arguments requiring user input are collected in slots and can_execute_without_input is false |
-| test770 | rust, py | go, js, objc | TEST770: plan_to_resolved_graph rejects plans containing ForEach nodes |
+| test770 | rust, go, py | js, objc | TEST770: plan_to_resolved_graph rejects plans containing ForEach nodes |
 | test771 | rust, py | go, js, objc | TEST771: plan_to_resolved_graph rejects plans containing Collect nodes |
 | test772 | rust, go, py | js, objc | TEST772: Tests find_paths_to_exact_target() finds multi-step paths Verifies that paths through intermediate nodes are found correctly |
 | test773 | rust, go, py | js, objc | TEST773: Tests find_paths_to_exact_target() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable |
@@ -1361,13 +1125,13 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test789 | rust, go, py | js, objc | TEST789: Tests that caps loaded from JSON have correct in_spec/out_spec |
 | test790 | rust, go, py, objc | js | TEST790: Tests identity_urn is specific and doesn't match everything |
 | test791 | rust, py | go, js, objc | TEST791: Tests sync_from_cap_urns actually adds edges |
-| test792 | rust, py | go, js, objc | TEST792: Tests ArgumentBinding requires_input distinguishes Slots from Literals Verifies Slot returns true (needs user input) while Literal returns false |
+| test792 | rust, go, py | js, objc | TEST792: Tests ArgumentBinding requires_input distinguishes Slots from Literals Verifies Slot returns true (needs user input) while Literal returns false |
 | test793 | rust, py | go, js, objc | TEST793: Tests ArgumentBinding PreviousOutput serializes/deserializes correctly Verifies JSON round-trip preserves node_id and output_field values |
-| test794 | rust, py | go, js, objc | TEST794: Tests ArgumentBindings add_file_path adds InputFilePath binding Verifies add_file_path() creates binding map entry with InputFilePath variant |
-| test795 | rust, py | go, js, objc | TEST795: Tests ArgumentBindings identifies unresolved Slot bindings Verifies has_unresolved_slots() and get_unresolved_slots() detect Slots needing values |
-| test796 | rust, py | go, js, objc | TEST796: Tests resolve_binding resolves InputFilePath to current file path Verifies InputFilePath binding resolves to file path bytes with InputFile source |
-| test797 | rust, py | go, js, objc | TEST797: Tests resolve_binding resolves Literal to JSON-encoded bytes Verifies Literal binding serializes value to bytes with Literal source |
-| test798 | rust, py | go, js, objc | TEST798: Tests resolve_binding extracts value from previous node output Verifies PreviousOutput binding fetches field from earlier execution results |
+| test794 | rust, go, py | js, objc | TEST794: Tests ArgumentBindings add_file_path adds InputFilePath binding Verifies add_file_path() creates binding map entry with InputFilePath variant |
+| test795 | rust, go, py | js, objc | TEST795: Tests ArgumentBindings identifies unresolved Slot bindings Verifies has_unresolved_slots() and get_unresolved_slots() detect Slots needing values |
+| test796 | rust, go, py | js, objc | TEST796: Tests resolve_binding resolves InputFilePath to current file path Verifies InputFilePath binding resolves to file path bytes with InputFile source |
+| test797 | rust, go, py | js, objc | TEST797: Tests resolve_binding resolves Literal to JSON-encoded bytes Verifies Literal binding serializes value to bytes with Literal source |
+| test798 | rust, go, py | js, objc | TEST798: Tests resolve_binding extracts value from previous node output Verifies PreviousOutput binding fetches field from earlier execution results |
 | test799 | rust, py | go, js, objc | TEST799: Tests StrandInput single constructor creates valid Single cardinality input Verifies single() wraps one file with Single cardinality and validates correctly |
 | test800 | rust, py | go, js, objc | TEST800: Tests StrandInput sequence constructor creates valid Sequence cardinality input Verifies sequence() wraps multiple files with Sequence cardinality |
 | test801 | rust, py | go, js, objc | TEST801: Tests CapInputFile deserializes from JSON with source metadata fields Verifies JSON with source_id and source_type deserializes to CapInputFile correctly |
@@ -1430,13 +1194,11 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test858 | rust, go, py, objc | js | TEST858: LUB with three+ inputs narrows correctly |
 | test859 | rust, go, py, objc | js | TEST859: LUB with valued tags (non-marker) that differ |
 | test860 | rust, go, py, objc | js | TEST860: Same RID with different XIDs get independent seq counters |
-| test880 | rust, py | go, js, objc | TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations |
+| test880 | rust, go, py | js, objc | TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations |
 | test886 | rust, go, py | js, objc | TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults |
-| test890 | rust, go, py, js | objc | TEST890: Semantic direction matching - generic provider matches specific request |
-| test891 | rust, go, py, js | objc | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3. |
 | test892 | rust, go, py | js, objc | TEST892: Test extensions serializes/deserializes correctly in MediaDef |
-| test893 | rust, go, py | js, objc | TEST893: Test extensions can coexist with metadata and validation |
-| test894 | rust, go, py | js, objc | TEST894: Test multiple extensions in a media def |
+| test893 | rust, go, py, objc | js | TEST893: Test extensions can coexist with metadata and validation |
+| test894 | rust, go, py, objc | js | TEST894: Test multiple extensions in a media def |
 | test898 | rust, objc | go, py, js | TEST898: Binary data integrity through full relay path (256 byte values) |
 | test899 | rust, objc | go, py, js | TEST899: Streaming chunks flow through relay without accumulation |
 | test900 | rust, objc | go, py, js | TEST900: Two cartridges routed independently by cap_urn |
@@ -1444,7 +1206,6 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test902 | rust, py, objc | go, js | TEST902: Verify FNV-1a checksum handles empty data |
 | test903 | rust, py, objc | go, js | TEST903: Verify CHUNK frame can store chunk_index and checksum fields |
 | test904 | rust, py, objc | go, js | TEST904: Verify STREAM_END frame can store chunk_count field |
-| test907 | py, objc | rust, go, js | TEST907: Offline flag blocks fetch_from_registry without making HTTP request |
 | test908 | rust, py, objc | go, js | TEST908: cached caps remain accessible while offline. |
 | test910 | rust, objc | go, py, js | TEST910: map_progress output is monotonic for monotonically increasing input |
 | test911 | rust, objc | go, py, js | TEST911: map_progress output is bounded within [base, base+weight] |
@@ -1454,10 +1215,10 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test915 | rust, objc | go, py, js | TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding. |
 | test917 | rust, objc | go, py, js | TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded) |
 | test919 | rust, objc | go, py, js | TEST919: Parse simple machine notation graph with test-edge1 |
-| test920 | rust, py | go, js, objc | TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node |
-| test921 | rust, py | go, js, objc | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order |
-| test922 | rust, py | go, js, objc | TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly |
-| test923 | rust, py | go, js, objc | TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation |
+| test920 | rust, go, py | js, objc | TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node |
+| test921 | rust, go, py | js, objc | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order |
+| test922 | rust, go, py | js, objc | TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly |
+| test923 | rust, go, py | js, objc | TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation |
 | test924 | rust, go, py | js, objc | TEST924: Tests plan validation detects edges pointing to non-existent nodes Verifies that validate() returns an error when an edge references a missing to_node |
 | test925 | rust, go, py | js, objc | TEST925: Tests topological sort correctly orders a diamond-shaped DAG (A->B,C->D) Verifies that nodes with multiple paths respect dependency constraints (A first, D last) |
 | test926 | rust, go, py | js, objc | TEST926: Tests topological sort detects and rejects cyclic dependencies (A->B->C->A) Verifies that circular references produce a "Cycle detected" error |
@@ -1468,9 +1229,9 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test931 | rust, go, py | js, objc | TEST931: Tests NodeExecutionResult structure for failed node execution Verifies that failure status, error message, and absence of outputs are correctly represented |
 | test932 | rust, go, py | js, objc | TEST932: Tests MachineResult structure for failed chain execution Verifies that failure status, error message, and absence of outputs are correctly represented |
 | test933 | rust, go, py | js, objc | TEST933: Tests CapInputCollection serializes to JSON and deserializes correctly Verifies JSON round-trip preserves folder_id, folder_name, files and file metadata |
-| test934 | rust, go, py | js, objc | TEST934: find_first_foreach detects ForEach in a plan |
+| test934 | rust, go, py, objc | js | TEST934: find_first_foreach detects ForEach in a plan |
 | test935 | rust, go, py, objc | js | TEST935: find_first_foreach returns None for linear plans |
-| test936 | rust, go, py | js, objc | TEST936: has_foreach detects ForEach nodes |
+| test936 | rust, go, py, objc | js | TEST936: has_foreach detects ForEach nodes |
 | test937 | rust, go, py, objc | js | TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan |
 | test944 | rust, objc | go, py, js | TEST944: 6-machine: edge1 -> edge2 -> edge7 -> edge8 -> edge9 -> edge10 Full cycle: node1 -> node2 -> node3 -> node6 -> node7 -> node8 -> node1 Completes the round trip: unwrap markers + lowercase |
 | test945 | rust, objc | go, py, js | TEST945: 5-machine: edge1 -> edge2 -> edge7 -> edge8 -> edge9 node1 -> node2 -> node3 -> node6 -> node7 -> node8 adds <<...>> wrapping around the reversed string |
@@ -1478,14 +1239,15 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test947 | rust, objc | go, py, js | TEST947: Cap not found in registry |
 | test948 | rust, objc | go, py, js | TEST948: Invalid cap URN in machine notation |
 | test949 | rust, objc | go, py, js | TEST949: Empty machine notation (no edges) |
+| test950 | rust, objc | go, py, js | TEST950: Validate that cycles are rejected |
 | test953 | rust, go, py | js, objc | TEST953: Linear plans (no ForEach/Collect) still convert successfully |
 | test954 | rust, go, py | js, objc | TEST954: Standalone Collect nodes are handled as pass-through Plan: input → cap_0 → Collect → cap_1 → output The standalone Collect is transparent — the resolved edge from Collect to cap_1 should be rewritten to go from cap_0 to cap_1 directly. |
 | test955 | rust, go, py, objc | js | TEST955: split_cbor_array with nested maps |
 | test956 | rust, go, py, objc | js | TEST956: assemble then split roundtrip preserves data |
-| test957 | rust, py | go, js, objc | TEST957: Tests CapInputFile constructor creates file with correct path and media URN Verifies new() initializes file_path, media_urn and leaves metadata/source_id as None |
-| test958 | rust, py | go, js, objc | TEST958: Tests CapInputFile from_listing sets source metadata correctly Verifies from_listing() populates source_id and source_type as Listing |
-| test959 | rust, py | go, js, objc | TEST959: Tests CapInputFile extracts filename from full path correctly Verifies filename() returns just the basename without directory path |
-| test960 | rust, py | go, js, objc | TEST960: Tests ArgumentBinding literal_string creates Literal variant with string value Verifies literal_string() wraps string in JSON Value::String |
+| test957 | rust, go, py | js, objc | TEST957: Tests CapInputFile constructor creates file with correct path and media URN Verifies new() initializes file_path, media_urn and leaves metadata/source_id as None |
+| test958 | rust, go, py | js, objc | TEST958: Tests CapInputFile from_listing sets source metadata correctly Verifies from_listing() populates source_id and source_type as Listing |
+| test959 | rust, go, py | js, objc | TEST959: Tests CapInputFile extracts filename from full path correctly Verifies filename() returns just the basename without directory path |
+| test960 | rust, go, py | js, objc | TEST960: Tests ArgumentBinding literal_string creates Literal variant with string value Verifies literal_string() wraps string in JSON Value::String |
 | test961 | rust, go, py, objc | js | TEST961: assemble empty list produces empty CBOR array |
 | test962 | rust, go, py, objc | js | TEST962: assemble rejects invalid CBOR item |
 | test963 | rust, go, py, objc | js | TEST963: split preserves CBOR byte strings (binary data — the common case in bifaci) |
@@ -1502,6 +1264,8 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test974 | rust, go, py, objc | js | TEST974: CBOR sequence is NOT a CBOR array — split_cbor_array rejects a sequence |
 | test975 | rust, go, py, objc | js | TEST975: split_cbor_sequence works on data that is also a valid CBOR array (single top-level value) |
 | test977 | rust, py | go, js, objc | TEST977: OS files excluded in resolve_paths |
+| test987 | rust, objc | go, py, js | / Contract #3 — the secondary hard-cap pass kicks in if the / table somehow exceeds `HARD_CAP` (extreme runaway). Without / it, a single GC at the soft watermark would not be enough / to recover headroom and the table could grow without bound / between bursts. |
+| test988 | rust, objc | go, py, js | / Contract #1 — the GC keeps the table strictly below the / hard cap. Seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame- / burst) and call the production GC entry point. The / post-state must be at most `SOFT_WATERMARK` entries / because the GC drops at least / `EVICTION_FRACTION × pre_state` entries in one pass and / the pre-state is below the hard cap (i.e. one pass is / enough; the secondary "hard cap" pass would only fire if / pre-state crossed the hard cap before insertion completed, / which production prevents by gc-ing on every insert). |
 | test991 | rust, go, py | js, objc | TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn |
 | test992 | rust, go, py | js, objc | TEST992: Tests caps with different operations but same input/output types are not duplicates Verifies that only the complete URN (including op) is used for duplicate detection |
 | test993 | rust, go, py | js, objc | TEST993: Tests caps with same operation but different input types are not duplicates Verifies that input type differences distinguish caps with the same operation name |
@@ -1524,7 +1288,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1011 | rust, py, objc | go, js | TEST1011: Invalid glob syntax |
 | test1012 | rust, go, py | js, objc | TEST1012: Tests required non-IO arguments without defaults require user input Verifies that arguments like strings without defaults are marked as RequiresUserInput |
 | test1013 | rust, py, objc | go, js | TEST1013: Empty input array |
-| test1014 | rust, py | go, js, objc | TEST1014: Symlink to file |
+| test1014 | rust, py, objc | go, js | TEST1014: Symlink to file |
 | test1015 | rust, go, py | js, objc | TEST1015: Tests optional non-IO arguments without defaults still require user input Verifies that optional arguments without defaults must be explicitly provided or skipped |
 | test1016 | rust, py, objc | go, js | TEST1016: Path with spaces |
 | test1017 | rust, py, objc | go, js | TEST1017: Path with unicode |
@@ -1546,8 +1310,8 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1094 | rust, py, objc | go, js | TEST1094: 1 dir with 3 files → is_sequence=true |
 | test1098 | rust, py, objc | go, js | TEST1098: Extension-based detection picks up pdf tag for .pdf files |
 | test1100 | rust, go, py | js, objc | TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry (e.g., "record;enc=utf-8" vs "enc=utf-8;record") |
-| test1103 | rust, py | go, js, objc | TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request). This tests the directionality: provider.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder |
-| test1104 | rust, py | go, js, objc | TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request |
+| test1103 | rust, go, py | js, objc | TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request). This tests the directionality: provider.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder |
+| test1104 | rust, go, py | js, objc | TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request |
 | test1105 | rust, go, py | js, objc | TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids. This is the core disambiguation scenario that step-index keying was designed to solve. |
 | test1106 | rust, go, py | js, objc | TEST1106: Slot resolution falls through to cap_settings when no slot_value exists. cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value. |
 | test1107 | rust, go, py | js, objc | TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback. |
@@ -1563,23 +1327,31 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1118 | rust, go | py, js, objc | TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true |
 | test1119 | rust, go | py, js, objc | TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end. |
 | test1120 | rust, go | py, js, objc | TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed. |
+| test1122 | rust, objc | go, py, js | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay |
+| test1123 | rust, objc | go, py, js | TEST1123: Cartridge ERR frame flows back to engine through relay |
+| test1126 | rust, objc | go, py, js | TEST1126: map_progress is deterministic — same inputs always produce same output |
 | test1127 | rust, go | py, js, objc | TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capfab side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't. |
+| test1128 | rust, go | py, js, objc | TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's "if present" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `"documentation":null` and break consumers that distinguish between absent and explicit null. |
+| test1129 | rust, go | py, js, objc | TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming. |
+| test1130 | rust, go | py, js, objc | TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field — for example, set_documentation accidentally writing to cap_description. |
 | test1133 | rust, go | py, js, objc | TEST1133: MediaDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body). |
 | test1135 | rust, py | go, js, objc | TEST1135: MachineStrand::node_urn(id) returns the MediaUrn at that NodeId. For a single-cap strand (pdf → extract → txt), there are exactly two nodes and each returns a valid URN. |
+| test1136 | rust, py | go, js, objc | TEST1136: parse_machine with an undefined cap alias raises MachineParseError wrapping MachineSyntaxError::UndefinedAlias. This pins the error path so an alias lookup failure is always surfaced as a syntax error (not a resolution error or a panic). |
 | test1140 | rust, py | go, js, objc | TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END with correct frame types, stream_id, media_urn, and data integrity. |
 | test1141 | rust, py | go, js, objc | TEST1141: write_stream_chunked with data exactly equal to max_chunk produces exactly one CHUNK |
 | test1142 | rust, go, py | js, objc | TEST1142: ResolvedGraph.to_mermaid() renders node shapes, deduplicates edges, and escapes labels |
 | test1143 | rust, go, py | js, objc | TEST1143: InputItem::from_string distinguishes glob patterns, directories, and files |
 | test1144 | rust, go, py, objc | js | TEST1144: ContentStructure is_list/is_record helpers and Display implementation are correct |
 | test1145 | rust, go, py, objc | js | TEST1145: ResolvedInputSet uses URN equivalence for common_media and file count for is_sequence |
-| test1146 | rust, go | py, js, objc | TEST1146: InputResolverError Display and source() implementations produce correct messages |
+| test1146 | rust, go, py | js, objc | TEST1146: InputResolverError Display and source() implementations produce correct messages |
+| test1147 | rust, go, py | js, objc | TEST1147: MachineSyntaxError Display includes position and detail for each variant |
 | test1148 | rust, go, py | js, objc | TEST1148: MachineParseError::from(MachineSyntaxError) preserves the syntax error variant |
 | test1149 | rust, go, py | js, objc | TEST1149: MachineParseError::from(MachineAbstractionError) preserves the resolution error variant |
-| test1150 | rust, go | py, js, objc | TEST1150: Adding one cap creates one edge and makes its output reachable in one step. |
-| test1151 | rust, go, py | js, objc | TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives. |
-| test1152 | rust, go, py | js, objc | TEST1152: Path finding returns the expected two-cap chain through an intermediate media type. |
-| test1153 | rust, go, py | js, objc | TEST1153: Repeated path searches return the same path order for the same graph and target. |
-| test1154 | rust, go, py | js, objc | TEST1154: Syncing from caps replaces the existing graph contents with the new cap set. |
+| test1150 | rust, go, py, objc | js | TEST1150: Adding one cap creates one edge and makes its output reachable in one step. |
+| test1151 | rust, go, py, objc | js | TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives. |
+| test1152 | rust, go, py, objc | js | TEST1152: Path finding returns the expected two-cap chain through an intermediate media type. |
+| test1153 | rust, go, py, objc | js | TEST1153: Repeated path searches return the same path order for the same graph and target. |
+| test1154 | rust, go, py, objc | js | TEST1154: Syncing from caps replaces the existing graph contents with the new cap set. |
 | test1155 | rust, go, py | js, objc | TEST1155: Building a machine from one strand produces one strand with one resolved edge. |
 | test1156 | rust, go, py | js, objc | TEST1156: Building from multiple strands keeps them disjoint and preserves input strand order. |
 | test1157 | rust, go, py | js, objc | TEST1157: Building from zero strands fails with NoCapabilitySteps. |
@@ -1591,7 +1363,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1163 | rust, go | py, js, objc | TEST1163: Parsing one connected strand yields a single machine strand with both caps connected by the shared node. |
 | test1164 | rust, go, py | js, objc | TEST1164: Parsing two disconnected strand definitions yields two separate machine strands. |
 | test1165 | rust, go, py | js, objc | TEST1165: Parsing fails hard when a referenced cap is missing from the registry cache. |
-| test1166 | rust, go | py, js, objc | TEST1166: Duplicate header aliases are reported as syntax errors. |
+| test1166 | rust, go, py | js, objc | TEST1166: Duplicate header aliases are reported as syntax errors. |
 | test1167 | rust, go, py | js, objc | TEST1167: Wiring that references an undefined alias is reported as a syntax error. |
 | test1168 | rust, go, py | js, objc | TEST1168: Parsing rejects node names that collide with declared cap aliases. |
 | test1169 | rust, go, py | js, objc | TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step. |
@@ -1601,18 +1373,22 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1173 | rust, go, py | js, objc | TEST1173: Serializing and reparsing a machine preserves strict machine equivalence. |
 | test1174 | rust, py | go, js, objc | TEST1174: The line-based notation format round-trips back to the same machine. |
 | test1175 | rust, go, py | js, objc | TEST1175: Serializing an empty machine produces an empty string. |
-| test1176 | rust, py | go, js, objc | TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine. |
+| test1176 | rust, go, py | js, objc | TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine. |
 | test1177 | rust, go, py | js, objc | TEST1177: Rendering payload JSON for an empty machine emits an empty strands array. |
+| test1178 | rust, go | py, js, objc | TEST1178: One source is assigned to the single compatible cap argument. |
 | test1179 | rust, go, py | js, objc | TEST1179: Source-to-arg matching assigns a more specific source to a compatible general argument. |
 | test1180 | rust, go, py | js, objc | TEST1180: Matching fails when a source does not conform to any cap input argument. |
-| test1182 | rust, py | go, js, objc | TEST1182: Matching fails as ambiguous when two sources can be swapped at equal minimum cost. |
+| test1181 | rust, go, py | js, objc | TEST1181: Two sources are matched deterministically when specificity breaks the tie. |
+| test1182 | rust, go, py | js, objc | TEST1182: Matching fails as ambiguous when two sources can be swapped at equal minimum cost. |
 | test1183 | rust, go, py | js, objc | TEST1183: Matching fails when more sources are provided than the cap has input arguments. |
-| test1184 | rust, py | go, js, objc | TEST1184: Resolving a strand with one cap produces one resolved machine edge. |
+| test1184 | rust, go, py | js, objc | TEST1184: Resolving a strand with one cap produces one resolved machine edge. |
+| test1185 | rust, go | py, js, objc | TEST1185: Resolving a chained strand reuses the intermediate node between adjacent caps. |
 | test1186 | rust, go | py, js, objc | TEST1186: Resolving a strand with ForEach marks the following cap edge as a loop. |
 | test1187 | rust, go, py | js, objc | TEST1187: Strand resolution fails when a referenced cap is not found in the registry. |
 | test1188 | rust, go, py | js, objc | TEST1188: Strand resolution fails when the strand contains no capability steps. |
 | test1189 | rust, go, py | js, objc | TEST1189: Strand resolution keeps canonical anchor ordering stable across equivalent inputs. |
-| test1190 | rust, py | go, js, objc | TEST1190: Inverse format converters resolve without introducing a cycle in the strand graph. |
+| test1190 | rust, go, py | js, objc | TEST1190: Inverse format converters resolve without introducing a cycle in the strand graph. |
+| test1191 | rust, go | py, js, objc | TEST1191: Disbinding a PDF with a file-path slot preserves the expected identity of the slot binding. |
 | test1221 | rust, py | go, js, objc | TEST1221: Matching value adapters refine the base media URN when the value fits. |
 | test1222 | rust, py | go, js, objc | TEST1222: Base URNs without a registered adapter are returned unchanged. |
 | test1223 | rust, py | go, js, objc | TEST1223: Adapters that decline to refine leave the original media URN intact. |
@@ -1625,23 +1401,26 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1236 | rust, py | go, js, objc | TEST1236: Colon-delimited model spec text survives TXT candidate discrimination. TEST1236: Discrimination matches a candidate's validation pattern against the file content. media:model-spec is a value type with no associated file extension, so it does NOT appear among txt candidates. When passed in explicitly as a candidate, content that matches its `^(scheme):\S+$` regex must survive; content that doesn't (plain prose with whitespace) must be filtered out. |
 | test1237 | rust, py | go, js, objc | TEST1237: Empty candidates → empty result |
 | test1238 | rust, py | go, js, objc | TEST1238: Unknown URN survives discrimination |
-| test1256 | rust, go | py, js, objc | TEST1256: A single declared cap and one wiring parse into a two-node one-edge DAG. |
+| test1256 | rust, go, py | js, objc | TEST1256: A single declared cap and one wiring parse into a two-node one-edge DAG. |
 | test1257 | rust, go, py | js, objc | TEST1257: Two sequential wirings preserve the intermediate node media type. |
 | test1258 | rust, py | go, js, objc | TEST1258: One source node can fan out into multiple caps and target nodes. |
 | test1259 | rust, py | go, js, objc | TEST1259: Fan-in wiring resolves multiple upstream outputs into one multi-arg cap. |
 | test1260 | rust, py | go, js, objc | TEST1260: LOOP wiring parses as a single edge while preserving the loop marker semantics. |
+| test1261 | rust, go, py | js, objc | TEST1261: A header cap whose definition cannot be resolved is reported as a machine-notation parse failure at the header site. |
 | test1262 | rust, go, py | js, objc | TEST1262: Non-machine text fails with a machine syntax parse error. |
 | test1263 | rust, go, py | js, objc | TEST1263: Cyclic wirings are rejected as non-DAG orchestrations. |
 | test1264 | rust, go, py | js, objc | TEST1264: Shared nodes with incompatible upstream and downstream media fail during parsing. |
-| test1265 | rust, go | py, js, objc | TEST1265: Shared nodes accept compatible media URNs when one is a more specific form of the other. |
+| test1265 | rust, go, py | js, objc | TEST1265: Shared nodes accept compatible media URNs when one is a more specific form of the other. |
 | test1266 | rust, py | go, js, objc | TEST1266: Record-to-opaque structure mismatches are rejected once structure checking is enabled. |
 | test1267 | rust, go, py | js, objc | TEST1267: Record-shaped outputs can feed record-shaped inputs without error. |
 | test1268 | rust, go, py | js, objc | TEST1268: Opaque outputs can feed opaque inputs without triggering structure conflicts. |
 | test1269 | rust, go, py | js, objc | TEST1269: Multi-line machine notation parses successfully with the same semantics as inline notation. |
 | test1271 | rust, go, py | js, objc | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags |
 | test1272 | rust, go, py | js, objc | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn |
-| test1273 | rust, py | go, js, objc | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs |
+| test1273 | rust, go, py | js, objc | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs |
 | test1275 | rust, go, py | js, objc | TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests; identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement. |
+| test1276 | rust, py | go, js, objc | TEST1276: Registration of a cap group with non-conflicting adapters succeeds |
+| test1277 | rust, py | go, js, objc | TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected |
 | test1278 | rust, py | go, js, objc | TEST1278: Registration rejects the entire group — no partial registration |
 | test1279 | rust, py | go, js, objc | TEST1279: Intra-group conflict (two adapters within same group overlap) is rejected |
 | test1280 | rust, py | go, js, objc | TEST1280: find_adapters_for_extension returns correct cartridge IDs |
@@ -1662,28 +1441,17 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1295 | rust, go, py, js | objc | TEST1295: RULE11 - non-void-input cap without stdin source rejected |
 | test1296 | rust, go, py, js | objc | TEST1296: RULE11 - void-input cap with only cli_flag sources passes |
 | test1297 | rust, go, py, js | objc | TEST1297: RULE11 - non-void-input cap with stdin source passes |
-| test1800 | rust, py, js | go, objc | TEST1800: Identity classifier — and only explicit effect=none qualifies. |
-| test1830 | rust, go, py, js | objc | TEST1830: ?x ≡ x? ≡ x=? all canonicalize to ?x. |
-| test1832 | rust, go, py, js | objc | TEST1832: x ≡ x=* both canonicalize to bare x. |
-| test1834 | rust, go, py, js | objc | TEST1834: x=v stays as x=v (the lone exact-value form). |
-| test1835 | rust, go, py, js | objc | TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x. |
-| test1842 | rust, go, py | js, objc | TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form. |
-| test1843 | go, py, js, objc | rust | TEST1843: Invalid qualifier combinations must be rejected. |
-| test1844 | go, py, js, objc | rust | TEST1844: out-axis difference dominates combined in+y differences. |
-| test1846 | go, py, js, objc | rust | TEST1846: Decoded layout — 10000*out + 100*in + y. |
+| test1308 | rust, py | go, js, objc | TEST1308: A wiring set that feeds a cap's output back into an ancestor forms a cycle and must fail hard with CyclicMachineStrand carrying the strand index. Cycle: node 0 → cap A → node 1 → cap B → node 0. |
 | test1847 | rust, py, objc | go, js | TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and `primary_package()` must fall back to that legacy package, so a registry not yet republished with the dual-write keeps installing. When `packages[]` is present it is preferred over the legacy field. |
 | test1849 | rust, py, js, objc | go | TEST1849: latest version has a host build → Compatible, resolving to the latest version and that platform's native-format package. |
 | test1850 | rust, py, js, objc | go | TEST1850: the latest version lacks a host build but an older version has one → CompatibleOutdated, resolving to the older version with a reason naming both the latest and the resolved version. |
 | test1851 | rust, py, js, objc | go | TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform. |
 | test1852 | rust, py, js, objc | go | TEST1852: a host build whose packages[] is empty AND has no legacy `package` ships no installer; resolution must SKIP it (not resolve to an un-downloadable version) and fall through to an older usable version. |
 | test1853 | rust, py, js, objc | go | TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses. |
-| test1872 | rust, go, py, objc | js | TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with. |
-| test1873 | rust, py, objc | go, js | TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row. |
-| test1874 | rust, js | go, py, objc | TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship. |
 | test1875 | rust, go, py, objc | js | TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe. |
 | test1876 | rust, go, py, objc | js | TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent). |
 | test1877 | rust, go, py, objc | js | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. |
-| test1878 | rust, go, py | js, objc | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. |
+| test1878 | rust, go, py, objc | js | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. |
 | test1879 | rust, go, py, objc | js | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. |
 | test1883 | rust, go, py | js, objc | TEST1883: a cap-position name with no local header is resolved as a fabric cap alias. The wiring uses `pdf2text` where a cap is expected; it must resolve to the aliased cap URN and produce a one-edge strand whose cap URN is the alias target. A broken resolver would either fail (treating it as undefined) or wire the wrong cap. |
 | test1884 | rust, go, py | js, objc | TEST1884: a local header alias shadows a fabric alias of the same name. If `pdf2text` is BOTH a header (bound to one cap) and a registered alias (pointing at another cap), the header wins. This pins the precedence rule: local definitions shadow registry aliases. |
@@ -1693,31 +1461,33 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1889 | rust, go, py, objc | js | TEST1889: resolve_alias_typed enforces the expected kind. A media alias requested as a cap fails hard; requested as media (or untyped) succeeds. This is the typed-boundary contract. |
 | test1890 | rust, go, py, objc | js | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. |
 | test1891 | rust, go, py, objc | js | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. |
-| test1892 | rust, go, py, objc | js | TEST1892: an unknown alias name is a hard not-found, never a silent empty. the same. This is the "expose issues, no fallback" contract. |
-| test6201 | py, js, objc | rust, go | TEST6201: empty cap URN is the illegal bare top form |
+| test1892 | rust, go, py, objc | js | TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the "expose issues, no fallback" contract. |
 | test6207 | go, objc | rust, py, js | Mirror-specific coverage: Test that concatenated() returns full payload while final_payload() returns only last chunk |
-| test6252 | go, py, objc | rust, js | TEST6252: New relay switch rejects duplicate i ds |
-| test6276 | go, py, objc | rust, js | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. |
-| test6278 | go, py, objc | rust, js | TEST6278: Add master with duplicate healthy i d errors |
-| test6282 | js, objc | rust, go, py | TEST6282: Test resolving custom media URN from local media_defs takes precedence over registry |
-| test6283 | js, objc | rust, go, py | TEST6283: Test resolving custom record media def with schema from local media_defs |
-| test6284 | go, js | rust, py, objc | TEST6284: Test resolving unknown media URN fails with UnresolvableMediaUrn error |
-| test6297 | go, js | rust, py, objc | TEST6297: Test ResolvedMediaDef is_text returns true when enc tag is present |
-| test6314 | go, objc | rust, py, js | TEST6314: Complex nested schema validation |
-| test6317 | go, objc | rust, py, js | TEST6317: Media urn resolution with registry |
-| test6325 | go, objc | rust, py, js | TEST6325: Registry validation |
+| test6282 | js, objc | rust, go, py | TEST6282: Test resolving a custom media URN from a registry-seeded media def |
+| test6283 | js, objc | rust, go, py | TEST6283: Test resolving a custom record media def carrying a schema from a registry-seeded media def |
+| test6314 | rust, go, objc | py, js | TEST6314: Complex nested schema validation |
+| test6317 | rust, go, objc | py, js | TEST6317: Media urn resolution with registry |
 | test6330 | go, py | rust, js, objc | Mirror-specific coverage: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload |
-| test6363 | go, objc | rust, py, js | TEST6363: Cap manifest with page u r l |
-| test6371 | go, objc | rust, py, js | TEST6371: Cap manifest compatibility |
-| test6388 | go, objc | rust, py, js | TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics. |
+| test6363 | rust, go, objc | py, js | TEST6363: Cap manifest with page_url — the optional page_url is carried and serialized as `page_url`. |
+| test6371 | rust, go, objc | py, js | TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys). |
+| test6382 | rust, go, py | js, objc | TEST6382: Test parsing registry JSON without stdin args verifies cap structure |
+| test6388 | rust, go, py, objc | js | TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics. |
+| test6391 | rust, go, objc | py, js | TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. |
 | test6544 | js, objc | rust, go, py | TEST6544: builder rejects structural keys on tag/marker |
-| test6550 | go, js | rust, py, objc | TEST320-335: CartridgeRepoServer and CartridgeRepoClient tests |
-| test6565 | go, js | rust, py, objc | TEST6565: CartridgeRepoServer.get_by_category() filters cartridges by category tag |
-| test6570 | go, js | rust, py, objc | TEST6570: CartridgeRepoClient updates its local cache, keyed by (channel, id) so the same id can independently coexist in both channels. |
-| test6572 | go, js | rust, py, objc | TEST6572: CartridgeRepoClient.GetSuggestionsForCap() returns cartridge suggestions and propagates the source channel onto each suggestion. |
+| test6586 | rust, go, py, objc | js | TEST6586: file-path-array with nonexistent path fails clearly |
+| test6587 | rust, go, py, objc | js | TEST6587: file-path-array with literal nonexistent path fails hard |
+| test6588 | rust, go, py, objc | js | TEST6588: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array — no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only. |
+| test6594 | rust, go, py, objc | js | TEST6594: aggregate_installed_cartridges() is empty before any cartridge with a resolvable identity is attached. A binary path that does not exist on disk has no identity (`installed_identity` is `None`) and therefore does not appear in the relay payload. |
+| test6600 | rust, py | go, js, objc | TEST6600: parse_cap_groups_from_manifest classifies failures by kind Manifest JSON that parses but lacks CAP_IDENTITY is `Incompatible` (schema-rejected). Manifest bytes that don't parse as CapManifest are `ManifestInvalid` (JSON-level failure). The split lets the host's attachment-error reporter surface the right kind to the UI. |
+| test6605 | rust, go, py | js, objc | TEST6605: insert_schema is the production seam for non-HTTP schema injection. It must persist to the in-memory cache so subsequent schema_exists/validate calls succeed without network access. |
 | test6614 | go, py | rust, js, objc | TEST6614: Legal generic cap with marker-only y-axis matches specific caps |
-| test6728 | go, objc | rust, py, js | TEST6728: Identity classifier — only explicit effect=none qualifies. `cap:effect=none` is the fully generic identity on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic. |
-| test6733 | js, objc | rust, go, py | TEST6733: Full 6×6 truth table. |
+| test6623 | rust, py, objc | go, js | TEST6623: Cartridge death keeps caps advertised for on-demand respawn. The cartridge's `cap_groups` survive process death, so the host can continue advertising the cartridge's caps and the relay can route a fresh REQ to it (which triggers an on-demand respawn). |
+| test6672 | rust, py, objc | go, js | TEST6672: CBOR decode REJECTS STREAM_END frame missing chunk_count field |
+| test6745 | rust, go, py, objc | js | / `RelaySwitch::new` rejects duplicate ids in its cardinality / list. Without this guard the first reconnect would / reattach to whichever slot is found first by the linear / scan, leaving the other slot stuck unhealthy forever. |
+| test6748 | rust, objc | go, py, js | TEST6748: InProcessCartridgeHost routes REQ to matching handler and returns response |
+| test6749 | rust, objc | go, py, js | TEST6749: InProcessCartridgeHost handles identity verification (echo nonce) |
+| test6750 | rust, objc | go, py, js | TEST6750: InProcessCartridgeHost returns NO_HANDLER for unregistered cap |
+| test6751 | rust, objc | go, py, js | TEST6751: InProcessCartridgeHost manifest includes identity cap and handler caps |
 
 ---
 
@@ -1725,265 +1495,242 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 
 Same number, materially different descriptions across mirrors. Heuristic (normalized compare) — review each: legitimate wording drift vs a real 'same number, different test' violation.
 
-### test4
-
-- **rust**: TEST004: Test that unquoted keys and values are normalized to lowercase
-- **go**: TEST004: Test that unquoted keys and values are normalized to lowercase
-- **py**: TEST004: Test that unquoted keys and values are normalized to lowercase
-- **js**: TEST004: Test that unquoted keys and values are normalized to lowercase. Key lookup is case-insensitive: uppercase variants of `ext` resolve to the same keyed tag.
-- **objc**: TEST004: Test that unquoted keys and values are normalized to lowercase
-
 ### test20
 
 - **rust**: TEST020: Specificity is the sum of per-tag truth-table scores across in/out/y. Marker tags (bare segments like `generate`) are must-have-any (score 2), exact `key=value` tags score 3, missing/`?` score 0, `!` scores 1. test_urn() builds "cap:in=media:void;out=media:record;<tags>" so the directional baseline is: in:  media:void  -> {void=*}     -> 2 out: media:record -> {record=*}  -> 2 Total directional baseline: 4.
-- **go**: TEST020: Specificity is the sum of per-tag truth-table scores across in/out/y. Marker tags (bare segments like `generate`) are must-have-any (score 2), exact `key=value` tags score 3, missing/`?` score 0, `!` scores 1. testUrn() builds "cap:in=media:void;out=media:record;<tags>" so the directional baseline is: in:  media:void   -> {void=*}    -> 2 out: media:record -> {record=*}  -> 2 Total directional baseline: 4.
+- **go**: TEST20: Specificity is the sum of per-tag truth-table scores across in/out/y. Marker tags (bare segments like `generate`) are must-have-any (score 2), exact `key=value` tags score 3, missing/`?` score 0, `!` scores 1. test_urn() builds "cap:in=media:void;out=media:record;<tags>" so the directional baseline is: in:  media:void  -> {void=*}     -> 2 out: media:record -> {record=*}  -> 2 Total directional baseline: 4.
 - **py**: TEST020: Specificity is the sum of per-tag truth-table scores across in/out/y. Marker tags (bare segments and `key=*`) score 2 (must-have-any), exact `key=value` tags score 3, missing/`?` score 0, `!` scores 1.
 - **js**: TEST020: Specificity is the sum of per-tag truth-table scores across in/out/y. Marker tags (bare segments and `key=*`) score 2 (must-have-any), exact `key=value` tags score 3, missing/`?` score 0, `!` scores 1. test6204_Urn() builds "cap:in=media:void;out=media:record;<tags>" so the directional baseline is: in:  media:void   -> {void=*}    -> 2 out: media:record -> {record=*}  -> 2 Total directional baseline: 4.
 - **objc**: TEST020: Specificity is the sum of per-tag truth-table scores across in/out/y. Marker tags (bare segments and `key=*`) score 2 (must-have-any), exact `key=value` tags score 3, missing/`?` score 0, `!` scores 1. testUrn() builds "cap:in=media:void;out=media:enc=utf-8;record;<tags>" so the directional baseline is: in:  media:void              -> {void=*}              -> 2 out: media:enc=utf-8;record   -> {enc=utf-8, record=*} -> 4 Total directional baseline: 6.
 
-### test21
-
-- **rust**: TEST021: Test builder creates cap URN with correct tags and direction specs
-- **go**: TEST021: Test builder creates cap URN with correct tags and direction specs
-- **py**: TEST021: Test builder creates cap URN with correct tags and direction specs
-- **js**: TEST021: Test builder creates cap URN with marker + keyed tags and direction specs. `op` is no longer a special key — operation names are markers (value-less tags).
-- **objc**: TEST021: Test builder creates cap URN with correct tags and direction specs
-
-### test23
-
-- **rust**: TEST023: Test builder lowercases keys but preserves value case
-- **go**: TEST023: Test builder lowercases keys but preserves value case
-- **py**: TEST023: Test builder lowercases keys but preserves quoted-value case
-- **js**: TEST023: Test builder lowercases keys but preserves value case
-
-### test27
-
-- **rust**: TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out
-- **go**: TEST027: Test with_wildcard_tag sets tag to wildcard and normalizes in/out to media:
-- **py**: TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out
-- **js**: TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out
-- **objc**: TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out
-
-### test28
-
-- **rust**: TEST28: Test empty cap URN is illegal after effect transition
-- **js**: TEST028: Test empty cap URN is illegal
-
-### test66
-
-- **rust**: TEST066: Test is_json returns true only when json marker tag is present for JSON representation
-- **go**: TEST066: Test is_json returns true only when json marker tag is present for JSON representation
-- **py**: TEST066: Test is_json returns true only when json marker tag is present for JSON representation
-- **js**: TEST066: Test is_json returns true only when fmt=json content-format tag is present
-- **objc**: TEST066: Test is_json returns true only when the fmt=json content-format tag is present
-
-### test67
-
-- **rust**: TEST067: Text-representability is now carried by the orthogonal `enc=` tag (the old `textable` marker and is_text() are gone). A media is "text" iff it declares an encoding. enc is orthogonal to format/numeric, so only media that actually carry enc= are text.
-- **go**: TEST067: Text-representability is now carried by the orthogonal `enc=` tag (the old `textable` marker and IsTextable() are gone). A media is "text" iff it declares an encoding. enc is orthogonal to format/numeric, so only media that actually carry enc= are text.
-- **py**: TEST067: Text-representability is now carried by the orthogonal `enc=` tag (the old `textable` marker and is_text() are gone). A media is "text" iff it declares an encoding. enc is orthogonal to format/numeric, so only media that actually carry enc= are text.
-- **js**: TEST067: Text-representability is now carried by the orthogonal `enc=` tag (the old text marker and isText() are gone). A media is "text" iff it declares an encoding.
-- **objc**: TEST067: Text-representability is now carried by the orthogonal `enc=` tag (the old `textable` marker and isText are gone). A media is "text" iff it declares an encoding. enc is orthogonal to format/numeric, so only media that actually carry enc= are text.
-
-### test88
-
-- **rust**: TEST088: Resolving a media URN seeded into the registry returns the seeded spec verbatim. A regression in the registry-resolution path would surface as a `None`-shaped result here, since there is no local-override fallback to mask it.
-- **go**: TEST088: Resolving a media URN seeded into the registry returns the seeded spec verbatim. A regression in the registry-resolution path would surface as a missing or empty result here, since there is no local-override fallback to mask it. Mirrors Rust test088.
-- **py**: TEST088: Resolving a media URN seeded into the registry returns the seeded spec verbatim. A regression in the registry-resolution path would surface as a `None`-shaped result here, since there is no local-override fallback to mask it. Mirrors Rust test088.
-
-### test89
-
-- **rust**: TEST089: A seeded record-shaped media def carries its schema and profile_uri intact through resolution. Catches a regression that dropped optional fields when copying into ResolvedMediaDef.
-- **go**: TEST089: A seeded record-shaped media def carries its schema and profile_uri intact through resolution. Catches a regression that dropped optional fields when copying into ResolvedMediaDef. Mirrors Rust test089.
-- **py**: TEST089: A seeded record-shaped media def carries its schema and profile_uri intact through resolution. Catches a regression that dropped optional fields when copying into ResolvedMediaDef. Mirrors Rust test089.
-
 ### test93
 
 - **rust**: TEST093: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaDef` would surface here as a missing error.
-- **py**: TEST093: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaDef` would surface here as a missing error. Mirrors Rust test093.
+- **go**: TEST93: Test resolving unknown media URN fails with UnresolvableMediaUrn error
+- **py**: TEST93: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaDef` would surface here as a missing error.
+- **js**: TEST93: Test resolving unknown media URN fails with UnresolvableMediaUrn error
 
 ### test99
 
 - **rust**: TEST099: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
-- **objc**: TEST099: The identity media (`media:`) carries no encoding, no record marker, and no format. The old isBinary delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
-
-### test103
-
-- **rust**: TEST103: Test ResolvedMediaDef is_json returns true when json tag is present
-- **go**: TEST103: Test ResolvedMediaDef is_json returns true when json tag is present
-- **py**: TEST103: Test ResolvedMediaDef is_json returns true when fmt=json tag is present
-- **js**: TEST103: Test ResolvedMediaDef is_json returns true when json tag is present
-- **objc**: TEST103: Test ResolvedMediaDef is_json returns true when fmt=json tag is present
+- **go**: TEST99: A media def with no enc= tag is not text-representable. The old is_binary/is_text axis is gone; text is identified by the presence of an encoding (HasEncoding), so "binary" is simply the absence of one.
+- **js**: TEST99: Test ResolvedMediaDef is_binary returns true when enc tag is absent
+- **objc**: TEST99: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
 
 ### test104
 
 - **rust**: TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old is_text()/is_binary() delegates on ResolvedMediaDef are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text — has enc, is not JSON.
-- **objc**: TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old isText/isBinary delegates on the resolved media def are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text — has enc, is not JSON.
+- **go**: TEST104: Test ResolvedMediaDef is_text returns true when enc tag is present
+- **py**: TEST104: Test ResolvedMediaDef text-representability is carried by the enc= tag
+- **js**: TEST104: Test ResolvedMediaDef is_text returns true when enc tag is present
+- **objc**: TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old is_text()/is_binary() delegates on ResolvedMediaDef are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text — has enc, is not JSON.
 
-### test107
+### test106
 
-- **rust**: TEST107: Test extensions field propagates from media def def to resolved
-- **go**: TEST107: Test extensions field propagates from media def def to resolved
-- **py**: TEST107: Test extensions field propagates from registry spec to resolved
-- **js**: TEST107: Test extensions field propagates from media def def to resolved
+- **rust**: TEST106: Test metadata and validation can coexist in media definition
+- **go**: TEST106: Test metadata and validation can coexist in media definition
+- **py**: TEST106: Test metadata and validation can coexist in media definition
+- **js**: TEST106: Test metadata and validation can coexist in media definition
+- **objc**: TEST106: Metadata with validation
 
-### test117
+### test108
 
-- **rust**: TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word ("release" / "nightly"). A missing or unrecognized channel is a hard parse error — no defaults.
-- **py**: TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word ("release" / "nightly"). CapManifest rejects unknown channel values — the closed enum is {release, nightly}. A missing or unrecognized channel is a hard parse error — no defaults.
+- **rust**: TEST108: Test creating new cap with URN, title, and command verifies correct initialization
+- **go**: TEST108: Test creating new cap with URN, title, and command verifies correct initialization
+- **py**: TEST108: Test creating new cap with URN, title, and command verifies correct initialization
+- **js**: TEST108: Test creating new cap with URN, title, and command verifies correct initialization
+- **objc**: TEST108: Cap creation
 
-### test118
+### test110
 
-- **rust**: TEST118: A dev manifest (built without `MFR_CARTRIDGE_REGISTRY_URL`) carries `registry_url: null` and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build.
-- **py**: TEST118: A dev manifest carries registry_url: null and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build.
+- **rust**: TEST110: Test cap matching with subset semantics for request fulfillment
+- **go**: TEST110: Test cap matching with subset semantics for request fulfillment
+- **py**: TEST110: Test cap matching with subset semantics for request fulfillment
+- **js**: TEST110: Test cap matching with subset semantics for request fulfillment
+- **objc**: TEST110: Cap matching
 
 ### test119
 
 - **rust**: TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk responses: concatenated returns all chunk data joined; final_payload returns only the last chunk. A consumer that confuses the two will silently drop all but the last chunk of a multi-chunk response.
 - **py**: TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk
 
+### test129
+
+- **rust**: / Contract #2 — the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one — / the more dangerous bug because it silently drops / in-flight continuation frames.
+- **objc**: / Contract #2 — the GC drops the OLDEST entries by / `touchedAt`, not arbitrary keys. We seed a known age / distribution and recompute the expected victim set / independently of the production code, then assert that / the post-GC table contains exactly the entries the test / computed should survive. / / A regression where the GC e.g. iterates the dictionary and / drops the first N entries (dictionary iteration order is / arbitrary in Swift) would still pass contract #1 but fail / this one — so this is the assertion that catches a "wrong / victims" bug, which is the more dangerous one (silently / drops in-flight continuation frames).
+
+### test133
+
+- **rust**: / Reattach-by-id keeps the slot index stable. / / After a master at slot index 0 dies, a new socket added with / the same id MUST be placed into slot 0 (not appended at index 1). / Without this, request_routing entries keyed by `master_idx=0` / would dangle pointing at a permanently-unhealthy zombie slot / while the live caps came back at slot 1 — exactly the / observed bug.
+- **go**: Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.
+- **py**: Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.
+- **objc**: Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.
+
+### test134
+
+- **rust**: / Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug — the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot.
+- **go**: TEST134: Add master with duplicate healthy i d errors
+- **py**: TEST134: Add master with duplicate healthy id errors
+- **objc**: TEST134: Add master with duplicate healthy id errors
+
 ### test141
 
+- **rust**: TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension.
 - **go**: TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension.
 - **py**: TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number.
 - **objc**: / TEST141: URL has the right shape — protocol, host, /caps/ prefix, / 64 hex chars, no extension.
 
 ### test142
 
+- **rust**: TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing.
 - **go**: TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing.
+- **py**: TEST142: Test normalize handles different tag orders producing same canonical form
 - **objc**: / TEST142: Different tag orders normalise to the same URL — the / canonicaliser strips the variation before hashing.
 
-### test143
+### test148
 
-- **go**: TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL.
-- **py**: TEST143: Default config points at https://fabric.capdag.com or the CDG_FABRIC_REGISTRY_URL env-var override.
+- **rust**: TEST148: Manifest creation with cap groups
+- **go**: TEST148: Manifest creation with cap groups
+- **py**: TEST148: Manifest creation with cap groups
+- **objc**: TEST148: Cap manifest construction stores name, version, channel, description, and the cap_groups verbatim.
 
-### test155
+### test149
 
-- **rust**: TEST155: ComponentMetadata trait
-- **go**: TEST155: ComponentMetadata interface
-- **py**: TEST155: ComponentMetadata pattern
+- **rust**: TEST149: Author field
+- **go**: TEST149: Author field
+- **py**: TEST149: Author field
+- **objc**: TEST149: Cap manifest with author
 
-### test167
+### test151
 
-- **rust**: TEST167: Test validation fails hard when media URN cannot be resolved from any source
-- **go**: TEST167: Test validation fails hard when media URN cannot be resolved from any source
-- **py**: TEST167: Test validation fails hard when media URN cannot be resolved.
+- **rust**: TEST151: Missing required fields fail
+- **go**: TEST151: Missing required fields fail
+- **py**: TEST151: Missing required fields fail
+- **objc**: TEST151: Manifest deserialization fails when any required field is missing — including channel, which is part of the cartridge's identity. There is no fallback default; missing means broken.
 
-### test260
+### test152
 
-- **rust**: TEST260: Test extract_effective_payload with None content_type returns raw payload unchanged
-- **go**: TEST260: Test extract_effective_payload with empty content_type returns raw payload unchanged
-- **py**: TEST260: Test extract_effective_payload with empty content_type returns raw payload unchanged
-- **objc**: TEST260: Test extract_effective_payload with empty content_type returns raw payload unchanged
+- **rust**: TEST152: Multiple caps across groups
+- **go**: TEST152: Multiple caps across groups
+- **py**: TEST152: Multiple caps across groups
+- **objc**: TEST152: Multiple caps across multiple cap_groups serialize and deserialize correctly, preserving group structure.
 
-### test289
+### test153
 
-- **rust**: TEST289: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side.
-- **go**: TEST0289: MediaDef serializes documentation only when present and round-trips losslessly. When nil, the field must be omitted entirely.
+- **rust**: TEST153: Empty cap groups
+- **go**: TEST153: Empty cap groups
+- **py**: TEST153: Empty cap groups
+- **objc**: TEST153: An empty cap_groups list round-trips without losing the channel / version envelope.
 
-### test307
+### test154
 
-- **rust**: TEST307: Test model_availability_urn builds valid cap URN with correct op and media defs
-- **go**: TEST307: Test model_availability_urn builds valid cap URN with correct op and media defs
-- **py**: TEST307: Test model_availability_urn builds valid cap URN with correct marker and media defs
-- **js**: TEST307: Test model_availability_urn builds valid cap URN with correct op and media defs
+- **rust**: TEST154: Optional author field omitted in serialization
+- **go**: TEST154: Optional author field omitted in serialization
+- **py**: TEST154: Optional author field omitted in serialization
+- **objc**: TEST154: Optional author field on CSCapManifest is nil by default and round-trips through `withAuthor`.
 
-### test308
+### test288
 
-- **rust**: TEST308: Test model_path_urn builds valid cap URN with correct op and media defs
-- **go**: TEST308: Test model_path_urn builds valid cap URN with correct op and media defs
-- **py**: TEST308: Test model_path_urn builds valid cap URN with correct marker and media defs
-- **js**: TEST308: Test model_path_urn builds valid cap URN with correct op and media defs
-
-### test310
-
-- **rust**: TEST310: llm_generate_text_urn() produces a valid cap URN with a UTF-8 text input and plain-text terminal output.
-- **go**: TEST310: llm_generate_text_urn() produces a valid cap URN with textable in/out specs
-- **py**: TEST310: llm_generate_text_urn() produces a valid cap URN with text (enc=utf-8) in/out specs
-- **js**: TEST310: llm_generate_text_urn() produces a valid cap URN with enc=utf-8 in/out specs
+- **rust**: TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere.
+- **go**: TEST288: Documentation propagates from MediaDef through ResolveMediaUrn into ResolvedMediaDef. Verifies description and documentation remain distinct.
 
 ### test320
 
 - **rust**: TEST320: Construct CartridgeInfo and verify round-trip of fields.
-- **py**: TEST320: Construct CartridgeInfo and verify field round-trip.
+- **go**: TEST320-335: CartridgeRepoServer and CartridgeRepoClient tests
+- **py**: TEST320: Construct CartridgeInfo and verify round-trip of fields.
+- **js**: TEST320-335: CartridgeRepoServer and CartridgeRepoClient tests
 
 ### test321
 
 - **rust**: TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty.
-- **go**: TEST321: CartridgeInfo.is_signed() returns true when signature is present
-- **js**: TEST321: CartridgeInfo.is_signed() returns true when signature is present
+- **go**: TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty.
+- **py**: TEST321: is_signed() requires both team_id and signed_at to be non-empty.
+- **js**: TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty.
 
 ### test322
 
 - **rust**: TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise.
-- **go**: TEST322: CartridgeInfo.build_for_platform() returns the build matching the current platform
-- **js**: TEST322: CartridgeInfo.build_for_platform() returns the build matching the current platform
-
-### test323
-
-- **rust**: TEST323: CartridgeRepoServer requires schema 5.0 and rejects older.
-- **go**: TEST323: CartridgeRepoServer requires schema 5.0 and rejects older.
-- **py**: TEST323: Server requires schema 5.0 and rejects older.
-- **js**: TEST323: CartridgeRepoServer requires schema 5.0 and rejects older.
-
-### test324
-
-- **rust**: TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim.
-- **py**: TEST324: Server transforms each channel-entry into a flat CartridgeInfo with channel set, preserving cap_groups verbatim.
+- **go**: TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise.
+- **py**: TEST322: build_for_platform returns the matching build for the latest version, None for an unknown platform.
+- **js**: TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise.
 
 ### test325
 
 - **rust**: TEST325: get_cartridges() wraps the transformed array in the response envelope.
-- **py**: TEST325: get_cartridges() wraps the transformed array in the response envelope, including both channels.
-- **js**: TEST325: CartridgeRepoServer.getCartridges() wraps the transformed flat array (across both channels) in the response envelope.
+- **go**: TEST325: CartridgeRepoServer.get_cartridges() returns all parsed cartridges
+- **py**: TEST325: get_cartridges() wraps the transformed array in the response envelope.
+- **js**: TEST325: get_cartridges() wraps the transformed array in the response envelope.
 
 ### test326
 
 - **rust**: TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces.
-- **py**: TEST326: get_cartridge_by_id requires a (channel, id). Same id in the wrong channel must miss — channels are independent namespaces.
-- **js**: TEST326: CartridgeRepoServer.getCartridgeById() requires (channel, id). Same id looked up in the wrong channel must miss — channels are independent namespaces.
+- **go**: TEST326: CartridgeRepoServer.get_cartridge() returns cartridge matching the given ID
+- **py**: TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces.
+- **js**: TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces.
 
 ### test327
 
 - **rust**: TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings.
-- **py**: TEST327: search_cartridges matches name/description/tags and cap titles across both channels, but never substring on cap URNs.
+- **go**: TEST327: CartridgeRepoServer.search_cartridges() filters by text query against name and description
+- **py**: TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings.
+- **js**: TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings.
 
 ### test328
 
 - **rust**: TEST328: get_cartridges_by_category filters on the categories string list.
-- **py**: TEST328: get_cartridges_by_category filters by string-equal categories.
+- **go**: TEST328: CartridgeRepoServer.get_by_category() filters cartridges by category tag
+- **py**: TEST328: get_cartridges_by_category filters on the categories string list.
+- **js**: TEST328: CartridgeRepoServer.getCartridgesByCategory() filters cartridges by category across both channels.
 
 ### test329
 
 - **rust**: TEST329: get_cartridges_by_cap parses the input URN and matches each cartridge cap via tagged-URN equivalence — not string ==. This proves a request URN whose tags appear in a different order than the cap's declared form still resolves.
+- **go**: TEST329: CartridgeRepoServer.get_suggestions_for_cap() finds cartridges providing a given cap URN
 - **py**: TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate — not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent.
+- **js**: TEST329: CartridgeRepoServer.getCartridgesByCap() parses the input URN and matches each declared cap via `conformsTo`. Tag-order differences resolve because matching is order-theoretic, not string.
 
 ### test330
 
 - **rust**: TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridge index keyed by normalized URNs.
-- **py**: TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridges index keyed by normalized URNs.
+- **go**: TEST330: CartridgeRepoClient updates its local cache, keyed by (channel, id) so the same id can independently coexist in both channels.
+- **py**: TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridge index keyed by normalized URNs.
+- **js**: TEST330: CartridgeRepoClient updates its local cache keyed by "<channel>:<id>". The cache holds release and nightly entries independently — the same id is allowed in both.
 
 ### test331
 
 - **rust**: TEST331: get_suggestions_for_cap returns a suggestion when the cache has a cartridge whose cap is tagged-URN equivalent to the request, even if declared with different tag order.
+- **go**: TEST331: CartridgeRepoClient.GetSuggestionsForCap() returns cartridge suggestions and propagates the source channel onto each suggestion.
 - **py**: TEST331: get_suggestions_for_cap returns a suggestion with channel propagated from the source cartridge.
+- **js**: TEST331: CartridgeRepoClient.getSuggestionsForCap() returns cartridge suggestions with channel propagated onto each suggestion.
 
 ### test332
 
 - **rust**: TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss.
-- **py**: TEST332: get_cartridge requires a (channel, id) and returns None for an unknown pair.
+- **go**: TEST332: CartridgeRepoClient.GetCartridge() retrieves by (channel, id).
+- **py**: TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss.
+- **js**: TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss.
+
+### test333
+
+- **rust**: TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges.
+- **go**: TEST333: CartridgeRepoClient.get_all_caps() returns aggregate cap URNs from all cached cartridges
+- **py**: TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges.
+- **js**: TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges.
 
 ### test334
 
 - **rust**: TEST334: needs_sync returns true on an empty cache, false right after a successful update.
-- **py**: TEST334: needs_sync is true on an empty cache and false right after a successful update.
-- **js**: TEST334: CartridgeRepoClient.needsSync() returns true when cache is empty / stale, false right after a fresh update.
+- **go**: TEST334: CartridgeRepoClient.needs_sync() returns true when cache TTL has expired
+- **py**: TEST334: needs_sync returns true on an empty cache, false right after a successful update.
+- **js**: TEST334: needs_sync returns true on an empty cache, false right after a successful update.
 
 ### test335
 
 - **rust**: TEST335: A v4.0 nested registry round-trips through Server → CartridgeInfo → fingerprint, preserving the cap_groups structure and the signed flag.
-- **py**: TEST335: A v5.0 channel-partitioned registry round-trips through Server → CartridgeInfo, preserving the cap_groups structure, signed flag, and channel provenance.
+- **go**: TEST335: Server creates registry response and client consumes it end-to-end
+- **py**: TEST335: A v4.0 nested registry round-trips through Server → CartridgeInfo → fingerprint, preserving the cap_groups structure and the signed flag.
+- **js**: TEST335: Round-trip: server produces a v5.0 response, client consumes it, channel provenance is preserved end-to-end.
 
 ### test336
 
@@ -1992,40 +1739,12 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST336: Single file-path arg with stdin source reads file and passes bytes to handler
 - **objc**: TEST336: Single file-path arg with stdin source reads file and passes bytes to handler TEST336: Single file-path arg with stdin source reads file and passes bytes to handler. Mirrors Rust test336_file_path_reads_file_passes_bytes.
 
-### test337
+### test339
 
-- **rust**: TEST337: file-path arg without stdin source passes path as string (no conversion)
-- **go**: TEST337: file-path arg without stdin source passes path as string (no conversion)
-- **py**: TEST337: file-path arg without stdin source passes path as string (no conversion)
-- **objc**: TEST337: file-path arg without stdin source passes path as string (no conversion). Mirrors Rust test337_file_path_without_stdin_passes_string.
-
-### test338
-
-- **rust**: TEST338: file-path arg reads file via --file CLI flag
-- **go**: TEST338: file-path arg reads file via --file CLI flag
-- **py**: TEST338: file-path arg reads file via --file CLI flag
-- **objc**: TEST338: file-path arg reads file via --file CLI flag. Mirrors Rust test338_file_path_via_cli_flag.
-
-### test341
-
-- **rust**: TEST341: stdin takes precedence over file-path in source order
-- **go**: TEST341: stdin takes precedence over file-path in source order
-- **py**: TEST341: stdin takes precedence over file-path in source order
-- **objc**: TEST341: stdin takes precedence over file-path in source order. Mirrors Rust test341_stdin_precedence_over_file_path.
-
-### test342
-
-- **rust**: TEST342: file-path with position 0 reads first positional arg as file
-- **go**: TEST342: file-path with position 0 reads first positional arg as file
-- **py**: TEST342: file-path with position 0 reads first positional arg as file
-- **objc**: TEST342: file-path with position 0 reads first positional arg as file. Mirrors Rust test342_file_path_position_zero_reads_first_arg.
-
-### test343
-
-- **rust**: TEST343: Non-file-path args are not affected by file reading
-- **go**: TEST343: Non-file-path args are not affected by file reading
-- **py**: TEST343: Non-file-path args are not affected by file reading
-- **objc**: TEST343: Non-file-path args are not affected by file reading. Mirrors Rust test343_non_file_path_args_unaffected.
+- **rust**: TEST339: file-path-array reads multiple files with glob pattern
+- **go**: TEST339: file-path arg with is_sequence=true expands a glob to N files and the runtime delivers them as a CBOR Array of Bytes — one array item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion.
+- **py**: TEST339: file-path-array reads multiple files with glob pattern
+- **objc**: TEST339: A sequence-declared file-path arg (isSequence=true) expands a glob into N files and the runtime delivers them as a CBOR Array of bytes — one item per matched file. List-ness comes from the arg declaration, NOT from any `;list` URN tag. TEST339: A sequence-declared file-path arg expands a glob to N files and the runtime delivers them as a CBOR Array of bytes — one item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion.
 
 ### test347
 
@@ -2034,36 +1753,26 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST347: Empty file reads as empty bytes
 - **objc**: TEST347: Empty file reads as empty bytes. Mirrors Rust test347_empty_file_reads_as_empty_bytes. The file is written non-atomically (`options: []`). The default `Data.write(to:)` overload uses an atomic save, which on macOS for a zero-byte Data on a fresh destination has been observed to throw NSCocoaErrorDomain Code=4 ("couldn't be removed", ENOENT) — Foundation tries to clean up a sibling temp file that was never created. The Rust reference uses `std::fs::write(...)` (non-atomic); matching that here keeps the cross-language test parity honest. Pre-removing any stale file from a prior aborted run keeps the create path clean.
 
-### test348
+### test355
 
-- **rust**: TEST348: file-path conversion respects source order
-- **go**: TEST348: file-path conversion respects source order
-- **py**: TEST348: file-path conversion respects source order
-- **objc**: TEST348: file-path conversion respects source order. Mirrors Rust test348_file_path_conversion_respects_source_order.
-
-### test351
-
-- **go**: TEST351: file-path arg in CBOR mode with empty Array returns empty. CBOR Array (not JSON-encoded) is the multi-input wire form for sequence args. Mirrors Rust test351_file_path_array_empty_array.
-- **py**: TEST351: file-path arg in CBOR mode with empty Array returns empty. CBOR Array (not JSON-encoded) is the multi-input wire form for sequence args. Mirrors Rust test351_file_path_array_empty_array.
-- **objc**: TEST351: file-path arg in CBOR mode with empty Array value returns empty. CBOR Array (not JSON) is the multi-input wire form for sequence args. Mirrors Rust test351_file_path_array_empty_array.
-
-### test354
-
-- **rust**: TEST354: Glob pattern with no matches fails hard (NO FALLBACK)
-- **go**: TEST354: Glob pattern with no matches fails hard (NO FALLBACK). Mirrors Rust test354_glob_pattern_no_matches_empty_array.
-- **objc**: TEST354: Glob pattern with no matches fails hard (NO FALLBACK). Mirrors Rust test354_glob_pattern_no_matches_empty_array.
+- **rust**: TEST355: Glob pattern skips directories
+- **go**: TEST355: Glob pattern skips directories. Mirrors Rust test355_glob_pattern_skips_directories.
+- **py**: TEST355: Glob pattern skips directories
+- **objc**: TEST355: Glob pattern skips directories
 
 ### test356
 
 - **rust**: TEST356: Multiple glob patterns combined
 - **go**: TEST356: Multiple glob patterns combined
-- **py**: TEST356: Multiple glob patterns combined via newline separation.
+- **py**: TEST356: Multiple glob patterns combined
+- **objc**: TEST356: Multiple glob patterns combined as CBOR Array (CBOR mode). Mirrors Rust test356_multiple_glob_patterns_combined.
 
-### test359
+### test364
 
-- **rust**: TEST359: Invalid glob pattern fails with clear error
-- **go**: TEST359: Invalid glob pattern fails with clear error. Mirrors Rust test359_invalid_glob_pattern_fails.
-- **py**: TEST359: Invalid glob pattern fails with clear error. Mirrors Rust test359_invalid_glob_pattern_fails.
+- **rust**: TEST364: CBOR mode with file path - send file path in CBOR arguments (auto-conversion)
+- **go**: TEST364: CBOR mode with file path - send file path in CBOR arguments (auto-conversion)
+- **py**: TEST364: CBOR mode with file path - send file path in CBOR arguments (auto-conversion)
+- **objc**: TEST364: CBOR mode with file path - file-path arg in CBOR mode is auto-converted to file bytes via extract_effective_payload. Mirrors Rust test364_cbor_mode_file_path.
 
 ### test413
 
@@ -2079,441 +1788,153 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary)
 - **objc**: TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error). Mirrors Rust test415_req_for_known_cap_triggers_spawn: production install layout — versioned cartridge directory with cartridge.json (carrying the channel) plus an entry-point binary that isn't executable, so spawn fails.
 
-### test437
+### test435
 
-- **rust**: TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates
-- **go**: TEST437: find_master_for_cap with preferred_cap routes to generic handler. Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf"). Preference routes to preferred among dispatchable candidates via IsEquivalent (Accepts-based).
-- **py**: TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates
-- **objc**: TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates
-
-### test439
-
-- **rust**: TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists.
-- **go**: TEST439: Generic provider CAN dispatch specific request. With is_dispatchable: generic provider (in=media:) can handle specific request (in="media:ext=pdf") because media: accepts any input type.
-- **py**: TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists.
-- **objc**: TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists.
-
-### test472
-
-- **rust**: TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides)
-- **go**: TEST472: Handshake negotiates max_reorder_buffer as minimum of both sides.
-- **py**: TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides)
-- **objc**: TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides)
-
-### test480
-
-- **py**: TEST480: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY
-- **objc**: TEST480: parse_caps_from_manifest rejects manifest without CAP_IDENTITY
+- **rust**: TEST435: URN matching (exact vs accepts())
+- **go**: TEST435: URN matching (exact vs accepts())
+- **py**: TEST435: URN matching (exact vs accepts())
+- **objc**: TEST435: URN matching (exact vs accepts()) Dispatch is contravariant on input (request input must conform to provider input — i.e. request can be more specific) and covariant on output (provider output must conform to request output — i.e. provider can be more specific). A request whose input is in a different type family than any registered provider has no handler.
 
 ### test489
 
 - **rust**: TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests.
 - **py**: TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge
 
-### test490
-
-- **rust**: TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed.
-- **py**: TEST490: Identity verification with multiple cartridges through single relay
-- **objc**: TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed.
-
-### test501
-
-- **rust**: TEST501: Frame::new initializes new fields to None
-- **go**: TEST501: Frame creation initializes optional fields to nil
-- **py**: TEST501: Frame::new initializes new fields to None
-- **objc**: TEST501: Frame::new initializes new fields to None
-
-### test503
-
-- **rust**: TEST503: compute_checksum handles empty data correctly
-- **go**: TEST503: compute_checksum handles empty data correctly (FNV-1a offset basis)
-- **py**: TEST503: compute_checksum handles empty data correctly
-- **objc**: TEST503: compute_checksum handles empty data correctly
-
-### test507
-
-- **rust**: TEST507: ReorderBuffer isolates flows by XID (routing_id) - same RID different XIDs
-- **go**: TEST507: ReorderBuffer isolates flows by XID — same RID different XIDs are independent
-- **py**: TEST507: ReorderBuffer isolates flows by XID (routing_id) - same RID different XIDs
-- **objc**: TEST507: ReorderBuffer isolates flows by XID (routing_id) - same RID different XIDs
-
-### test509
-
-- **rust**: TEST509: ReorderBuffer handles large seq gaps without DOS
-- **go**: TEST509: ReorderBuffer handles large seq gaps without DOS — overflow fails
-- **py**: TEST509: ReorderBuffer handles large seq gaps without DOS
-- **objc**: TEST509: ReorderBuffer handles large seq gaps without DOS
-
-### test514
-
-- **rust**: TEST514: ReorderBuffer with XID cleanup doesn't affect different XID
-- **go**: TEST514: ReorderBuffer XID cleanup doesn't affect different XID flows
-- **py**: TEST514: ReorderBuffer with XID cleanup doesn't affect different XID
-- **objc**: TEST514: ReorderBuffer with XID cleanup doesn't affect different XID
-
-### test523
-
-- **rust**: TEST523: is_flow_frame returns false for RelayNotify
-- **go**: TEST523: IsFlowFrame returns false for RelayNotify
-- **py**: TEST523: is_flow_frame returns false for RelayNotify
-- **objc**: TEST523: is_flow_frame returns false for RelayNotify
-
-### test524
-
-- **rust**: TEST524: is_flow_frame returns false for RelayState
-- **go**: TEST524: IsFlowFrame returns false for RelayState
-- **py**: TEST524: is_flow_frame returns false for RelayState
-- **objc**: TEST524: is_flow_frame returns false for RelayState
-
-### test551
-
-- **rust**: TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags.
-- **go**: TEST551: IsFilePath returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags.
-- **py**: TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags.
-- **objc**: TEST551: isFilePath returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags.
-
 ### test559
 
 - **rust**: TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys
-- **go**: TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys
+- **go**: TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys
 - **py**: TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys
+- **js**: TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys
+- **objc**: TEST559: withoutTag removes a tag and returns a new URN, leaving the original unchanged (mirror-local)
 
-### test566
+### test614
 
-- **rust**: TEST566: with_tag rejects structural keys
-- **go**: TEST566: with_tag rejects reserved structural keys
-- **py**: TEST566: with_tag rejects reserved structural keys
+- **rust**: TEST614: Verify registry creation succeeds and cache directory exists
+- **go**: TEST614: Verify registry creation succeeds and cache directory exists
+- **py**: TEST614: Verify registry creation succeeds and cache directory exists
+- **objc**: TEST614: Registry creation
 
-### test609
+### test639
 
-- **rust**: TEST609: get_extension_mappings returns all registered extension→URN pairs.
-- **go**: TEST609: get_extension_mappings returns all registered extension->URN pairs
-- **py**: TEST609: get_extension_mappings returns all registered extension->URN pairs
-
-### test611
-
-- **go**: TEST611: InsertSchema seeds the cache so subsequent validation hits a real compiled schema rather than the skip-on-unknown path. A registry that silently dropped inserts would let validation calls return nil even for inputs that violate the schema.
-- **py**: TEST611: insert_schema seeds the cache so subsequent validation hits a real compiled schema rather than the skip-on-unknown path. A registry that silently dropped inserts would let validation calls return None even for inputs that violate the schema.
-
-### test612
-
-- **rust**: TEST612: clear_cache empties the in-memory cache for seeded schemas.
-- **go**: TEST612: ClearCache empties all in-memory schemas
-- **py**: TEST612: clear_cache empties all in-memory schemas
-
-### test613
-
-- **rust**: TEST613: validate_cached validates against cached standard schemas
-- **go**: TEST613: ValidateCached validates against seeded schemas
-- **py**: TEST613: validate_cached validates against seeded schemas
-
-### test619
-
-- **rust**: TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema.
-- **go**: TEST619: A freshly constructed registry has no cached schemas. The well-known profile URLs are not bundled into the library; callers must seed them.
-
-### test626
-
-- **rust**: TEST626: Verify unknown profile URL skips validation and returns Ok
-- **go**: TEST626: Verify unknown profile URL skips validation and returns nil
-- **py**: TEST626: Verify unknown profile URL skips validation and returns None
-
-### test627
-
-- **rust**: TEST627: insert_schema rejects malformed JSON Schemas instead of caching them. A registry that silently accepted invalid schemas would hide compilation problems until the first validation call.
-- **go**: TEST627: InsertSchema rejects malformed JSON Schemas instead of caching them. Silent acceptance of an invalid schema would hide the configuration error until the first validation call against it.
-- **py**: TEST627: insert_schema rejects malformed JSON Schemas instead of caching them. Silent acceptance of an invalid schema would hide the configuration error until the first validation call against it.
-
-### test630
-
-- **rust**: TEST630: CartridgeRepo creation starts with empty cartridge list.
-- **go**: TEST630: Verify CartridgeRepo creation starts with empty cartridge list
-- **py**: TEST630: CartridgeRepo creation starts with an empty cartridge list.
-
-### test631
-
-- **rust**: TEST631: needs_sync returns true with empty cache and non-empty URLs.
-- **go**: TEST631: Verify needs_sync returns true with empty cache and non-empty URLs
-- **py**: TEST631: needs_sync returns true with an empty cache and non-empty URLs.
-
-### test633
-
-- **rust**: TEST633: A registry cap with cap_description, args, output all parses.
-- **py**: TEST633: A registry cap with cap_description / args / output parses.
-
-### test634
-
-- **rust**: TEST634: A registry cap_group parses with caps + adapter_urns.
-- **py**: TEST634: A cap_group parses with caps + adapter_urns.
-
-### test635
-
-- **rust**: TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields fall back to empty.
-- **py**: TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields become empty strings.
-
-### test636
-
-- **rust**: TEST636: CartridgeInfo with null version/description/author still deserializes (the null_as_empty_string deserializer is the only tolerated coercion — every other malformed input is a hard error).
-- **py**: TEST636: CartridgeInfo with null version/description/author still deserializes cleanly (the null_as_empty_string deserializer is the only tolerated coercion).
+- **rust**: TEST639: bare/default top-to-top declared form is illegal
+- **objc**: TEST_WILDCARD_001: cap: (empty) is illegal
 
 ### test640
 
 - **rust**: TEST640: cap:in defaults to the same illegal bare top form
-- **py**: TEST640: cap:in collapses to the same illegal bare top form
-- **js**: TEST640: cap:in collapses to the same illegal bare top form
+- **py**: TEST640: cap:in defaults to the same illegal bare top form
+- **js**: TEST640: cap:in defaults to the same illegal bare top form
+- **objc**: TEST_WILDCARD_002: cap:in collapses to the same illegal bare top form
 
 ### test641
 
 - **rust**: TEST641: cap:out defaults to the same illegal bare top form
-- **py**: TEST641: cap:out collapses to the same illegal bare top form
-- **js**: TEST641: cap:out collapses to the same illegal bare top form
+- **py**: TEST641: cap:out defaults to the same illegal bare top form
+- **js**: TEST641: cap:out defaults to the same illegal bare top form
+- **objc**: TEST_WILDCARD_003: cap:out collapses to the same illegal bare top form
 
-### test642
+### test643
 
-- **rust**: TEST642: cap:in;out becomes the same illegal bare top form
-- **go**: TEST642: cap:in;out normalizes to illegal bare top
-- **py**: TEST642: cap:in;out collapses to the same illegal bare top form
-- **js**: TEST642: cap:in;out collapses to the same illegal bare top form
+- **rust**: TEST643: cap:in=*;out=* is the same illegal bare top form
+- **py**: TEST643: cap:in=*;out=* is the same illegal bare top form
+- **js**: TEST643: cap:in=*;out=* is the same illegal bare top form
+- **objc**: TEST_WILDCARD_005: cap:in=*;out=* is illegal
 
-### test661
+### test644
 
-- **py**: TEST661: Cartridge death keeps known_caps advertised for on-demand respawn
-- **objc**: TEST661: Cartridge death keeps known_caps advertised for on-demand respawn. Identity is the gating filter for advertisement; we provision a real cartridge directory with a valid `cartridge.json` so the cartridge has a resolvable identity. cap_table routes regardless of identity (in-process / attached cartridges still need to be dispatchable), but the relay payload only advertises cartridges with identity records.
+- **rust**: TEST644: cap:in=media:;out=* is the same illegal bare top form
+- **py**: TEST644: cap:in=media:;out=* is the same illegal bare top form
+- **js**: TEST644: cap:in=media:;out=* is the same illegal bare top form
+- **objc**: TEST_WILDCARD_006: cap:in=media:;out=* is illegal
 
-### test662
+### test645
 
-- **rust**: TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet).
-- **py**: TEST662: rebuild_capabilities includes non-running cartridges' caps. cap_groups is the source of truth (set at registration, refreshed on HELLO), and advertisement does not gate on `running`.
-- **objc**: TEST662: rebuild_capabilities includes non-running cartridges' caps. cap_groups is the source of truth and advertisement does not gate on `running` — only on identity (cartridge.json present) and on `helloFailed`.
+- **rust**: TEST645: cap:in=*;out=media:text has wildcard in, specific out
+- **go**: TEST645: cap:in=*;out=media:text has wildcard in, specific out
+- **py**: TEST645: cap:in=*;out=media:text has wildcard in, specific out
+- **js**: TEST645: cap:in=*;out=media:text has wildcard in, specific out
+- **objc**: TEST_WILDCARD_007: cap:in=*;out=media:text has wildcard in, specific out
 
-### test665
+### test646
 
-- **rust**: TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view.
-- **py**: TEST665: Cap table aggregates caps from every healthy cartridge — running cartridges contribute their post-HELLO cap_groups, registered but-not-yet-spawned cartridges contribute their probe-time cap_groups. The cap_table is rebuilt from cap_groups uniformly.
-- **objc**: TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups; registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view derived from cap_groups.
+- **rust**: TEST646: cap:in=foo fails (invalid media URN)
+- **go**: TEST646: cap:in=foo fails (invalid media URN)
+- **py**: TEST646: cap:in=foo fails (invalid media URN)
+- **js**: TEST646: cap:in=foo fails (invalid media URN)
+- **objc**: TEST_WILDCARD_008: cap:in=foo fails (invalid media URN)
 
-### test679
+### test647
 
-- **rust**: TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:fmt=json;llm-generation-request;record".
-- **go**: TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:llm-generation-request;fmt=json;record".
-- **py**: TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:llm-generation-request;json;record".
-- **objc**: TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:llm-generation-request;fmt=json;record".
+- **rust**: TEST647: cap:in=media:;out=bar fails (invalid media URN)
+- **go**: TEST647: cap:in=media:;out=bar fails (invalid media URN)
+- **py**: TEST647: cap:in=media:;out=bar fails (invalid media URN)
+- **js**: TEST647: cap:in=media:;out=bar fails (invalid media URN)
+- **objc**: TEST_WILDCARD_009: cap:in=media:;out=bar fails (invalid media URN)
 
-### test688
+### test648
 
-- **rust**: TEST688: Tests is_multiple method correctly identifies multi-value cardinalities Verifies Single returns false while Sequence and AtLeastOne return true
-- **go**: TEST688: Tests IsMultiple method correctly identifies multi-value cardinalities Verifies Single returns false while Sequence and AtLeastOne return true
-- **py**: TEST688: Tests is_multiple method correctly identifies multi-value cardinalities Verifies Single returns false while Sequence and AtLeastOne return true
-- **objc**: TEST688: Tests is_multiple method correctly identifies multi-value cardinalities Verifies Single returns false while Sequence and AtLeastOne return true
+- **rust**: TEST648: Wildcard in/out match specific caps
+- **js**: TEST648: Wildcard in/out match specific caps
+- **objc**: TEST_WILDCARD_010: Wildcard in/out match specific caps
 
-### test689
+### test649
 
-- **rust**: TEST689: Tests accepts_single method identifies cardinalities that accept single values Verifies Single and AtLeastOne accept singles while Sequence does not
-- **go**: TEST689: Tests AcceptsSingle method identifies cardinalities that accept single values Verifies Single and AtLeastOne accept singles while Sequence does not
-- **py**: TEST689: Tests accepts_single method identifies cardinalities that accept single values Verifies Single and AtLeastOne accept singles while Sequence does not
-- **objc**: TEST689: Tests accepts_single method identifies cardinalities that accept single values Verifies Single and AtLeastOne accept singles while Sequence does not
+- **rust**: TEST649: Specificity - wildcard has 0, specific has tag count
+- **js**: TEST649: Specificity - wildcard has 0, specific has tag count
+- **objc**: TEST_WILDCARD_011: Specificity - wildcard has 0, specific has tag count
 
-### test698
+### test650
 
-- **rust**: TEST698: CapShapeInfo cardinality is always Single when derived from URN Cardinality comes from context (is_sequence), not from URN tags. The list tag is a semantic type property, not a cardinality indicator.
-- **go**: TEST698: CapShapeInfo cardinality is always Single when derived from URN Cardinality comes from context (IsSequence), not from URN tags. The list tag is a semantic type property, not a cardinality indicator.
-- **py**: TEST698: CapShapeInfo cardinality is always Single when derived from URN Cardinality comes from context (is_sequence), not from URN tags. The list tag is a semantic type property, not a cardinality indicator.
-- **objc**: TEST698: CapShapeInfo cardinality is always Single when derived from URN Cardinality comes from context (is_sequence), not from URN tags. The list tag is a semantic type property, not a cardinality indicator.
+- **rust**: TEST650: cap:in=media:;out=media:;test preserves other tags
+- **go**: TEST650: cap:in=media:;out=media:;test preserves other tags
+- **js**: TEST650: cap:in=media:;out=media:;test preserves other tags
+- **objc**: TEST_WILDCARD_012: cap:in=media:;out=media:;test preserves other tags
 
-### test699
+### test664
 
-- **rust**: TEST699: CapShapeInfo cardinality from URN is always Single; ManyToOne requires is_sequence
-- **go**: TEST699: CapShapeInfo cardinality from URN is always Single; ManyToOne requires IsSequence context
-- **py**: TEST699: CapShapeInfo cardinality from URN is always Single; ManyToOne requires is_sequence
-- **objc**: TEST699: CapShapeInfo cardinality from URN is always Single; ManyToOne requires is_sequence
+- **rust**: TEST664: Attached cartridge replaces pre-registration caps with manifest caps. The pre-attach `cap_groups` (from probe-time discovery) get superseded by the post-HELLO `cap_groups` from the actual handshake.
+- **py**: TEST664: Running cartridge uses manifest caps; the post-HELLO cap_groups overwrite the registration-time ones.
+- **objc**: TEST664: Running cartridge uses manifest caps, not known_caps
 
-### test711
+### test668
 
-- **rust**: TEST711: Tests shape chain analysis for simple linear one-to-one capability chains Verifies chains with no fan-out are valid and require no transformation
-- **go**: TEST711: Tests shape chain analysis for simple linear one-to-one capability chains
-- **py**: TEST711: Tests shape chain analysis for simple linear one-to-one capability chains Verifies chains with no fan-out are valid and require no transformation
-- **objc**: TEST711: Tests shape chain analysis for simple linear one-to-one capability chains Verifies chains with no fan-out are valid and require no transformation
+- **rust**: TEST668: resolve_binding returns byte values when slot is populated with data
+- **go**: TEST668: resolve_binding returns byte values when slot is populated with data
+- **py**: TEST668: resolve_slot_with_populated_byte_slot_values
 
-### test712
+### test714
 
-- **rust**: TEST712: Tests shape chain analysis detects fan-out points in capability chains Fan-out requires is_sequence=true on the cap's output, not a "list" URN tag
-- **go**: TEST712: Tests shape chain analysis detects fan-out points in capability chains Fan-out requires Sequence cardinality on the cap's output (from is_sequence=true wire context)
-- **py**: TEST712: Tests shape chain analysis detects fan-out points in capability chains Fan-out requires is_sequence=true on the cap's output, not a "list" URN tag
-- **objc**: TEST712: Tests shape chain analysis detects fan-out points in capability chains Fan-out requires is_sequence=true on the cap's output, not a "list" URN tag
+- **rust**: TEST714: Tests InputCardinality serializes and deserializes correctly to/from JSON Verifies JSON round-trip preserves cardinality values
+- **py**: TEST714: Tests InputCardinality serializes and deserializes correctly to/from JSON Verifies JSON round-trip preserves cardinality values
+- **objc**: TEST714: Tests InputCardinality enum values are distinct (parity for Rust serde round-trip)
 
-### test713
+### test715
 
-- **rust**: TEST713: Tests shape chain analysis handles empty capability chains correctly Verifies empty chains are valid and require no transformation
-- **go**: TEST713: Tests shape chain analysis handles empty capability chains correctly
-- **py**: TEST713: Tests shape chain analysis handles empty capability chains correctly Verifies empty chains are valid and require no transformation
-- **objc**: TEST713: Tests shape chain analysis handles empty capability chains correctly Verifies empty chains are valid and require no transformation
+- **rust**: TEST715: Tests CardinalityPattern serializes and deserializes correctly to/from JSON Verifies JSON round-trip preserves pattern values with snake_case formatting
+- **py**: TEST715: Tests CardinalityPattern serializes and deserializes correctly to/from JSON Verifies JSON round-trip preserves pattern values with snake_case formatting
+- **objc**: TEST715: Tests CardinalityPattern enum values are distinct (parity for Rust serde round-trip)
 
-### test728
+### test761
 
-- **rust**: TEST728: Tests MachineNode helper methods for identifying node types (cap, fan-out, fan-in) Verifies is_cap(), is_fan_out(), is_fan_in(), and cap_urn() correctly classify node types
-- **go**: TEST728: Tests MachineNode helper methods for identifying node types (cap, fan-out, fan-in) Verifies IsCap(), IsFanOut(), IsFanIn(), and GetCapUrn() correctly classify node types
-- **py**: TEST728: Tests MachineNode helper methods for identifying node types (cap, fan-out, fan-in) Verifies is_cap(), is_fan_out(), is_fan_in(), and cap_urn() correctly classify node types
+- **rust**: TEST761: Prefix sub-plan can be topologically sorted (is a valid DAG)
+- **go**: TEST761: Prefix sub-plan can be topologically sorted (is a valid DAG)
+- **py**: TEST761: Prefix sub-plan can be topologically sorted (is a valid DAG)
+- **objc**: TEST761: Prefix is valid DAG
 
-### test729
+### test762
 
-- **rust**: TEST729: Tests creation and classification of different edge types (Direct, Iteration, Collection, JsonField) Verifies that edge constructors produce correct EdgeType variants
-- **go**: TEST729: Tests creation and classification of different edge types (Direct, Iteration, Collection, JsonField) Verifies that edge constructors produce correct EdgeKind variants
-- **py**: TEST729: Tests creation and classification of different edge types (Direct, Iteration, Collection, JsonField) Verifies that edge constructors produce correct EdgeType variants
+- **rust**: TEST762: Body sub-plan can be topologically sorted (is a valid DAG)
+- **go**: TEST762: Body sub-plan can be topologically sorted (is a valid DAG)
+- **py**: TEST762: Body sub-plan can be topologically sorted (is a valid DAG)
+- **objc**: TEST762: Body is valid DAG
 
-### test730
+### test763
 
-- **rust**: TEST730: Tests MediaShape correctly parses all four combinations
-- **go**: TEST730: Tests MediaShape correctly parses all four combinations
-- **py**: TEST730: Tests MediaShape correctly parses all four combinations
-- **objc**: TEST730: Tests MediaShape correctly parses all four combinations Cardinality is always Single from URN — comes from context, not URN tags
-
-### test731
-
-- **rust**: TEST731: Tests MediaShape compatibility for matching shapes
-- **go**: TEST731: Tests MediaShape compatibility for matching shapes (Direct)
-- **py**: TEST731: Tests MediaShape compatibility for matching shapes
-- **objc**: TEST731: Tests MediaShape compatibility for matching shapes
-
-### test737
-
-- **rust**: TEST737: Tests linear_chain() with exactly one capability Verifies that a single-element chain produces a valid plan with input_slot, cap, and output
-- **go**: TEST737: Tests LinearChain() with exactly one capability Verifies that a single-element chain produces a valid plan with input_slot, cap, and output
-- **py**: TEST737: Tests linear_chain() with exactly one capability Verifies that a single-element chain produces a valid plan with input_slot, cap, and output
-
-### test738
-
-- **rust**: TEST738: Tests linear_chain() with empty capability list Verifies that an empty chain produces a plan with zero nodes and edges
-- **go**: TEST738: Tests LinearChain() with empty capability list Verifies that an empty chain produces a plan with zero nodes and edges
-- **py**: TEST738: Tests linear_chain() with empty capability list Verifies that an empty chain produces a plan with zero nodes and edges
-
-### test741
-
-- **rust**: TEST741: Tests CapShapeInfo pattern detection — OneToMany requires output is_sequence=true
-- **go**: TEST741: Tests CapShapeInfo pattern detection — OneToMany requires Sequence output cardinality
-- **py**: TEST741: Tests CapShapeInfo pattern detection — OneToMany requires output is_sequence=true
-- **objc**: TEST741: Tests CapShapeInfo pattern detection — OneToMany requires output is_sequence=true
-
-### test749
-
-- **rust**: TEST749: Tests get_node() method for looking up nodes by ID in a plan Verifies that existing nodes are found and non-existent nodes return None
-- **go**: TEST749: Tests GetNode() method for looking up nodes by ID in a plan Verifies that existing nodes are found and non-existent nodes return nil
-- **py**: TEST749: Tests get_node() method for looking up nodes by ID in a plan Verifies that existing nodes are found and non-existent nodes return None
-
-### test752
-
-- **rust**: TEST752: Tests shape chain analysis with fan-out (matching structures) Fan-out requires output is_sequence=true on the disbind cap
-- **go**: TEST752: Tests shape chain analysis with fan-out (matching structures) Fan-out requires Sequence output cardinality (from is_sequence=true wire context)
-- **py**: TEST752: Tests shape chain analysis with fan-out (matching structures) Fan-out requires output is_sequence=true on the disbind cap
-- **objc**: TEST752: Tests shape chain analysis with fan-out (matching structures) Fan-out requires output is_sequence=true on the disbind cap
-
-### test754
-
-- **rust**: TEST754: extract_prefix_to with nonexistent node returns error
-- **go**: TEST754: extract_prefix_to with nonexistent node returns error
-- **py**: TEST754: extract_prefix_to with nonexistent node returns error
-- **objc**: TEST754: extractPrefixTo with nonexistent node returns error
-
-### test755
-
-- **rust**: TEST755: extract_foreach_body extracts body as standalone plan
-- **go**: TEST755: extract_foreach_body extracts body as standalone plan
-- **py**: TEST755: extract_foreach_body extracts body as standalone plan
-- **objc**: TEST755: extractForeachBody extracts body with synthetic I/O
-
-### test756
-
-- **rust**: TEST756: extract_foreach_body for unclosed ForEach (single body cap)
-- **go**: TEST756: extract_foreach_body for unclosed ForEach (single body cap)
-- **py**: TEST756: extract_foreach_body for unclosed ForEach (single body cap)
-- **objc**: TEST756: extractForeachBody for unclosed ForEach (single body cap)
-
-### test757
-
-- **rust**: TEST757: extract_foreach_body fails for non-ForEach node
-- **go**: TEST757: extract_foreach_body fails for non-ForEach node
-- **py**: TEST757: extract_foreach_body fails for non-ForEach node
-- **objc**: TEST757: extractForeachBody fails for non-ForEach node
-
-### test758
-
-- **rust**: TEST758: extract_suffix_from extracts collect → cap_post → output
-- **go**: TEST758: extract_suffix_from extracts collect → cap_post → output
-- **py**: TEST758: extract_suffix_from extracts collect → cap_post → output
-- **objc**: TEST758: extractSuffixFrom extracts collect → cap_post → output
-
-### test759
-
-- **rust**: TEST759: extract_suffix_from fails for nonexistent node
-- **go**: TEST759: extract_suffix_from fails for nonexistent node
-- **py**: TEST759: extract_suffix_from fails for nonexistent node
-- **objc**: TEST759: extractSuffixFrom fails for nonexistent node
-
-### test764
-
-- **rust**: TEST764: extract_prefix_to with InputSlot as target (trivial prefix)
-- **go**: TEST764: extract_prefix_to with InputSlot as target (trivial prefix)
-- **py**: TEST764: extract_prefix_to with InputSlot as target (trivial prefix)
-- **objc**: TEST764: extractPrefixTo with InputSlot as target (trivial prefix)
-
-### test765
-
-- **rust**: TEST765: Tests validation_to_json() returns None for empty validation constraints Verifies that default MediaValidation with no constraints produces JSON None
-- **go**: TEST765: Tests ValidationToJSON() returns nil for empty validation constraints Verifies that default MediaValidation with no constraints produces nil JSON
-- **py**: TEST765: Tests validation_to_json() returns None for empty validation constraints Verifies that default MediaValidation with no constraints produces JSON None
-
-### test766
-
-- **rust**: TEST766: Tests validation_to_json() converts MediaValidation with constraints to JSON Verifies that min/max validation rules are correctly serialized as JSON fields
-- **go**: TEST766: Tests ValidationToJSON() converts MediaValidation with constraints to JSON Verifies that min/max validation rules are correctly serialized as JSON fields
-- **py**: TEST766: Tests validation_to_json() converts MediaValidation with constraints to JSON Verifies that min/max validation rules are correctly serialized as JSON fields
-
-### test772
-
-- **rust**: TEST772: Tests find_paths_to_exact_target() finds multi-step paths Verifies that paths through intermediate nodes are found correctly
-- **go**: TEST772: Tests FindPathsToExactTarget() finds multi-step paths Verifies that paths through intermediate nodes are found correctly
-- **py**: TEST772: Tests find_paths_to_exact_target() finds multi-step paths Verifies that paths through intermediate nodes are found correctly
-
-### test773
-
-- **rust**: TEST773: Tests find_paths_to_exact_target() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable
-- **go**: TEST773: Tests FindPathsToExactTarget() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable
-- **py**: TEST773: Tests find_paths_to_exact_target() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable
-
-### test774
-
-- **rust**: TEST774: Tests get_reachable_targets() returns all reachable targets Verifies that reachable targets include direct cap targets and cardinality variants (list versions via Collect)
-- **go**: TEST774: Tests GetReachableTargets() returns all reachable targets Verifies that reachable targets include direct cap targets
-- **py**: TEST774: Tests get_reachable_targets() returns all reachable targets Verifies that reachable targets include direct cap targets and cardinality variants (list versions via Collect)
-
-### test777
-
-- **rust**: TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding
-- **go**: TEST777: Tests type checking prevents using PDF-specific cap with PNG input
-- **py**: TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding
-
-### test778
-
-- **rust**: TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding
-- **go**: TEST778: Tests type checking prevents using PNG-specific cap with PDF input
-- **py**: TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding
-
-### test779
-
-- **rust**: TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's)
-- **go**: TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps
-- **py**: TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's)
-
-### test781
-
-- **rust**: TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible
-- **go**: TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains
-- **py**: TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible
-
-### test787
-
-- **rust**: TEST787: Tests find_paths_to_exact_target() sorts paths by length, preferring shorter ones Verifies that among multiple paths, the shortest is ranked first
-- **go**: TEST787: Tests find_paths_to_exact_target() sorts paths by length, preferring shorter ones
-- **py**: TEST787: Tests find_paths_to_exact_target() sorts paths by length, preferring shorter ones Verifies that among multiple paths, the shortest is ranked first
+- **rust**: TEST763: Suffix sub-plan can be topologically sorted (is a valid DAG)
+- **go**: TEST763: Suffix sub-plan can be topologically sorted (is a valid DAG)
+- **py**: TEST763: Suffix sub-plan can be topologically sorted (is a valid DAG)
+- **objc**: TEST763: Suffix is valid DAG
 
 ### test788
 
@@ -2521,139 +1942,17 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST788: ForEach is only synthesized when is_sequence=true
 - **py**: TEST788: ForEach is only synthesized when is_sequence=true
 
-### test790
+### test795
 
-- **rust**: TEST790: Tests identity_urn is specific and doesn't match everything
-- **go**: TEST790: Tests identity_urn is specific and doesn't match everything
-- **py**: TEST790: Tests identity_urn is specific and doesn't match everything
-- **objc**: TEST790: Identity URN is specific, not equivalent to everything
-
-### test804
-
-- **rust**: TEST804: Tests basic JSON path extraction with dot notation for nested objects Verifies that simple paths like "data.message" correctly extract values from nested JSON structures
-- **go**: TEST804: Tests basic JSON path extraction with dot notation for nested objects
-- **py**: TEST804: Tests basic JSON path extraction with dot notation for nested objects Verifies that simple paths like "data.message" correctly extract values from nested JSON structures
+- **rust**: TEST795: Tests ArgumentBindings identifies unresolved Slot bindings Verifies has_unresolved_slots() and get_unresolved_slots() detect Slots needing values
+- **go**: TEST795: ArgumentBindings identifies unresolved Slot bindings
+- **py**: TEST795: Tests ArgumentBindings identifies unresolved Slot bindings Verifies has_unresolved_slots() and get_unresolved_slots() detect Slots needing values
 
 ### test805
 
 - **rust**: TEST805: Tests JSON path extraction with array indexing syntax Verifies that bracket notation like "items[0].name" correctly accesses array elements and their nested fields
 - **go**: TEST805: Tests JSON path extraction with array indexing syntax
 - **py**: TEST805: Tests JSON path extraction with array indexing syntax Verifies that bracket notation like "items[0].name" correctly accesses array elements and their nested fields
-
-### test806
-
-- **rust**: TEST806: Tests error handling when JSON path references non-existent fields Verifies that accessing missing fields returns an appropriate error message
-- **go**: TEST806: Tests error handling when JSON path references non-existent fields
-- **py**: TEST806: Tests error handling when JSON path references non-existent fields Verifies that accessing missing fields returns an appropriate error message
-
-### test807
-
-- **rust**: TEST807: Tests EdgeType::Direct passes JSON values through unchanged Verifies that Direct edge type acts as a transparent passthrough without transformation
-- **go**: TEST807: Tests EdgeType::Direct passes JSON values through unchanged
-- **py**: TEST807: Tests EdgeType::Direct passes JSON values through unchanged Verifies that Direct edge type acts as a transparent passthrough without transformation
-
-### test808
-
-- **rust**: TEST808: Tests EdgeType::JsonField extracts specific top-level fields from JSON objects Verifies that JsonField edge type correctly isolates a single named field from the source output
-- **go**: TEST808: Tests EdgeType::JsonField extracts specific top-level fields from JSON objects
-- **py**: TEST808: Tests EdgeType::JsonField extracts specific top-level fields from JSON objects Verifies that JsonField edge type correctly isolates a single named field from the source output
-
-### test809
-
-- **rust**: TEST809: Tests EdgeType::JsonField error handling for missing fields Verifies that attempting to extract a non-existent field returns an error
-- **go**: TEST809: Tests EdgeType::JsonField error handling for missing fields
-- **py**: TEST809: Tests EdgeType::JsonField error handling for missing fields Verifies that attempting to extract a non-existent field returns an error
-
-### test810
-
-- **rust**: TEST810: Tests EdgeType::JsonPath extracts values using nested path expressions Verifies that JsonPath edge type correctly navigates through multiple levels like "data.nested.value"
-- **go**: TEST810: Tests EdgeType::JsonPath extracts values using nested path expressions
-- **py**: TEST810: Tests EdgeType::JsonPath extracts values using nested path expressions Verifies that JsonPath edge type correctly navigates through multiple levels like "data.nested.value"
-- **objc**: TEST810: Tests EdgeType::JsonPath extracts values using nested path expressions Verifies that JsonPath edge type correctly navigates through multiple levels like "data.nested.value"
-
-### test811
-
-- **rust**: TEST811: Tests EdgeType::Iteration preserves array values for iterative processing Verifies that Iteration edge type passes through arrays unchanged to enable ForEach patterns
-- **go**: TEST811: Tests EdgeType::Iteration preserves array values for iterative processing
-- **py**: TEST811: Tests EdgeType::Iteration preserves array values for iterative processing Verifies that Iteration edge type passes through arrays unchanged to enable ForEach patterns
-- **objc**: TEST811: Tests EdgeType::Iteration preserves array values for iterative processing Verifies that Iteration edge type passes through arrays unchanged to enable ForEach patterns
-
-### test812
-
-- **rust**: TEST812: Tests EdgeType::Collection preserves collected values without transformation Verifies that Collection edge type maintains structure for aggregation patterns
-- **go**: TEST812: Tests EdgeType::Collection preserves collected values without transformation
-- **py**: TEST812: Tests EdgeType::Collection preserves collected values without transformation Verifies that Collection edge type maintains structure for aggregation patterns
-- **objc**: TEST812: Tests EdgeType::Collection preserves collected values without transformation Verifies that Collection edge type maintains structure for aggregation patterns
-
-### test813
-
-- **rust**: TEST813: Tests JSON path extraction through deeply nested object hierarchies (4+ levels) Verifies that paths can traverse multiple nested levels like "level1.level2.level3.level4.value"
-- **go**: TEST813: Tests JSON path extraction through deeply nested object hierarchies (4+ levels)
-- **py**: TEST813: Tests JSON path extraction through deeply nested object hierarchies (4+ levels) Verifies that paths can traverse multiple nested levels like "level1.level2.level3.level4.value"
-- **objc**: TEST813: Tests JSON path extraction through deeply nested object hierarchies (4+ levels) Verifies that paths can traverse multiple nested levels like "level1.level2.level3.level4.value"
-
-### test814
-
-- **rust**: TEST814: Tests error handling when array index exceeds available elements Verifies that out-of-bounds array access returns a descriptive error message
-- **go**: TEST814: Tests error handling when array index exceeds available elements
-- **py**: TEST814: Tests error handling when array index exceeds available elements Verifies that out-of-bounds array access returns a descriptive error message
-- **objc**: TEST814: Tests error handling when array index exceeds available elements Verifies that out-of-bounds array access returns a descriptive error message
-
-### test815
-
-- **rust**: TEST815: Tests JSON path extraction with single-level paths (no nesting) Verifies that simple field names without dots correctly extract top-level values
-- **go**: TEST815: Tests JSON path extraction with single-level paths (no nesting)
-- **py**: TEST815: Tests JSON path extraction with single-level paths (no nesting) Verifies that simple field names without dots correctly extract top-level values
-- **objc**: TEST815: Tests JSON path extraction with single-level paths (no nesting) Verifies that simple field names without dots correctly extract top-level values
-
-### test816
-
-- **rust**: TEST816: Tests JSON path extraction preserves special characters in string values Verifies that quotes, backslashes, and other special characters are correctly maintained
-- **go**: TEST816: Tests JSON path extraction preserves special characters in string values
-- **py**: TEST816: Tests JSON path extraction preserves special characters in string values Verifies that quotes, backslashes, and other special characters are correctly maintained
-- **objc**: TEST816: Tests JSON path extraction preserves special characters in string values Verifies that quotes, backslashes, and other special characters are correctly maintained
-
-### test817
-
-- **rust**: TEST817: Tests JSON path extraction correctly handles explicit null values Verifies that null is returned as serde_json::Value::Null rather than an error
-- **go**: TEST817: Tests JSON path extraction correctly handles explicit null values
-- **py**: TEST817: Tests JSON path extraction correctly handles explicit null values Verifies that null is returned as serde_json::Value::Null rather than an error
-- **objc**: TEST817: Tests JSON path extraction correctly handles explicit null values Verifies that null is returned as serde_json::Value::Null rather than an error
-
-### test818
-
-- **rust**: TEST818: Tests JSON path extraction correctly returns empty arrays Verifies that zero-length arrays are extracted as valid empty array values
-- **go**: TEST818: Tests JSON path extraction correctly returns empty arrays
-- **py**: TEST818: Tests JSON path extraction correctly returns empty arrays Verifies that zero-length arrays are extracted as valid empty array values
-- **objc**: TEST818: Tests JSON path extraction correctly returns empty arrays Verifies that zero-length arrays are extracted as valid empty array values
-
-### test819
-
-- **rust**: TEST819: Tests JSON path extraction handles various numeric types correctly Verifies extraction of integers, floats, negative numbers, and zero
-- **go**: TEST819: Tests JSON path extraction handles various numeric types correctly
-- **py**: TEST819: Tests JSON path extraction handles various numeric types correctly Verifies extraction of integers, floats, negative numbers, and zero
-- **objc**: TEST819: Tests JSON path extraction handles various numeric types correctly Verifies extraction of integers, floats, negative numbers, and zero
-
-### test820
-
-- **rust**: TEST820: Tests JSON path extraction correctly handles boolean values Verifies that true and false are extracted as proper boolean JSON values
-- **go**: TEST820: Tests JSON path extraction correctly handles boolean values
-- **py**: TEST820: Tests JSON path extraction correctly handles boolean values Verifies that true and false are extracted as proper boolean JSON values
-- **objc**: TEST820: Tests JSON path extraction correctly handles boolean values Verifies that true and false are extracted as proper boolean JSON values
-
-### test821
-
-- **rust**: TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access) Verifies that nested array structures like "matrix[1]" correctly extract inner arrays
-- **go**: TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access)
-- **py**: TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access) Verifies that nested array structures like "matrix[1]" correctly extract inner arrays
-- **objc**: TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access) Verifies that nested array structures like "matrix[1]" correctly extract inner arrays
-
-### test822
-
-- **rust**: TEST822: Tests error handling for non-numeric array indices Verifies that invalid indices like "items[abc]" return a descriptive parse error
-- **go**: TEST822: Tests error handling for non-numeric array indices
-- **py**: TEST822: Tests error handling for non-numeric array indices Verifies that invalid indices like "items[abc]" return a descriptive parse error
-- **objc**: TEST822: Tests error handling for non-numeric array indices Verifies that invalid indices like "items[abc]" return a descriptive parse error
 
 ### test842
 
@@ -2669,82 +1968,50 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST854: LUB keeps common tags, drops differing ones. Two text values with differing serialization formats share their encoding but not their fmt.
 - **objc**: TEST854: LUB keeps common tags, drops differing ones
 
-### test886
-
-- **rust**: TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults
-- **go**: TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that arguments with defaults return HasDefault regardless of step position
-- **py**: TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults
-
 ### test891
 
 - **rust**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.
 - **go**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.
 - **py**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.
-- **js**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact-value tag (e.g. ext=png) scores 4.
+- **js**: TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.
+- **objc**: TEST891: Semantic direction specificity - more media URN tags = higher specificity (mirror-local variant of TEST052)
 
-### test908
+### test921
 
-- **rust**: TEST908: cached caps remain accessible while offline.
-- **py**: TEST908: Cached caps remain accessible when offline
-- **objc**: TEST908: Cached caps remain accessible when offline
+- **rust**: TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order
+- **go**: TEST921: LinearChain creates a plan with correct nodes and edges in topological order.
+- **py**: TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order
 
-### test927
+### test922
 
-- **rust**: TEST927: Tests MachineResult structure for successful execution outcomes Verifies that success status, outputs, and primary_output() accessor work correctly
-- **go**: TEST927: Tests MachineResult structure for successful execution outcomes Verifies that success status, outputs, and PrimaryOutput() accessor work correctly
-- **py**: TEST927: Tests MachineResult structure for successful execution outcomes Verifies that success status, outputs, and primary_output() accessor work correctly
+- **rust**: TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly
+- **go**: TEST922: An empty MachinePlan is valid with zero nodes.
+- **py**: TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly
 
-### test929
+### test923
 
-- **rust**: TEST929: Tests plan validation detects invalid entry node references Verifies that validate() returns an error when entry_nodes contains a non-existent node ID
-- **go**: TEST929: Tests plan validation detects invalid entry node references Verifies that Validate() returns an error when EntryNodes contains a non-existent node ID
-- **py**: TEST929: Tests plan validation detects invalid entry node references Verifies that validate() returns an error when entry_nodes contains a non-existent node ID
-
-### test930
-
-- **rust**: TEST930: Tests plan validation detects invalid output node references Verifies that validate() returns an error when output_nodes contains a non-existent node ID
-- **go**: TEST930: Tests plan validation detects invalid output node references Verifies that Validate() returns an error when OutputNodes contains a non-existent node ID
-- **py**: TEST930: Tests plan validation detects invalid output node references Verifies that validate() returns an error when output_nodes contains a non-existent node ID
-
-### test933
-
-- **rust**: TEST933: Tests CapInputCollection serializes to JSON and deserializes correctly Verifies JSON round-trip preserves folder_id, folder_name, files and file metadata
-- **go**: TEST933: CapInputCollection serializes to JSON and deserializes back preserving all fields Verifies JSON round-trip preserves folder_id, folder_name, files and file metadata.
-- **py**: TEST933: Tests CapInputCollection serializes to JSON and deserializes correctly Verifies JSON round-trip preserves folder_id, folder_name, files and file metadata
+- **rust**: TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation
+- **go**: TEST923: MachinePlan stores and retrieves metadata by key.
+- **py**: TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation
 
 ### test934
 
 - **rust**: TEST934: find_first_foreach detects ForEach in a plan
-- **go**: TEST934: FindFirstForEach detects ForEach in a plan
+- **go**: TEST934: find_first_foreach detects ForEach in a plan
 - **py**: TEST934: find_first_foreach detects ForEach in a plan
-
-### test935
-
-- **rust**: TEST935: find_first_foreach returns None for linear plans
-- **go**: TEST935: FindFirstForEach returns nil for linear plans
-- **py**: TEST935: find_first_foreach returns None for linear plans
-- **objc**: TEST935: findFirstForeach returns nil for linear plans
+- **objc**: MARK: - TEST934: findFirstForeach detects ForEach
 
 ### test936
 
 - **rust**: TEST936: has_foreach detects ForEach nodes
-- **go**: TEST936: HasForeach detects ForEach nodes
+- **go**: TEST936: has_foreach detects ForEach nodes
 - **py**: TEST936: has_foreach detects ForEach nodes
+- **objc**: TEST936: hasForeach
 
-### test937
+### test950
 
-- **rust**: TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan
-- **go**: TEST937: ExtractPrefixTo extracts input_slot -> cap_0 as a standalone plan
-- **py**: TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan
-- **objc**: TEST937: extractPrefixTo extracts input_slot → cap_0 as standalone plan
-
-### test939
-
-- **rust**: TEST939: The canonical form drops `in=media:` and `out=media:` segments. Every spelling of "the same cap with wildcard in/out" collapses to one byte-identical canonical string. This is the contract that makes registry lookups work: the cap-publisher hashes `<canonical-urn>` to compute the cache key, and every language port (Rust, Go, Python, JS, ObjC) must agree on the canonical form for cross-language lookups to land on the same key. A regression that emitted the wildcard segments would silently move the published cap to a different SHA-256 bucket, 404'ing every reader that hashes the canonical form.
-- **go**: TEST939: The canonical form drops `in=media:` and `out=media:` segments. Every spelling of "the same cap with wildcard in/out" collapses to one byte-identical canonical string. This is the contract that makes registry lookups work: the cap-publisher hashes `<canonical-urn>` to compute the cache key, and every language port (Rust, Go, Python, JS, ObjC) must agree on the canonical form for cross-language lookups to land on the same key. A regression that emitted the wildcard segments would silently move the published cap to a different SHA-256 bucket, 404'ing every reader that hashes the canonical form.
-- **py**: TEST939: The canonical form drops `in=media:` and `out=media:` segments. Every spelling of "the same cap with wildcard in/out" collapses to one byte-identical canonical string. This is the contract that makes registry lookups work: the cap-publisher hashes `<canonical-urn>` to compute the cache key, and every language port (Rust, Go, Python, JS, ObjC) must agree on the canonical form for cross-language lookups to land on the same key. A regression that emitted the wildcard segments would silently move the published cap to a different SHA-256 bucket, 404'ing every reader that hashes the canonical form.
-- **js**: TEST939: The canonical form drops `in=media:` and `out=media:` segments. Every spelling of "the same cap with wildcard in/out" collapses to one byte-identical canonical string. This is the contract that makes registry lookups work: the cap-publisher hashes `<canonical-urn>` to compute the cache key, and every language port (Rust, Go, Python, JS, ObjC) must agree on the canonical form for cross-language lookups to land on the same key. A regression that emitted the wildcard segments would silently move the published cap to a different SHA-256 bucket, 404'ing every reader that hashes the canonical form.
-- **objc**: TEST939: The canonical form drops default `in=media:`, `out=media:`, and `effect=declared`. Every spelling of the same declared-effect wildcard cap collapses to one byte-identical canonical string. This is the contract that makes registry lookups work: the cap-publisher hashes `<canonical-urn>` to compute the cache key, and every language port (Rust, Go, Python, JS, ObjC) must agree on the canonical form for cross-language lookups to land on the same key. A regression that emitted the wildcard segments would silently move the published cap to a different SHA-256 bucket, 404'ing every reader that hashes the canonical form.
+- **rust**: TEST950: Validate that cycles are rejected
+- **objc**: Mirror-specific coverage: Validate that cycles are rejected
 
 ### test954
 
@@ -2752,123 +2019,79 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST954: Standalone Collect nodes are handled as pass-through Plan: input → cap_0 → Collect → cap_1 → output The standalone Collect is transparent — the resolved edge from Collect to cap_1 should be rewritten to go from cap_0 to cap_1 directly.
 - **py**: TEST954: Standalone Collect nodes are handled as pass-through
 
-### test963
+### test959
 
-- **rust**: TEST963: split preserves CBOR byte strings (binary data — the common case in bifaci)
-- **go**: TEST963: split preserves CBOR byte strings (binary data)
-- **py**: TEST963: split preserves CBOR byte strings (binary data — the common case in bifaci)
-- **objc**: TEST963: split preserves CBOR byte strings (binary data — the common case in bifaci)
+- **rust**: TEST959: Tests CapInputFile extracts filename from full path correctly Verifies filename() returns just the basename without directory path
+- **go**: TEST959: CapInputFile.Filename() extracts the basename from a full path.
+- **py**: TEST959: Tests CapInputFile extracts filename from full path correctly Verifies filename() returns just the basename without directory path
 
-### test975
+### test960
 
-- **rust**: TEST975: split_cbor_sequence works on data that is also a valid CBOR array (single top-level value)
-- **go**: TEST975: split_cbor_sequence works on data that is also a valid single CBOR value
-- **py**: TEST975: split_cbor_sequence works on data that is also a valid CBOR array (single top-level value)
-- **objc**: TEST975: split_cbor_sequence works on data that is also a valid CBOR array (single top-level value)
+- **rust**: TEST960: Tests ArgumentBinding literal_string creates Literal variant with string value Verifies literal_string() wraps string in JSON Value::String
+- **go**: TEST960: NewLiteralStringBinding creates a Literal binding wrapping a JSON string.
+- **py**: TEST960: Tests ArgumentBinding literal_string creates Literal variant with string value Verifies literal_string() wraps string in JSON Value::String
 
-### test991
+### test987
 
-- **rust**: TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn
-- **go**: TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that checkForDuplicateCaps() returns an error when multiple caps share the same cap_urn
-- **py**: TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn
+- **rust**: / Contract #3 — the secondary hard-cap pass kicks in if the / table somehow exceeds `HARD_CAP` (extreme runaway). Without / it, a single GC at the soft watermark would not be enough / to recover headroom and the table could grow without bound / between bursts.
+- **objc**: / Contract #3 — the secondary "hard cap" pass kicks in if / the table somehow exceeds `hardCap` (e.g. a seed that goes / over, simulating an extreme runaway). Without the / secondary pass, a single GC at the soft watermark would / not be enough to recover headroom and the table could / grow without bound between bursts.
 
-### test994
+### test988
 
-- **rust**: TEST994: Tests first cap's input argument is automatically resolved from input file Verifies that determine_resolution_with_io_check() returns FromInputFile for the first cap in a chain
-- **go**: TEST994: Tests first cap's input argument is automatically resolved from input file Verifies that determineResolutionWithIOCheck() returns FromInputFile for the first cap in a chain
-- **py**: TEST994: Tests first cap's input argument is automatically resolved from input file Verifies that determine_resolution_with_io_check() returns FromInputFile for the first cap in a chain
-
-### test995
-
-- **rust**: TEST995: Tests subsequent caps' input arguments are automatically resolved from previous output Verifies that determine_resolution_with_io_check() returns FromPreviousOutput for caps after the first
-- **go**: TEST995: Tests subsequent caps' input arguments are automatically resolved from previous output Verifies that determineResolutionWithIOCheck() returns FromPreviousOutput for caps after the first
-- **py**: TEST995: Tests subsequent caps' input arguments are automatically resolved from previous output Verifies that determine_resolution_with_io_check() returns FromPreviousOutput for caps after the first
-
-### test1019
-
-- **rust**: TEST1019: Tests validation_to_json() returns None for None input Verifies that missing validation metadata is converted to JSON None
-- **go**: TEST1019: Tests ValidationToJSON() returns nil for nil input Verifies that missing validation metadata is converted to nil
-- **py**: TEST1019: Tests validation_to_json() returns None for None input Verifies that missing validation metadata is converted to JSON None
-
-### test1090
-
-- **rust**: TEST1090: 1 file → is_sequence=false
-- **py**: TEST1090: 1 file -> is_sequence=false
-- **objc**: TEST1090: 1 file → is_sequence=false
-
-### test1092
-
-- **rust**: TEST1092: 2 files → is_sequence=true
-- **py**: TEST1092: 2 files -> is_sequence=true
-- **objc**: TEST1092: 2 files → is_sequence=true
-
-### test1093
-
-- **rust**: TEST1093: 1 dir with 1 file → is_sequence=false
-- **py**: TEST1093: 1 dir with 1 file -> is_sequence=false
-- **objc**: TEST1093: 1 dir with 1 file → is_sequence=false
-
-### test1094
-
-- **rust**: TEST1094: 1 dir with 3 files → is_sequence=true
-- **py**: TEST1094: 1 dir with 3 files -> is_sequence=true
-- **objc**: TEST1094: 1 dir with 3 files → is_sequence=true
+- **rust**: / Contract #1 — the GC keeps the table strictly below the / hard cap. Seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame- / burst) and call the production GC entry point. The / post-state must be at most `SOFT_WATERMARK` entries / because the GC drops at least / `EVICTION_FRACTION × pre_state` entries in one pass and / the pre-state is below the hard cap (i.e. one pass is / enough; the secondary "hard cap" pass would only fire if / pre-state crossed the hard cap before insertion completed, / which production prevents by gc-ing on every insert).
+- **objc**: / Contract #1 — the GC keeps the table strictly below the / hard cap. We seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame-burst) / and call the production GC entry point. The post-state / must be at most `softWatermark` entries because the GC / drops at least `evictionFraction × pre-state` entries in / one pass and the pre-state is below `hardCap` (i.e. one / pass is enough; the secondary "hard cap" pass would only / kick in if pre-state crossed the hard cap before insertion / completed, which production prevents by gc-ing on every / insert).
 
 ### test1100
 
 - **rust**: TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry (e.g., "record;enc=utf-8" vs "enc=utf-8;record")
 - **go**: TEST1100: Tests that CapUrn normalizes media URN tags to canonical order Two CapUrns with different tag ordering in out spec must produce the same canonical string.
-- **py**: TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry
+- **py**: TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry (e.g., "record;enc=utf-8" vs "enc=utf-8;record")
 
 ### test1103
 
 - **rust**: TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request). This tests the directionality: provider.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder
-- **py**: TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request)
+- **go**: TEST1103: Tests that IsDispatchable has correct directionality A specific provider is dispatchable for a general request; the reverse is false.
+- **py**: TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request). This tests the directionality: provider.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder
 
 ### test1111
 
 - **rust**: TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source.
 - **go**: TEST1111: ForEach works for user-provided list sources not in the graph. User provides media:list;txt;enc=utf-8 with is_sequence=true → ForEach+cap path found.
 
-### test1113
+### test1122
 
-- **rust**: TEST1113: Multi-cap path without Collect — Collect is not synthesized
-- **go**: TEST1113: Multi-cap path without Collect — Collect is not synthesized. PDF→disbind→page→summarize→summary. CapStepCount=2.
+- **rust**: TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay
+- **objc**: TEST1122: All cap input media defs that represent user files must have extensions. These are the entry points — the file types users can right-click on.
 
-### test1114
+### test1123
 
-- **rust**: TEST1114: Graph stores only Cap edges after sync
-- **go**: TEST1114: Graph stores only Cap edges after SyncFromCaps. All stored edges must have IsCap() == true.
+- **rust**: TEST1123: Cartridge ERR frame flows back to engine through relay
+- **objc**: TEST1123: Verify that specific cap output URNs resolve to the correct extension. This catches misconfigurations where a spec exists but has the wrong extension.
 
-### test1115
+### test1126
 
-- **rust**: TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items
-- **go**: TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items. getOutgoingEdges(source, true) → ForEach edge present, next_is_seq=false.
-
-### test1116
-
-- **rust**: TEST1116: Collect is never synthesized during path finding
-- **go**: TEST1116: Collect is never synthesized during path finding. getOutgoingEdges for both scalar and sequence returns no Collect edges.
-
-### test1117
-
-- **rust**: TEST1117: ForEach is NOT synthesized when is_sequence=false
-- **go**: TEST1117: ForEach is NOT synthesized when is_sequence=false. Even with caps that could consume, ForEach requires is_sequence=true.
-
-### test1119
-
-- **rust**: TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end.
-- **go**: TEST1119: FromStrand builds a single-strand Machine from a planner.Strand. Smoke test the registry-threaded API end-to-end.
-
-### test1120
-
-- **rust**: TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed.
-- **go**: TEST1120: FromStrand fails hard when the cap is not in the registry. The planner produces strands referencing caps that must be present in the cap registry cache for resolution to succeed.
+- **rust**: TEST1126: map_progress is deterministic — same inputs always produce same output
+- **objc**: TEST1126: set_offline(false) restores fetch ability (would fail with HTTP error, not NetworkBlocked)
 
 ### test1127
 
 - **rust**: TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capfab side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't.
 - **go**: TEST1127: Documentation field round-trips through JSON serialize/deserialize. The body must survive multi-line markdown with CRLF, backticks, double quotes, and Unicode characters — every character must be preserved.
+
+### test1128
+
+- **rust**: TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's "if present" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `"documentation":null` and break consumers that distinguish between absent and explicit null.
+- **go**: TEST1128: When Documentation is nil, the serializer must omit the field entirely. There must be no "documentation":null — only absence.
+
+### test1129
+
+- **rust**: TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming.
+- **go**: TEST1129: A capfab-shaped JSON document with a documentation field must deserialize into a Cap with the body intact.
+
+### test1130
+
+- **rust**: TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field — for example, set_documentation accidentally writing to cap_description.
+- **go**: TEST1130: Documentation set/clear lifecycle must not cross-contaminate cap_description.
 
 ### test1133
 
@@ -2880,111 +2103,87 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **rust**: TEST1135: MachineStrand::node_urn(id) returns the MediaUrn at that NodeId. For a single-cap strand (pdf → extract → txt), there are exactly two nodes and each returns a valid URN.
 - **py**: TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId.
 
-### test1140
+### test1136
 
-- **rust**: TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END with correct frame types, stream_id, media_urn, and data integrity.
-- **py**: TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END
+- **rust**: TEST1136: parse_machine with an undefined cap alias raises MachineParseError wrapping MachineSyntaxError::UndefinedAlias. This pins the error path so an alias lookup failure is always surfaced as a syntax error (not a resolution error or a panic).
+- **py**: TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError.
 
-### test1143
+### test1146
 
-- **rust**: TEST1143: InputItem::from_string distinguishes glob patterns, directories, and files
-- **go**: TEST1143: InputItem::from_string distinguishes glob patterns, directories, and files
-- **py**: TEST1143: InputItem.from_string distinguishes glob pattern, existing directory, and non-directory path.
+- **rust**: TEST1146: InputResolverError Display and source() implementations produce correct messages
+- **go**: TEST1146: InputResolverError Display and source() implementations produce correct messages
+- **py**: TEST1146: InputResolverError subclass display messages and exception hierarchy are correct.
 
-### test1144
+### test1147
 
-- **rust**: TEST1144: ContentStructure is_list/is_record helpers and Display implementation are correct
-- **go**: TEST1144: ContentStructure is_list/is_record helpers and Display implementation are correct
-- **py**: TEST1144: ContentStructure is_list/is_record helpers and string values are correct.
-- **objc**: TEST1144: ContentStructure is_list/is_record helpers are correct
+- **rust**: TEST1147: MachineSyntaxError Display includes position and detail for each variant
+- **go**: TEST1147: MachineSyntaxError.Error() includes position and detail. invalidWiringError(7) must produce a message containing "statement 7" and "invalid wiring".
+- **py**: TEST1147: InvalidWiringError display message is human-readable and specific.
 
-### test1145
+### test1150
 
-- **rust**: TEST1145: ResolvedInputSet uses URN equivalence for common_media and file count for is_sequence
-- **go**: TEST1145: ResolvedInputSet uses URN equivalence for common_media and file count for is_sequence
-- **py**: TEST1145: ResolvedInputSet.new uses URN equivalence for common_media and file count for is_sequence.
-- **objc**: TEST1145: ResolvedInputSet uses URN equivalence for common_media and file count for is_sequence
-
-### test1148
-
-- **rust**: TEST1148: MachineParseError::from(MachineSyntaxError) preserves the syntax error variant
-- **go**: TEST1148: MachineParseError with Syntax field preserves the syntax error kind.
-- **py**: TEST1148: MachineParseError wrapping a MachineSyntaxError preserves the syntax cause.
-
-### test1149
-
-- **rust**: TEST1149: MachineParseError::from(MachineAbstractionError) preserves the resolution error variant
-- **go**: TEST1149: MachineParseError with Abstraction field preserves the resolution error kind.
-- **py**: TEST1149: MachineParseError wrapping a MachineAbstractionError preserves the resolution cause.
+- **rust**: TEST1150: Adding one cap creates one edge and makes its output reachable in one step.
+- **go**: TEST1150: Adding one cap creates one edge and makes its output reachable in one step.
+- **py**: TEST1150: Adding one cap creates one edge and makes its output reachable in one step.
+- **objc**: MARK: - Basic Tests (unnumbered, match Rust unnumbered tests)
 
 ### test1151
 
 - **rust**: TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives.
 - **go**: TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives.
-- **py**: TEST1151: Exact target lookup prefers the direct singular path over indirect paths with more steps.
+- **py**: TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives.
+- **objc**: TEST1151: Exact vs conformance matching
+
+### test1152
+
+- **rust**: TEST1152: Path finding returns the expected two-cap chain through an intermediate media type.
+- **go**: TEST1152: Path finding returns the expected two-cap chain through an intermediate media type.
+- **py**: TEST1152: Path finding returns the expected two-cap chain through an intermediate media type.
+- **objc**: TEST1152: Multi step path
+
+### test1153
+
+- **rust**: TEST1153: Repeated path searches return the same path order for the same graph and target.
+- **go**: TEST1153: Repeated path searches return the same path order for the same graph and target.
+- **py**: TEST1153: Repeated path searches return the same path order for the same graph and target.
+- **objc**: TEST1153: Deterministic ordering
 
 ### test1154
 
 - **rust**: TEST1154: Syncing from caps replaces the existing graph contents with the new cap set.
-- **go**: TEST1154: SyncFromCaps replaces the existing graph contents with the new cap set.
+- **go**: TEST1154: Syncing from caps replaces the existing graph contents with the new cap set.
 - **py**: TEST1154: Syncing from caps replaces the existing graph contents with the new cap set.
+- **objc**: TEST1154: Sync from caps
 
-### test1172
+### test1176
 
-- **rust**: TEST1172: Serializing a two-step strand emits the expected aliases and node names.
-- **go**: TEST1172: Serializing a two-step strand emits the expected aliases and node names.
-- **py**: TEST1172: Serializing a two-step strand emits global edge_N aliases and nN node names.
+- **rust**: TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine.
+- **go**: TEST1176: ToRenderPayloadJSON for a populated machine includes strand with nodes, edges, input_anchor_nodes, and output_anchor_nodes.
+- **py**: TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine.
 
-### test1177
+### test1181
 
-- **rust**: TEST1177: Rendering payload JSON for an empty machine emits an empty strands array.
-- **go**: TEST1177: ToRenderPayloadJSON for an empty machine emits an empty strands array.
-- **py**: TEST1177: Rendering payload JSON for an empty machine emits an empty strands array.
+- **rust**: TEST1181: Two sources are matched deterministically when specificity breaks the tie.
+- **go**: TEST1181: matchSourcesToArgs disambiguates two sources by specificity.
+- **py**: TEST1181: Two sources disambiguated by specificity — unique minimum-cost assignment.
 
-### test1179
+### test1190
 
-- **rust**: TEST1179: Source-to-arg matching assigns a more specific source to a compatible general argument.
-- **go**: TEST1179: matchSourcesToArgs assigns a more specific source to a compatible general arg.
-- **py**: TEST1179: Source-to-arg matching assigns a more specific source to a compatible general argument.
+- **rust**: TEST1190: Inverse format converters resolve without introducing a cycle in the strand graph.
+- **go**: TEST1190: resolveStrand with inverse format converters produces 3 distinct nodes, no cycle.
+- **py**: TEST1190: Inverse format converters resolve without introducing a cycle in the strand graph.
 
-### test1180
+### test1256
 
-- **rust**: TEST1180: Matching fails when a source does not conform to any cap input argument.
-- **go**: TEST1180: matchSourcesToArgs fails when source does not conform to any cap arg.
-- **py**: TEST1180: Matching fails when a source does not conform to any cap input argument.
+- **rust**: TEST1256: A single declared cap and one wiring parse into a two-node one-edge DAG.
+- **go**: TEST1256: A single declared cap and one wiring parse into a two-node one-edge DAG.
+- **py**: TEST1256: Parsing a single-cap machine notation produces a graph with 2 nodes and 1 edge.
 
-### test1183
+### test1261
 
-- **rust**: TEST1183: Matching fails when more sources are provided than the cap has input arguments.
-- **go**: TEST1183: matchSourcesToArgs fails when more sources are provided than cap args.
-- **py**: TEST1183: Matching fails when more sources are provided than the cap has input arguments.
-
-### test1186
-
-- **rust**: TEST1186: Resolving a strand with ForEach marks the following cap edge as a loop.
-- **go**: TEST1186: resolveStrand with ForEach marks the following cap edge as IsLoop=true.
-
-### test1187
-
-- **rust**: TEST1187: Strand resolution fails when a referenced cap is not found in the registry.
-- **go**: TEST1187: Strand resolution fails when a referenced cap is not found in the registry.
-- **py**: TEST1187: Resolving a strand fails hard when a referenced cap is not in the registry.
-
-### test1188
-
-- **rust**: TEST1188: Strand resolution fails when the strand contains no capability steps.
-- **go**: TEST1188: resolveStrand fails when the strand contains no capability steps.
-- **py**: TEST1188: Strand resolution fails when the strand contains no capability steps.
-
-### test1236
-
-- **rust**: TEST1236: Colon-delimited model spec text survives TXT candidate discrimination. TEST1236: Discrimination matches a candidate's validation pattern against the file content. media:model-spec is a value type with no associated file extension, so it does NOT appear among txt candidates. When passed in explicitly as a candidate, content that matches its `^(scheme):\S+$` regex must survive; content that doesn't (plain prose with whitespace) must be filtered out.
-- **py**: TEST1236: Discrimination matches a candidate's validation pattern against the file content. media:model-spec is a value type with no associated file extension, so it does NOT appear among txt candidates. When passed in explicitly as a candidate, content that matches its `^(scheme):\S+$` regex must survive; content that doesn't (plain prose) must be filtered out.
-
-### test1237
-
-- **rust**: TEST1237: Empty candidates → empty result
-- **py**: TEST1237: Empty candidates -> empty result
+- **rust**: TEST1261: A header cap whose definition cannot be resolved is reported as a machine-notation parse failure at the header site.
+- **go**: TEST1261: Parsing fails when a declared cap is absent from the registry. In Go the machine parser resolves caps before the orchestrator layer checks, so the error may be ErrMachineSyntaxParseFailed or ErrCapNotFound.
+- **py**: TEST1261: A cap URN not present in the registry cache causes a parse orchestration error.
 
 ### test1263
 
@@ -2992,21 +2191,17 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST1263: Cyclic wirings are rejected as non-DAG orchestrations. In Go the machine parser may reject cycles at the parse layer or the orchestrator layer.
 - **py**: TEST1263: Cyclic wirings are rejected as non-DAG orchestrations.
 
-### test1266
+### test1265
 
-- **rust**: TEST1266: Record-to-opaque structure mismatches are rejected once structure checking is enabled.
-- **py**: TEST1266: Record-to-opaque structure mismatches are skipped until structure checking is implemented.
+- **rust**: TEST1265: Shared nodes accept compatible media URNs when one is a more specific form of the other.
+- **go**: TEST1265: Shared nodes accept compatible media URNs when one is a more specific form of the other.
+- **py**: TEST1265: Compatible media urns at shared node
 
-### test1278
+### test1273
 
-- **rust**: TEST1278: Registration rejects the entire group — no partial registration
-- **py**: TEST1278: Registration rejects the entire group - no partial registration
-
-### test1283
-
-- **rust**: TEST1283: Custom adapter selection Op overrides the default
-- **go**: TEST1283: Custom adapter selection handler overrides the default
-- **py**: TEST1283: Custom adapter selection Op overrides the default
+- **rust**: TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs
+- **go**: TEST1273: CapAdapterSelection has correct in/out specs (in=media: out=media:adapter-selection;json;record)
+- **py**: TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs
 
 ### test1290
 
@@ -3014,29 +2209,24 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target.
 - **py**: TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target.
 
-### test1291
-
-- **rust**: TEST1291: IDDFS round-trip paths are also found with is_sequence=true. The ForEach/Collect edges must not block round-trip discovery.
-- **go**: TEST1291: IDDFS round-trip paths are also found with is_sequence=true.
-- **py**: TEST1291: IDDFS round-trip paths are also found with is_sequence=true.
-
 ### test1292
 
 - **rust**: TEST1292: BFS and IDDFS agree that round-trip targets exist. If BFS says target X is reachable from source X, IDDFS must find at least one path.
 - **go**: TEST1292: BFS and IDDFS agree that round-trip targets exist. If BFS says target X is reachable from source X, IDDFS must find at least one path.
 - **py**: TEST1292: BFS and IDDFS agree that round-trip targets exist.
 
-### test1293
+### test1308
 
-- **rust**: TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. Identity-only round trips (no real transformation) must be excluded.
-- **go**: TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. No round-trip should exist when there's no return edge.
-- **py**: TEST1293: IDDFS round-trip does not produce paths with 0 cap steps.
+- **rust**: TEST1308: A wiring set that feeds a cap's output back into an ancestor forms a cycle and must fail hard with CyclicMachineStrand carrying the strand index. Cycle: node 0 → cap A → node 1 → cap B → node 0.
+- **py**: TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError.
 
 ### test1800
 
 - **rust**: TEST1800: Identity classifier — and only explicit effect=none qualifies.
-- **py**: TEST1800: Identity classifier — only explicit `effect=none` qualifies. Bare top forms are illegal.
-- **js**: TEST1800: Identity classifier — only explicit effect=none qualifies.
+- **go**: TEST1800: Identity classifier — only explicit effect=none qualifies. `cap:effect=none` is the fully generic identity on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.
+- **py**: TEST1800: Identity classifier — and only explicit effect=none qualifies.
+- **js**: TEST1800: Identity classifier — and only explicit effect=none qualifies.
+- **objc**: TEST1800: Identity classifier — only explicit effect=none qualifies. Adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.
 
 ### test1801
 
@@ -3046,161 +2236,45 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **js**: TEST1801: Source classifier — in=media:void, out non-void.
 - **objc**: TEST1801: Source classifier — in=media:void, out non-void.
 
-### test1804
-
-- **rust**: TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps.
-- **go**: TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps.
-- **py**: TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps.
-- **js**: TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity.
-- **objc**: TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity.
-
-### test1805
-
-- **rust**: TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. This pins the rule that kind is a property of the cap as a structured object, not of any particular spelling.
-- **go**: TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. Pins the rule that kind is a property of the cap as a structured object, not of any particular spelling.
-- **py**: TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. Pins the rule that kind is a property of the cap as a structured object, not of any particular spelling.
-- **js**: TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed.
-- **objc**: TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed.
-
-### test1810
-
-- **rust**: TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail. The bare `media:void` parses successfully; any combination with another tag (marker or key=value) MUST fail with VoidNotAtomic. This forecloses a fake taxonomy of unit values; reasons or labels for *why* void is used belong on the cap URN's non-directional tags or in cap args.
-- **go**: TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail.
-- **py**: TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail.
-- **js**: TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail.
-- **objc**: TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail.
-
-### test1824
-
-- **rust**: TEST1824: All six forms compose additively on a single cap. This pins the truth-table sum across the y axis as a whole.
-- **go**: TEST1824: All six forms compose additively on a single cap. y combining 0+1+2+3+4+5 must sum to 15.
-- **py**: TEST1824: All six forms compose additively on a single cap. y combining 0+1+2+3+4+5 must sum to 15.
-- **js**: TEST1824: All six forms compose additively on a single cap. y combining 0+1+2+3+4+5 must sum to 15.
-- **objc**: TEST1824: All six forms compose additively on a single cap. y combining 0+1+2+3+4+5 must sum to 15.
-
 ### test1834
 
 - **rust**: TEST1834: x=v stays as x=v (the lone exact-value form).
-- **go**: TEST1834: x=v stays as x=v.
-- **py**: TEST1834: x=v stays as x=v.
-- **js**: TEST1834: x=v stays as x=v.
+- **go**: TEST1834: x=v stays as x=v (the lone exact-value form).
+- **py**: TEST1834: x=v stays as x=v (the lone exact-value form).
+- **js**: TEST1834: x=v stays as x=v (the lone exact-value form).
+- **objc**: TEST1834: Canonicalize exact value
 
 ### test1842
 
 - **rust**: TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form.
-- **go**: TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5.
-- **py**: TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5.
-
-### test1845
-
-- **rust**: TEST1845: With equal out-axis, in-axis dominates over y-axis.
-- **go**: TEST1845: With equal out, in-axis dominates over y-axis.
-- **py**: TEST1845: With equal out, in-axis dominates over y-axis.
-- **js**: TEST1845: With equal out, in-axis dominates over y-axis.
-- **objc**: TEST1845: With equal out, in-axis dominates over y-axis.
-
-### test1847
-
-- **rust**: TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and `primary_package()` must fall back to that legacy package, so a registry not yet republished with the dual-write keeps installing. When `packages[]` is present it is preferred over the legacy field.
-- **py**: TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and primary_package() must fall back to that legacy package, so a registry not yet republished with the dual-write keeps installing. When `packages[]` is present it is preferred over the legacy field, native format wins.
-- **objc**: TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and `primaryPackage()` must fall back to that legacy package. When `packages[]` is present it is preferred over the legacy field.
-
-### test1849
-
-- **rust**: TEST1849: latest version has a host build → Compatible, resolving to the latest version and that platform's native-format package.
-- **py**: TEST1849: latest version has a host build -> Compatible, resolving to the latest version and that platform's native-format package.
-- **js**: TEST1849: latest version has a host build → Compatible, resolving to the latest version and that platform's native-format package.
-- **objc**: TEST1849: latest version has a host build → Compatible, resolving to the latest version and that platform's native-format package.
-
-### test1850
-
-- **rust**: TEST1850: the latest version lacks a host build but an older version has one → CompatibleOutdated, resolving to the older version with a reason naming both the latest and the resolved version.
-- **py**: TEST1850: the latest version lacks a host build but an older version has one -> CompatibleOutdated, resolving to the older version with a reason naming both the latest and the resolved version.
-- **js**: TEST1850: the latest version lacks a host build but an older version has one → CompatibleOutdated, resolving to the NEWEST older version with a host build (not the oldest), with a reason naming both the latest and the resolved.
-- **objc**: TEST1850: the latest version lacks a host build but an older version has one → CompatibleOutdated, resolving to the older version with a reason naming both the latest and the resolved version.
-
-### test1851
-
-- **rust**: TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform.
-- **py**: TEST1851: no version ships a host build -> Incompatible, no resolved version/package, reason states the host platform.
-- **js**: TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform.
-- **objc**: TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform.
-
-### test1853
-
-- **rust**: TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses.
-- **py**: TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses.
-- **js**: TEST1853: hostPlatform() returns a normalized {os}-{arch} string with arch aarch64/arm64 mapped to arm64 — the exact form the registry uses.
-- **objc**: TEST1853: hostPlatform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses.
+- **go**: TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form.
+- **py**: TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form.
+- **js**: TEST1842: Full 6×6 truth table.
+- **objc**: TEST1842: Full 6×6 truth table.
 
 ### test1872
 
 - **rust**: TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with.
-- **go**: TEST1872: RegistryURLFromBuildEnv passes a non-empty registry URL through unchanged. This is the function that decides a cartridge/engine's baked PRIMARY registry identity; a published build must report exactly the URL it was compiled with (mirror of Rust test1872).
-- **py**: TEST1872: registry_url_from_build_env passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry; a published build must report exactly the URL it was compiled with.
-- **objc**: TEST1872: `registryURLFromBuildEnv` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with.
+- **go**: TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with.
+- **py**: TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with.
+- **js**: TEST1872: a non-empty MFR_CARTRIDGE_REGISTRY_URL passes through verbatim — a published build reports exactly the URL it was compiled with.
+- **objc**: TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with.
 
 ### test1873
 
 - **rust**: TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row.
-- **py**: TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges.
-- **objc**: TEST1873: an unset env (nil) yields nil — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row.
+- **go**: TEST1873: an unset build-env value (nil) yields nil — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges (mirror of Rust test1873).
+- **py**: TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row.
+- **js**: TEST1873: an unset env (null/undefined) yields null — a dev build has no baked registry and loads only `dev/` cartridges.
+- **objc**: TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row.
 
 ### test1874
 
 - **rust**: TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship.
-- **js**: TEST1874: an exported-but-empty env ('') is neither a dev build nor a valid identity and MUST fail hard, so the build can never silently hash the empty string into a fake registry slug.
-
-### test1875
-
-- **rust**: TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe.
-- **go**: TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin). A registry-pin rejection would instead surface BadInstallation and never probe.
-- **py**: TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HANDSHAKE_FAILED — proving discovery REACHED them (was not filtered out by a registry pin). A registry-pin rejection would instead surface BAD_INSTALLATION and never probe.
-- **objc**: TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin). A registry-pin rejection would instead surface BadInstallation and never probe.
-
-### test1876
-
-- **rust**: TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent).
-- **go**: TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's release/ folder is invisible to a nightly host even though the slug folder is present (its nightly/ subtree is absent).
-- **py**: TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's release/ folder is invisible to a nightly host even though the slug folder is present (its nightly/ subtree is absent).
-- **objc**: TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent).
-
-### test1878
-
-- **rust**: TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.
-- **go**: TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BundledProviderHashes (the slice is empty under a plain build) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.
-- **py**: TEST1878: a cartridge marked installed_from=bundle with no baked hash in BUNDLED_PROVIDER_HASHES (empty under a plain test build) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.
-
-### test1879
-
-- **rust**: TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.
-- **go**: TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC syncDiscoveryOutcomes parity path the daemon uses after a registry verdict flips a held cartridge to Listed.
-- **py**: TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.
-- **objc**: TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.
-
-### test1880
-
-- **rust**: TEST1880: alias name normalization lowercases and accepts the allowed character class; rejects colon, whitespace, and out-of-class chars with the right error. A broken validator would let a URN-shaped or whitespace name through, or mangle a valid name.
-- **go**: Test1880: alias name normalization lowercases and accepts the allowed char class; rejects colon, whitespace, and out-of-class chars.
-- **py**: TEST1880: alias name normalization lowercases and accepts the allowed char class; rejects colon, whitespace, and out-of-class chars.
-- **js**: TEST1880: alias name normalization lowercases and accepts the allowed char class; rejects colon, whitespace, and out-of-class chars.
-- **objc**: TEST1880: alias name normalization lowercases and accepts the allowed char class; rejects colon, whitespace, and out-of-class chars.
-
-### test1881
-
-- **rust**: TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact.
-- **go**: Test1881: URN-vs-alias detection keys purely on the presence of ':'.
-- **py**: TEST1881: URN-vs-alias detection keys purely on the presence of ':'.
-- **js**: TEST1881: URN-vs-alias detection keys purely on the presence of ':'.
-- **objc**: TEST1881: URN-vs-alias detection keys purely on the presence of ':'.
-
-### test1882
-
-- **rust**: TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. The typed-boundary enforcement in the registry depends on this.
-- **go**: Test1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target.
-- **py**: TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target.
-- **js**: TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target.
-- **objc**: TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target.
+- **go**: TEST1874: an exported-but-empty value (a pointer to "") is neither a dev build nor a valid identity and MUST fail hard, so the build can never silently hash the empty string into a fake registry slug. We assert the panic AND its exact message, so a regression that dropped the check (or replaced it with a silent fallback) is caught rather than passing on a bogus empty primary registry (mirror of Rust test1874).
+- **py**: TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship.
+- **js**: TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship.
+- **objc**: TEST1874: an exported-but-empty env (the empty string) is neither a dev build nor a valid identity and MUST fail hard, so the build can never silently hash the empty string into a fake registry slug. We assert the failure AND its exact message — the catchable Swift analog of Rust's compile-time panic — so a regression that dropped the check (or replaced it with a silent fallback) is caught rather than passing on a bogus empty primary registry.
 
 ### test1883
 
@@ -3220,12 +2294,6 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: Test1885: a cap-position alias that resolves to a MEDIA URN is a hard error.
 - **py**: TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error.
 
-### test1886
-
-- **rust**: TEST1886: a cap-position name that is neither a local header nor a registered alias still raises UndefinedAlias. The alias mechanism must not mask a genuinely undefined name.
-- **go**: Test1886: a cap-position name that is neither a local header nor a registered alias raises the undefined-alias error.
-- **py**: TEST1886: a cap-position name that is neither a local header nor a registered alias raises UndefinedAlias.
-
 ### test1887
 
 - **rust**: TEST1887: the Manifest type round-trips an `aliases` map through serde. The wire shape (name -> defver) must deserialize into Manifest.aliases and serialize back identically. A regression here would silently drop the alias section from a fetched manifest.
@@ -3234,13 +2302,6 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **js**: TEST1887: the Manifest type round-trips an `aliases` map.
 - **objc**: TEST1887: the Manifest type round-trips an `aliases` map.
 
-### test1888
-
-- **rust**: TEST1888: resolve_alias returns the alias target untyped. Seeding a media alias and resolving it yields the media URN; a malformed alias name is rejected before any lookup.
-- **go**: Test1888: resolve alias returns the alias target untyped; case-insensitive; malformed name rejected.
-- **py**: TEST1888: resolve_alias returns the alias target untyped; case-insensitive; malformed name rejected.
-- **objc**: TEST1888: resolve alias returns the alias target untyped; case-insensitive; malformed name rejected.
-
 ### test1889
 
 - **rust**: TEST1889: resolve_alias_typed enforces the expected kind. A media alias requested as a cap fails hard; requested as media (or untyped) succeeds. This is the typed-boundary contract.
@@ -3248,69 +2309,10 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST1889: resolve_alias_typed enforces the expected kind.
 - **objc**: TEST1889: resolve alias typed enforces the expected kind.
 
-### test1890
-
-- **rust**: TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface.
-- **go**: Test1890: GetCap accepts a cap alias and returns the aliased cap; a media alias passed to GetCap fails hard (typed boundary).
-- **py**: TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary).
-- **objc**: TEST1890: getCap accepts a cap alias and returns the aliased cap; a media alias passed to getCap fails hard (typed boundary).
-
-### test1891
-
-- **rust**: TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard.
-- **go**: Test1891: GetMediaDef accepts a media alias and returns the aliased spec; a cap alias passed to GetMediaDef fails hard.
-- **py**: TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard.
-- **objc**: TEST1891: getMediaDef accepts a media alias and returns the aliased spec; a cap alias passed to getMediaDef fails hard.
-
-### test1892
-
-- **rust**: TEST1892: an unknown alias name is a hard not-found, never a silent empty. the same. This is the "expose issues, no fallback" contract.
-- **go**: Test1892: an unknown alias name is a hard not-found, never a silent empty.
-- **py**: TEST1892: an unknown alias name is a hard NotFound, never a silent empty.
-- **objc**: TEST1892: an unknown alias name is a hard not-found, never a silent empty.
-
-### test6201
-
-- **py**: TEST6201: empty cap URN is the illegal bare top form
-- **js**: TEST6201: cap: (empty) is the illegal bare top form
-- **objc**: TEST6201: Empty cap URN is the illegal bare top form
-
 ### test6207
 
 - **go**: Mirror-specific coverage: Test that concatenated() returns full payload while final_payload() returns only last chunk
 - **objc**: Mirror-specific coverage: concatenated() returns full payload while finalPayload returns only last chunk
-
-### test6252
-
-- **go**: TEST6252: New relay switch rejects duplicate i ds
-- **py**: TEST6252: Relay switch init rejects duplicate ids
-- **objc**: TEST6252: Relay switch init rejects duplicate ids
-
-### test6278
-
-- **go**: TEST6278: Add master with duplicate healthy i d errors
-- **py**: TEST6278: Add master with duplicate healthy id errors
-- **objc**: TEST6278: Add master with duplicate healthy id errors
-
-### test6297
-
-- **go**: TEST6297: Test ResolvedMediaDef is_text returns true when enc tag is present
-- **js**: TEST6297: Test ResolvedMediaDef is_binary returns true when enc tag is absent
-
-### test6314
-
-- **go**: TEST6314: Complex nested schema validation
-- **objc**: TEST6314: Complex nested schema
-
-### test6317
-
-- **go**: TEST6317: Media urn resolution with registry
-- **objc**: TEST6317: Media urn resolution through registry
-
-### test6325
-
-- **go**: TEST6325: Registry validation
-- **objc**: TEST6325: Registry creation
 
 ### test6330
 
@@ -3319,43 +2321,113 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test6363
 
+- **rust**: TEST6363: Cap manifest with page_url — the optional page_url is carried and serialized as `page_url`.
 - **go**: TEST6363: Cap manifest with page u r l
-- **objc**: TEST6363: Cap manifest with author
+- **objc**: TEST6363: Cap manifest with page url
+
+### test6371
+
+- **rust**: TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys).
+- **go**: TEST6371: Cap manifest compatibility
+- **objc**: TEST6371: Cap manifest compatibility
 
 ### test6388
 
+- **rust**: TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics.
 - **go**: TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics.
+- **py**: TEST6388: Per-cap URLs use SHA-256 of the canonical URN as the path key. The path scheme is /caps/<sha256-hex> — no colons, no quotes, no percent-encoding gymnastics. Same hash function across every capdag implementation guarantees a single bucket key per equivalence class.
 - **objc**: / Per-cap URLs use /caps/<sha256-hex> — no URN-grammar characters / in the path, so no percent-encoding gymnastics.
+
+### test6391
+
+- **rust**: TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key.
+- **go**: TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. This is the property that makes cross-language lookups land at the same registry object regardless of which capdag implementation issued the request.
+- **objc**: / TEST6391: Equivalent URNs (different tag order, etc.) hash to the / same key. This is the property that makes cross-language lookups / land at the same registry object regardless of which capdag / implementation issued the request. Inputs MUST quote any / multi-tag media URN value — the previous unquoted spelling / `out=media:task;id` was actually a different URN (the bare / `media:task` plus a separate `id` op tag), and treating those / two URNs as equivalent here masked a real spec violation.
 
 ### test6544
 
 - **js**: TEST6544: builder rejects structural keys on tag/marker
 - **objc**: TEST023B: Builder rejects reserved structural keys on tag/marker helpers
 
-### test6565
+### test6586
 
-- **go**: TEST6565: CartridgeRepoServer.get_by_category() filters cartridges by category tag
-- **js**: TEST6565: CartridgeRepoServer.getCartridgesByCategory() filters cartridges by category across both channels.
+- **rust**: TEST6586: file-path-array with nonexistent path fails clearly
+- **go**: TEST6586: A scalar file-path arg receiving a nonexistent path fails hard with a clear error that names the path. The runtime refuses to silently swallow user mistakes like typos or wrong directories.
+- **py**: TEST6586: A scalar file-path arg receiving a nonexistent path fails hard with a clear error that names the path. The runtime refuses to silently swallow user mistakes like typos or wrong directories.
+- **objc**: TEST6586: A scalar file-path arg receiving a nonexistent path fails hard with a clear error that names the path. The runtime refuses to silently swallow user mistakes like typos or wrong directories.
 
-### test6570
+### test6588
 
-- **go**: TEST6570: CartridgeRepoClient updates its local cache, keyed by (channel, id) so the same id can independently coexist in both channels.
-- **js**: TEST6570: CartridgeRepoClient updates its local cache keyed by "<channel>:<id>". The cache holds release and nightly entries independently — the same id is allowed in both.
+- **rust**: TEST6588: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array — no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only.
+- **go**: TEST6588: file-path arg in CBOR mode with empty Array returns empty. CBOR Array (not JSON-encoded) is the multi-input wire form for sequence args. Mirrors Rust test351_file_path_array_empty_array.
+- **py**: TEST6588: file-path arg in CBOR mode with empty Array returns empty. CBOR Array (not JSON-encoded) is the multi-input wire form for sequence args. Mirrors Rust test351_file_path_array_empty_array.
+- **objc**: TEST6588: file-path arg in CBOR mode with empty Array value returns empty. CBOR Array (not JSON) is the multi-input wire form for sequence args. Mirrors Rust test6588_file_path_array_empty_array.
 
-### test6572
+### test6594
 
-- **go**: TEST6572: CartridgeRepoClient.GetSuggestionsForCap() returns cartridge suggestions and propagates the source channel onto each suggestion.
-- **js**: TEST6572: CartridgeRepoClient.getSuggestionsForCap() returns cartridge suggestions with channel propagated onto each suggestion.
+- **rust**: TEST6594: aggregate_installed_cartridges() is empty before any cartridge with a resolvable identity is attached. A binary path that does not exist on disk has no identity (`installed_identity` is `None`) and therefore does not appear in the relay payload.
+- **go**: TEST6594: capabilities() returns empty JSON initially (no running cartridges)
+- **py**: TEST6594: capabilities() with registered cartridge advertises after a rebuild. Mirrors Rust: registration populates cap_groups, then a call to `_rebuild_capabilities` materialises the inventory snapshot. The run loop normally drives rebuild as cartridges attach/die; for a unit test that drives registration directly we trigger it explicitly.
+- **objc**: TEST6594: capabilities() returns empty JSON initially (no running cartridges)
+
+### test6600
+
+- **rust**: TEST6600: parse_cap_groups_from_manifest classifies failures by kind Manifest JSON that parses but lacks CAP_IDENTITY is `Incompatible` (schema-rejected). Manifest bytes that don't parse as CapManifest are `ManifestInvalid` (JSON-level failure). The split lets the host's attachment-error reporter surface the right kind to the UI.
+- **py**: TEST6600: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY
+
+### test6605
+
+- **rust**: TEST6605: insert_schema is the production seam for non-HTTP schema injection. It must persist to the in-memory cache so subsequent schema_exists/validate calls succeed without network access.
+- **go**: TEST6605: InsertSchema seeds the cache so subsequent validation hits a real compiled schema rather than the skip-on-unknown path. A registry that silently dropped inserts would let validation calls return nil even for inputs that violate the schema.
+- **py**: TEST6605: insert_schema seeds the cache so subsequent validation hits a real compiled schema rather than the skip-on-unknown path. A registry that silently dropped inserts would let validation calls return None even for inputs that violate the schema.
 
 ### test6614
 
 - **go**: TEST6614: Legal generic cap with marker-only y-axis matches specific caps
 - **py**: TEST6614: Legal generic cap with top directions matches specific caps
 
-### test6728
+### test6623
 
-- **go**: TEST6728: Identity classifier — only explicit effect=none qualifies. `cap:effect=none` is the fully generic identity on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.
-- **objc**: TEST6728: Identity classifier — only explicit effect=none qualifies. Adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.
+- **rust**: TEST6623: Cartridge death keeps caps advertised for on-demand respawn. The cartridge's `cap_groups` survive process death, so the host can continue advertising the cartridge's caps and the relay can route a fresh REQ to it (which triggers an on-demand respawn).
+- **py**: TEST6623: Cartridge death keeps caps advertised for on-demand respawn.
+- **objc**: TEST6623: Cartridge death keeps caps advertised for on-demand respawn. Identity is the gating filter for advertisement; we provision a real cartridge directory with a valid `cartridge.json` so the cartridge has a resolvable identity. cap_table routes regardless of identity (in-process / attached cartridges still need to be dispatchable), but the relay payload only advertises cartridges with identity records.
+
+### test6672
+
+- **rust**: TEST6672: CBOR decode REJECTS STREAM_END frame missing chunk_count field
+- **py**: TEST6672: Offline flag blocks fetch_from_registry without making HTTP request
+- **objc**: TEST6672: Offline flag blocks fetch_from_registry without making HTTP request
+
+### test6734
+
+- **rust**: TEST6734: Invalid combinations of qualifiers must be rejected by the parser. These are hard parse errors, not silently accepted shorthands.
+- **go**: TEST6734: Invalid qualifier combinations must be rejected.
+- **py**: TEST6734: Invalid qualifier combinations must be rejected.
+- **js**: TEST6734: Invalid qualifier combinations must be rejected.
+- **objc**: TEST6734: Invalid qualifier combinations must be rejected.
+
+### test6735
+
+- **rust**: TEST6735: Cap-URN axis weighting is lexicographic. A cap with greater out-axis specificity always outranks one with greater in-axis specificity, regardless of y-axis.
+- **go**: TEST6735: out-axis difference dominates combined in+y differences.
+- **py**: TEST6735: out-axis difference dominates combined in+y differences.
+- **js**: TEST6735: out-axis difference dominates combined in+y differences.
+- **objc**: TEST6735: out-axis difference dominates combined in+y differences.
+
+### test6736
+
+- **rust**: TEST6736: Specificity composes uniformly across all three axes. For a fully-loaded cap with one of each form per axis, the total reads as out_score, in_score, y_score in distinct digit slots.
+- **go**: TEST6736: Decoded layout — 10000*out + 100*in + y.
+- **py**: TEST6736: Decoded layout — 10000*out + 100*in + y.
+- **js**: TEST6736: Decoded layout — 10000*out + 100*in + y.
+- **objc**: TEST6736: Decoded layout — 10000*out + 100*in + y.
+
+### test6745
+
+- **rust**: / `RelaySwitch::new` rejects duplicate ids in its cardinality / list. Without this guard the first reconnect would / reattach to whichever slot is found first by the linear / scan, leaving the other slot stuck unhealthy forever.
+- **go**: TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list.
+- **py**: TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list.
+- **objc**: TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list.
 
 ---
 
@@ -3395,12 +2467,12 @@ _None._
 | test20 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test21 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test22 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test23 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test23 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test24 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test25 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test26 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test27 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test28 | shared | ✓ | · | · | ✓ | · | shared |
+| test28 | shared | ✓ | · | ✓ | ✓ | ✓ | shared |
 | test29 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test30 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test31 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
@@ -3420,9 +2492,9 @@ _None._
 | test45 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test46 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test47 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test48 | shared | ✓ | ✓ | · | ✓ | ✓ | shared |
+| test48 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test49 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test50 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test50 | shared | ✓ | ✓ | · | ✓ | ✓ | shared |
 | test51 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test52 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test53 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -3464,24 +2536,24 @@ _None._
 | test90 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test91 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test92 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test93 | shared | ✓ | · | ✓ | · | · | shared |
+| test93 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test94 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test95 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test96 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test97 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test98 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test99 | shared | ✓ | · | · | · | ✓ | shared |
+| test99 | shared | ✓ | ✓ | · | ✓ | ✓ | shared |
 | test100 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test101 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test102 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test103 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test104 | shared | ✓ | · | · | · | ✓ | shared |
+| test104 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test105 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test106 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test106 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test107 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test108 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test108 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test109 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test110 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test110 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test111 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test112 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test113 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -3496,36 +2568,35 @@ _None._
 | test122 | shared | ✓ | · | · | · | · | solo |
 | test123 | shared | · | ✓ | · | · | · | solo |
 | test124 | shared | · | ✓ | · | · | · | solo |
-| test125 | shared | ✓ | · | · | · | · | solo |
-| test126 | shared | ✓ | · | · | · | · | solo |
-| test127 | shared | ✓ | · | · | · | · | solo |
-| test128 | shared | ✓ | · | · | · | · | solo |
-| test129 | shared | ✓ | · | · | · | · | solo |
+| test125 | shared | ✓ | · | · | ✓ | ✓ | shared |
+| test126 | shared | ✓ | · | · | ✓ | ✓ | shared |
+| test127 | shared | ✓ | · | ✓ | ✓ | ✓ | shared |
+| test128 | shared | ✓ | · | · | ✓ | ✓ | shared |
+| test129 | shared | ✓ | · | · | · | ✓ | shared |
 | test130 | shared | ✓ | · | · | · | · | solo |
 | test131 | shared | ✓ | · | · | · | · | solo |
-| test132 | shared | ✓ | · | · | · | · | solo |
-| test133 | shared | ✓ | · | · | · | · | solo |
-| test134 | shared | ✓ | · | · | · | · | solo |
-| test135 | shared | · | ✓ | ✓ | · | · | shared |
+| test132 | shared | ✓ | · | · | · | ✓ | shared |
+| test133 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test134 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test136 | shared | ✓ | · | ✓ | · | · | shared |
 | test137 | shared | ✓ | · | ✓ | · | · | shared |
-| test138 | shared | · | ✓ | ✓ | · | · | shared |
+| test138 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test139 | shared | ✓ | · | ✓ | · | · | shared |
 | test140 | shared | ✓ | · | ✓ | · | · | shared |
-| test141 | shared | · | ✓ | ✓ | · | ✓ | shared |
-| test142 | shared | · | ✓ | · | · | ✓ | shared |
-| test143 | shared | · | ✓ | ✓ | · | · | shared |
-| test144 | shared | · | ✓ | ✓ | · | · | shared |
-| test145 | shared | · | ✓ | ✓ | · | · | shared |
-| test146 | shared | · | ✓ | ✓ | · | · | shared |
+| test141 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test142 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test143 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test144 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test145 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test146 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test147 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test148 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test149 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test148 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test149 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test150 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test151 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test152 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test153 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test154 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test151 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test152 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test153 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test154 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test155 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test156 | shared | ✓ | · | ✓ | ✓ | · | shared |
 | test157 | shared | ✓ | · | ✓ | ✓ | · | shared |
@@ -3569,14 +2640,14 @@ _None._
 | test195 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test196 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test197 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test198 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test198 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test199 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test200 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test201 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test202 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test203 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test204 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test205 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test205 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test206 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test207 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test208 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -3659,22 +2730,15 @@ _None._
 | test285 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test286 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test287 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test288 | shared | ✓ | · | · | · | · | solo |
+| test288 | shared | ✓ | ✓ | · | · | · | shared |
 | test289 | shared | ✓ | ✓ | · | · | · | shared |
 | test290 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test291 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test292 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test293 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test294 | shared | · | · | · | · | ✓ | solo |
-| test295 | shared | · | · | · | · | ✓ | solo |
-| test296 | shared | · | · | · | · | ✓ | solo |
-| test297 | shared | · | · | · | · | ✓ | solo |
-| test298 | shared | · | · | · | · | ✓ | solo |
 | test299 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test300 | shared | ✓ | · | ✓ | · | · | shared |
 | test301 | shared | ✓ | · | ✓ | · | · | shared |
-| test302 | shared | · | · | · | · | ✓ | solo |
-| test303 | shared | · | · | · | · | ✓ | solo |
 | test304 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test305 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test306 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
@@ -3682,60 +2746,54 @@ _None._
 | test308 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test309 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test310 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test311 | shared | · | · | · | · | ✓ | solo |
 | test312 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test313 | shared | · | · | · | · | ✓ | solo |
 | test314 | shared | · | · | · | · | ✓ | solo |
 | test315 | shared | · | · | · | · | ✓ | solo |
-| test316 | shared | · | · | · | · | ✓ | solo |
 | test317 | shared | · | · | · | · | ✓ | solo |
 | test318 | shared | · | · | · | · | ✓ | solo |
 | test319 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test320 | shared | ✓ | · | ✓ | · | · | shared |
-| test321 | shared | ✓ | ✓ | · | ✓ | · | shared |
-| test322 | shared | ✓ | ✓ | · | ✓ | · | shared |
+| test320 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test321 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test322 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test323 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test324 | shared | ✓ | · | ✓ | · | · | shared |
-| test325 | shared | ✓ | · | ✓ | ✓ | · | shared |
-| test326 | shared | ✓ | · | ✓ | ✓ | · | shared |
-| test327 | shared | ✓ | · | ✓ | · | · | shared |
-| test328 | shared | ✓ | · | ✓ | · | · | shared |
-| test329 | shared | ✓ | · | ✓ | · | · | shared |
-| test330 | shared | ✓ | · | ✓ | · | · | shared |
-| test331 | shared | ✓ | · | ✓ | · | · | shared |
-| test332 | shared | ✓ | · | ✓ | · | · | shared |
-| test333 | shared | ✓ | · | ✓ | · | · | shared |
-| test334 | shared | ✓ | · | ✓ | ✓ | · | shared |
-| test335 | shared | ✓ | · | ✓ | · | · | shared |
+| test324 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test325 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test326 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test327 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test328 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test329 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test330 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test331 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test332 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test333 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test334 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test335 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test336 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test337 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test338 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test339 | shared | ✓ | · | ✓ | · | · | shared |
+| test339 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test340 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test341 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test342 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test343 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test344 | shared | · | ✓ | ✓ | · | ✓ | shared |
-| test345 | shared | · | ✓ | ✓ | · | ✓ | shared |
 | test346 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test347 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test348 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test349 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test350 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test351 | shared | · | ✓ | ✓ | · | ✓ | shared |
 | test352 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test353 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test354 | shared | ✓ | ✓ | · | · | ✓ | shared |
-| test355 | shared | ✓ | · | ✓ | · | ✓ | shared |
-| test356 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test355 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test356 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test357 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test358 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test359 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test359 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test360 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test361 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test362 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test363 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test364 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test364 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test365 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test366 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test367 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -3744,12 +2802,7 @@ _None._
 | test370 | shared | · | · | · | · | ✓ | solo |
 | test371 | shared | · | · | · | · | ✓ | solo |
 | test372 | shared | · | · | · | · | ✓ | solo |
-| test373 | shared | · | · | · | · | ✓ | solo |
-| test374 | shared | · | · | · | · | ✓ | solo |
-| test375 | shared | · | · | · | · | ✓ | solo |
-| test376 | shared | · | · | · | · | ✓ | solo |
-| test377 | shared | · | · | · | · | ✓ | solo |
-| test389 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test389 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test390 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test394 | shared | ✓ | · | · | · | · | solo |
 | test395 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -3771,7 +2824,6 @@ _None._
 | test411 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test412 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test413 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test414 | shared | · | ✓ | · | · | ✓ | shared |
 | test415 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test416 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test417 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -3792,7 +2844,7 @@ _None._
 | test432 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test433 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test434 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test435 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test435 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test436 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test437 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test438 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -3826,7 +2878,7 @@ _None._
 | test476 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test478 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test479 | shared | ✓ | · | ✓ | · | ✓ | shared |
-| test480 | shared | · | · | ✓ | · | ✓ | shared |
+| test480 | shared | · | · | · | · | ✓ | solo |
 | test481 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test482 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test483 | shared | ✓ | · | ✓ | · | ✓ | shared |
@@ -3862,7 +2914,7 @@ _None._
 | test514 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test515 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test516 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test517 | shared | ✓ | · | ✓ | · | ✓ | shared |
+| test517 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test518 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test519 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test520 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -3873,7 +2925,7 @@ _None._
 | test525 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test526 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test527 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test528 | shared | ✓ | · | ✓ | · | ✓ | shared |
+| test528 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test529 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test530 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test531 | shared | ✓ | · | ✓ | · | ✓ | shared |
@@ -3887,29 +2939,29 @@ _None._
 | test539 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test540 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test541 | shared | ✓ | · | ✓ | · | ✓ | shared |
-| test542 | shared | ✓ | · | ✓ | · | · | shared |
+| test542 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test543 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test544 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test545 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test546 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test547 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test548 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test549 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test550 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test551 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test546 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test547 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test548 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test549 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test550 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test551 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test552 | shared | ✓ | · | · | · | · | solo |
 | test555 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test556 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test557 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test558 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test559 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test560 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test558 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test559 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test560 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test561 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test562 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test563 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test564 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test563 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test564 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test565 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test566 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test566 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test567 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test568 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test578 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -3933,8 +2985,8 @@ _None._
 | test596 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test597 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test598 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test599 | shared | ✓ | ✓ | · | · | · | shared |
-| test600 | shared | ✓ | ✓ | · | · | · | shared |
+| test599 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test600 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test601 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test602 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test603 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -3944,14 +2996,13 @@ _None._
 | test608 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test609 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test610 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test611 | shared | · | ✓ | ✓ | · | · | shared |
 | test612 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test613 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test614 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test614 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test616 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test617 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test618 | shared | ✓ | · | · | · | · | solo |
-| test619 | shared | ✓ | ✓ | · | · | · | shared |
+| test618 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test619 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test620 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test621 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test622 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -3970,40 +3021,35 @@ _None._
 | test635 | shared | ✓ | · | ✓ | · | · | shared |
 | test636 | shared | ✓ | · | ✓ | · | · | shared |
 | test637 | shared | ✓ | · | ✓ | · | · | shared |
-| test638 | shared | ✓ | ✓ | · | · | ✓ | shared |
-| test639 | shared | ✓ | · | · | · | · | solo |
-| test640 | shared | ✓ | · | ✓ | ✓ | · | shared |
-| test641 | shared | ✓ | · | ✓ | ✓ | · | shared |
+| test638 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test639 | shared | ✓ | · | · | · | ✓ | shared |
+| test640 | shared | ✓ | · | ✓ | ✓ | ✓ | shared |
+| test641 | shared | ✓ | · | ✓ | ✓ | ✓ | shared |
 | test642 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test643 | shared | ✓ | · | ✓ | ✓ | · | shared |
-| test644 | shared | ✓ | · | ✓ | ✓ | · | shared |
-| test645 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test646 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test647 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test648 | shared | ✓ | · | · | ✓ | · | shared |
-| test649 | shared | ✓ | · | · | ✓ | · | shared |
-| test650 | shared | ✓ | ✓ | · | ✓ | · | shared |
+| test643 | shared | ✓ | · | ✓ | ✓ | ✓ | shared |
+| test644 | shared | ✓ | · | ✓ | ✓ | ✓ | shared |
+| test645 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test646 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test647 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test648 | shared | ✓ | · | · | ✓ | ✓ | shared |
+| test649 | shared | ✓ | · | · | ✓ | ✓ | shared |
+| test650 | shared | ✓ | ✓ | · | ✓ | ✓ | shared |
 | test651 | shared | ✓ | · | · | · | · | solo |
 | test652 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test653 | shared | ✓ | · | ✓ | ✓ | · | shared |
-| test654 | shared | · | · | · | ✓ | · | solo |
-| test655 | shared | · | · | · | ✓ | · | solo |
-| test656 | shared | · | · | · | ✓ | · | solo |
-| test657 | shared | · | · | · | ✓ | · | solo |
+| test653 | shared | ✓ | · | · | ✓ | · | shared |
 | test658 | shared | ✓ | · | · | · | ✓ | shared |
 | test659 | shared | ✓ | · | · | · | ✓ | shared |
 | test660 | shared | ✓ | · | · | · | ✓ | shared |
-| test661 | shared | · | · | ✓ | · | ✓ | shared |
 | test662 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test663 | shared | ✓ | · | ✓ | · | ✓ | shared |
-| test664 | shared | ✓ | · | · | · | · | solo |
+| test664 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test665 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test666 | shared | ✓ | · | ✓ | · | · | shared |
 | test667 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test668 | shared | ✓ | ✓ | · | · | · | shared |
-| test669 | shared | ✓ | ✓ | · | · | · | shared |
-| test670 | shared | ✓ | ✓ | · | · | · | shared |
-| test671 | shared | ✓ | ✓ | · | · | · | shared |
+| test668 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test669 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test670 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test671 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test675 | shared | ✓ | · | ✓ | · | · | shared |
 | test676 | shared | ✓ | · | ✓ | · | · | shared |
 | test677 | shared | ✓ | · | ✓ | · | · | shared |
@@ -4027,8 +3073,8 @@ _None._
 | test711 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test712 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test713 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test714 | shared | ✓ | · | ✓ | · | · | shared |
-| test715 | shared | ✓ | · | ✓ | · | · | shared |
+| test714 | shared | ✓ | · | ✓ | · | ✓ | shared |
+| test715 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test716 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test717 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test718 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -4073,17 +3119,17 @@ _None._
 | test757 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test758 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test759 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test760 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test761 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test762 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test763 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test760 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test761 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test762 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test763 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test764 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test765 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test766 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test767 | shared | ✓ | · | ✓ | · | · | shared |
 | test768 | shared | ✓ | · | ✓ | · | · | shared |
 | test769 | shared | ✓ | · | ✓ | · | · | shared |
-| test770 | shared | ✓ | · | ✓ | · | · | shared |
+| test770 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test771 | shared | ✓ | · | ✓ | · | · | shared |
 | test772 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test773 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -4103,13 +3149,13 @@ _None._
 | test789 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test790 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test791 | shared | ✓ | · | ✓ | · | · | shared |
-| test792 | shared | ✓ | · | ✓ | · | · | shared |
+| test792 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test793 | shared | ✓ | · | ✓ | · | · | shared |
-| test794 | shared | ✓ | · | ✓ | · | · | shared |
-| test795 | shared | ✓ | · | ✓ | · | · | shared |
-| test796 | shared | ✓ | · | ✓ | · | · | shared |
-| test797 | shared | ✓ | · | ✓ | · | · | shared |
-| test798 | shared | ✓ | · | ✓ | · | · | shared |
+| test794 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test795 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test796 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test797 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test798 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test799 | shared | ✓ | · | ✓ | · | · | shared |
 | test800 | shared | ✓ | · | ✓ | · | · | shared |
 | test801 | shared | ✓ | · | ✓ | · | · | shared |
@@ -4172,18 +3218,16 @@ _None._
 | test858 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test859 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test860 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test880 | shared | ✓ | · | ✓ | · | · | shared |
+| test880 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test886 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test887 | shared | ✓ | · | · | · | · | solo |
 | test888 | shared | ✓ | · | · | · | · | solo |
 | test889 | shared | ✓ | · | · | · | · | solo |
-| test890 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test891 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test890 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test891 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test892 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test893 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test894 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test896 | shared | · | · | · | · | ✓ | solo |
-| test897 | shared | · | · | · | · | ✓ | solo |
+| test893 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test894 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test898 | shared | ✓ | · | · | · | ✓ | shared |
 | test899 | shared | ✓ | · | · | · | ✓ | shared |
 | test900 | shared | ✓ | · | · | · | ✓ | shared |
@@ -4192,9 +3236,7 @@ _None._
 | test903 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test904 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test905 | shared | ✓ | · | · | · | · | solo |
-| test907 | shared | · | · | ✓ | · | ✓ | shared |
 | test908 | shared | ✓ | · | ✓ | · | ✓ | shared |
-| test909 | shared | · | · | · | · | ✓ | solo |
 | test910 | shared | ✓ | · | · | · | ✓ | shared |
 | test911 | shared | ✓ | · | · | · | ✓ | shared |
 | test912 | shared | ✓ | · | · | · | ✓ | shared |
@@ -4204,10 +3246,10 @@ _None._
 | test916 | shared | ✓ | · | · | · | · | solo |
 | test917 | shared | ✓ | · | · | · | ✓ | shared |
 | test919 | shared | ✓ | · | · | · | ✓ | shared |
-| test920 | shared | ✓ | · | ✓ | · | · | shared |
-| test921 | shared | ✓ | · | ✓ | · | · | shared |
-| test922 | shared | ✓ | · | ✓ | · | · | shared |
-| test923 | shared | ✓ | · | ✓ | · | · | shared |
+| test920 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test921 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test922 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test923 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test924 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test925 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test926 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -4218,9 +3260,9 @@ _None._
 | test931 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test932 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test933 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test934 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test934 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test935 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test936 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test936 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test937 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test938 | shared | · | · | ✓ | · | · | solo |
 | test939 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
@@ -4231,17 +3273,17 @@ _None._
 | test947 | shared | ✓ | · | · | · | ✓ | shared |
 | test948 | shared | ✓ | · | · | · | ✓ | shared |
 | test949 | shared | ✓ | · | · | · | ✓ | shared |
-| test950 | shared | ✓ | · | · | · | · | solo |
+| test950 | shared | ✓ | · | · | · | ✓ | shared |
 | test951 | shared | ✓ | · | · | · | · | solo |
 | test952 | shared | ✓ | · | · | · | · | solo |
 | test953 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test954 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test955 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test956 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test957 | shared | ✓ | · | ✓ | · | · | shared |
-| test958 | shared | ✓ | · | ✓ | · | · | shared |
-| test959 | shared | ✓ | · | ✓ | · | · | shared |
-| test960 | shared | ✓ | · | ✓ | · | · | shared |
+| test957 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test958 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test959 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test960 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test961 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test962 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test963 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -4258,8 +3300,8 @@ _None._
 | test974 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test975 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test977 | shared | ✓ | · | ✓ | · | · | shared |
-| test987 | shared | ✓ | · | · | · | · | solo |
-| test988 | shared | ✓ | · | · | · | · | solo |
+| test987 | shared | ✓ | · | · | · | ✓ | shared |
+| test988 | shared | ✓ | · | · | · | ✓ | shared |
 | test989 | shared | ✓ | · | · | · | · | solo |
 | test990 | shared | ✓ | · | · | · | · | solo |
 | test991 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -4284,7 +3326,7 @@ _None._
 | test1011 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test1012 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1013 | shared | ✓ | · | ✓ | · | ✓ | shared |
-| test1014 | shared | ✓ | · | ✓ | · | · | shared |
+| test1014 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test1015 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1016 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test1017 | shared | ✓ | · | ✓ | · | ✓ | shared |
@@ -4306,8 +3348,8 @@ _None._
 | test1094 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test1098 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test1100 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1103 | shared | ✓ | · | ✓ | · | · | shared |
-| test1104 | shared | ✓ | · | ✓ | · | · | shared |
+| test1103 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test1104 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1105 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1106 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1107 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -4325,18 +3367,18 @@ _None._
 | test1119 | shared | ✓ | ✓ | · | · | · | shared |
 | test1120 | shared | ✓ | ✓ | · | · | · | shared |
 | test1121 | shared | ✓ | · | · | · | · | solo |
-| test1122 | shared | ✓ | · | · | · | · | solo |
-| test1123 | shared | ✓ | · | · | · | · | solo |
+| test1122 | shared | ✓ | · | · | · | ✓ | shared |
+| test1123 | shared | ✓ | · | · | · | ✓ | shared |
 | test1125 | shared | ✓ | · | · | · | · | solo |
-| test1126 | shared | ✓ | · | · | · | · | solo |
+| test1126 | shared | ✓ | · | · | · | ✓ | shared |
 | test1127 | shared | ✓ | ✓ | · | · | · | shared |
-| test1128 | shared | ✓ | · | · | · | · | solo |
-| test1129 | shared | ✓ | · | · | · | · | solo |
-| test1130 | shared | ✓ | · | · | · | · | solo |
+| test1128 | shared | ✓ | ✓ | · | · | · | shared |
+| test1129 | shared | ✓ | ✓ | · | · | · | shared |
+| test1130 | shared | ✓ | ✓ | · | · | · | shared |
 | test1133 | shared | ✓ | ✓ | · | · | · | shared |
 | test1134 | shared | ✓ | · | · | · | · | solo |
 | test1135 | shared | ✓ | · | ✓ | · | · | shared |
-| test1136 | shared | ✓ | · | · | · | · | solo |
+| test1136 | shared | ✓ | · | ✓ | · | · | shared |
 | test1137 | shared | ✓ | · | · | · | · | solo |
 | test1138 | shared | ✓ | · | · | · | · | solo |
 | test1139 | shared | ✓ | · | · | · | · | solo |
@@ -4346,15 +3388,15 @@ _None._
 | test1143 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1144 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1145 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test1146 | shared | ✓ | ✓ | · | · | · | shared |
-| test1147 | shared | ✓ | · | · | · | · | solo |
+| test1146 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test1147 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1148 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1149 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1150 | shared | ✓ | ✓ | · | · | · | shared |
-| test1151 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1152 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1153 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1154 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test1150 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test1151 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test1152 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test1153 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test1154 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1155 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1156 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1157 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -4366,7 +3408,7 @@ _None._
 | test1163 | shared | ✓ | ✓ | · | · | · | shared |
 | test1164 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1165 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1166 | shared | ✓ | ✓ | · | · | · | shared |
+| test1166 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1167 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1168 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1169 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -4376,22 +3418,22 @@ _None._
 | test1173 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1174 | shared | ✓ | · | ✓ | · | · | shared |
 | test1175 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1176 | shared | ✓ | · | ✓ | · | · | shared |
+| test1176 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1177 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1178 | shared | ✓ | · | · | · | · | solo |
+| test1178 | shared | ✓ | ✓ | · | · | · | shared |
 | test1179 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1180 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1181 | shared | ✓ | · | · | · | · | solo |
-| test1182 | shared | ✓ | · | ✓ | · | · | shared |
+| test1181 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test1182 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1183 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1184 | shared | ✓ | · | ✓ | · | · | shared |
-| test1185 | shared | ✓ | · | · | · | · | solo |
+| test1184 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test1185 | shared | ✓ | ✓ | · | · | · | shared |
 | test1186 | shared | ✓ | ✓ | · | · | · | shared |
 | test1187 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1188 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1189 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1190 | shared | ✓ | · | ✓ | · | · | shared |
-| test1191 | shared | ✓ | · | · | · | · | solo |
+| test1190 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test1191 | shared | ✓ | ✓ | · | · | · | shared |
 | test1221 | shared | ✓ | · | ✓ | · | · | shared |
 | test1222 | shared | ✓ | · | ✓ | · | · | shared |
 | test1223 | shared | ✓ | · | ✓ | · | · | shared |
@@ -4418,16 +3460,16 @@ _None._
 | test1253 | shared | ✓ | · | · | · | · | solo |
 | test1254 | shared | ✓ | · | · | · | · | solo |
 | test1255 | shared | ✓ | · | · | · | · | solo |
-| test1256 | shared | ✓ | ✓ | · | · | · | shared |
+| test1256 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1257 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1258 | shared | ✓ | · | ✓ | · | · | shared |
 | test1259 | shared | ✓ | · | ✓ | · | · | shared |
 | test1260 | shared | ✓ | · | ✓ | · | · | shared |
-| test1261 | shared | ✓ | · | · | · | · | solo |
+| test1261 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1262 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1263 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1264 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1265 | shared | ✓ | ✓ | · | · | · | shared |
+| test1265 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1266 | shared | ✓ | · | ✓ | · | · | shared |
 | test1267 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1268 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -4435,11 +3477,11 @@ _None._
 | test1270 | shared | ✓ | · | · | · | · | solo |
 | test1271 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1272 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1273 | shared | ✓ | · | ✓ | · | · | shared |
+| test1273 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1274 | shared | ✓ | · | · | · | · | solo |
 | test1275 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1276 | shared | ✓ | · | · | · | · | solo |
-| test1277 | shared | ✓ | · | · | · | · | solo |
+| test1276 | shared | ✓ | · | ✓ | · | · | shared |
+| test1277 | shared | ✓ | · | ✓ | · | · | shared |
 | test1278 | shared | ✓ | · | ✓ | · | · | shared |
 | test1279 | shared | ✓ | · | ✓ | · | · | shared |
 | test1280 | shared | ✓ | · | ✓ | · | · | shared |
@@ -4460,22 +3502,10 @@ _None._
 | test1295 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test1296 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test1297 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test1298 | shared | · | · | · | ✓ | · | solo |
-| test1299 | shared | · | · | · | ✓ | · | solo |
-| test1302 | shared | · | · | · | ✓ | · | solo |
-| test1303 | shared | · | · | · | ✓ | · | solo |
-| test1304 | shared | · | · | · | ✓ | · | solo |
-| test1305 | shared | · | · | · | ✓ | · | solo |
-| test1306 | shared | · | · | · | ✓ | · | solo |
-| test1307 | shared | · | · | · | ✓ | · | solo |
-| test1308 | shared | ✓ | · | · | · | · | solo |
+| test1308 | shared | ✓ | · | ✓ | · | · | shared |
 | test1309 | shared | · | · | ✓ | · | · | solo |
 | test1310 | shared | · | · | ✓ | · | · | solo |
 | test1311 | shared | · | · | ✓ | · | · | solo |
-| test1312 | shared | · | · | · | ✓ | · | solo |
-| test1313 | shared | · | · | · | ✓ | · | solo |
-| test1314 | shared | · | · | · | ✓ | · | solo |
-| test1315 | shared | · | · | · | ✓ | · | solo |
 | test1400 | shared | · | · | · | · | ✓ | solo |
 | test1401 | shared | · | · | · | · | ✓ | solo |
 | test1402 | shared | · | · | · | · | ✓ | solo |
@@ -4483,13 +3513,9 @@ _None._
 | test1404 | shared | · | · | · | · | ✓ | solo |
 | test1405 | shared | · | · | · | · | ✓ | solo |
 | test1406 | shared | · | · | · | · | ✓ | solo |
-| test1407 | shared | · | · | · | · | ✓ | solo |
 | test1408 | shared | · | · | · | · | ✓ | solo |
 | test1409 | shared | · | · | · | · | ✓ | solo |
-| test1410 | shared | · | · | · | · | ✓ | solo |
 | test1411 | shared | · | · | · | · | ✓ | solo |
-| test1412 | shared | · | · | · | · | ✓ | solo |
-| test1413 | shared | · | · | · | · | ✓ | solo |
 | test1414 | shared | · | · | · | · | ✓ | solo |
 | test1415 | shared | · | · | · | · | ✓ | solo |
 | test1500 | shared | ✓ | · | · | · | · | solo |
@@ -4531,7 +3557,7 @@ _None._
 | test1731 | shared | ✓ | · | · | · | · | solo |
 | test1732 | shared | ✓ | · | · | · | · | solo |
 | test1733 | shared | ✓ | · | · | · | · | solo |
-| test1800 | shared | ✓ | · | ✓ | ✓ | · | shared |
+| test1800 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test1801 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test1802 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test1803 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
@@ -4543,17 +3569,14 @@ _None._
 | test1822 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test1823 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test1824 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test1830 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test1830 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test1831 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test1832 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test1832 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test1833 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test1834 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test1835 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
-| test1842 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1843 | shared | · | ✓ | ✓ | ✓ | ✓ | shared |
-| test1844 | shared | · | ✓ | ✓ | ✓ | ✓ | shared |
+| test1834 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test1835 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test1842 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test1845 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
-| test1846 | shared | · | ✓ | ✓ | ✓ | ✓ | shared |
 | test1847 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test1848 | shared | · | · | · | ✓ | · | solo |
 | test1849 | shared | ✓ | · | ✓ | ✓ | ✓ | shared |
@@ -4561,13 +3584,13 @@ _None._
 | test1851 | shared | ✓ | · | ✓ | ✓ | ✓ | shared |
 | test1852 | shared | ✓ | · | ✓ | ✓ | ✓ | shared |
 | test1853 | shared | ✓ | · | ✓ | ✓ | ✓ | shared |
-| test1872 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test1873 | shared | ✓ | · | ✓ | · | ✓ | shared |
-| test1874 | shared | ✓ | · | · | ✓ | · | shared |
+| test1872 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test1873 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test1874 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test1875 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1876 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1877 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test1878 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test1878 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1879 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1880 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test1881 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
@@ -4587,11 +3610,9 @@ _None._
 | test6184 | shared | · | ✓ | · | · | · | solo |
 | test6185 | shared | · | ✓ | · | · | · | solo |
 | test6186 | shared | · | ✓ | · | · | · | solo |
-| test6187 | shared | · | · | ✓ | · | · | solo |
-| test6188 | shared | · | · | ✓ | · | · | solo |
 | test6189 | shared | · | · | ✓ | · | · | solo |
 | test6200 | shared | · | · | · | · | ✓ | solo |
-| test6201 | shared | · | · | ✓ | ✓ | ✓ | shared |
+| test6201 | shared | · | · | · | ✓ | · | solo |
 | test6202 | shared | · | ✓ | · | · | · | solo |
 | test6203 | shared | · | · | ✓ | · | · | solo |
 | test6204 | shared | · | · | · | ✓ | · | solo |
@@ -4609,21 +3630,16 @@ _None._
 | test6216 | shared | · | · | · | ✓ | · | solo |
 | test6217 | shared | · | · | · | · | ✓ | solo |
 | test6218 | shared | · | ✓ | · | · | · | solo |
-| test6219 | shared | · | · | ✓ | · | · | solo |
 | test6220 | shared | · | · | · | ✓ | · | solo |
 | test6221 | shared | · | · | · | · | ✓ | solo |
 | test6222 | shared | · | ✓ | · | · | · | solo |
-| test6223 | shared | · | · | ✓ | · | · | solo |
 | test6224 | shared | · | · | · | ✓ | · | solo |
-| test6225 | shared | · | · | · | · | ✓ | solo |
 | test6226 | shared | · | ✓ | · | · | · | solo |
-| test6227 | shared | · | · | ✓ | · | · | solo |
 | test6228 | shared | · | · | · | ✓ | · | solo |
 | test6229 | shared | · | · | · | · | ✓ | solo |
 | test6230 | shared | · | ✓ | · | · | · | solo |
 | test6231 | shared | · | · | ✓ | · | · | solo |
 | test6232 | shared | · | · | · | ✓ | · | solo |
-| test6233 | shared | · | · | · | · | ✓ | solo |
 | test6234 | shared | · | ✓ | · | · | · | solo |
 | test6235 | shared | · | · | ✓ | · | · | solo |
 | test6236 | shared | · | · | · | ✓ | · | solo |
@@ -4631,7 +3647,6 @@ _None._
 | test6238 | shared | · | ✓ | · | · | · | solo |
 | test6239 | shared | · | · | ✓ | · | · | solo |
 | test6240 | shared | · | · | · | ✓ | · | solo |
-| test6241 | shared | · | · | · | · | ✓ | solo |
 | test6242 | shared | · | · | · | ✓ | · | solo |
 | test6243 | shared | · | · | · | · | ✓ | solo |
 | test6244 | shared | · | · | · | · | ✓ | solo |
@@ -4640,17 +3655,13 @@ _None._
 | test6247 | shared | · | · | · | · | ✓ | solo |
 | test6248 | shared | · | ✓ | · | · | · | solo |
 | test6249 | shared | · | · | · | ✓ | · | solo |
-| test6250 | shared | · | · | · | · | ✓ | solo |
 | test6251 | shared | · | ✓ | · | · | · | solo |
-| test6252 | shared | · | ✓ | ✓ | · | ✓ | shared |
 | test6253 | shared | · | · | · | ✓ | · | solo |
 | test6254 | shared | · | · | · | · | ✓ | solo |
 | test6255 | shared | · | ✓ | · | · | · | solo |
-| test6256 | shared | · | · | ✓ | · | · | solo |
 | test6257 | shared | · | · | · | ✓ | · | solo |
 | test6258 | shared | · | · | · | · | ✓ | solo |
 | test6259 | shared | · | ✓ | · | · | · | solo |
-| test6260 | shared | · | · | ✓ | · | · | solo |
 | test6261 | shared | · | · | · | ✓ | · | solo |
 | test6262 | shared | · | · | · | · | ✓ | solo |
 | test6263 | shared | · | ✓ | · | · | · | solo |
@@ -4666,15 +3677,11 @@ _None._
 | test6273 | shared | · | · | · | · | ✓ | solo |
 | test6274 | shared | · | ✓ | · | · | · | solo |
 | test6275 | shared | · | · | · | ✓ | · | solo |
-| test6276 | shared | · | ✓ | ✓ | · | ✓ | shared |
 | test6277 | shared | · | · | · | ✓ | · | solo |
-| test6278 | shared | · | ✓ | ✓ | · | ✓ | shared |
 | test6279 | shared | · | · | · | ✓ | · | solo |
 | test6280 | shared | · | · | · | ✓ | · | solo |
-| test6281 | shared | · | · | · | · | ✓ | solo |
 | test6282 | shared | · | · | · | ✓ | ✓ | shared |
 | test6283 | shared | · | · | · | ✓ | ✓ | shared |
-| test6284 | shared | · | ✓ | · | ✓ | · | shared |
 | test6285 | shared | · | · | · | · | ✓ | solo |
 | test6286 | shared | · | · | · | ✓ | · | solo |
 | test6287 | shared | · | · | · | · | ✓ | solo |
@@ -4685,17 +3692,6 @@ _None._
 | test6292 | shared | · | · | · | ✓ | · | solo |
 | test6293 | shared | · | · | · | · | ✓ | solo |
 | test6294 | shared | · | · | · | ✓ | · | solo |
-| test6295 | shared | · | · | · | · | ✓ | solo |
-| test6296 | shared | · | ✓ | · | · | · | solo |
-| test6297 | shared | · | ✓ | · | ✓ | · | shared |
-| test6298 | shared | · | · | · | ✓ | · | solo |
-| test6299 | shared | · | · | ✓ | · | · | solo |
-| test6300 | shared | · | · | · | · | ✓ | solo |
-| test6301 | shared | · | · | · | · | ✓ | solo |
-| test6302 | shared | · | · | · | · | ✓ | solo |
-| test6303 | shared | · | · | · | · | ✓ | solo |
-| test6304 | shared | · | · | · | · | ✓ | solo |
-| test6305 | shared | · | · | · | · | ✓ | solo |
 | test6306 | shared | · | · | · | ✓ | · | solo |
 | test6307 | shared | · | · | · | · | ✓ | solo |
 | test6308 | shared | · | · | · | ✓ | · | solo |
@@ -4704,10 +3700,10 @@ _None._
 | test6311 | shared | · | · | · | · | ✓ | solo |
 | test6312 | shared | · | · | · | ✓ | · | solo |
 | test6313 | shared | · | · | · | · | ✓ | solo |
-| test6314 | shared | · | ✓ | · | · | ✓ | shared |
+| test6314 | shared | ✓ | ✓ | · | · | ✓ | shared |
 | test6315 | shared | · | · | · | ✓ | · | solo |
 | test6316 | shared | · | · | · | · | ✓ | solo |
-| test6317 | shared | · | ✓ | · | · | ✓ | shared |
+| test6317 | shared | ✓ | ✓ | · | · | ✓ | shared |
 | test6318 | shared | · | · | · | ✓ | · | solo |
 | test6319 | shared | · | · | · | · | ✓ | solo |
 | test6320 | shared | · | ✓ | · | · | · | solo |
@@ -4715,7 +3711,7 @@ _None._
 | test6322 | shared | · | · | · | · | ✓ | solo |
 | test6323 | shared | · | · | · | ✓ | · | solo |
 | test6324 | shared | · | · | · | · | ✓ | solo |
-| test6325 | shared | · | ✓ | · | · | ✓ | shared |
+| test6325 | shared | · | ✓ | · | · | · | solo |
 | test6326 | shared | · | · | ✓ | · | · | solo |
 | test6327 | shared | · | · | · | ✓ | · | solo |
 | test6328 | shared | · | · | · | · | ✓ | solo |
@@ -4753,7 +3749,7 @@ _None._
 | test6360 | shared | · | · | ✓ | · | · | solo |
 | test6361 | shared | · | · | · | ✓ | · | solo |
 | test6362 | shared | · | · | · | · | ✓ | solo |
-| test6363 | shared | · | ✓ | · | · | ✓ | shared |
+| test6363 | shared | ✓ | ✓ | · | · | ✓ | shared |
 | test6364 | shared | · | · | ✓ | · | · | solo |
 | test6365 | shared | · | · | · | ✓ | · | solo |
 | test6366 | shared | · | · | · | · | ✓ | solo |
@@ -4761,7 +3757,7 @@ _None._
 | test6368 | shared | · | · | ✓ | · | · | solo |
 | test6369 | shared | · | · | · | ✓ | · | solo |
 | test6370 | shared | · | · | · | · | ✓ | solo |
-| test6371 | shared | · | ✓ | · | · | ✓ | shared |
+| test6371 | shared | ✓ | ✓ | · | · | ✓ | shared |
 | test6372 | shared | · | · | · | ✓ | · | solo |
 | test6373 | shared | · | · | · | · | ✓ | solo |
 | test6374 | shared | · | ✓ | · | · | · | solo |
@@ -4771,19 +3767,17 @@ _None._
 | test6379 | shared | · | ✓ | · | · | · | solo |
 | test6380 | shared | · | · | · | ✓ | · | solo |
 | test6381 | shared | · | · | · | · | ✓ | solo |
-| test6382 | shared | · | ✓ | · | · | · | solo |
+| test6382 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test6383 | shared | · | · | · | ✓ | · | solo |
 | test6384 | shared | · | · | · | · | ✓ | solo |
 | test6386 | shared | · | · | · | ✓ | · | solo |
 | test6387 | shared | · | · | · | · | ✓ | solo |
-| test6388 | shared | · | ✓ | · | · | ✓ | shared |
+| test6388 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test6389 | shared | · | · | · | ✓ | · | solo |
 | test6390 | shared | · | · | · | · | ✓ | solo |
-| test6391 | shared | · | ✓ | · | · | · | solo |
+| test6391 | shared | ✓ | ✓ | · | · | ✓ | shared |
 | test6392 | shared | · | · | · | ✓ | · | solo |
-| test6393 | shared | · | · | · | · | ✓ | solo |
 | test6395 | shared | · | · | · | ✓ | · | solo |
-| test6396 | shared | · | · | ✓ | · | · | solo |
 | test6397 | shared | · | · | · | ✓ | · | solo |
 | test6398 | shared | · | · | · | ✓ | · | solo |
 | test6399 | shared | · | · | · | · | ✓ | solo |
@@ -4794,30 +3788,22 @@ _None._
 | test6404 | shared | · | · | · | ✓ | · | solo |
 | test6405 | shared | · | · | · | · | ✓ | solo |
 | test6406 | shared | · | · | · | ✓ | · | solo |
-| test6407 | shared | · | · | · | · | ✓ | solo |
 | test6408 | shared | · | · | · | ✓ | · | solo |
-| test6409 | shared | · | · | · | · | ✓ | solo |
 | test6410 | shared | · | · | · | ✓ | · | solo |
 | test6411 | shared | · | · | · | · | ✓ | solo |
 | test6412 | shared | · | · | · | · | ✓ | solo |
 | test6413 | shared | · | · | · | ✓ | · | solo |
-| test6414 | shared | · | · | · | · | ✓ | solo |
 | test6415 | shared | · | · | · | ✓ | · | solo |
-| test6416 | shared | · | · | · | · | ✓ | solo |
 | test6417 | shared | · | · | · | ✓ | · | solo |
-| test6418 | shared | · | · | · | · | ✓ | solo |
 | test6419 | shared | · | · | · | ✓ | · | solo |
-| test6420 | shared | · | · | · | · | ✓ | solo |
 | test6421 | shared | · | · | · | ✓ | · | solo |
 | test6422 | shared | · | · | · | · | ✓ | solo |
 | test6423 | shared | · | ✓ | · | · | · | solo |
 | test6424 | shared | · | · | · | · | ✓ | solo |
 | test6425 | shared | · | · | · | · | ✓ | solo |
 | test6426 | shared | · | · | · | · | ✓ | solo |
-| test6427 | shared | · | · | · | · | ✓ | solo |
 | test6428 | shared | · | ✓ | · | · | · | solo |
 | test6429 | shared | · | · | · | ✓ | · | solo |
-| test6430 | shared | · | · | · | · | ✓ | solo |
 | test6431 | shared | · | ✓ | · | · | · | solo |
 | test6432 | shared | · | · | · | ✓ | · | solo |
 | test6433 | shared | · | ✓ | · | · | · | solo |
@@ -4923,79 +3909,36 @@ _None._
 | test6533 | shared | · | ✓ | · | · | · | solo |
 | test6534 | shared | · | · | · | · | ✓ | solo |
 | test6535 | shared | · | ✓ | · | · | · | solo |
-| test6536 | shared | · | · | · | · | ✓ | solo |
 | test6537 | shared | · | ✓ | · | · | · | solo |
-| test6538 | shared | · | · | · | · | ✓ | solo |
-| test6539 | shared | · | ✓ | · | · | · | solo |
-| test6540 | shared | · | · | · | · | ✓ | solo |
 | test6541 | shared | · | · | · | · | ✓ | solo |
-| test6542 | shared | · | · | · | · | ✓ | solo |
-| test6543 | shared | · | · | · | · | ✓ | solo |
 | test6544 | shared | · | · | · | ✓ | ✓ | shared |
-| test6545 | shared | · | · | · | · | ✓ | solo |
-| test6546 | shared | · | · | · | · | ✓ | solo |
 | test6547 | shared | · | · | · | · | ✓ | solo |
-| test6548 | shared | · | · | · | · | ✓ | solo |
 | test6549 | shared | · | · | · | · | ✓ | solo |
-| test6550 | shared | · | ✓ | · | ✓ | · | shared |
 | test6551 | shared | · | · | · | · | ✓ | solo |
-| test6552 | shared | · | · | ✓ | · | · | solo |
 | test6553 | shared | · | · | · | · | ✓ | solo |
-| test6554 | shared | · | · | ✓ | · | · | solo |
 | test6555 | shared | · | · | · | · | ✓ | solo |
-| test6556 | shared | · | ✓ | · | · | · | solo |
-| test6557 | shared | · | · | · | ✓ | · | solo |
 | test6558 | shared | · | · | · | · | ✓ | solo |
-| test6559 | shared | · | ✓ | · | · | · | solo |
-| test6560 | shared | · | ✓ | · | · | · | solo |
-| test6561 | shared | · | · | · | · | ✓ | solo |
-| test6562 | shared | · | ✓ | · | · | · | solo |
-| test6563 | shared | · | · | · | ✓ | · | solo |
 | test6564 | shared | · | · | · | · | ✓ | solo |
-| test6565 | shared | · | ✓ | · | ✓ | · | shared |
 | test6566 | shared | · | · | · | · | ✓ | solo |
-| test6567 | shared | · | ✓ | · | · | · | solo |
-| test6568 | shared | · | · | · | ✓ | · | solo |
 | test6569 | shared | · | · | · | · | ✓ | solo |
-| test6570 | shared | · | ✓ | · | ✓ | · | shared |
 | test6571 | shared | · | · | · | · | ✓ | solo |
-| test6572 | shared | · | ✓ | · | ✓ | · | shared |
 | test6573 | shared | · | · | · | · | ✓ | solo |
-| test6574 | shared | · | ✓ | · | · | · | solo |
-| test6575 | shared | · | · | · | ✓ | · | solo |
-| test6576 | shared | · | ✓ | · | · | · | solo |
-| test6577 | shared | · | · | · | ✓ | · | solo |
 | test6578 | shared | · | · | · | · | ✓ | solo |
-| test6579 | shared | · | ✓ | · | · | · | solo |
 | test6580 | shared | · | · | · | · | ✓ | solo |
-| test6581 | shared | · | ✓ | · | · | · | solo |
-| test6582 | shared | · | · | · | ✓ | · | solo |
 | test6583 | shared | · | · | · | · | ✓ | solo |
-| test6584 | shared | · | ✓ | · | · | · | solo |
-| test6585 | shared | · | · | · | · | ✓ | solo |
-| test6586 | shared | ✓ | · | · | · | · | solo |
-| test6587 | shared | ✓ | · | · | · | · | solo |
-| test6588 | shared | ✓ | · | · | · | · | solo |
+| test6586 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test6587 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test6588 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test6589 | shared | · | · | ✓ | · | · | solo |
-| test6590 | shared | · | ✓ | · | · | · | solo |
-| test6591 | shared | · | · | · | · | ✓ | solo |
-| test6592 | shared | · | · | · | · | ✓ | solo |
-| test6593 | shared | · | · | · | · | ✓ | solo |
-| test6594 | shared | ✓ | · | · | · | · | solo |
-| test6595 | shared | · | · | ✓ | · | · | solo |
-| test6596 | shared | · | · | · | · | ✓ | solo |
+| test6594 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test6597 | shared | · | ✓ | · | · | · | solo |
 | test6598 | shared | · | · | · | · | ✓ | solo |
 | test6599 | shared | · | · | · | · | ✓ | solo |
-| test6600 | shared | ✓ | · | · | · | · | solo |
-| test6601 | shared | · | · | · | · | ✓ | solo |
+| test6600 | shared | ✓ | · | ✓ | · | · | shared |
 | test6602 | shared | · | ✓ | · | · | · | solo |
-| test6603 | shared | · | ✓ | · | · | · | solo |
-| test6604 | shared | · | ✓ | · | · | · | solo |
-| test6605 | shared | ✓ | · | · | · | · | solo |
+| test6605 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test6606 | shared | · | ✓ | · | · | · | solo |
 | test6607 | shared | · | · | ✓ | · | · | solo |
-| test6608 | shared | · | · | ✓ | · | · | solo |
 | test6609 | shared | · | ✓ | · | · | · | solo |
 | test6610 | shared | · | ✓ | · | · | · | solo |
 | test6611 | shared | · | ✓ | · | · | · | solo |
@@ -5010,17 +3953,9 @@ _None._
 | test6620 | shared | · | · | · | ✓ | · | solo |
 | test6621 | shared | · | · | · | ✓ | · | solo |
 | test6622 | shared | · | ✓ | · | · | · | solo |
-| test6623 | shared | ✓ | · | · | · | · | solo |
-| test6624 | shared | · | · | ✓ | · | · | solo |
-| test6625 | shared | · | · | · | · | ✓ | solo |
-| test6626 | shared | · | · | ✓ | · | · | solo |
-| test6627 | shared | · | · | ✓ | · | · | solo |
-| test6628 | shared | · | · | ✓ | · | · | solo |
-| test6629 | shared | · | · | ✓ | · | · | solo |
+| test6623 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test6630 | shared | · | ✓ | · | · | · | solo |
-| test6631 | shared | · | · | · | · | ✓ | solo |
 | test6632 | shared | · | ✓ | · | · | · | solo |
-| test6633 | shared | · | · | · | · | ✓ | solo |
 | test6634 | shared | · | ✓ | · | · | · | solo |
 | test6635 | shared | · | ✓ | · | · | · | solo |
 | test6636 | shared | · | ✓ | · | · | · | solo |
@@ -5028,14 +3963,9 @@ _None._
 | test6638 | shared | · | ✓ | · | · | · | solo |
 | test6639 | shared | · | ✓ | · | · | · | solo |
 | test6640 | shared | · | ✓ | · | · | · | solo |
-| test6641 | shared | · | · | · | · | ✓ | solo |
-| test6642 | shared | · | · | · | · | ✓ | solo |
-| test6643 | shared | · | · | · | · | ✓ | solo |
-| test6644 | shared | · | · | · | · | ✓ | solo |
 | test6645 | shared | · | ✓ | · | · | · | solo |
 | test6646 | shared | · | ✓ | · | · | · | solo |
 | test6647 | shared | · | ✓ | · | · | · | solo |
-| test6648 | shared | · | ✓ | · | · | · | solo |
 | test6649 | shared | · | ✓ | · | · | · | solo |
 | test6650 | shared | · | · | · | · | ✓ | solo |
 | test6651 | shared | · | · | · | · | ✓ | solo |
@@ -5046,67 +3976,23 @@ _None._
 | test6656 | shared | · | · | · | · | ✓ | solo |
 | test6657 | shared | · | · | · | · | ✓ | solo |
 | test6658 | shared | · | · | · | · | ✓ | solo |
-| test6659 | shared | · | ✓ | · | · | · | solo |
 | test6660 | shared | · | ✓ | · | · | · | solo |
-| test6661 | shared | · | ✓ | · | · | · | solo |
-| test6662 | shared | · | ✓ | · | · | · | solo |
-| test6663 | shared | · | ✓ | · | · | · | solo |
-| test6664 | shared | · | ✓ | · | · | · | solo |
-| test6665 | shared | · | ✓ | · | · | · | solo |
 | test6666 | shared | · | ✓ | · | · | · | solo |
 | test6667 | shared | · | ✓ | · | · | · | solo |
 | test6668 | shared | · | ✓ | · | · | · | solo |
 | test6669 | shared | · | ✓ | · | · | · | solo |
 | test6670 | shared | · | ✓ | · | · | · | solo |
-| test6671 | shared | · | ✓ | · | · | · | solo |
-| test6672 | shared | ✓ | · | · | · | · | solo |
-| test6673 | shared | · | ✓ | · | · | · | solo |
-| test6674 | shared | · | ✓ | · | · | · | solo |
-| test6675 | shared | · | ✓ | · | · | · | solo |
-| test6676 | shared | · | ✓ | · | · | · | solo |
-| test6677 | shared | · | · | · | · | ✓ | solo |
-| test6678 | shared | · | · | · | · | ✓ | solo |
-| test6679 | shared | · | ✓ | · | · | · | solo |
-| test6680 | shared | · | ✓ | · | · | · | solo |
-| test6681 | shared | · | ✓ | · | · | · | solo |
-| test6682 | shared | · | ✓ | · | · | · | solo |
-| test6683 | shared | · | · | · | · | ✓ | solo |
-| test6684 | shared | · | ✓ | · | · | · | solo |
-| test6685 | shared | · | ✓ | · | · | · | solo |
-| test6686 | shared | · | ✓ | · | · | · | solo |
-| test6687 | shared | · | ✓ | · | · | · | solo |
-| test6688 | shared | · | ✓ | · | · | · | solo |
+| test6672 | shared | ✓ | · | ✓ | · | ✓ | shared |
 | test6689 | shared | · | · | ✓ | · | · | solo |
-| test6690 | shared | · | · | ✓ | · | · | solo |
 | test6691 | shared | · | · | ✓ | · | · | solo |
 | test6692 | shared | · | · | ✓ | · | · | solo |
 | test6693 | shared | · | · | ✓ | · | · | solo |
-| test6694 | shared | · | · | ✓ | · | · | solo |
-| test6695 | shared | · | ✓ | · | · | · | solo |
-| test6696 | shared | · | · | ✓ | · | · | solo |
-| test6697 | shared | · | · | ✓ | · | · | solo |
 | test6698 | shared | · | · | ✓ | · | · | solo |
-| test6699 | shared | · | · | ✓ | · | · | solo |
 | test6700 | shared | · | ✓ | · | · | · | solo |
-| test6701 | shared | · | ✓ | · | · | · | solo |
-| test6702 | shared | · | ✓ | · | · | · | solo |
 | test6703 | shared | · | · | ✓ | · | · | solo |
-| test6704 | shared | · | ✓ | · | · | · | solo |
-| test6705 | shared | · | · | ✓ | · | · | solo |
-| test6706 | shared | · | ✓ | · | · | · | solo |
-| test6707 | shared | · | ✓ | · | · | · | solo |
-| test6708 | shared | · | ✓ | · | · | · | solo |
 | test6709 | shared | · | · | ✓ | · | · | solo |
 | test6710 | shared | · | · | ✓ | · | · | solo |
-| test6711 | shared | · | ✓ | · | · | · | solo |
-| test6712 | shared | · | ✓ | · | · | · | solo |
 | test6713 | shared | · | · | ✓ | · | · | solo |
-| test6714 | shared | · | · | ✓ | · | · | solo |
-| test6715 | shared | · | ✓ | · | · | · | solo |
-| test6716 | shared | · | · | ✓ | · | · | solo |
-| test6717 | shared | · | · | ✓ | · | · | solo |
-| test6718 | shared | · | ✓ | · | · | · | solo |
-| test6719 | shared | · | · | ✓ | · | · | solo |
 | test6720 | shared | · | · | · | · | ✓ | solo |
 | test6721 | shared | · | · | · | · | ✓ | solo |
 | test6722 | shared | · | · | · | · | ✓ | solo |
@@ -5115,30 +4001,17 @@ _None._
 | test6725 | shared | · | · | · | · | ✓ | solo |
 | test6726 | shared | · | ✓ | · | · | · | solo |
 | test6727 | shared | · | ✓ | · | · | · | solo |
-| test6728 | shared | · | ✓ | · | · | ✓ | shared |
-| test6729 | shared | · | · | · | · | ✓ | solo |
-| test6730 | shared | · | · | · | · | ✓ | solo |
-| test6731 | shared | · | · | · | · | ✓ | solo |
-| test6732 | shared | · | · | · | · | ✓ | solo |
-| test6733 | shared | · | · | · | ✓ | ✓ | shared |
-| test6734 | shared | ✓ | · | · | · | · | solo |
-| test6735 | shared | ✓ | · | · | · | · | solo |
-| test6736 | shared | ✓ | · | · | · | · | solo |
+| test6734 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test6735 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
+| test6736 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test6737 | shared | · | · | · | ✓ | · | solo |
-| test6738 | shared | · | · | · | ✓ | · | solo |
-| test6739 | shared | · | ✓ | · | · | · | solo |
-| test6740 | shared | · | · | · | ✓ | · | solo |
-| test6741 | shared | · | ✓ | · | · | · | solo |
-| test6742 | shared | · | · | ✓ | · | · | solo |
-| test6743 | shared | · | · | · | · | ✓ | solo |
-| test6744 | shared | · | · | · | · | ✓ | solo |
-| test6745 | shared | ✓ | · | · | · | · | solo |
+| test6745 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test6746 | shared | ✓ | · | · | · | · | solo |
 | test6747 | shared | ✓ | · | · | · | · | solo |
-| test6748 | shared | ✓ | · | · | · | · | solo |
-| test6749 | shared | ✓ | · | · | · | · | solo |
-| test6750 | shared | ✓ | · | · | · | · | solo |
-| test6751 | shared | ✓ | · | · | · | · | solo |
+| test6748 | shared | ✓ | · | · | · | ✓ | shared |
+| test6749 | shared | ✓ | · | · | · | ✓ | shared |
+| test6750 | shared | ✓ | · | · | · | ✓ | shared |
+| test6751 | shared | ✓ | · | · | · | ✓ | shared |
 | test8000 | impl | ✓ | · | · | · | · | solo |
 | test8001 | impl | ✓ | · | · | · | · | solo |
 | test8002 | impl | ✓ | · | · | · | · | solo |
@@ -5168,4 +4041,5 @@ _None._
 | test8026 | impl | ✓ | · | · | · | · | solo |
 | test8027 | impl | ✓ | · | · | · | · | solo |
 | test8028 | impl | ✓ | · | · | · | · | solo |
+| test8101 | impl | · | · | ✓ | · | · | solo |
 
