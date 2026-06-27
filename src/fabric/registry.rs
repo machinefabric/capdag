@@ -349,7 +349,7 @@ impl FabricRegistry {
         config: RegistryConfig,
         manifest_version: u32,
     ) -> Result<Self, FabricRegistryError> {
-        let cache_dir = Self::default_cache_root()?;
+        let cache_dir = Self::default_cache_root(&config.registry_base_url)?;
         let caps_dir = cache_dir.join("caps");
         let media_dir = cache_dir.join("media");
         let aliases_dir = cache_dir.join("aliases");
@@ -480,11 +480,26 @@ impl FabricRegistry {
         self.cache_revision_tx.subscribe()
     }
 
-    fn default_cache_root() -> Result<PathBuf, FabricRegistryError> {
+    /// The on-disk cache root for a given registry origin.
+    ///
+    /// The cache holds per-cap, per-media, and per-manifest JSON keyed by
+    /// URN-hash / version — values that DIFFER between registry origins (the
+    /// staging registry serves different cap/media/manifest bytes than prod for
+    /// the same URN). Sharing one directory across origins would let a prod-
+    /// populated cache satisfy a staging lookup (and vice versa), silently
+    /// serving the wrong snapshot — the exact failure that makes a
+    /// `CDG_FABRIC_REGISTRY_URL=staging` run resolve against stale prod data.
+    ///
+    /// So the root is namespaced by a stable slug of the registry base URL,
+    /// using the SAME `slug_for` scheme as the cartridge registry layout
+    /// (`<os_cache>/capdag/<registry_slug>/…`). Two origins therefore never
+    /// share a cache slot; switching origins switches cache trees.
+    fn default_cache_root(registry_base_url: &str) -> Result<PathBuf, FabricRegistryError> {
         let mut cache_dir = dirs::cache_dir().ok_or_else(|| {
             FabricRegistryError::CacheError("Could not determine cache directory".to_string())
         })?;
         cache_dir.push("capdag");
+        cache_dir.push(crate::bifaci::cartridge_slug::slug_for(Some(registry_base_url)));
         Ok(cache_dir)
     }
 
@@ -2816,6 +2831,49 @@ mod parity_port_tests {
             .with_registry_url("https://localhost:8888");
         assert_eq!(config.registry_base_url, "https://localhost:8888");
         assert_eq!(config.schema_base_url, "https://schemas.example.com");
+    }
+
+    // TEST1893: The on-disk cache root is namespaced per registry origin, so a
+    // prod-populated cache can never satisfy a staging lookup (and vice versa).
+    // Without this, a `CDG_FABRIC_REGISTRY_URL=staging` run reuses the
+    // prod-cached manifest/caps under one shared `capdag/` directory and
+    // resolves against the wrong snapshot — the bug that made `--staging`
+    // appear not to reach the scenario tests. This pins three properties:
+    // distinct origins → distinct roots; same origin → identical root
+    // (deterministic, so caching actually hits); and the slug is the same
+    // `slug_for` scheme the cartridge registry layout uses.
+    #[test]
+    fn test1893_cache_root_is_namespaced_per_registry_origin() {
+        let prod = FabricRegistry::default_cache_root("https://fabric.capdag.com")
+            .expect("prod cache root");
+        let staging = FabricRegistry::default_cache_root("https://fabric-staging.capdag.com")
+            .expect("staging cache root");
+        let staging_again = FabricRegistry::default_cache_root("https://fabric-staging.capdag.com")
+            .expect("staging cache root again");
+
+        assert_ne!(
+            prod, staging,
+            "prod and staging must not share a cache root — they serve different bytes for the same URN/version"
+        );
+        assert_eq!(
+            staging, staging_again,
+            "the same registry origin must map to a stable cache root, or caching never hits"
+        );
+
+        // The final path component is exactly the cartridge-registry slug of
+        // the origin URL — one slug scheme across the codebase.
+        let slug = crate::bifaci::cartridge_slug::slug_for(Some("https://fabric-staging.capdag.com"));
+        assert_eq!(
+            staging.file_name().and_then(|s| s.to_str()),
+            Some(slug.as_str()),
+            "cache root must end in slug_for(registry_url)"
+        );
+        // And the parent of that slug is the shared `capdag` cache directory.
+        assert_eq!(
+            staging.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()),
+            Some("capdag"),
+            "the per-origin slug must live under the capdag cache directory"
+        );
     }
 
     // TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics.
