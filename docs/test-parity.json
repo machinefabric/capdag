@@ -198,6 +198,120 @@
       }
     },
     {
+      "number": 123,
+      "present": [
+        "go",
+        "py",
+        "js",
+        "objc"
+      ],
+      "missing": [
+        "rust"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "rust"
+      ],
+      "canonical": {
+        "go": {
+          "function": "Test0123_CapExists",
+          "description": "TEST0123: Cap exists",
+          "location": "cap/registry_test.go:113"
+        },
+        "py": {
+          "function": "test_123_registry_add_caps_to_cache",
+          "description": "TEST123: Test adding caps to the registry cache and retrieving them",
+          "location": "tests/test_registry.py:300"
+        },
+        "js": {
+          "function": "test0123_Machine_lineBasedLoop",
+          "description": "TEST0123: Machine line based loop",
+          "location": "capdag.test.js:3457"
+        },
+        "objc": {
+          "function": "test0123_BuilderMinimalValid",
+          "description": "TEST0123: Builder minimal valid",
+          "location": "Tests/CapDAGTests/CSCapUrnBuilderTests.m:159"
+        }
+      }
+    },
+    {
+      "number": 124,
+      "present": [
+        "go",
+        "py",
+        "js",
+        "objc"
+      ],
+      "missing": [
+        "rust"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "rust"
+      ],
+      "canonical": {
+        "go": {
+          "function": "Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError",
+          "description": "Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError verifies the ErrNoEdges case.",
+          "location": "machine/machine_test.go:477"
+        },
+        "py": {
+          "function": "test_124_registry_config_builder_pattern",
+          "description": "TEST124: Test registry configuration builder sets registry and schema URLs",
+          "location": "tests/test_registry.py:314"
+        },
+        "js": {
+          "function": "test0124_Machine_lineBasedFanIn",
+          "description": "TEST0124: Machine line based fan in",
+          "location": "capdag.test.js:3467"
+        },
+        "objc": {
+          "function": "test0124_BuilderComplex",
+          "description": "TEST0124: Builder complex",
+          "location": "Tests/CapDAGTests/CSCapUrnBuilderTests.m:179"
+        }
+      }
+    },
+    {
+      "number": 146,
+      "present": [
+        "go",
+        "py",
+        "js",
+        "objc"
+      ],
+      "missing": [
+        "rust"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "rust"
+      ],
+      "canonical": {
+        "go": {
+          "function": "Test146_schema_url_not_overwritten_when_explicit",
+          "description": "TEST146: Test schema URL not overwritten when set explicitly before registry URL",
+          "location": "cap/registry_test.go:213"
+        },
+        "py": {
+          "function": "test_146_schema_url_not_overwritten_when_explicit",
+          "description": "TEST146: Test schema URL not overwritten when set explicitly before registry URL",
+          "location": "tests/test_registry.py:278"
+        },
+        "js": {
+          "function": "test0146_Machine_serializeSingleEdge",
+          "description": "--- Machine serializer tests (mirrors serializer.rs tests) ---",
+          "location": "capdag.test.js:3796"
+        },
+        "objc": {
+          "function": "test0146_MetadataNilByDefault",
+          "description": "TEST0146: Metadata nil by default",
+          "location": "Tests/CapDAGTests/CSMediaDefTests.m:56"
+        }
+      }
+    },
+    {
       "number": 183,
       "present": [
         "go",
@@ -1726,22 +1840,25 @@
     {
       "number": 288,
       "present": [
+        "rust",
         "go",
         "objc"
       ],
       "missing": [
-        "rust",
         "py",
         "js"
       ],
-      "aliased_in": {
-        "rust": 1131
-      },
+      "aliased_in": {},
       "true_missing": [
         "py",
         "js"
       ],
       "canonical": {
+        "rust": {
+          "function": "test288_media_documentation_propagates_through_resolve",
+          "description": "TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def \u2014 info panels, the cap navigator, the UI \u2014 so a regression here makes the new field invisible everywhere.",
+          "location": "src/media/spec.rs:1102"
+        },
         "go": {
           "function": "Test0288_media_documentation_propagates_through_resolve",
           "description": "TEST0288: Documentation propagates from MediaDef through ResolveMediaUrn into ResolvedMediaDef. Verifies description and documentation remain distinct.",
@@ -1757,22 +1874,25 @@
     {
       "number": 289,
       "present": [
+        "rust",
         "go",
         "objc"
       ],
       "missing": [
-        "rust",
         "py",
         "js"
       ],
-      "aliased_in": {
-        "rust": 1132
-      },
+      "aliased_in": {},
       "true_missing": [
         "py",
         "js"
       ],
       "canonical": {
+        "rust": {
+          "function": "test289_media_def_def_documentation_round_trip",
+          "description": "TEST289: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side.",
+          "location": "src/media/spec.rs:1136"
+        },
         "go": {
           "function": "Test0289_media_def_def_documentation_round_trip",
           "description": "TEST0289: MediaDef serializes documentation only when present and round-trips losslessly. When nil, the field must be omitted entirely.",
@@ -2012,21 +2132,25 @@
     {
       "number": 301,
       "present": [
+        "rust",
         "py",
         "objc"
       ],
       "missing": [
-        "rust",
         "go",
         "js"
       ],
       "aliased_in": {},
       "true_missing": [
-        "rust",
         "go",
         "js"
       ],
       "canonical": {
+        "rust": {
+          "function": "test301_transform_walks_both_channels_release_first",
+          "description": "TEST301: transform_to_cartridge_array walks both channels and emits release-channel entries before nightly-channel entries.",
+          "location": "src/bifaci/cartridge_repo.rs:2147"
+        },
         "py": {
           "function": "test_301_transform_walks_both_channels_release_first",
           "description": "TEST301: Walking both channels produces release entries first.",
@@ -2058,7 +2182,7 @@
         "rust": {
           "function": "test319_update_cache_rejects_malformed_cap_urn",
           "description": "TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear.",
-          "location": "src/bifaci/cartridge_repo.rs:2475"
+          "location": "src/bifaci/cartridge_repo.rs:2510"
         },
         "go": {
           "function": "Test319_update_cache_rejects_malformed_cap_urn",
@@ -6483,22 +6607,25 @@
     {
       "number": 489,
       "present": [
+        "rust",
         "py",
         "objc"
       ],
       "missing": [
-        "rust",
         "go",
         "js"
       ],
-      "aliased_in": {
-        "rust": 906
-      },
+      "aliased_in": {},
       "true_missing": [
         "go",
         "js"
       ],
       "canonical": {
+        "rust": {
+          "function": "test489_full_path_identity_verification",
+          "description": "TEST489: Full path identity verification: engine \u2192 host (attach_cartridge) \u2192 cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests.",
+          "location": "src/bifaci/integration_tests.rs:1350"
+        },
         "py": {
           "function": "test_489_full_path_identity_verification",
           "description": "TEST489: Full path identity verification: engine \u2192 host (attach_cartridge) \u2192 cartridge",
@@ -6514,22 +6641,25 @@
     {
       "number": 490,
       "present": [
+        "rust",
         "py",
         "objc"
       ],
       "missing": [
-        "rust",
         "go",
         "js"
       ],
-      "aliased_in": {
-        "rust": 146
-      },
+      "aliased_in": {},
       "true_missing": [
         "go",
         "js"
       ],
       "canonical": {
+        "rust": {
+          "function": "test490_identity_verification_multiple_cartridges",
+          "description": "TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed.",
+          "location": "src/bifaci/integration_tests.rs:1496"
+        },
         "py": {
           "function": "test_490_identity_verification_multiple_cartridges",
           "description": "TEST490: Identity verification with multiple cartridges through single relay",
@@ -18910,22 +19040,25 @@
     {
       "number": 907,
       "present": [
+        "rust",
         "py",
         "objc"
       ],
       "missing": [
-        "rust",
         "go",
         "js"
       ],
-      "aliased_in": {
-        "rust": 1124
-      },
+      "aliased_in": {},
       "true_missing": [
         "go",
         "js"
       ],
       "canonical": {
+        "rust": {
+          "function": "test907_cbor_rejects_stream_end_without_chunk_count",
+          "description": "TEST907: CBOR decode REJECTS STREAM_END frame missing chunk_count field",
+          "location": "src/bifaci/frame.rs:2368"
+        },
         "py": {
           "function": "test_907_cbor_rejects_stream_end_without_chunk_count",
           "description": "TEST907: Offline flag blocks fetch_from_registry without making HTTP request",
@@ -26544,21 +26677,24 @@
     {
       "number": 1294,
       "present": [
+        "rust",
         "go",
         "py",
         "js"
       ],
       "missing": [
-        "rust",
         "objc"
       ],
-      "aliased_in": {
-        "rust": 123
-      },
+      "aliased_in": {},
       "true_missing": [
         "objc"
       ],
       "canonical": {
+        "rust": {
+          "function": "test1294_rule11_void_input_with_stdin_rejected",
+          "description": "TEST1294: RULE11 - void-input cap with stdin source rejected",
+          "location": "src/cap/validation.rs:1627"
+        },
         "go": {
           "function": "Test1294_rule11_void_input_with_stdin_rejected",
           "description": "TEST1294: RULE11 - void-input cap with stdin source rejected",
@@ -26579,21 +26715,24 @@
     {
       "number": 1295,
       "present": [
+        "rust",
         "go",
         "py",
         "js"
       ],
       "missing": [
-        "rust",
         "objc"
       ],
-      "aliased_in": {
-        "rust": 124
-      },
+      "aliased_in": {},
       "true_missing": [
         "objc"
       ],
       "canonical": {
+        "rust": {
+          "function": "test1295_rule11_non_void_input_without_stdin_rejected",
+          "description": "TEST1295: RULE11 - non-void-input cap without stdin source rejected",
+          "location": "src/cap/validation.rs:1647"
+        },
         "go": {
           "function": "Test1295_rule11_non_void_input_without_stdin_rejected",
           "description": "TEST1295: RULE11 - non-void-input cap without stdin source rejected",
@@ -26690,21 +26829,25 @@
     {
       "number": 1308,
       "present": [
+        "rust",
         "py",
         "js"
       ],
       "missing": [
-        "rust",
         "go",
         "objc"
       ],
       "aliased_in": {},
       "true_missing": [
-        "rust",
         "go",
         "objc"
       ],
       "canonical": {
+        "rust": {
+          "function": "test1308_cyclic_strand_fails_hard",
+          "description": "TEST1308: A wiring set that feeds a cap's output back into an ancestor forms a cycle and must fail hard with CyclicMachineStrand carrying the strand index. Cycle: node 0 \u2192 cap A \u2192 node 1 \u2192 cap B \u2192 node 0.",
+          "location": "src/machine/resolve.rs:1323"
+        },
         "py": {
           "function": "test_1308_cyclic_strand_fails_hard",
           "description": "TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError.",
@@ -27942,13 +28085,6 @@
       "location": "src/bifaci/relay_switch.rs:4879"
     },
     {
-      "number": 906,
-      "mirror": "rust",
-      "function": "test906_full_path_identity_verification",
-      "description": "TEST906: Full path identity verification: engine \u2192 host (attach_cartridge) \u2192 cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests.",
-      "location": "src/bifaci/integration_tests.rs:1350"
-    },
-    {
       "number": 909,
       "mirror": "objc",
       "function": "test909_map_progress_deterministic",
@@ -28054,13 +28190,6 @@
       "location": "src/bifaci/integration_tests.rs:313"
     },
     {
-      "number": 1124,
-      "mirror": "rust",
-      "function": "test1124_cbor_rejects_stream_end_without_chunk_count",
-      "description": "TEST1124: CBOR decode REJECTS STREAM_END frame missing chunk_count field",
-      "location": "src/bifaci/frame.rs:2368"
-    },
-    {
       "number": 1125,
       "mirror": "rust",
       "function": "test1125_map_progress_basic_mapping",
@@ -28073,20 +28202,6 @@
       "function": "test1126_map_progress_deterministic",
       "description": "TEST1126: map_progress is deterministic \u2014 same inputs always produce same output",
       "location": "src/orchestrator/executor.rs:1723"
-    },
-    {
-      "number": 1131,
-      "mirror": "rust",
-      "function": "test1131_media_documentation_propagates_through_resolve",
-      "description": "TEST1131: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def \u2014 info panels, the cap navigator, the UI \u2014 so a regression here makes the new field invisible everywhere.",
-      "location": "src/media/spec.rs:1102"
-    },
-    {
-      "number": 1132,
-      "mirror": "rust",
-      "function": "test1132_media_def_def_documentation_round_trip",
-      "description": "TEST1132: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side.",
-      "location": "src/media/spec.rs:1136"
     },
     {
       "number": 1235,

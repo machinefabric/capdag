@@ -2141,6 +2141,41 @@ mod tests {
         assert_eq!(n.channel, CartridgeChannel::Nightly);
     }
 
+    // TEST301: transform_to_cartridge_array walks both channels and emits
+    // release-channel entries before nightly-channel entries.
+    #[test]
+    fn test301_transform_walks_both_channels_release_first() {
+        let release_entry = build_registry_entry(
+            "R",
+            vec![build_cap_group(
+                "g",
+                vec![build_cap("cap:effect=none", "Identity", "identity")],
+                vec![],
+            )],
+        );
+        let nightly_entry = build_registry_entry(
+            "N",
+            vec![build_cap_group(
+                "g",
+                vec![build_cap("cap:effect=none", "Identity", "identity")],
+                vec![],
+            )],
+        );
+        let registry = build_registry_in_channels(
+            vec![("foo", release_entry)],
+            vec![("bar", nightly_entry)],
+        );
+        let server = CartridgeRepoServer::new(registry, "https://test.example/manifest").unwrap();
+
+        let cartridges = server.transform_to_cartridge_array().unwrap();
+        let channels: Vec<CartridgeChannel> = cartridges.iter().map(|c| c.channel).collect();
+        assert_eq!(
+            channels,
+            vec![CartridgeChannel::Release, CartridgeChannel::Nightly],
+            "release entries must come before nightly entries"
+        );
+    }
+
     // TEST327: search_cartridges matches against name/description/tags
     // and cap titles, but never against cap URN strings.
     #[test]
