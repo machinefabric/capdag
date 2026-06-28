@@ -971,7 +971,7 @@ mod tests {
         assert_eq!(
             resolved.nodes().len(),
             3,
-            "three distinct data positions: pdf, txt;textable, vec;record"
+            "three distinct data positions: pdf, txt;enc=utf-8, vec;record"
         );
 
         // The first edge's target NodeId must equal the second
