@@ -910,6 +910,84 @@ impl FabricRegistry {
         );
     }
 
+    /// Warm the alias cache from the pinned manifest so the SYNCHRONOUS
+    /// alias resolver (`resolve_alias_cached`, used by the machine-notation
+    /// parser) finds every registered alias without a per-lookup network
+    /// round-trip. Without this, the first parse of a machine that references
+    /// a cap-position alias (e.g. `identity`) reports a spurious
+    /// "undefined alias" because the cache hasn't been hydrated yet.
+    ///
+    /// Mirrors `prefetch_manifest_caps`: it fetches every manifest alias the
+    /// in-memory cache is missing. `get_alias` caches on success, so this is
+    /// the alias analogue of the cap warm-up. Failures are logged and left for
+    /// the on-demand background fetcher to retry — a single unreachable alias
+    /// must not abort startup.
+    pub async fn prefetch_manifest_aliases(&self) {
+        if self.manifest_version == 0 {
+            return;
+        }
+
+        let to_fetch: Vec<String> = {
+            let manifest = match self.manifest.lock() {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::error!(error = %e, "[prefetch] failed to lock manifest for aliases");
+                    return;
+                }
+            };
+            let cached = self.cached_aliases.lock().ok();
+            manifest
+                .aliases
+                .keys()
+                .filter(|name| {
+                    cached
+                        .as_ref()
+                        .map(|c| !c.contains_key(*name))
+                        .unwrap_or(true)
+                })
+                .cloned()
+                .collect()
+        };
+
+        if to_fetch.is_empty() {
+            return;
+        }
+
+        let total = to_fetch.len();
+        tracing::info!(
+            count = total,
+            manifest_version = self.manifest_version,
+            "[prefetch] warming alias cache from manifest"
+        );
+
+        // `get_alias` borrows `&self`, so resolve sequentially rather than
+        // spawning detached tasks. Alias counts are small (hundreds) and most
+        // hit the on-disk cache, so this is cheap; correctness (the cache being
+        // warm before the first sync parse) matters more than shaving startup ms.
+        let mut warmed = 0usize;
+        let mut failed = 0usize;
+        for name in to_fetch {
+            match self.get_alias(&name).await {
+                Ok(_) => warmed += 1,
+                Err(e) => {
+                    failed += 1;
+                    tracing::warn!(
+                        alias = %name,
+                        error = %e,
+                        "[prefetch] failed to warm alias; on-demand background fetch will retry later"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            warmed,
+            failed,
+            total,
+            "[prefetch] alias cache warm-up complete"
+        );
+    }
+
     /// Spawn a single cap warm-up task onto `set`, cloning the `Arc` handles
     /// the atomic fetcher needs so it can run independently of `&self`.
     fn spawn_cap_warm(
