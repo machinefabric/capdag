@@ -420,10 +420,11 @@ impl Machine {
         if self.is_empty() {
             return Ok("{\"strands\":[]}".to_string());
         }
-        // The render payload is a display surface, so edges are labelled by the
-        // cap's display alias when one exists (aliased rendering), falling back
-        // to the synthetic `edge_N` for un-aliased caps.
-        let plan = build_serialization_plan(self, CapRendering::Aliased(fabric_registry));
+        // The render payload's `alias` slot is the canonical synthetic `edge_N`
+        // identifier (alias-independent). The graph renderer labels each edge by
+        // the cap's manifest TITLE (the `title` field below), not by a fabric
+        // alias, so the plan uses canonical rendering here.
+        let plan = build_serialization_plan(self, CapRendering::CanonicalUrn);
         let mut json = String::new();
         write!(json, "{{\"strands\":[").unwrap();
         for (s_idx, (strand, strand_plan)) in
