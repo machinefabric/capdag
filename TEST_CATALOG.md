@@ -1,8 +1,8 @@
 # Rust Test Catalog
 
-**Total Tests:** 1165
+**Total Tests:** 1169
 
-**Numbered Tests:** 1165
+**Numbered Tests:** 1169
 
 **Unnumbered Tests:** 0
 
@@ -135,8 +135,8 @@ This catalog lists all tests in the Rust codebase.
 | test118 | `test118_dev_manifest_registry_url_is_explicit_null` | TEST118: A dev manifest (built without `MFR_CARTRIDGE_REGISTRY_URL`) carries `registry_url: null` and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build. | src/bifaci/manifest.rs:369 |
 | test119 | `test119_cartridge_response_concatenated_and_final_payload_diverge_for_multi_chunk` | TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk responses: concatenated returns all chunk data joined; final_payload returns only the last chunk. A consumer that confuses the two will silently drop all but the last chunk of a multi-chunk response. | src/bifaci/host_runtime.rs:3460 |
 | test0120 | `test0120_registry_url_under_dev_slug_is_rejected` | TEST0120: Registry url under dev slug is rejected | src/cartridge_discovery.rs:618 |
-| test0121 | `test0121_step_title_query_filters_paths_server_side` | TEST0121: Step title query filters paths server side | src/planner/live_cap_fab.rs:2626 |
-| test0122 | `test0122_step_title_query_constrains_streaming_progress_counts` | TEST0122: Step title query constrains streaming progress counts | src/planner/live_cap_fab.rs:2668 |
+| test0121 | `test0121_step_title_query_filters_paths_server_side` | TEST0121: Step title query filters paths server side | src/planner/live_cap_fab.rs:2634 |
+| test0122 | `test0122_step_title_query_constrains_streaming_progress_counts` | TEST0122: Step title query constrains streaming progress counts | src/planner/live_cap_fab.rs:2676 |
 | test0125 | `test0125_effect_none_preserves_runtime_media` | TEST0125: effect=none preserves runtime media identity | src/urn/cap_urn.rs:2767 |
 | test0126 | `test0126_effect_declared_uses_declared_output` | TEST0126: default effect=declared uses the declared output | src/urn/cap_urn.rs:2789 |
 | test0127 | `test0127_invalid_effect_none_fails_hard` | TEST0127: invalid effect=none declarations fail hard | src/urn/cap_urn.rs:2800 |
@@ -149,16 +149,16 @@ This catalog lists all tests in the Rust codebase.
 | test0134 | `test0134_add_master_with_duplicate_healthy_id_errors` | / Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug — the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot. | src/bifaci/relay_switch.rs:5366 |
 | test0136 | `test0136_all_masters_ready_false_when_expected_count_unset` | TEST0136: All masters ready false when expected count unset | src/bifaci/relay_switch.rs:5712 |
 | test0137 | `test0137_all_masters_ready_false_when_partially_connected` | TEST0137: All masters ready false when partially connected | src/bifaci/relay_switch.rs:5730 |
-| test138 | `test138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | src/fabric/registry.rs:2988 |
+| test138 | `test138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | src/fabric/registry.rs:3142 |
 | test0139 | `test0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST0139: All masters ready true when masters connected but capless | src/bifaci/relay_switch.rs:5781 |
 | test0140 | `test0140_all_masters_ready_does_not_overshoot` | TEST0140: All masters ready does not overshoot | src/bifaci/relay_switch.rs:5804 |
-| test141 | `test141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. | src/fabric/registry.rs:3008 |
-| test142 | `test142_normalize_handles_different_tag_orders` | TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing. | src/fabric/registry.rs:3018 |
-| test143 | `test143_default_config` | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. | src/fabric/registry.rs:3027 |
-| test144 | `test144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | src/fabric/registry.rs:3038 |
-| test145 | `test145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | src/fabric/registry.rs:3046 |
-| test146 | `test146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | src/fabric/registry.rs:3056 |
-| test147 | `test147_registry_for_test_with_custom_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | src/fabric/registry.rs:2825 |
+| test141 | `test141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. | src/fabric/registry.rs:3162 |
+| test142 | `test142_normalize_handles_different_tag_orders` | TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing. | src/fabric/registry.rs:3172 |
+| test143 | `test143_default_config` | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. | src/fabric/registry.rs:3181 |
+| test144 | `test144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | src/fabric/registry.rs:3192 |
+| test145 | `test145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | src/fabric/registry.rs:3200 |
+| test146 | `test146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | src/fabric/registry.rs:3210 |
+| test147 | `test147_registry_for_test_with_custom_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | src/fabric/registry.rs:2979 |
 | test148 | `test148_cap_manifest_creation` | TEST148: Manifest creation with cap groups | src/bifaci/manifest.rs:264 |
 | test149 | `test149_cap_manifest_with_author` | TEST149: Author field | src/bifaci/manifest.rs:392 |
 | test150 | `test150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | src/bifaci/manifest.rs:415 |
@@ -547,15 +547,15 @@ This catalog lists all tests in the Rust codebase.
 | test603 | `test603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | src/cap/response.rs:285 |
 | test605 | `test605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | src/standard/caps.rs:1191 |
 | test606 | `test606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | src/standard/caps.rs:1219 |
-| test607 | `test607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | src/fabric/registry.rs:2838 |
-| test608 | `test608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | src/fabric/registry.rs:2846 |
-| test609 | `test609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension→URN pairs. | src/fabric/registry.rs:2863 |
-| test610 | `test610_get_cached_media_def` | TEST610: get_cached_spec returns None for unknown and Some for known | src/fabric/registry.rs:2879 |
+| test607 | `test607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | src/fabric/registry.rs:2992 |
+| test608 | `test608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | src/fabric/registry.rs:3000 |
+| test609 | `test609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension→URN pairs. | src/fabric/registry.rs:3017 |
+| test610 | `test610_get_cached_media_def` | TEST610: get_cached_spec returns None for unknown and Some for known | src/fabric/registry.rs:3033 |
 | test612 | `test612_clear_cache` | TEST612: clear_cache empties the in-memory cache for seeded schemas. | src/media/profile.rs:700 |
 | test613 | `test613_validate_cached` | TEST613: validate_cached validates against cached standard schemas | src/media/profile.rs:717 |
-| test614 | `test614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | src/fabric/registry.rs:2889 |
-| test616 | `test616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | src/fabric/registry.rs:2895 |
-| test617 | `test617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | src/fabric/registry.rs:2909 |
+| test614 | `test614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | src/fabric/registry.rs:3043 |
+| test616 | `test616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | src/fabric/registry.rs:3049 |
+| test617 | `test617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | src/fabric/registry.rs:3063 |
 | test618 | `test618_registry_creation` | TEST618: Verify profile schema registry creation succeeds with temp cache | src/media/profile.rs:517 |
 | test619 | `test619_fresh_registry_cache_is_empty` | TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema. | src/media/profile.rs:526 |
 | test620 | `test620_string_validation` | TEST620: Verify string schema validates strings and rejects non-strings | src/media/profile.rs:539 |
@@ -686,24 +686,24 @@ This catalog lists all tests in the Rust codebase.
 | test769 | `test769_path_with_required_slot` | TEST769: Tests PathArgumentRequirements tracking of required user-input slots Verifies that arguments requiring user input are collected in slots and can_execute_without_input is false | src/planner/plan_builder.rs:1151 |
 | test770 | `test770_rejects_foreach` | TEST770: plan_to_resolved_graph rejects plans containing ForEach nodes | src/orchestrator/plan_converter.rs:300 |
 | test771 | `test771_rejects_collect` | TEST771: plan_to_resolved_graph rejects plans containing Collect nodes | src/orchestrator/plan_converter.rs:351 |
-| test772 | `test772_find_paths_finds_multi_step_paths` | TEST772: Tests find_paths_to_exact_target() finds multi-step paths Verifies that paths through intermediate nodes are found correctly | src/planner/live_cap_fab.rs:1638 |
-| test773 | `test773_find_paths_returns_empty_when_no_path` | TEST773: Tests find_paths_to_exact_target() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable | src/planner/live_cap_fab.rs:1669 |
-| test774 | `test774_get_reachable_targets_finds_all_targets` | TEST774: Tests get_reachable_targets() returns all reachable targets Verifies that reachable targets include direct cap targets and cardinality variants (list versions via Collect) | src/planner/live_cap_fab.rs:1691 |
-| test777 | `test777_type_mismatch_pdf_cap_does_not_match_png_input` | TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding | src/planner/live_cap_fab.rs:1723 |
-| test778 | `test778_type_mismatch_png_cap_does_not_match_pdf_input` | TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding | src/planner/live_cap_fab.rs:1745 |
-| test779 | `test779_get_reachable_targets_respects_type_matching` | TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's) | src/planner/live_cap_fab.rs:1772 |
+| test772 | `test772_find_paths_finds_multi_step_paths` | TEST772: Tests find_paths_to_exact_target() finds multi-step paths Verifies that paths through intermediate nodes are found correctly | src/planner/live_cap_fab.rs:1644 |
+| test773 | `test773_find_paths_returns_empty_when_no_path` | TEST773: Tests find_paths_to_exact_target() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable | src/planner/live_cap_fab.rs:1675 |
+| test774 | `test774_get_reachable_targets_finds_all_targets` | TEST774: Tests get_reachable_targets() returns all reachable targets Verifies that reachable targets include direct cap targets and cardinality variants (list versions via Collect) | src/planner/live_cap_fab.rs:1697 |
+| test777 | `test777_type_mismatch_pdf_cap_does_not_match_png_input` | TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding | src/planner/live_cap_fab.rs:1729 |
+| test778 | `test778_type_mismatch_png_cap_does_not_match_pdf_input` | TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding | src/planner/live_cap_fab.rs:1751 |
+| test779 | `test779_get_reachable_targets_respects_type_matching` | TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's) | src/planner/live_cap_fab.rs:1778 |
 | test780 | `test780_split_integer_array` | TEST780: split_cbor_array splits a simple array of integers | src/orchestrator/cbor_util.rs:150 |
-| test781 | `test781_find_paths_respects_type_chain` | TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible | src/planner/live_cap_fab.rs:1825 |
+| test781 | `test781_find_paths_respects_type_chain` | TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible | src/planner/live_cap_fab.rs:1831 |
 | test782 | `test782_split_non_array` | TEST782: split_cbor_array rejects non-array input | src/orchestrator/cbor_util.rs:193 |
 | test783 | `test783_split_empty_array` | TEST783: split_cbor_array rejects empty array | src/orchestrator/cbor_util.rs:203 |
 | test784 | `test784_split_invalid_cbor` | TEST784: split_cbor_array rejects invalid CBOR bytes | src/orchestrator/cbor_util.rs:213 |
 | test785 | `test785_assemble_integer_array` | TEST785: assemble_cbor_array creates array from individual items | src/orchestrator/cbor_util.rs:220 |
 | test786 | `test786_roundtrip_split_assemble` | TEST786: split then assemble roundtrip preserves data | src/orchestrator/cbor_util.rs:244 |
-| test787 | `test787_find_paths_sorting_prefers_shorter` | TEST787: Tests find_paths_to_exact_target() sorts paths by length, preferring shorter ones Verifies that among multiple paths, the shortest is ranked first | src/planner/live_cap_fab.rs:2011 |
-| test788 | `test788_foreach_only_with_sequence_input` | TEST788: ForEach is only synthesized when is_sequence=true With scalar input (is_sequence=false), disbind output goes directly to choose since media:enc=utf-8;page conforms to media:enc=utf-8. With sequence input (is_sequence=true), ForEach splits the sequence so each item can be processed by disbind individually, then choose. | src/planner/live_cap_fab.rs:1870 |
-| test789 | `test789_cap_from_json_has_valid_specs` | TEST789: Tests that caps loaded from JSON have correct in_spec/out_spec | src/planner/live_cap_fab.rs:1984 |
-| test790 | `test790_identity_urn_is_specific` | TEST790: Tests identity_urn is specific and doesn't match everything | src/planner/live_cap_fab.rs:1963 |
-| test791 | `test791_sync_from_cap_urns_adds_edges` | TEST791: Tests sync_from_cap_urns actually adds edges | src/planner/live_cap_fab.rs:1925 |
+| test787 | `test787_find_paths_sorting_prefers_shorter` | TEST787: Tests find_paths_to_exact_target() sorts paths by length, preferring shorter ones Verifies that among multiple paths, the shortest is ranked first | src/planner/live_cap_fab.rs:2017 |
+| test788 | `test788_foreach_only_with_sequence_input` | TEST788: ForEach is only synthesized when is_sequence=true With scalar input (is_sequence=false), disbind output goes directly to choose since media:enc=utf-8;page conforms to media:enc=utf-8. With sequence input (is_sequence=true), ForEach splits the sequence so each item can be processed by disbind individually, then choose. | src/planner/live_cap_fab.rs:1876 |
+| test789 | `test789_cap_from_json_has_valid_specs` | TEST789: Tests that caps loaded from JSON have correct in_spec/out_spec | src/planner/live_cap_fab.rs:1990 |
+| test790 | `test790_identity_urn_is_specific` | TEST790: Tests identity_urn is specific and doesn't match everything | src/planner/live_cap_fab.rs:1969 |
+| test791 | `test791_sync_from_cap_urns_adds_edges` | TEST791: Tests sync_from_cap_urns actually adds edges | src/planner/live_cap_fab.rs:1931 |
 | test792 | `test792_argument_binding_requires_input` | TEST792: Tests ArgumentBinding requires_input distinguishes Slots from Literals Verifies Slot returns true (needs user input) while Literal returns false | src/planner/argument_binding.rs:618 |
 | test793 | `test793_argument_binding_serialization` | TEST793: Tests ArgumentBinding PreviousOutput serializes/deserializes correctly Verifies JSON round-trip preserves node_id and output_field values | src/planner/argument_binding.rs:631 |
 | test794 | `test794_argument_bindings_add_file_path` | TEST794: Tests ArgumentBindings add_file_path adds InputFilePath binding Verifies add_file_path() creates binding map entry with InputFilePath variant | src/planner/argument_binding.rs:655 |
@@ -791,7 +791,7 @@ This catalog lists all tests in the Rust codebase.
 | test903 | `test903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | src/bifaci/frame.rs:1719 |
 | test904 | `test904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | src/bifaci/frame.rs:1744 |
 | test905 | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:4879 |
-| test908 | `test908_cached_caps_accessible_when_offline` | TEST908: cached caps remain accessible while offline. | src/fabric/registry.rs:2947 |
+| test908 | `test908_cached_caps_accessible_when_offline` | TEST908: cached caps remain accessible while offline. | src/fabric/registry.rs:3101 |
 | test910 | `test910_map_progress_monotonic` | TEST910: map_progress output is monotonic for monotonically increasing input | src/orchestrator/executor.rs:1734 |
 | test911 | `test911_map_progress_bounded` | TEST911: map_progress output is bounded within [base, base+weight] | src/orchestrator/executor.rs:1752 |
 | test912 | `test912_progress_mapper_reports_through_parent` | TEST912: ProgressMapper correctly maps through a CapProgressFn | src/orchestrator/executor.rs:1773 |
@@ -909,17 +909,17 @@ This catalog lists all tests in the Rust codebase.
 | test1107 | `test1107_slot_value_overrides_cap_settings_per_step` | TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback. | src/planner/argument_binding.rs:1039 |
 | test1108 | `test1108_resolve_all_passes_node_id` | TEST1108: ResolveAll with node_id threads correctly through to each binding. | src/planner/argument_binding.rs:1084 |
 | test1109 | `test1109_slot_key_uses_node_id_not_cap_urn` | TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match. | src/planner/argument_binding.rs:1144 |
-| test1110 | `test1110_strand_round_trips_through_serde_without_losing_step_types` | TEST1110: Strand serializes to JSON and deserializes back preserving all step types | src/planner/live_cap_fab.rs:2044 |
-| test1111 | `test1111_foreach_for_user_provided_list_source` | TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source. | src/planner/live_cap_fab.rs:2112 |
-| test1112 | `test1112_no_collect_in_path_finding` | TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type. | src/planner/live_cap_fab.rs:2163 |
-| test1113 | `test1113_multi_cap_path_no_collect` | TEST1113: Multi-cap path without Collect — Collect is not synthesized | src/planner/live_cap_fab.rs:2189 |
-| test1114 | `test1114_graph_stores_only_cap_edges` | TEST1114: Graph stores only Cap edges after sync | src/planner/live_cap_fab.rs:2213 |
-| test1115 | `test1115_dynamic_foreach_with_is_sequence` | TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items | src/planner/live_cap_fab.rs:2249 |
-| test1116 | `test1116_collect_never_synthesized` | TEST1116: Collect is never synthesized during path finding | src/planner/live_cap_fab.rs:2287 |
-| test1117 | `test1117_no_foreach_when_not_sequence` | TEST1117: ForEach is NOT synthesized when is_sequence=false | src/planner/live_cap_fab.rs:2314 |
-| test1118 | `test1118_no_foreach_without_cap_consumers` | TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true | src/planner/live_cap_fab.rs:2341 |
-| test1119 | `test1119_strand_knit_with_registry_returns_single_strand_machine` | TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end. | src/planner/live_cap_fab.rs:2360 |
-| test1120 | `test1120_strand_knit_unknown_cap_fails_hard` | TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed. | src/planner/live_cap_fab.rs:2406 |
+| test1110 | `test1110_strand_round_trips_through_serde_without_losing_step_types` | TEST1110: Strand serializes to JSON and deserializes back preserving all step types | src/planner/live_cap_fab.rs:2050 |
+| test1111 | `test1111_foreach_for_user_provided_list_source` | TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source. | src/planner/live_cap_fab.rs:2118 |
+| test1112 | `test1112_no_collect_in_path_finding` | TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type. | src/planner/live_cap_fab.rs:2169 |
+| test1113 | `test1113_multi_cap_path_no_collect` | TEST1113: Multi-cap path without Collect — Collect is not synthesized | src/planner/live_cap_fab.rs:2195 |
+| test1114 | `test1114_graph_stores_only_cap_edges` | TEST1114: Graph stores only Cap edges after sync | src/planner/live_cap_fab.rs:2219 |
+| test1115 | `test1115_dynamic_foreach_with_is_sequence` | TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items | src/planner/live_cap_fab.rs:2255 |
+| test1116 | `test1116_collect_never_synthesized` | TEST1116: Collect is never synthesized during path finding | src/planner/live_cap_fab.rs:2293 |
+| test1117 | `test1117_no_foreach_when_not_sequence` | TEST1117: ForEach is NOT synthesized when is_sequence=false | src/planner/live_cap_fab.rs:2320 |
+| test1118 | `test1118_no_foreach_without_cap_consumers` | TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true | src/planner/live_cap_fab.rs:2347 |
+| test1119 | `test1119_strand_knit_with_registry_returns_single_strand_machine` | TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end. | src/planner/live_cap_fab.rs:2366 |
+| test1120 | `test1120_strand_knit_unknown_cap_fails_hard` | TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed. | src/planner/live_cap_fab.rs:2414 |
 | test1121 | `test1121_cbor_array_file_paths_in_cbor_mode` | TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support) | src/bifaci/cartridge_runtime.rs:7278 |
 | test1122 | `test1122_full_path_engine_req_to_cartridge_response` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | src/bifaci/integration_tests.rs:194 |
 | test1123 | `test1123_cartridge_error_flows_to_engine` | TEST1123: Cartridge ERR frame flows back to engine through relay | src/bifaci/integration_tests.rs:313 |
@@ -933,7 +933,7 @@ This catalog lists all tests in the Rust codebase.
 | test1134 | `test1134_all_abstraction_error_variants_are_machine_abstraction_error` | TEST1134: All MachineAbstractionError variants are of type MachineAbstractionError and are convertible to MachineParseError::Resolution. This pins the error hierarchy so a refactor that accidentally changes the type relationship is caught immediately. | src/machine/error.rs:163 |
 | test1135 | `test1135_strand_node_urn_returns_media_urn_at_node_id` | TEST1135: MachineStrand::node_urn(id) returns the MediaUrn at that NodeId. For a single-cap strand (pdf → extract → txt), there are exactly two nodes and each returns a valid URN. | src/machine/graph.rs:649 |
 | test1136 | `test1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with an undefined cap alias raises MachineParseError wrapping MachineSyntaxError::UndefinedAlias. This pins the error path so an alias lookup failure is always surfaced as a syntax error (not a resolution error or a panic). | src/machine/parser.rs:992 |
-| test1137 | `test1137_two_strand_machine_serializes_to_notation_containing_both_ops` | TEST1137: A machine built from two independent strands serializes to a non-empty notation string that contains both op tags. Checks that multi-strand serialization doesn't lose or merge strands. | src/machine/serializer.rs:624 |
+| test1137 | `test1137_two_strand_machine_serializes_to_notation_containing_both_ops` | TEST1137: A machine built from two independent strands serializes to a non-empty notation string that contains both op tags. Checks that multi-strand serialization doesn't lose or merge strands. | src/machine/serializer.rs:773 |
 | test1138 | `test1138_assignment_bindings_are_sorted_by_cap_arg_media_urn` | TEST1138: EdgeAssignmentBinding list is sorted by cap_arg_media_urn for canonical form. A two-source cap whose args are added in reverse-alphabetical order must still produce bindings sorted alphabetically by cap_arg_media_urn, enabling canonical comparison regardless of creation order. | src/machine/resolve.rs:1274 |
 | test1139 | `test1139_resolve_inputs_confirmed_delegates_to_detect_file_confirmed` | TEST1139: resolve_inputs_confirmed delegates to detect_file_confirmed and returns the resolved URN for each file. A mock invoker returning a single URN must propagate through to the ResolvedInputSet. | src/input_resolver/resolver.rs:772 |
 | test1140 | `test1140_write_stream_chunked_splits_data_into_protocol_v2_sequence` | TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END with correct frame types, stream_id, media_urn, and data integrity. | src/bifaci/io.rs:2165 |
@@ -946,11 +946,11 @@ This catalog lists all tests in the Rust codebase.
 | test1147 | `test1147_machine_syntax_error_display_is_specific` | TEST1147: MachineSyntaxError Display includes position and detail for each variant | src/machine/error.rs:192 |
 | test1148 | `test1148_machine_parse_error_from_syntax_preserves_variant` | TEST1148: MachineParseError::from(MachineSyntaxError) preserves the syntax error variant | src/machine/error.rs:206 |
 | test1149 | `test1149_machine_parse_error_from_resolution_preserves_variant` | TEST1149: MachineParseError::from(MachineAbstractionError) preserves the resolution error variant | src/machine/error.rs:222 |
-| test1150 | `test1150_add_cap_and_basic_traversal` | TEST1150: Adding one cap creates one edge and makes its output reachable in one step. | src/planner/live_cap_fab.rs:1412 |
-| test1151 | `test1151_exact_vs_conformance_matching` | TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives. | src/planner/live_cap_fab.rs:1444 |
-| test1152 | `test1152_multi_step_path` | TEST1152: Path finding returns the expected two-cap chain through an intermediate media type. | src/planner/live_cap_fab.rs:1522 |
-| test1153 | `test1153_deterministic_ordering` | TEST1153: Repeated path searches return the same path order for the same graph and target. | src/planner/live_cap_fab.rs:1551 |
-| test1154 | `test1154_sync_from_caps` | TEST1154: Syncing from caps replaces the existing graph contents with the new cap set. | src/planner/live_cap_fab.rs:1598 |
+| test1150 | `test1150_add_cap_and_basic_traversal` | TEST1150: Adding one cap creates one edge and makes its output reachable in one step. | src/planner/live_cap_fab.rs:1418 |
+| test1151 | `test1151_exact_vs_conformance_matching` | TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives. | src/planner/live_cap_fab.rs:1450 |
+| test1152 | `test1152_multi_step_path` | TEST1152: Path finding returns the expected two-cap chain through an intermediate media type. | src/planner/live_cap_fab.rs:1528 |
+| test1153 | `test1153_deterministic_ordering` | TEST1153: Repeated path searches return the same path order for the same graph and target. | src/planner/live_cap_fab.rs:1557 |
+| test1154 | `test1154_sync_from_caps` | TEST1154: Syncing from caps replaces the existing graph contents with the new cap set. | src/planner/live_cap_fab.rs:1604 |
 | test1155 | `test1155_from_strand_produces_single_strand_machine` | TEST1155: Building a machine from one strand produces one strand with one resolved edge. | src/machine/graph.rs:665 |
 | test1156 | `test1156_from_strands_keeps_strands_disjoint` | TEST1156: Building from multiple strands keeps them disjoint and preserves input strand order. | src/machine/graph.rs:674 |
 | test1157 | `test1157_from_strands_empty_input_fails_hard` | TEST1157: Building from zero strands fails with NoCapabilitySteps. | src/machine/graph.rs:704 |
@@ -968,12 +968,12 @@ This catalog lists all tests in the Rust codebase.
 | test1169 | `test1169_parse_loop_marker_sets_is_loop_on_resolved_edge` | TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step. | src/machine/parser.rs:929 |
 | test1170 | `test1170_parse_then_serialize_round_trips_to_canonical_form` | TEST1170: Parsing and then serializing machine notation round-trips to the canonical form. | src/machine/parser.rs:952 |
 | test1171 | `test1171_parse_empty_notation_is_syntax_error` | TEST1171: Empty machine notation is rejected as a syntax error. | src/machine/parser.rs:979 |
-| test1172 | `test1172_serialize_two_step_strand_emits_global_aliases_and_node_names` | TEST1172: Serializing a two-step strand emits the expected aliases and node names. | src/machine/serializer.rs:515 |
-| test1173 | `test1173_serialize_then_parse_round_trip_preserves_strict_equivalence` | TEST1173: Serializing and reparsing a machine preserves strict machine equivalence. | src/machine/serializer.rs:538 |
-| test1174 | `test1174_line_based_format_round_trips_to_same_machine` | TEST1174: The line-based notation format round-trips back to the same machine. | src/machine/serializer.rs:558 |
-| test1175 | `test1175_empty_machine_serializes_to_empty_string` | TEST1175: Serializing an empty machine produces an empty string. | src/machine/serializer.rs:576 |
-| test1176 | `test1176_render_payload_json_includes_strand_with_anchors` | TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine. | src/machine/serializer.rs:584 |
-| test1177 | `test1177_render_payload_for_empty_machine_has_empty_strands_array` | TEST1177: Rendering payload JSON for an empty machine emits an empty strands array. | src/machine/serializer.rs:613 |
+| test1172 | `test1172_serialize_two_step_strand_emits_global_aliases_and_node_names` | TEST1172: Serializing a two-step strand emits the expected aliases and node names. | src/machine/serializer.rs:610 |
+| test1173 | `test1173_serialize_then_parse_round_trip_preserves_strict_equivalence` | TEST1173: Serializing and reparsing a machine preserves strict machine equivalence. | src/machine/serializer.rs:633 |
+| test1174 | `test1174_line_based_format_round_trips_to_same_machine` | TEST1174: The line-based notation format round-trips back to the same machine. | src/machine/serializer.rs:653 |
+| test1175 | `test1175_empty_machine_serializes_to_empty_string` | TEST1175: Serializing an empty machine produces an empty string. | src/machine/serializer.rs:725 |
+| test1176 | `test1176_render_payload_json_includes_strand_with_anchors` | TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine. | src/machine/serializer.rs:733 |
+| test1177 | `test1177_render_payload_for_empty_machine_has_empty_strands_array` | TEST1177: Rendering payload JSON for an empty machine emits an empty strands array. | src/machine/serializer.rs:762 |
 | test1178 | `test1178_match_single_source_picks_unique_arg` | TEST1178: One source is assigned to the single compatible cap argument. | src/machine/resolve.rs:747 |
 | test1179 | `test1179_match_more_specific_source_assigned_to_general_arg` | TEST1179: Source-to-arg matching assigns a more specific source to a compatible general argument. | src/machine/resolve.rs:764 |
 | test1180 | `test1180_match_unmatched_source_fails_hard` | TEST1180: Matching fails when a source does not conform to any cap input argument. | src/machine/resolve.rs:783 |
@@ -988,6 +988,7 @@ This catalog lists all tests in the Rust codebase.
 | test1189 | `test1189_resolve_strand_canonical_anchor_order_is_stable` | TEST1189: Strand resolution keeps canonical anchor ordering stable across equivalent inputs. | src/machine/resolve.rs:1111 |
 | test1190 | `test1190_resolve_strand_inverse_format_converters_no_cycle` | TEST1190: Inverse format converters resolve without introducing a cycle in the strand graph. | src/machine/resolve.rs:1143 |
 | test1191 | `test1191_resolve_strand_disbind_pdf_with_file_path_slot_identity` | TEST1191: Disbinding a PDF with a file-path slot preserves the expected identity of the slot binding. | src/machine/resolve.rs:1207 |
+| test1196 | `test1196_aliased_serialization_uses_alias_and_round_trips` | TEST1196: `to_machine_notation_aliased` renders a cap header by its registered display alias (shortest, then alphabetical), falls back to the raw URN for a cap with no alias, and the result round-trips back to the same machine (the parser resolves the alias from the warm cache). | src/machine/serializer.rs:674 |
 | test1221 | `test1221_refine_with_matching_adapter` | TEST1221: Matching value adapters refine the base media URN when the value fits. | src/input_resolver/value_adapter_registry.rs:150 |
 | test1222 | `test1222_refine_no_matching_adapter` | TEST1222: Base URNs without a registered adapter are returned unchanged. | src/input_resolver/value_adapter_registry.rs:162 |
 | test1223 | `test1223_refine_adapter_returns_none` | TEST1223: Adapters that decline to refine leave the original media URN intact. | src/input_resolver/value_adapter_registry.rs:172 |
@@ -1046,11 +1047,11 @@ This catalog lists all tests in the Rust codebase.
 | test1286 | `test1286_confirmed_adapter_returns_urns` | TEST1286: detect_file_confirmed succeeds when adapter returns URNs | src/input_resolver/resolver.rs:823 |
 | test1287 | `test1287_confirmed_all_adapters_no_match` | TEST1287: detect_file_confirmed fails when all adapters return empty END (no match) | src/input_resolver/resolver.rs:857 |
 | test1288 | `test1288_structure_from_marker_tags` | TEST1288: structure_from_marker_tags correctly maps tag combinations to ContentStructure | src/input_resolver/resolver.rs:722 |
-| test1289 | `test1289_bfs_reachable_includes_source_roundtrip` | TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A). | src/planner/live_cap_fab.rs:2445 |
-| test1290 | `test1290_iddfs_finds_roundtrip_paths` | TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target. This was a bug where the visited set blocked returning to the source, and early return on target hit at wrong depth prevented exploration. | src/planner/live_cap_fab.rs:2487 |
-| test1291 | `test1291_iddfs_roundtrip_with_sequence` | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. The ForEach/Collect edges must not block round-trip discovery. | src/planner/live_cap_fab.rs:2526 |
-| test1292 | `test1292_bfs_iddfs_roundtrip_consistency` | TEST1292: BFS and IDDFS agree that round-trip targets exist. If BFS says target X is reachable from source X, IDDFS must find at least one path. | src/planner/live_cap_fab.rs:2559 |
-| test1293 | `test1293_roundtrip_requires_cap_steps` | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. Identity-only round trips (no real transformation) must be excluded. | src/planner/live_cap_fab.rs:2607 |
+| test1289 | `test1289_bfs_reachable_includes_source_roundtrip` | TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A). | src/planner/live_cap_fab.rs:2453 |
+| test1290 | `test1290_iddfs_finds_roundtrip_paths` | TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target. This was a bug where the visited set blocked returning to the source, and early return on target hit at wrong depth prevented exploration. | src/planner/live_cap_fab.rs:2495 |
+| test1291 | `test1291_iddfs_roundtrip_with_sequence` | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. The ForEach/Collect edges must not block round-trip discovery. | src/planner/live_cap_fab.rs:2534 |
+| test1292 | `test1292_bfs_iddfs_roundtrip_consistency` | TEST1292: BFS and IDDFS agree that round-trip targets exist. If BFS says target X is reachable from source X, IDDFS must find at least one path. | src/planner/live_cap_fab.rs:2567 |
+| test1293 | `test1293_roundtrip_requires_cap_steps` | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. Identity-only round trips (no real transformation) must be excluded. | src/planner/live_cap_fab.rs:2615 |
 | test1294 | `test1294_rule11_void_input_with_stdin_rejected` | TEST1294: RULE11 - void-input cap with stdin source rejected | src/cap/validation.rs:1627 |
 | test1295 | `test1295_rule11_non_void_input_without_stdin_rejected` | TEST1295: RULE11 - non-void-input cap without stdin source rejected | src/cap/validation.rs:1647 |
 | test1296 | `test1296_rule11_void_input_cli_only_ok` | TEST1296: RULE11 - void-input cap with only cli_flag sources passes | src/cap/validation.rs:1669 |
@@ -1118,21 +1119,24 @@ This catalog lists all tests in the Rust codebase.
 | test1884 | `test1884_local_header_shadows_cap_alias` | TEST1884: a local header alias shadows a fabric alias of the same name. If `pdf2text` is BOTH a header (bound to one cap) and a registered alias (pointing at another cap), the header wins. This pins the precedence rule: local definitions shadow registry aliases. | src/machine/parser.rs:1051 |
 | test1885 | `test1885_cap_position_alias_to_media_is_error` | TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error — the cap position requires a cap. This proves the type-correct enforcement in notation: a media alias cannot stand in for a cap. | src/machine/parser.rs:1076 |
 | test1886 | `test1886_unregistered_cap_name_is_undefined_alias` | TEST1886: a cap-position name that is neither a local header nor a registered alias still raises UndefinedAlias. The alias mechanism must not mask a genuinely undefined name. | src/machine/parser.rs:1106 |
-| test1887 | `test1887_manifest_serde_round_trips_aliases` | TEST1887: the Manifest type round-trips an `aliases` map through serde. The wire shape (name -> defver) must deserialize into Manifest.aliases and serialize back identically. A regression here would silently drop the alias section from a fetched manifest. | src/fabric/registry.rs:2645 |
-| test1888 | `test1888_resolve_alias_returns_target` | TEST1888: resolve_alias returns the alias target untyped. Seeding a media alias and resolving it yields the media URN; a malformed alias name is rejected before any lookup. | src/fabric/registry.rs:2659 |
-| test1889 | `test1889_resolve_alias_typed_enforces_kind` | TEST1889: resolve_alias_typed enforces the expected kind. A media alias requested as a cap fails hard; requested as media (or untyped) succeeds. This is the typed-boundary contract. | src/fabric/registry.rs:2679 |
-| test1890 | `test1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. | src/fabric/registry.rs:2711 |
-| test1891 | `test1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | src/fabric/registry.rs:2742 |
-| test1892 | `test1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the "expose issues, no fallback" contract. | src/fabric/registry.rs:2777 |
-| test1893 | `test1893_cache_root_is_namespaced_per_registry_origin` | TEST1893: The on-disk cache root is namespaced per registry origin, so a prod-populated cache can never satisfy a staging lookup (and vice versa). Without this, a `CDG_FABRIC_REGISTRY_URL=staging` run reuses the prod-cached manifest/caps under one shared `capdag/` directory and resolves against the wrong snapshot — the bug that made `--staging` appear not to reach the scenario tests. This pins three properties: distinct origins → distinct roots; same origin → identical root (deterministic, so caching actually hits); and the slug is the same `slug_for` scheme the cartridge registry layout uses. | src/fabric/registry.rs:3074 |
+| test1887 | `test1887_manifest_serde_round_trips_aliases` | TEST1887: the Manifest type round-trips an `aliases` map through serde. The wire shape (name -> defver) must deserialize into Manifest.aliases and serialize back identically. A regression here would silently drop the alias section from a fetched manifest. | src/fabric/registry.rs:2703 |
+| test1888 | `test1888_resolve_alias_returns_target` | TEST1888: resolve_alias returns the alias target untyped. Seeding a media alias and resolving it yields the media URN; a malformed alias name is rejected before any lookup. | src/fabric/registry.rs:2717 |
+| test1889 | `test1889_resolve_alias_typed_enforces_kind` | TEST1889: resolve_alias_typed enforces the expected kind. A media alias requested as a cap fails hard; requested as media (or untyped) succeeds. This is the typed-boundary contract. | src/fabric/registry.rs:2737 |
+| test1890 | `test1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. | src/fabric/registry.rs:2769 |
+| test1891 | `test1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | src/fabric/registry.rs:2800 |
+| test1892 | `test1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the "expose issues, no fallback" contract. | src/fabric/registry.rs:2835 |
+| test1893 | `test1893_cache_root_is_namespaced_per_registry_origin` | TEST1893: The on-disk cache root is namespaced per registry origin, so a prod-populated cache can never satisfy a staging lookup (and vice versa). Without this, a `CDG_FABRIC_REGISTRY_URL=staging` run reuses the prod-cached manifest/caps under one shared `capdag/` directory and resolves against the wrong snapshot — the bug that made `--staging` appear not to reach the scenario tests. This pins three properties: distinct origins → distinct roots; same origin → identical root (deterministic, so caching actually hits); and the slug is the same `slug_for` scheme the cartridge registry layout uses. | src/fabric/registry.rs:3228 |
+| test1894 | `test1894_select_display_alias_ordering` | TEST1894: select_display_alias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders. | src/fabric/registry.rs:2886 |
+| test1895 | `test1895_display_alias_for_urn` | TEST1895: display_alias_for_urn reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns None, (4) a non-URN string returns None. | src/fabric/registry.rs:2909 |
+| test1896 | `test1896_cached_cap_aliases_filters_to_cap_targets` | TEST1896: cached_cap_aliases returns only CAP-targeted aliases as (name, target) pairs — media aliases are excluded. Drives the notation editor's registered-alias completions. | src/fabric/registry.rs:2955 |
 | test6314 | `test6314_complex_nested_schema_validation` | TEST6314: Complex nested schema validation | src/cap/schema_validation.rs:424 |
 | test6317 | `test6317_media_urn_resolution_with_registry` | TEST6317: Media urn resolution with registry | src/cap/schema_validation.rs:499 |
 | test6363 | `test6363_cap_manifest_with_page_url` | TEST6363: Cap manifest with page_url — the optional page_url is carried and serialized as `page_url`. | src/bifaci/manifest.rs:707 |
 | test6371 | `test6371_cap_manifest_compatibility` | TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys). | src/bifaci/manifest.rs:733 |
-| test6382 | `test6382_parse_registry_json_no_stdin` | TEST6382: Test parsing registry JSON without stdin args verifies cap structure | src/fabric/registry.rs:2998 |
-| test6388 | `test6388_per_cap_url_uses_sha256` | TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics. | src/fabric/registry.rs:3109 |
-| test6391 | `test6391_same_cap_different_spellings_same_url` | TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. | src/fabric/registry.rs:3120 |
-| test6396 | `test6396_malformed_cap_urn_fails_hard` | TEST6396: A malformed cap URN must FAIL HARD with a ParseError, not be passed through raw (the old fallback) and surface later as a misleading NotFound. The `out` value below contains an unquoted `=`, which the cap grammar rejects. Against the old `Err(_) => urn.to_string()` fallback, `normalize_cap_urn` returned the raw string and `cap_defver` then reported "not part of manifest" (a NotFound); this test asserts the truthful error. | src/fabric/registry.rs:2923 |
+| test6382 | `test6382_parse_registry_json_no_stdin` | TEST6382: Test parsing registry JSON without stdin args verifies cap structure | src/fabric/registry.rs:3152 |
+| test6388 | `test6388_per_cap_url_uses_sha256` | TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics. | src/fabric/registry.rs:3263 |
+| test6391 | `test6391_same_cap_different_spellings_same_url` | TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. | src/fabric/registry.rs:3274 |
+| test6396 | `test6396_malformed_cap_urn_fails_hard` | TEST6396: A malformed cap URN must FAIL HARD with a ParseError, not be passed through raw (the old fallback) and surface later as a misleading NotFound. The `out` value below contains an unquoted `=`, which the cap grammar rejects. Against the old `Err(_) => urn.to_string()` fallback, `normalize_cap_urn` returned the raw string and `cap_defver` then reported "not part of manifest" (a NotFound); this test asserts the truthful error. | src/fabric/registry.rs:3077 |
 | test6586 | `test6586_file_path_array_invalid_json_fails` | TEST6586: file-path-array with nonexistent path fails clearly | src/bifaci/cartridge_runtime.rs:5996 |
 | test6587 | `test6587_file_path_array_one_file_missing_fails_hard` | TEST6587: file-path-array with literal nonexistent path fails hard | src/bifaci/cartridge_runtime.rs:6053 |
 | test6588 | `test6588_file_path_array_empty_array` | TEST6588: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array — no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only. | src/bifaci/cartridge_runtime.rs:6349 |
@@ -1184,8 +1188,8 @@ This catalog lists all tests in the Rust codebase.
 ---
 
 *Generated from Rust source tree*
-*Total tests: 1165*
-*Total numbered tests: 1165*
+*Total tests: 1169*
+*Total numbered tests: 1169*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 0*
