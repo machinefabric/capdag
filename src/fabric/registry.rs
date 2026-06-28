@@ -212,6 +212,18 @@ impl CacheEntryExt for AliasCacheEntry {
 // URN NORMALISATION
 // =============================================================================
 
+/// Pick the display alias from a set of alias names that all target the same
+/// URN: the SHORTEST name, ties broken alphabetically. Returns `None` for an
+/// empty set.
+///
+/// The ordering is total and deterministic: `(len, name)` lexicographic. So
+/// `png` beats `png-image` (shorter), and between equal-length `a16` / `a09`
+/// the alphabetical-smaller `a09` wins. Stable across processes for a given
+/// alias set, which is what makes aliased UI/notation reproducible.
+fn select_display_alias<'a>(names: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+    names.min_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)))
+}
+
 fn normalize_cap_urn(urn: &str) -> Result<String, FabricRegistryError> {
     crate::CapUrn::from_string(urn)
         .map(|parsed| parsed.to_string())
@@ -751,6 +763,52 @@ impl FabricRegistry {
             .lock()
             .ok()
             .and_then(|m| m.get(&normalized).map(|a| a.target.clone()))
+    }
+
+    /// Reverse lookup: the display alias for a `cap:`/`media:` URN, or `None`
+    /// if no cached alias points at it. This is the canonical primitive every
+    /// UI surface and notation generator uses to render an aliased name in
+    /// place of a raw URN.
+    ///
+    /// The query URN is canonicalised through its own parser (cap vs media by
+    /// prefix) before matching, because alias targets are stored canonically —
+    /// a non-canonical query (different tag order, redundant whitespace) would
+    /// otherwise miss. A URN that is neither a cap nor a media URN, or that
+    /// fails to parse, returns `None` (it cannot have an alias).
+    ///
+    /// When multiple aliases target the same URN, the winner is the SHORTEST
+    /// name, ties broken alphabetically (see [`select_display_alias`]). This is
+    /// deterministic and stable across processes for a given alias set.
+    pub fn display_alias_for_urn(&self, urn: &str) -> Option<String> {
+        // Canonicalise by kind. classify_alias_target keys off the prefix and
+        // is the same classifier the alias publisher uses for targets, so a
+        // query and a stored target canonicalise identically.
+        let canonical = match classify_alias_target(urn)? {
+            AliasTargetKind::Cap => normalize_cap_urn(urn).ok()?,
+            AliasTargetKind::Media => normalize_media_urn(urn).ok()?,
+        };
+        let guard = self.cached_aliases.lock().ok()?;
+        let names = guard
+            .values()
+            .filter(|a| a.target == canonical)
+            .map(|a| a.name.as_str());
+        select_display_alias(names).map(str::to_string)
+    }
+
+    /// All cached aliases whose target is a CAP URN, as `(name, cap_urn)`
+    /// pairs. Used by the notation editor to offer registered cap aliases as
+    /// wiring completions. Order is unspecified (the caller sorts/filters).
+    /// Synchronous, cache-only — relies on the startup alias prefetch having
+    /// warmed the cache.
+    pub fn cached_cap_aliases(&self) -> Vec<(String, String)> {
+        let Ok(guard) = self.cached_aliases.lock() else {
+            return Vec::new();
+        };
+        guard
+            .values()
+            .filter(|a| classify_alias_target(&a.target) == Some(AliasTargetKind::Cap))
+            .map(|a| (a.name.clone(), a.target.clone()))
+            .collect()
     }
 
     /// Request that the background fetcher hydrate an alias into the cache.
@@ -2818,6 +2876,102 @@ mod parity_port_tests {
         s.media_type = media_type.to_string();
         s.extensions = exts.iter().map(|e| e.to_string()).collect();
         s
+    }
+
+    // TEST1894: select_display_alias picks the SHORTEST name, ties broken
+    // alphabetically. This is the deterministic ordering every aliased-display
+    // surface relies on; a regression here silently changes which alias the
+    // whole UI renders.
+    #[test]
+    fn test1894_select_display_alias_ordering() {
+        // Shorter wins over longer regardless of alphabetical order.
+        assert_eq!(
+            select_display_alias(["png-image", "png", "image-png"].into_iter()),
+            Some("png")
+        );
+        // Equal length → alphabetical (a09 < a16).
+        assert_eq!(
+            select_display_alias(["a16", "a09", "a12"].into_iter()),
+            Some("a09")
+        );
+        // Single candidate returns itself.
+        assert_eq!(select_display_alias(["solo"].into_iter()), Some("solo"));
+        // Empty set → None.
+        assert_eq!(select_display_alias(std::iter::empty()), None);
+    }
+
+    // TEST1895: display_alias_for_urn reverse-resolves a URN to its display
+    // alias. Proves: (1) the shortest-then-alphabetical winner among multiple
+    // aliases on the same target, (2) a NON-canonical query URN (different tag
+    // order) still resolves because the query is canonicalised before matching,
+    // (3) a URN with no alias returns None, (4) a non-URN string returns None.
+    #[test]
+    fn test1895_display_alias_for_urn() {
+        let registry = FabricRegistry::new_for_test();
+        // Two aliases on the same cap target; "i2s" is shorter than "int2str".
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "int2str".to_string(),
+            target: "cap:coerce;in=\"media:integer;numeric\";out=\"media:enc=utf-8\"".to_string(),
+            version: 1,
+        });
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "i2s".to_string(),
+            target: "cap:coerce;in=\"media:integer;numeric\";out=\"media:enc=utf-8\"".to_string(),
+            version: 1,
+        });
+        // A media alias too.
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "json".to_string(),
+            target: "media:fmt=json;record".to_string(),
+            version: 1,
+        });
+
+        // Canonical query → shortest alias wins.
+        assert_eq!(
+            registry
+                .display_alias_for_urn("cap:coerce;in=\"media:integer;numeric\";out=\"media:enc=utf-8\"")
+                .as_deref(),
+            Some("i2s")
+        );
+        // NON-canonical query (media tags reordered, cap arg order swapped):
+        // must still resolve via canonicalisation. `media:record;fmt=json`
+        // canonicalises to `media:fmt=json;record`.
+        assert_eq!(
+            registry.display_alias_for_urn("media:record;fmt=json").as_deref(),
+            Some("json")
+        );
+        // A real URN with no alias → None.
+        assert_eq!(registry.display_alias_for_urn("media:enc=utf-8;ext=pdf"), None);
+        // A non-URN (no cap:/media: prefix) → None, never a panic.
+        assert_eq!(registry.display_alias_for_urn("int2str"), None);
+        // The bare wildcard `cap:` parses but has no alias → None.
+        assert_eq!(registry.display_alias_for_urn("cap:"), None);
+    }
+
+    // TEST1896: cached_cap_aliases returns only CAP-targeted aliases as
+    // (name, target) pairs — media aliases are excluded. Drives the notation
+    // editor's registered-alias completions.
+    #[test]
+    fn test1896_cached_cap_aliases_filters_to_cap_targets() {
+        let registry = FabricRegistry::new_for_test();
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "int2str".to_string(),
+            target: "cap:coerce;in=\"media:integer;numeric\";out=\"media:enc=utf-8\"".to_string(),
+            version: 1,
+        });
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "json".to_string(),
+            target: "media:fmt=json;record".to_string(),
+            version: 1,
+        });
+        let cap_aliases = registry.cached_cap_aliases();
+        // Only the cap alias is returned; the media alias is filtered out.
+        assert_eq!(cap_aliases.len(), 1, "got: {cap_aliases:?}");
+        assert_eq!(cap_aliases[0].0, "int2str");
+        assert_eq!(
+            cap_aliases[0].1,
+            "cap:coerce;in=\"media:integer;numeric\";out=\"media:enc=utf-8\""
+        );
     }
 
     // TEST147: Test registry for test with custom config creates registry with specified URLs

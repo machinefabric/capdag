@@ -71,10 +71,45 @@ pub enum NotationFormat {
     LineBased,
 }
 
+/// How a cap header renders its cap identity.
+///
+/// The notation grammar lets a header name a cap either by its full URN or by
+/// a registered alias (the parser's async warm-up resolves the alias back to
+/// the URN, so both forms round-trip). These two modes pick which.
+#[derive(Clone, Copy)]
+enum CapRendering<'a> {
+    /// Always emit the canonical cap URN. No registry needed. This is the
+    /// alias-independent identity form.
+    CanonicalUrn,
+    /// Emit the cap's display alias when one is registered (shortest, then
+    /// alphabetical), falling back to the canonical URN when none exists.
+    /// This is the "store aliased" form used by generation and persistence.
+    Aliased(&'a FabricRegistry),
+}
+
+impl<'a> CapRendering<'a> {
+    /// The cap's display alias for this edge, if this rendering aliases AND a
+    /// registered alias exists. `None` for canonical rendering or an
+    /// un-aliased cap (the caller then emits a synthetic `edge_N` header).
+    ///
+    /// An aliased cap is referenced directly in the wiring's cap position; the
+    /// grammar only permits an alias (a `:`-free token) there, never in a
+    /// header (which requires a `cap:` URN), so aliasing implies header-less.
+    fn cap_alias(&self, edge: &MachineEdge) -> Option<String> {
+        match self {
+            CapRendering::CanonicalUrn => None,
+            CapRendering::Aliased(registry) => {
+                registry.display_alias_for_urn(&edge.cap_urn.to_string())
+            }
+        }
+    }
+}
+
 impl Machine {
     /// Serialize this machine to canonical bracketed machine
     /// notation. Two strictly-equivalent machines produce
-    /// byte-identical output.
+    /// byte-identical output. Caps are rendered by their canonical
+    /// URN (alias-independent identity form).
     pub fn to_machine_notation(&self) -> Result<String, MachineAbstractionError> {
         self.to_machine_notation_formatted(NotationFormat::Bracketed)
     }
@@ -84,13 +119,14 @@ impl Machine {
     /// Functionally equivalent to the canonical bracketed form
     /// but with newlines between statements for readability.
     pub fn to_machine_notation_multiline(&self) -> Result<String, MachineAbstractionError> {
-        let plan = build_serialization_plan(self);
+        let plan = build_serialization_plan(self, CapRendering::CanonicalUrn);
         emit_multiline(self, &plan)
     }
 
     /// Serialize this machine to machine notation in the
     /// specified format. Two strictly-equivalent machines
-    /// produce byte-identical output for a given format.
+    /// produce byte-identical output for a given format. Caps are
+    /// rendered by their canonical URN.
     pub fn to_machine_notation_formatted(
         &self,
         format: NotationFormat,
@@ -98,7 +134,29 @@ impl Machine {
         if self.is_empty() {
             return Ok(String::new());
         }
-        let plan = build_serialization_plan(self);
+        let plan = build_serialization_plan(self, CapRendering::CanonicalUrn);
+        match format {
+            NotationFormat::Bracketed => emit_bracketed(self, &plan),
+            NotationFormat::LineBased => emit_line_based(self, &plan),
+        }
+    }
+
+    /// Serialize to machine notation rendering each cap by its registered
+    /// display alias (shortest name, ties alphabetical) when one exists,
+    /// falling back to the canonical URN otherwise. This is the "store
+    /// aliased" form: generated and persisted machines use it so the saved
+    /// notation reads in terms of aliases. The parser resolves these aliases
+    /// back to URNs on load (its async warm-up hydrates the alias cache), so
+    /// the form round-trips.
+    pub fn to_machine_notation_aliased(
+        &self,
+        registry: &FabricRegistry,
+        format: NotationFormat,
+    ) -> Result<String, MachineAbstractionError> {
+        if self.is_empty() {
+            return Ok(String::new());
+        }
+        let plan = build_serialization_plan(self, CapRendering::Aliased(registry));
         match format {
             NotationFormat::Bracketed => emit_bracketed(self, &plan),
             NotationFormat::LineBased => emit_line_based(self, &plan),
@@ -116,24 +174,49 @@ struct SerializationPlan {
 }
 
 struct StrandPlan {
-    /// Alias for each edge in `MachineStrand::edges()`, in the
-    /// strand's canonical edge order. Indexed by edge index
-    /// within the strand.
-    edge_aliases: Vec<String>,
+    /// Cap-position token for each edge in `MachineStrand::edges()`, in the
+    /// strand's canonical edge order. Indexed by edge index within the strand.
+    /// In `CanonicalUrn` rendering this is always the synthetic `edge_N` (which
+    /// requires a header binding it to the cap URN). In `Aliased` rendering it
+    /// is the cap's display alias when one exists (used directly in the wiring,
+    /// NO header), or `edge_N` otherwise.
+    edge_tokens: Vec<String>,
+    /// Whether each edge needs a header (`[edge_N cap:...]`). True for synthetic
+    /// `edge_N` tokens; false for cap aliases (the wiring references the
+    /// registered alias directly, so a header would be redundant — and the
+    /// grammar forbids an alias in the header's cap position anyway).
+    needs_header: Vec<bool>,
     /// Node name for each `NodeId` in the strand. Indexed by
     /// `NodeId as usize`.
     node_names: Vec<String>,
 }
 
-fn build_serialization_plan(machine: &Machine) -> SerializationPlan {
+fn build_serialization_plan(
+    machine: &Machine,
+    rendering: CapRendering<'_>,
+) -> SerializationPlan {
     let mut strand_plans: Vec<StrandPlan> = Vec::with_capacity(machine.strand_count());
     let mut next_alias: usize = 0;
     let mut next_node: usize = 0;
 
     for strand in machine.strands() {
-        let mut edge_aliases: Vec<String> = Vec::with_capacity(strand.edges().len());
-        for _ in strand.edges() {
-            edge_aliases.push(format!("edge_{}", next_alias));
+        let mut edge_tokens: Vec<String> = Vec::with_capacity(strand.edges().len());
+        let mut needs_header: Vec<bool> = Vec::with_capacity(strand.edges().len());
+        for edge in strand.edges() {
+            match rendering.cap_alias(edge) {
+                // Cap has a registered alias: use it directly in the wiring
+                // (the parser resolves it as a registry cap alias), no header.
+                Some(alias) => {
+                    edge_tokens.push(alias);
+                    needs_header.push(false);
+                }
+                // No alias (or canonical rendering): synthetic edge token with
+                // a header binding it to the cap URN.
+                None => {
+                    edge_tokens.push(format!("edge_{}", next_alias));
+                    needs_header.push(true);
+                }
+            }
             next_alias += 1;
         }
         let mut node_names: Vec<String> = Vec::with_capacity(strand.nodes().len());
@@ -142,7 +225,8 @@ fn build_serialization_plan(machine: &Machine) -> SerializationPlan {
             next_node += 1;
         }
         strand_plans.push(StrandPlan {
-            edge_aliases,
+            edge_tokens,
+            needs_header,
             node_names,
         });
     }
@@ -189,22 +273,26 @@ fn emit_bracketed(
 ) -> Result<String, MachineAbstractionError> {
     let mut output = String::new();
 
-    // Headers across all strands.
+    // Headers across all strands — only for edges whose cap-position token is a
+    // synthetic `edge_N` (aliased caps are referenced directly in the wiring
+    // and need no header).
     for (strand, strand_plan) in machine.strands().iter().zip(plan.strands.iter()) {
         for (edge_idx, edge) in strand.edges().iter().enumerate() {
-            write!(
-                output,
-                "[{} {}]",
-                strand_plan.edge_aliases[edge_idx], edge.cap_urn
-            )
-            .unwrap();
+            if strand_plan.needs_header[edge_idx] {
+                write!(
+                    output,
+                    "[{} {}]",
+                    strand_plan.edge_tokens[edge_idx], edge.cap_urn
+                )
+                .unwrap();
+            }
         }
     }
 
     // Wirings across all strands.
     for (strand, strand_plan) in machine.strands().iter().zip(plan.strands.iter()) {
         for (edge_idx, edge) in strand.edges().iter().enumerate() {
-            let wiring = format_wiring(edge, &strand_plan.edge_aliases[edge_idx], strand_plan);
+            let wiring = format_wiring(edge, &strand_plan.edge_tokens[edge_idx], strand_plan);
             write!(output, "[{}]", wiring).unwrap();
         }
     }
@@ -220,17 +308,19 @@ fn emit_line_based(
 
     for (strand, strand_plan) in machine.strands().iter().zip(plan.strands.iter()) {
         for (edge_idx, edge) in strand.edges().iter().enumerate() {
-            lines.push(format!(
-                "{} {}",
-                strand_plan.edge_aliases[edge_idx], edge.cap_urn
-            ));
+            if strand_plan.needs_header[edge_idx] {
+                lines.push(format!(
+                    "{} {}",
+                    strand_plan.edge_tokens[edge_idx], edge.cap_urn
+                ));
+            }
         }
     }
     for (strand, strand_plan) in machine.strands().iter().zip(plan.strands.iter()) {
         for (edge_idx, edge) in strand.edges().iter().enumerate() {
             lines.push(format_wiring(
                 edge,
-                &strand_plan.edge_aliases[edge_idx],
+                &strand_plan.edge_tokens[edge_idx],
                 strand_plan,
             ));
         }
@@ -247,15 +337,17 @@ fn emit_multiline(
 
     for (strand, strand_plan) in machine.strands().iter().zip(plan.strands.iter()) {
         for (edge_idx, edge) in strand.edges().iter().enumerate() {
-            lines.push(format!(
-                "[{} {}]",
-                strand_plan.edge_aliases[edge_idx], edge.cap_urn
-            ));
+            if strand_plan.needs_header[edge_idx] {
+                lines.push(format!(
+                    "[{} {}]",
+                    strand_plan.edge_tokens[edge_idx], edge.cap_urn
+                ));
+            }
         }
     }
     for (strand, strand_plan) in machine.strands().iter().zip(plan.strands.iter()) {
         for (edge_idx, edge) in strand.edges().iter().enumerate() {
-            let wiring = format_wiring(edge, &strand_plan.edge_aliases[edge_idx], strand_plan);
+            let wiring = format_wiring(edge, &strand_plan.edge_tokens[edge_idx], strand_plan);
             lines.push(format!("[{}]", wiring));
         }
     }
@@ -328,7 +420,10 @@ impl Machine {
         if self.is_empty() {
             return Ok("{\"strands\":[]}".to_string());
         }
-        let plan = build_serialization_plan(self);
+        // The render payload is a display surface, so edges are labelled by the
+        // cap's display alias when one exists (aliased rendering), falling back
+        // to the synthetic `edge_N` for un-aliased caps.
+        let plan = build_serialization_plan(self, CapRendering::Aliased(fabric_registry));
         let mut json = String::new();
         write!(json, "{{\"strands\":[").unwrap();
         for (s_idx, (strand, strand_plan)) in
@@ -392,7 +487,7 @@ fn emit_strand_json(
         write!(
             json,
             "{{\"alias\":\"{}\",\"cap_urn\":\"{}\",\"title\":\"{}\",\"is_loop\":{},\"assignment\":[",
-            plan.edge_aliases[e_idx],
+            plan.edge_tokens[e_idx],
             json_escape(&cap_urn_str),
             json_escape(&cap_title),
             edge.is_loop
@@ -569,6 +664,60 @@ mod tests {
         );
         let m2 = Machine::from_string(&line_based, &registry).expect("line-based form must parse");
         assert!(m1.is_equivalent(&m2));
+    }
+
+    // TEST1196: `to_machine_notation_aliased` renders a cap header by its
+    // registered display alias (shortest, then alphabetical), falls back to the
+    // raw URN for a cap with no alias, and the result round-trips back to the
+    // same machine (the parser resolves the alias from the warm cache).
+    #[test]
+    fn test1196_aliased_serialization_uses_alias_and_round_trips() {
+        use crate::fabric::alias::StoredAlias;
+        let registry = registry_with(vec![extract_cap_def(), embed_cap_def()]);
+        // Two aliases on the extract cap; "ex" is shorter than "extract-pdf".
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "extract-pdf".to_string(),
+            target: "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"".to_string(),
+            version: 1,
+        });
+        registry.insert_cached_alias_for_test(StoredAlias {
+            name: "ex".to_string(),
+            target: "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"".to_string(),
+            version: 1,
+        });
+        // No alias for the embed cap → it must stay a raw URN.
+
+        let m1 = Machine::from_strand(&pdf_to_vec_strand(), &registry).unwrap();
+        let aliased = m1
+            .to_machine_notation_aliased(&registry, NotationFormat::Bracketed)
+            .unwrap();
+
+        // The extract cap is aliased: referenced directly in the wiring by its
+        // SHORTER alias `ex`, with NO header, and the URN must not appear.
+        assert!(
+            aliased.contains("-> ex ->"),
+            "extract cap must be referenced in the wiring by the shortest alias `ex`, got: {aliased}"
+        );
+        assert!(
+            !aliased.contains("cap:extract"),
+            "the aliased extract cap URN must not appear, got: {aliased}"
+        );
+        // No header was emitted for the aliased extract edge (edge_0 is the
+        // global counter value for it, but it gets no header).
+        // The embed cap has no alias → it keeps its synthetic header + URN.
+        assert!(
+            aliased.contains("cap:embed"),
+            "the un-aliased embed cap must keep its header URN, got: {aliased}"
+        );
+
+        // Round-trip: parse the aliased notation back. The alias is already in
+        // the warm cache (seeded above), so the sync parser resolves it.
+        let m2 = Machine::from_string(&aliased, &registry)
+            .expect("aliased notation must re-parse");
+        assert!(
+            m1.is_equivalent(&m2),
+            "aliased serialize → parse must preserve strict equivalence"
+        );
     }
 
     // TEST1175: Serializing an empty machine produces an empty string.

@@ -302,9 +302,14 @@ impl Strand {
         crate::machine::Machine::from_strand(self, registry)
     }
 
-    /// Serialize this resolved strand to canonical one-line
-    /// machine notation. This is the primary identifier used
-    /// for accessibility and persistence.
+    /// Serialize this resolved strand to one-line machine notation, rendering
+    /// each cap by its registered display alias when one exists (the "store
+    /// aliased" form). This is the notation used for generated/discovered paths
+    /// and for persistence — saved and surfaced machines read in terms of
+    /// aliases. The parser resolves the aliases back to URNs on load.
+    ///
+    /// (Alias-independent canonical identity, when needed, comes from
+    /// `Machine::to_machine_notation()` on the knitted machine — not this.)
     ///
     /// Same failure modes as `knit`, since this method first
     /// builds the `Machine` and then serializes it.
@@ -312,7 +317,8 @@ impl Strand {
         &self,
         registry: &crate::cap::registry::FabricRegistry,
     ) -> Result<String, crate::machine::MachineAbstractionError> {
-        self.knit(registry)?.to_machine_notation()
+        self.knit(registry)?
+            .to_machine_notation_aliased(registry, crate::machine::NotationFormat::Bracketed)
     }
 }
 
@@ -2389,8 +2395,10 @@ mod tests {
         assert_eq!(machine.strand_count(), 1);
         assert_eq!(machine.strands()[0].edges().len(), 1);
 
-        // Same registry → `to_machine_notation` produces the
-        // same canonical form as the explicit knit + serialize.
+        // This test registry seeds no aliases for these caps, so the aliased
+        // strand serialization falls back to canonical URNs — identical to the
+        // explicit knit + canonical serialize. (When aliases exist, the strand
+        // form would use them; covered by serializer test1196.)
         let direct = strand
             .to_machine_notation(&registry)
             .expect("must serialize");
