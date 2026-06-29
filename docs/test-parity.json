@@ -177,7 +177,7 @@
         "js": {
           "function": "test077_serdeRoundtrip",
           "description": "TEST77: Test serde roundtrip serializes to JSON string and deserializes back correctly",
-          "location": "capdag.test.js:1003"
+          "location": "capdag.test.js:1004"
         }
       }
     },
@@ -385,7 +385,7 @@
         "js": {
           "function": "test93_resolveUnresolvableFailsHard",
           "description": "TEST93: Test resolving unknown media URN fails with UnresolvableMediaUrn error",
-          "location": "capdag.test.js:1054"
+          "location": "capdag.test.js:1055"
         }
       }
     },
@@ -593,7 +593,7 @@
         "js": {
           "function": "test105_metadataPropagation",
           "description": "TEST105: Test metadata propagates from media def def to resolved media def",
-          "location": "capdag.test.js:1109"
+          "location": "capdag.test.js:1110"
         }
       }
     },
@@ -631,7 +631,7 @@
         "js": {
           "function": "test107_extensionsPropagation",
           "description": "TEST107: Test extensions field propagates from media def def to resolved",
-          "location": "capdag.test.js:1151"
+          "location": "capdag.test.js:1152"
         }
       }
     },
@@ -669,7 +669,7 @@
         "js": {
           "function": "test109_extensionsWithMetadataAndValidation",
           "description": "TEST109: Test creating cap with metadata initializes and retrieves metadata correctly",
-          "location": "capdag.test.js:1175"
+          "location": "capdag.test.js:1176"
         }
       }
     },
@@ -897,7 +897,7 @@
         "rust": {
           "function": "test119_cartridge_response_concatenated_and_final_payload_diverge_for_multi_chunk",
           "description": "TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk responses: concatenated returns all chunk data joined; final_payload returns only the last chunk. A consumer that confuses the two will silently drop all but the last chunk of a multi-chunk response.",
-          "location": "src/bifaci/host_runtime.rs:3362"
+          "location": "src/bifaci/host_runtime.rs:3460"
         },
         "go": {
           "function": "Test119_cartridge_response_concatenated_and_final_payload_diverge_for_multi_chunk",
@@ -964,12 +964,12 @@
         "rust": {
           "function": "test0129_gc_evicts_oldest_entries_by_touch_sequence",
           "description": "/ Contract #2 \u2014 the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one \u2014 / the more dangerous bug because it silently drops / in-flight continuation frames.",
-          "location": "src/bifaci/host_runtime.rs:5526"
+          "location": "src/bifaci/host_runtime.rs:5624"
         },
         "go": {
           "function": "Test129_gc_evicts_oldest_entries_by_touch_sequence",
           "description": "TEST129: / Contract #2 \u2014 the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one \u2014 / the more dangerous bug because it silently drops / in-flight continuation frames.",
-          "location": "bifaci/host_multi_test.go:1413"
+          "location": "bifaci/host_multi_test.go:1473"
         },
         "py": {
           "function": "test_129_gc_evicts_oldest_entries_by_touch_sequence",
@@ -1185,17 +1185,17 @@
         "rust": {
           "function": "test138_parse_registry_json_with_stdin",
           "description": "TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction",
-          "location": "src/fabric/registry.rs:2760"
+          "location": "src/fabric/registry.rs:3142"
         },
         "go": {
           "function": "Test138_parse_registry_json_with_stdin",
           "description": "TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction",
-          "location": "cap/registry_test.go:97"
+          "location": "cap/registry_test.go:98"
         },
         "py": {
           "function": "test_138_parse_registry_json_with_stdin",
           "description": "TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction",
-          "location": "tests/test_registry.py:97"
+          "location": "tests/test_registry.py:98"
         }
       }
     },
@@ -1286,22 +1286,22 @@
         "rust": {
           "function": "test141_per_cap_url_shape",
           "description": "TEST141: URL has the right shape \u2014 protocol, host, /caps/ prefix, 64 hex chars, no extension.",
-          "location": "src/fabric/registry.rs:2780"
+          "location": "src/fabric/registry.rs:3162"
         },
         "go": {
           "function": "Test141_per_cap_url_shape",
           "description": "TEST141: URL has the right shape \u2014 protocol, host, /caps/ prefix, 64 hex chars, no extension.",
-          "location": "cap/registry_test.go:158"
+          "location": "cap/registry_test.go:159"
         },
         "py": {
           "function": "test_141_per_cap_url_shape",
           "description": "TEST141: URL has the right shape \u2014 protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number.",
-          "location": "tests/test_registry.py:191"
+          "location": "tests/test_registry.py:192"
         },
         "objc": {
           "function": "test141_perCapURLShape",
           "description": "/ TEST141: URL has the right shape \u2014 protocol, host, /caps/ prefix, / 64 hex chars, no extension.",
-          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:95"
+          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:104"
         }
       }
     },
@@ -1324,22 +1324,22 @@
         "rust": {
           "function": "test142_normalize_handles_different_tag_orders",
           "description": "TEST142: Different tag orders normalise to the same URL \u2014 the canonicaliser strips the variation before hashing.",
-          "location": "src/fabric/registry.rs:2790"
+          "location": "src/fabric/registry.rs:3172"
         },
         "go": {
           "function": "Test142_normalize_handles_different_tag_orders",
           "description": "TEST142: Different tag orders normalise to the same URL \u2014 the canonicaliser strips the variation before hashing.",
-          "location": "cap/registry_test.go:170"
+          "location": "cap/registry_test.go:171"
         },
         "py": {
           "function": "test_142_normalize_handles_different_tag_orders",
           "description": "TEST142: Test normalize handles different tag orders producing same canonical form",
-          "location": "tests/test_registry.py:223"
+          "location": "tests/test_registry.py:224"
         },
         "objc": {
           "function": "test142_normalizeHandlesDifferentTagOrders",
           "description": "/ TEST142: Different tag orders normalise to the same URL \u2014 the / canonicaliser strips the variation before hashing.",
-          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:108"
+          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:117"
         }
       }
     },
@@ -1363,17 +1363,17 @@
         "rust": {
           "function": "test143_default_config",
           "description": "TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL.",
-          "location": "src/fabric/registry.rs:2799"
+          "location": "src/fabric/registry.rs:3181"
         },
         "go": {
           "function": "Test143_default_config",
           "description": "TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL.",
-          "location": "cap/registry_test.go:181"
+          "location": "cap/registry_test.go:182"
         },
         "py": {
           "function": "test_143_default_config",
           "description": "TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL.",
-          "location": "tests/test_registry.py:236"
+          "location": "tests/test_registry.py:237"
         }
       }
     },
@@ -1397,17 +1397,17 @@
         "rust": {
           "function": "test144_custom_registry_url",
           "description": "TEST144: Test custom registry URL updates both registry and schema base URLs",
-          "location": "src/fabric/registry.rs:2810"
+          "location": "src/fabric/registry.rs:3192"
         },
         "go": {
           "function": "Test144_custom_registry_url",
           "description": "TEST144: Test custom registry URL updates both registry and schema base URLs",
-          "location": "cap/registry_test.go:194"
+          "location": "cap/registry_test.go:195"
         },
         "py": {
           "function": "test_144_custom_registry_url",
           "description": "TEST144: Test custom registry URL updates both registry and schema base URLs",
-          "location": "tests/test_registry.py:250"
+          "location": "tests/test_registry.py:251"
         }
       }
     },
@@ -1431,17 +1431,17 @@
         "rust": {
           "function": "test145_custom_registry_and_schema_url",
           "description": "TEST145: Test custom registry and schema URLs set independently",
-          "location": "src/fabric/registry.rs:2818"
+          "location": "src/fabric/registry.rs:3200"
         },
         "go": {
           "function": "Test145_custom_registry_and_schema_url",
           "description": "TEST145: Test custom registry and schema URLs set independently",
-          "location": "cap/registry_test.go:202"
+          "location": "cap/registry_test.go:203"
         },
         "py": {
           "function": "test_145_custom_registry_and_schema_url",
           "description": "TEST145: Test custom registry and schema URLs set independently",
-          "location": "tests/test_registry.py:286"
+          "location": "tests/test_registry.py:287"
         }
       }
     },
@@ -1465,17 +1465,17 @@
         "rust": {
           "function": "test146_schema_url_not_overwritten_when_explicit",
           "description": "TEST146: Test schema URL not overwritten when set explicitly before registry URL",
-          "location": "src/fabric/registry.rs:2828"
+          "location": "src/fabric/registry.rs:3210"
         },
         "go": {
           "function": "Test146_schema_url_not_overwritten_when_explicit",
           "description": "TEST146: Test schema URL not overwritten when set explicitly before registry URL",
-          "location": "cap/registry_test.go:211"
+          "location": "cap/registry_test.go:212"
         },
         "py": {
           "function": "test_146_schema_url_not_overwritten_when_explicit",
           "description": "TEST146: Test schema URL not overwritten when set explicitly before registry URL",
-          "location": "tests/test_registry.py:297"
+          "location": "tests/test_registry.py:298"
         }
       }
     },
@@ -1499,17 +1499,17 @@
         "rust": {
           "function": "test147_registry_for_test_with_custom_config",
           "description": "TEST147: Test registry for test with custom config creates registry with specified URLs",
-          "location": "src/fabric/registry.rs:2626"
+          "location": "src/fabric/registry.rs:2979"
         },
         "go": {
           "function": "Test147_registry_for_test_with_config",
           "description": "TEST147: Test registry for test with custom config creates registry with specified URLs",
-          "location": "cap/registry_test.go:221"
+          "location": "cap/registry_test.go:222"
         },
         "py": {
           "function": "test_147_registry_for_test_with_config",
           "description": "TEST147: Test registry for test with custom config creates registry with specified URLs",
-          "location": "tests/test_registry.py:309"
+          "location": "tests/test_registry.py:310"
         }
       }
     },
@@ -1623,7 +1623,7 @@
         "js": {
           "function": "test150_capManifestJsonSerialization",
           "description": "TEST150: JSON roundtrip",
-          "location": "capdag.test.js:1271"
+          "location": "capdag.test.js:1272"
         }
       }
     },
@@ -1847,7 +1847,7 @@
         "js": {
           "function": "test156_stdinSourceFromData",
           "description": "TEST156: Test creating StdinSource Data variant with byte vector",
-          "location": "capdag.test.js:1427"
+          "location": "capdag.test.js:1428"
         }
       }
     },
@@ -1885,7 +1885,7 @@
         "js": {
           "function": "test157_stdinSourceFromFileReference",
           "description": "TEST157: Test creating StdinSource FileReference variant with all required fields",
-          "location": "capdag.test.js:1438"
+          "location": "capdag.test.js:1439"
         }
       }
     },
@@ -1923,7 +1923,7 @@
         "js": {
           "function": "test158_stdinSourceWithEmptyData",
           "description": "TEST158: Test StdinSource Data with empty vector stores and retrieves correctly",
-          "location": "capdag.test.js:1455"
+          "location": "capdag.test.js:1456"
         }
       }
     },
@@ -1961,7 +1961,7 @@
         "js": {
           "function": "test159_stdinSourceWithBinaryContent",
           "description": "TEST159: Test StdinSource Data with binary content like PNG header bytes",
-          "location": "capdag.test.js:1463"
+          "location": "capdag.test.js:1464"
         }
       }
     },
@@ -2308,7 +2308,7 @@
         "go": {
           "function": "Test169_response_wrapper_as_int",
           "description": "TEST169: Test ResponseWrapper converts to primitive types integer, float, boolean, string",
-          "location": "cap/response_test.go:76"
+          "location": "cap/response_test.go:65"
         },
         "py": {
           "function": "test_169_primitive_types",
@@ -2342,7 +2342,7 @@
         "go": {
           "function": "Test170_response_wrapper_from_binary",
           "description": "TEST170: Test ResponseWrapper from binary stores and retrieves raw bytes correctly",
-          "location": "cap/response_test.go:59"
+          "location": "cap/response_test.go:52"
         },
         "py": {
           "function": "test_170_binary_response",
@@ -4726,7 +4726,7 @@
         "rust": {
           "function": "test235_response_chunk",
           "description": "TEST235: Test ResponseChunk stores payload, seq, offset, len, and eof fields correctly",
-          "location": "src/bifaci/host_runtime.rs:3152"
+          "location": "src/bifaci/host_runtime.rs:3250"
         },
         "go": {
           "function": "Test235_response_chunk_fields",
@@ -4764,7 +4764,7 @@
         "rust": {
           "function": "test236_response_chunk_with_all_fields",
           "description": "TEST236: Test ResponseChunk with all fields populated preserves offset, len, and eof",
-          "location": "src/bifaci/host_runtime.rs:3168"
+          "location": "src/bifaci/host_runtime.rs:3266"
         },
         "go": {
           "function": "Test236_response_chunk_all_fields_populated",
@@ -4802,7 +4802,7 @@
         "rust": {
           "function": "test237_cartridge_response_single",
           "description": "TEST237: Test CartridgeResponse::Single final_payload returns the single payload slice",
-          "location": "src/bifaci/host_runtime.rs:3184"
+          "location": "src/bifaci/host_runtime.rs:3282"
         },
         "go": {
           "function": "Test237_cartridge_response_single_final_payload",
@@ -4840,7 +4840,7 @@
         "rust": {
           "function": "test238_cartridge_response_single_empty",
           "description": "TEST238: Test CartridgeResponse::Single with empty payload returns empty slice and empty vec",
-          "location": "src/bifaci/host_runtime.rs:3192"
+          "location": "src/bifaci/host_runtime.rs:3290"
         },
         "go": {
           "function": "Test238_cartridge_response_single_empty_payload",
@@ -4878,7 +4878,7 @@
         "rust": {
           "function": "test239_cartridge_response_streaming",
           "description": "TEST239: Test CartridgeResponse::Streaming concatenated joins all chunk payloads in order",
-          "location": "src/bifaci/host_runtime.rs:3200"
+          "location": "src/bifaci/host_runtime.rs:3298"
         },
         "go": {
           "function": "Test239_cartridge_response_streaming_concatenated",
@@ -4916,7 +4916,7 @@
         "rust": {
           "function": "test240_cartridge_response_streaming_final_payload",
           "description": "TEST240: Test CartridgeResponse::Streaming final_payload returns the last chunk's payload",
-          "location": "src/bifaci/host_runtime.rs:3223"
+          "location": "src/bifaci/host_runtime.rs:3321"
         },
         "go": {
           "function": "Test240_cartridge_response_streaming_final_payload",
@@ -4954,7 +4954,7 @@
         "rust": {
           "function": "test241_cartridge_response_streaming_empty_chunks",
           "description": "TEST241: Test CartridgeResponse::Streaming with empty chunks vec returns empty concatenation",
-          "location": "src/bifaci/host_runtime.rs:3246"
+          "location": "src/bifaci/host_runtime.rs:3344"
         },
         "go": {
           "function": "Test241_cartridge_response_streaming_empty_chunks",
@@ -4992,7 +4992,7 @@
         "rust": {
           "function": "test242_cartridge_response_streaming_large_payload",
           "description": "TEST242: Test CartridgeResponse::Streaming concatenated capacity is pre-allocated correctly for large payloads",
-          "location": "src/bifaci/host_runtime.rs:3254"
+          "location": "src/bifaci/host_runtime.rs:3352"
         },
         "go": {
           "function": "Test242_cartridge_response_streaming_preallocation",
@@ -5030,7 +5030,7 @@
         "rust": {
           "function": "test243_async_host_error_display",
           "description": "TEST243: Test AsyncHostError variants display correct error messages",
-          "location": "src/bifaci/host_runtime.rs:3282"
+          "location": "src/bifaci/host_runtime.rs:3380"
         },
         "go": {
           "function": "Test243_host_error_variants",
@@ -5068,7 +5068,7 @@
         "rust": {
           "function": "test244_async_host_error_from_cbor",
           "description": "TEST244: Test AsyncHostError::from converts CborError to Cbor variant",
-          "location": "src/bifaci/host_runtime.rs:3308"
+          "location": "src/bifaci/host_runtime.rs:3406"
         },
         "go": {
           "function": "Test244_host_error_conversion",
@@ -5106,7 +5106,7 @@
         "rust": {
           "function": "test245_async_host_error_from_io",
           "description": "TEST245: Test AsyncHostError::from converts io::Error to Io variant",
-          "location": "src/bifaci/host_runtime.rs:3319"
+          "location": "src/bifaci/host_runtime.rs:3417"
         },
         "go": {
           "function": "Test245_host_error_io_variant",
@@ -5144,7 +5144,7 @@
         "rust": {
           "function": "test246_async_host_error_clone",
           "description": "TEST246: Test AsyncHostError Clone implementation produces equal values",
-          "location": "src/bifaci/host_runtime.rs:3330"
+          "location": "src/bifaci/host_runtime.rs:3428"
         },
         "go": {
           "function": "Test246_response_chunk_copy",
@@ -5182,7 +5182,7 @@
         "rust": {
           "function": "test247_response_chunk_clone",
           "description": "TEST247: Test ResponseChunk Clone produces independent copy with same data",
-          "location": "src/bifaci/host_runtime.rs:3341"
+          "location": "src/bifaci/host_runtime.rs:3439"
         },
         "go": {
           "function": "Test247_response_chunk_clone",
@@ -6346,7 +6346,7 @@
         "go": {
           "function": "Test288_media_documentation_propagates_through_resolve",
           "description": "TEST288: Documentation propagates from MediaDef through ResolveMediaUrn into ResolvedMediaDef. Verifies description and documentation remain distinct.",
-          "location": "media/spec_test.go:648"
+          "location": "media/spec_test.go:650"
         },
         "py": {
           "function": "test_288_media_documentation_propagates_through_resolve",
@@ -6380,7 +6380,7 @@
         "go": {
           "function": "Test0289_media_def_def_documentation_round_trip",
           "description": "TEST289: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side.",
-          "location": "media/spec_test.go:674"
+          "location": "media/spec_test.go:676"
         },
         "py": {
           "function": "test_289_media_def_def_documentation_round_trip",
@@ -6681,7 +6681,7 @@
         "js": {
           "function": "test307_modelAvailabilityUrn",
           "description": "TEST307: Test model_availability_urn builds valid cap URN with correct op and media defs",
-          "location": "capdag.test.js:1575"
+          "location": "capdag.test.js:1576"
         }
       }
     },
@@ -6719,7 +6719,7 @@
         "js": {
           "function": "test308_modelPathUrn",
           "description": "TEST308: Test model_path_urn builds valid cap URN with correct op and media defs",
-          "location": "capdag.test.js:1587"
+          "location": "capdag.test.js:1588"
         }
       }
     },
@@ -6757,7 +6757,7 @@
         "js": {
           "function": "test309_modelAvailabilityAndPathAreDistinct",
           "description": "TEST309: Test model_availability_urn and model_path_urn produce distinct URNs",
-          "location": "capdag.test.js:1599"
+          "location": "capdag.test.js:1600"
         }
       }
     },
@@ -6795,7 +6795,7 @@
         "js": {
           "function": "test310_llmGenerateTextUrn",
           "description": "TEST310: llm_generate_text_urn() produces a valid cap URN with a UTF-8 text input and plain-text terminal output.",
-          "location": "capdag.test.js:1606"
+          "location": "capdag.test.js:1607"
         }
       }
     },
@@ -6833,7 +6833,7 @@
         "js": {
           "function": "test312_allUrnBuildersProduceValidUrns",
           "description": "TEST312: Test all URN builders produce parseable cap URNs",
-          "location": "capdag.test.js:1629"
+          "location": "capdag.test.js:1630"
         }
       }
     },
@@ -6905,7 +6905,7 @@
         "js": {
           "function": "test320_cartridgeInfoConstruction",
           "description": "TEST320-335: CartridgeRepoServer and CartridgeRepoClient tests",
-          "location": "capdag.test.js:1993"
+          "location": "capdag.test.js:1994"
         }
       }
     },
@@ -6943,7 +6943,7 @@
         "js": {
           "function": "test321_cartridgeInfoIsSigned",
           "description": "TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty.",
-          "location": "capdag.test.js:2027"
+          "location": "capdag.test.js:2028"
         }
       }
     },
@@ -6981,7 +6981,7 @@
         "js": {
           "function": "test322_cartridgeInfoBuildForPlatform",
           "description": "TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise.",
-          "location": "capdag.test.js:2039"
+          "location": "capdag.test.js:2040"
         }
       }
     },
@@ -7019,7 +7019,7 @@
         "js": {
           "function": "test323_cartridgeRepoServerValidateRegistry",
           "description": "TEST323: CartridgeRepoServer requires schema 5.0 and rejects older.",
-          "location": "capdag.test.js:2073"
+          "location": "capdag.test.js:2074"
         }
       }
     },
@@ -7057,7 +7057,7 @@
         "js": {
           "function": "test324_cartridgeRepoServerTransformToArray",
           "description": "TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim.",
-          "location": "capdag.test.js:2110"
+          "location": "capdag.test.js:2111"
         }
       }
     },
@@ -7095,7 +7095,7 @@
         "js": {
           "function": "test325_cartridgeRepoServerGetCartridges",
           "description": "TEST325: get_cartridges() wraps the transformed array in the response envelope.",
-          "location": "capdag.test.js:2147"
+          "location": "capdag.test.js:2148"
         }
       }
     },
@@ -7133,7 +7133,7 @@
         "js": {
           "function": "test326_cartridgeRepoServerGetCartridgeById",
           "description": "TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss \u2014 channels are independent namespaces.",
-          "location": "capdag.test.js:2159"
+          "location": "capdag.test.js:2160"
         }
       }
     },
@@ -7171,7 +7171,7 @@
         "js": {
           "function": "test327_cartridgeRepoServerSearchCartridges",
           "description": "TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings.",
-          "location": "capdag.test.js:2189"
+          "location": "capdag.test.js:2190"
         }
       }
     },
@@ -7209,7 +7209,7 @@
         "js": {
           "function": "test328_cartridgeRepoServerGetByCategory",
           "description": "TEST328: CartridgeRepoServer.getCartridgesByCategory() filters cartridges by category across both channels.",
-          "location": "capdag.test.js:2211"
+          "location": "capdag.test.js:2212"
         }
       }
     },
@@ -7247,7 +7247,7 @@
         "js": {
           "function": "test329_cartridgeRepoServerGetByCap",
           "description": "TEST329: CartridgeRepoServer.getCartridgesByCap() parses the input URN and matches each declared cap via `conformsTo`. Tag-order differences resolve because matching is order-theoretic, not string.",
-          "location": "capdag.test.js:2230"
+          "location": "capdag.test.js:2231"
         }
       }
     },
@@ -7285,7 +7285,7 @@
         "js": {
           "function": "test330_cartridgeRepoClientUpdateCache",
           "description": "TEST330: CartridgeRepoClient updates its local cache keyed by \"<channel>:<id>\". The cache holds release and nightly entries independently \u2014 the same id is allowed in both.",
-          "location": "capdag.test.js:2247"
+          "location": "capdag.test.js:2248"
         }
       }
     },
@@ -7323,7 +7323,7 @@
         "js": {
           "function": "test331_cartridgeRepoClientGetSuggestions",
           "description": "TEST331: CartridgeRepoClient.getSuggestionsForCap() returns cartridge suggestions with channel propagated onto each suggestion.",
-          "location": "capdag.test.js:2275"
+          "location": "capdag.test.js:2276"
         }
       }
     },
@@ -7361,7 +7361,7 @@
         "js": {
           "function": "test332_cartridgeRepoClientGetCartridge",
           "description": "TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss.",
-          "location": "capdag.test.js:2304"
+          "location": "capdag.test.js:2305"
         }
       }
     },
@@ -7399,7 +7399,7 @@
         "js": {
           "function": "test333_cartridgeRepoClientGetAllCaps",
           "description": "TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges.",
-          "location": "capdag.test.js:2348"
+          "location": "capdag.test.js:2349"
         }
       }
     },
@@ -7437,7 +7437,7 @@
         "js": {
           "function": "test334_cartridgeRepoClientNeedsSync",
           "description": "TEST334: needs_sync returns true on an empty cache, false right after a successful update.",
-          "location": "capdag.test.js:2364"
+          "location": "capdag.test.js:2365"
         }
       }
     },
@@ -7475,7 +7475,7 @@
         "js": {
           "function": "test335_cartridgeRepoServerClientIntegration",
           "description": "TEST335: Round-trip: server produces a v5.0 response, client consumes it, channel provenance is preserved end-to-end.",
-          "location": "capdag.test.js:2383"
+          "location": "capdag.test.js:2384"
         }
       }
     },
@@ -9398,17 +9398,17 @@
         "rust": {
           "function": "test413_register_cartridge_adds_to_cap_table",
           "description": "TEST413: Register cartridge adds entries to cap_table. The cap_table stores canonical URN strings (alphabetical tag order, no unnecessary quotes around single-tag media URNs). The input forms below get canonicalized at parse-time and the table reads back as the canonical form.",
-          "location": "src/bifaci/host_runtime.rs:3404"
+          "location": "src/bifaci/host_runtime.rs:3502"
         },
         "go": {
           "function": "Test413_register_cartridge_adds_cap_table",
           "description": "TEST413: Register cartridge adds entries to cap_table",
-          "location": "bifaci/host_multi_test.go:101"
+          "location": "bifaci/host_multi_test.go:161"
         },
         "py": {
           "function": "test_413_register_cartridge_adds_cap_table",
           "description": "TEST413: Register cartridge adds entries to cap_table",
-          "location": "tests/test_cartridge_host.py:334"
+          "location": "tests/test_cartridge_host.py:396"
         },
         "objc": {
           "function": "test413_registerCartridgeAddsToCaptable",
@@ -9436,17 +9436,17 @@
         "rust": {
           "function": "test415_req_for_known_cap_triggers_spawn",
           "description": "TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary)",
-          "location": "src/bifaci/host_runtime.rs:3464"
+          "location": "src/bifaci/host_runtime.rs:3562"
         },
         "go": {
           "function": "Test415_req_triggers_spawn",
           "description": "TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary)",
-          "location": "bifaci/host_multi_test.go:130"
+          "location": "bifaci/host_multi_test.go:190"
         },
         "py": {
           "function": "test_415_req_triggers_spawn",
           "description": "TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary)",
-          "location": "tests/test_cartridge_host.py:383"
+          "location": "tests/test_cartridge_host.py:445"
         },
         "objc": {
           "function": "test415_reqTriggersSpawnError",
@@ -9474,17 +9474,17 @@
         "rust": {
           "function": "test416_attach_cartridge_handshake_updates_capabilities",
           "description": "TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities",
-          "location": "src/bifaci/host_runtime.rs:3541"
+          "location": "src/bifaci/host_runtime.rs:3639"
         },
         "go": {
           "function": "Test416_attach_cartridge_handshake",
           "description": "TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities",
-          "location": "bifaci/host_multi_test.go:176"
+          "location": "bifaci/host_multi_test.go:236"
         },
         "py": {
           "function": "test_416_attach_cartridge_handshake",
           "description": "TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities",
-          "location": "tests/test_cartridge_host.py:417"
+          "location": "tests/test_cartridge_host.py:479"
         },
         "objc": {
           "function": "test416_attachCartridgeUpdatesCaps",
@@ -9512,17 +9512,17 @@
         "rust": {
           "function": "test417_route_req_to_correct_cartridge",
           "description": "TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges)",
-          "location": "src/bifaci/host_runtime.rs:3598"
+          "location": "src/bifaci/host_runtime.rs:3696"
         },
         "go": {
           "function": "Test417_route_req_by_cap_urn",
           "description": "TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges)",
-          "location": "bifaci/host_multi_test.go:216"
+          "location": "bifaci/host_multi_test.go:276"
         },
         "py": {
           "function": "test_417_route_req_by_cap_urn",
           "description": "TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges)",
-          "location": "tests/test_cartridge_host.py:445"
+          "location": "tests/test_cartridge_host.py:507"
         },
         "objc": {
           "function": "test417_fullPathRequestResponse",
@@ -9550,17 +9550,17 @@
         "rust": {
           "function": "test418_route_continuation_frames_by_req_id",
           "description": "TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ\u2192cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge \u2014 even though no cap_urn is present on those frames.",
-          "location": "src/bifaci/host_runtime.rs:3998"
+          "location": "src/bifaci/host_runtime.rs:4096"
         },
         "go": {
           "function": "Test418_route_continuation_by_req_id",
           "description": "TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ\u2192cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge \u2014 even though no cap_urn is present on those frames.",
-          "location": "bifaci/host_multi_test.go:323"
+          "location": "bifaci/host_multi_test.go:383"
         },
         "py": {
           "function": "test_418_route_continuation_by_req_id",
           "description": "TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ\u2192cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge \u2014 even though no cap_urn is present on those frames.",
-          "location": "tests/test_cartridge_host.py:506"
+          "location": "tests/test_cartridge_host.py:568"
         },
         "objc": {
           "function": "test418_routeContinuationByReqId",
@@ -9588,17 +9588,17 @@
         "rust": {
           "function": "test419_cartridge_heartbeat_handled_locally",
           "description": "TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay)",
-          "location": "src/bifaci/host_runtime.rs:3758"
+          "location": "src/bifaci/host_runtime.rs:3856"
         },
         "go": {
           "function": "Test419_heartbeat_local_handling",
           "description": "TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay)",
-          "location": "bifaci/host_multi_test.go:414"
+          "location": "bifaci/host_multi_test.go:474"
         },
         "py": {
           "function": "test_419_heartbeat_local_handling",
           "description": "TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay)",
-          "location": "tests/test_cartridge_host.py:565"
+          "location": "tests/test_cartridge_host.py:627"
         },
         "objc": {
           "function": "test419_heartbeatHandledLocally",
@@ -9626,17 +9626,17 @@
         "rust": {
           "function": "test420_cartridge_frames_forwarded_to_relay",
           "description": "TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through)",
-          "location": "src/bifaci/host_runtime.rs:3833"
+          "location": "src/bifaci/host_runtime.rs:3931"
         },
         "go": {
           "function": "Test420_cartridge_frames_forwarded_to_relay",
           "description": "TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through)",
-          "location": "bifaci/host_multi_test.go:495"
+          "location": "bifaci/host_multi_test.go:555"
         },
         "py": {
           "function": "test_420_cartridge_frames_forwarded_to_relay",
           "description": "TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through)",
-          "location": "tests/test_cartridge_host.py:627"
+          "location": "tests/test_cartridge_host.py:689"
         },
         "objc": {
           "function": "test420_cartridgeFramesForwardedToRelay",
@@ -9664,17 +9664,17 @@
         "rust": {
           "function": "test421_cartridge_death_updates_capabilities",
           "description": "TEST421: Cartridge death updates capability list (caps removed)",
-          "location": "src/bifaci/host_runtime.rs:4160"
+          "location": "src/bifaci/host_runtime.rs:4258"
         },
         "go": {
           "function": "Test421_cartridge_death_updates_caps",
           "description": "TEST421: Cartridge death updates capability list (caps removed)",
-          "location": "bifaci/host_multi_test.go:590"
+          "location": "bifaci/host_multi_test.go:650"
         },
         "py": {
           "function": "test_421_cartridge_death_updates_caps",
           "description": "TEST421: Cartridge death updates capability list (caps removed)",
-          "location": "tests/test_cartridge_host.py:685"
+          "location": "tests/test_cartridge_host.py:747"
         },
         "objc": {
           "function": "test421_cartridgeDeathUpdatesCaps",
@@ -9702,17 +9702,17 @@
         "rust": {
           "function": "test422_cartridge_death_sends_err_for_pending_requests",
           "description": "TEST422: Cartridge death sends ERR for all pending requests via relay",
-          "location": "src/bifaci/host_runtime.rs:4237"
+          "location": "src/bifaci/host_runtime.rs:4335"
         },
         "go": {
           "function": "Test422_cartridge_death_sends_err",
           "description": "TEST422: a cartridge that dies mid-request must not wedge the host \u2014 Run() must exit cleanly once the cartridge is gone and the relay disconnects. Mirrors the Rust reference test (host_runtime.rs test422_cartridge_death_sends_err_for_pending_requests): the engine sends REQ+END then drops the relay connection (in real use it would time out the pending request); the contract under test is that the runtime tears down gracefully rather than blocking forever on a response the dead cartridge will never send. Delivery of the CARTRIDGE_DIED ERR to the engine is best-effort and NOT guaranteed before teardown, so asserting its receipt would over-specify beyond the reference contract.",
-          "location": "bifaci/host_multi_test.go:654"
+          "location": "bifaci/host_multi_test.go:714"
         },
         "py": {
           "function": "test_422_cartridge_death_sends_err",
           "description": "TEST422: Cartridge death sends ERR for all pending requests via relay",
-          "location": "tests/test_cartridge_host.py:726"
+          "location": "tests/test_cartridge_host.py:788"
         },
         "objc": {
           "function": "test422_cartridgeDeathSendsErr",
@@ -9740,17 +9740,17 @@
         "rust": {
           "function": "test423_multiple_cartridges_route_independently",
           "description": "TEST423: Multiple cartridges registered with distinct caps route independently",
-          "location": "src/bifaci/host_runtime.rs:4328"
+          "location": "src/bifaci/host_runtime.rs:4426"
         },
         "go": {
           "function": "Test423_multi_cartridge_distinct_caps",
           "description": "TEST423: Multiple cartridges registered with distinct caps route independently",
-          "location": "bifaci/host_multi_test.go:748"
+          "location": "bifaci/host_multi_test.go:808"
         },
         "py": {
           "function": "test_423_multi_cartridge_distinct_caps",
           "description": "TEST423: Multiple cartridges registered with distinct caps route independently",
-          "location": "tests/test_cartridge_host.py:774"
+          "location": "tests/test_cartridge_host.py:836"
         },
         "objc": {
           "function": "test423_multipleCartridgesRouteIndependently",
@@ -9778,17 +9778,17 @@
         "rust": {
           "function": "test424_concurrent_requests_to_same_cartridge",
           "description": "TEST424: Concurrent requests to the same cartridge are handled independently",
-          "location": "src/bifaci/host_runtime.rs:4521"
+          "location": "src/bifaci/host_runtime.rs:4619"
         },
         "go": {
           "function": "Test424_concurrent_requests_same_cartridge",
           "description": "TEST424: Concurrent requests to the same cartridge are handled independently",
-          "location": "bifaci/host_multi_test.go:879"
+          "location": "bifaci/host_multi_test.go:939"
         },
         "py": {
           "function": "test_424_concurrent_requests_same_cartridge",
           "description": "TEST424: Concurrent requests to the same cartridge are handled independently",
-          "location": "tests/test_cartridge_host.py:855"
+          "location": "tests/test_cartridge_host.py:917"
         },
         "objc": {
           "function": "test424_concurrentRequestsSameCartridge",
@@ -9816,17 +9816,17 @@
         "rust": {
           "function": "test425_find_cartridge_for_cap_unknown",
           "description": "TEST425: find_cartridge_for_cap returns None for unregistered cap",
-          "location": "src/bifaci/host_runtime.rs:4681"
+          "location": "src/bifaci/host_runtime.rs:4779"
         },
         "go": {
           "function": "Test425_find_cartridge_for_cap_unknown",
           "description": "TEST425: find_cartridge_for_cap returns None for unregistered cap",
-          "location": "bifaci/host_multi_test.go:997"
+          "location": "bifaci/host_multi_test.go:1057"
         },
         "py": {
           "function": "test_425_find_cartridge_for_cap_unknown",
           "description": "TEST425: find_cartridge_for_cap returns None for unregistered cap",
-          "location": "tests/test_cartridge_host.py:922"
+          "location": "tests/test_cartridge_host.py:984"
         },
         "objc": {
           "function": "test425_findCartridgeForCapUnknown",
@@ -11594,17 +11594,17 @@
         "rust": {
           "function": "test485_attach_cartridge_identity_verification_succeeds",
           "description": "TEST485: attach_cartridge completes identity verification with working cartridge",
-          "location": "src/bifaci/host_runtime.rs:4705"
+          "location": "src/bifaci/host_runtime.rs:4803"
         },
         "go": {
           "function": "Test485_attach_cartridge_identity_verification_succeeds",
           "description": "TEST485: attach_cartridge completes identity verification with working cartridge",
-          "location": "bifaci/host_multi_test.go:1077"
+          "location": "bifaci/host_multi_test.go:1137"
         },
         "py": {
           "function": "test_485_attach_cartridge_identity_verification_succeeds",
           "description": "TEST485: attach_cartridge completes identity verification with working cartridge",
-          "location": "tests/test_cartridge_host.py:153"
+          "location": "tests/test_cartridge_host.py:177"
         },
         "objc": {
           "function": "test485_attachCartridgeIdentityVerificationSucceeds",
@@ -11632,17 +11632,17 @@
         "rust": {
           "function": "test486_attach_cartridge_identity_verification_fails",
           "description": "TEST486: attach_cartridge rejects cartridge that fails identity verification",
-          "location": "src/bifaci/host_runtime.rs:4746"
+          "location": "src/bifaci/host_runtime.rs:4844"
         },
         "go": {
           "function": "Test486_attach_cartridge_identity_verification_fails",
           "description": "TEST486: attach_cartridge rejects cartridge that fails identity verification",
-          "location": "bifaci/host_multi_test.go:1122"
+          "location": "bifaci/host_multi_test.go:1182"
         },
         "py": {
           "function": "test_486_attach_cartridge_identity_verification_fails",
           "description": "TEST486: attach_cartridge rejects cartridge that fails identity verification",
-          "location": "tests/test_cartridge_host.py:176"
+          "location": "tests/test_cartridge_host.py:200"
         },
         "objc": {
           "function": "test486_attachCartridgeIdentityVerificationFails",
@@ -11757,7 +11757,7 @@
         "py": {
           "function": "test_489_full_path_identity_verification",
           "description": "TEST489: Full path identity verification: engine \u2192 host (attach_cartridge) \u2192 cartridge",
-          "location": "tests/test_cartridge_host.py:203"
+          "location": "tests/test_cartridge_host.py:227"
         }
       }
     },
@@ -11790,7 +11790,7 @@
         "py": {
           "function": "test_490_identity_verification_multiple_cartridges",
           "description": "TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed.",
-          "location": "tests/test_cartridge_host.py:254"
+          "location": "tests/test_cartridge_host.py:278"
         },
         "objc": {
           "function": "test490_identityVerificationMultipleCartridges",
@@ -14025,7 +14025,7 @@
         "js": {
           "function": "test560_withInOutSpec",
           "description": "TEST560: with_in_spec and with_out_spec change direction specs",
-          "location": "capdag.test.js:2854"
+          "location": "capdag.test.js:2855"
         }
       }
     },
@@ -14131,7 +14131,7 @@
         "js": {
           "function": "test563_findAllMatches",
           "description": "TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity",
-          "location": "capdag.test.js:2884"
+          "location": "capdag.test.js:2885"
         }
       }
     },
@@ -14169,7 +14169,7 @@
         "js": {
           "function": "test564_areCompatible",
           "description": "TEST564: CapMatcher::are_compatible detects bidirectional overlap",
-          "location": "capdag.test.js:2902"
+          "location": "capdag.test.js:2903"
         }
       }
     },
@@ -14980,7 +14980,7 @@
         "go": {
           "function": "Test599_is_empty",
           "description": "TEST599: is_empty returns true for empty response, false for non-empty",
-          "location": "cap/response_test.go:286"
+          "location": "cap/response_test.go:275"
         },
         "py": {
           "function": "test_599_is_empty",
@@ -15014,7 +15014,7 @@
         "go": {
           "function": "Test600_size",
           "description": "TEST600: size returns exact byte count for all content types",
-          "location": "cap/response_test.go:301"
+          "location": "cap/response_test.go:290"
         },
         "py": {
           "function": "test_600_size",
@@ -15048,7 +15048,7 @@
         "go": {
           "function": "Test601_get_content_type",
           "description": "TEST601: get_content_type returns correct MIME type for each variant",
-          "location": "cap/response_test.go:316"
+          "location": "cap/response_test.go:305"
         },
         "py": {
           "function": "test_601_get_content_type",
@@ -15082,7 +15082,7 @@
         "go": {
           "function": "Test602_as_type_binary_error",
           "description": "TEST602: as_type on binary response returns error (cannot deserialize binary)",
-          "location": "cap/response_test.go:328"
+          "location": "cap/response_test.go:317"
         },
         "py": {
           "function": "test_602_as_type_binary_error",
@@ -15116,7 +15116,7 @@
         "go": {
           "function": "Test603_as_bool_edge_cases",
           "description": "TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage",
-          "location": "cap/response_test.go:337"
+          "location": "cap/response_test.go:326"
         },
         "py": {
           "function": "test_603_as_bool_edge_cases",
@@ -15213,7 +15213,7 @@
         "rust": {
           "function": "test607_media_urns_for_extension_unknown",
           "description": "TEST607: media_urns_for_extension returns error for unknown extension",
-          "location": "src/fabric/registry.rs:2639"
+          "location": "src/fabric/registry.rs:2992"
         },
         "go": {
           "function": "Test607_media_urns_for_extension_unknown",
@@ -15247,7 +15247,7 @@
         "rust": {
           "function": "test608_media_urns_for_extension_populated",
           "description": "TEST608: media_urns_for_extension returns URNs after adding a spec with extensions",
-          "location": "src/fabric/registry.rs:2647"
+          "location": "src/fabric/registry.rs:3000"
         },
         "go": {
           "function": "Test608_media_urns_for_extension_populated",
@@ -15281,7 +15281,7 @@
         "rust": {
           "function": "test609_get_extension_mappings",
           "description": "TEST609: get_extension_mappings returns all registered extension\u2192URN pairs.",
-          "location": "src/fabric/registry.rs:2664"
+          "location": "src/fabric/registry.rs:3017"
         },
         "go": {
           "function": "Test609_get_extension_mappings",
@@ -15315,7 +15315,7 @@
         "rust": {
           "function": "test610_get_cached_media_def",
           "description": "TEST610: get_cached_spec returns None for unknown and Some for known",
-          "location": "src/fabric/registry.rs:2680"
+          "location": "src/fabric/registry.rs:3033"
         },
         "go": {
           "function": "Test610_get_cached_spec",
@@ -15416,22 +15416,22 @@
         "rust": {
           "function": "test614_registry_creation",
           "description": "TEST614: Verify registry creation succeeds and cache directory exists",
-          "location": "src/fabric/registry.rs:2690"
+          "location": "src/fabric/registry.rs:3043"
         },
         "go": {
           "function": "Test614_registry_creation",
           "description": "TEST614: Verify registry creation succeeds and cache directory exists",
-          "location": "cap/registry_test.go:28"
+          "location": "cap/registry_test.go:29"
         },
         "py": {
           "function": "test_614_registry_creation",
           "description": "TEST614: Verify registry creation succeeds and cache directory exists",
-          "location": "tests/test_registry.py:31"
+          "location": "tests/test_registry.py:32"
         },
         "objc": {
           "function": "test614_RegistryCreation",
           "description": "TEST614: Registry creation",
-          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:45"
+          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:54"
         }
       }
     },
@@ -15455,7 +15455,7 @@
         "rust": {
           "function": "test616_stored_media_def_to_def",
           "description": "TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields",
-          "location": "src/fabric/registry.rs:2696"
+          "location": "src/fabric/registry.rs:3049"
         },
         "go": {
           "function": "Test616_stored_media_def_to_def",
@@ -15489,7 +15489,7 @@
         "rust": {
           "function": "test617_normalize_media_urn",
           "description": "TEST617: Verify normalize_media_urn produces consistent non-empty results",
-          "location": "src/fabric/registry.rs:2710"
+          "location": "src/fabric/registry.rs:3063"
         },
         "go": {
           "function": "Test617_normalize_media_urn",
@@ -15903,7 +15903,7 @@
         "go": {
           "function": "Test629_profile_constants_format",
           "description": "TEST629: Verify profile URL constants all start with capdag.com schema prefix",
-          "location": "media/spec_test.go:726"
+          "location": "media/spec_test.go:728"
         },
         "py": {
           "function": "test_629_profile_constants_format",
@@ -16294,7 +16294,7 @@
         "js": {
           "function": "test642_inOutWithoutValuesAreIllegal",
           "description": "TEST642: cap:in;out becomes the same illegal bare top form",
-          "location": "capdag.test.js:3037"
+          "location": "capdag.test.js:3038"
         }
       }
     },
@@ -16366,7 +16366,7 @@
         "js": {
           "function": "test653_invalidEffectNoneDeclarationRejected",
           "description": "TEST653: invalid effect=none declarations fail at construction",
-          "location": "capdag.test.js:3154"
+          "location": "capdag.test.js:3155"
         }
       }
     },
@@ -16503,17 +16503,17 @@
         "rust": {
           "function": "test662_rebuild_capabilities_includes_non_running_cartridges",
           "description": "TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet).",
-          "location": "src/bifaci/host_runtime.rs:4846"
+          "location": "src/bifaci/host_runtime.rs:4944"
         },
         "go": {
           "function": "Test662_rebuild_capabilities_includes_non_running_cartridges",
           "description": "TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet).",
-          "location": "bifaci/host_multi_test.go:1190"
+          "location": "bifaci/host_multi_test.go:1250"
         },
         "py": {
           "function": "test_662_rebuild_capabilities_includes_non_running_cartridges",
           "description": "TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet).",
-          "location": "tests/test_cartridge_host.py:990"
+          "location": "tests/test_cartridge_host.py:1053"
         },
         "objc": {
           "function": "test662_rebuildCapabilitiesIncludesNonRunningCartridges",
@@ -16541,17 +16541,17 @@
         "rust": {
           "function": "test663_hello_failed_cartridge_removed_from_capabilities",
           "description": "TEST663: Cartridge with hello_failed is permanently removed from capabilities",
-          "location": "src/bifaci/host_runtime.rs:4905"
+          "location": "src/bifaci/host_runtime.rs:5003"
         },
         "go": {
           "function": "Test663_hello_failed_cartridge_removed_from_capabilities",
           "description": "TEST663: Cartridge with hello_failed is permanently removed from capabilities",
-          "location": "bifaci/host_multi_test.go:1214"
+          "location": "bifaci/host_multi_test.go:1274"
         },
         "py": {
           "function": "test_663_hello_failed_cartridge_removed_from_capabilities",
           "description": "TEST663: Cartridge with hello_failed is permanently removed from capabilities",
-          "location": "tests/test_cartridge_host.py:1019"
+          "location": "tests/test_cartridge_host.py:1082"
         },
         "objc": {
           "function": "test663_helloFailedCartridgeRemovedFromCapabilities",
@@ -16579,17 +16579,17 @@
         "rust": {
           "function": "test664_running_cartridge_uses_manifest_caps",
           "description": "TEST664: Attached cartridge replaces pre-registration caps with manifest caps. The pre-attach `cap_groups` (from probe-time discovery) get superseded by the post-HELLO `cap_groups` from the actual handshake.",
-          "location": "src/bifaci/host_runtime.rs:4956"
+          "location": "src/bifaci/host_runtime.rs:5054"
         },
         "go": {
           "function": "Test664_running_cartridge_uses_manifest_caps",
           "description": "TEST664: Attached cartridge replaces pre-registration caps with manifest caps. The pre-attach `cap_groups` (from probe-time discovery) get superseded by the post-HELLO `cap_groups` from the actual handshake.",
-          "location": "bifaci/host_multi_test.go:1243"
+          "location": "bifaci/host_multi_test.go:1303"
         },
         "py": {
           "function": "test_664_running_cartridge_uses_manifest_caps",
           "description": "TEST664: Running cartridge uses manifest caps; the post-HELLO cap_groups overwrite the registration-time ones.",
-          "location": "tests/test_cartridge_host.py:1045"
+          "location": "tests/test_cartridge_host.py:1108"
         },
         "objc": {
           "function": "test664_runningCartridgeUsesManifestCaps",
@@ -16617,17 +16617,17 @@
         "rust": {
           "function": "test665_cap_table_mixed_running_and_non_running",
           "description": "TEST665: Cap table aggregates caps from every healthy cartridge \u2014 attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view.",
-          "location": "src/bifaci/host_runtime.rs:5021"
+          "location": "src/bifaci/host_runtime.rs:5119"
         },
         "go": {
           "function": "Test665_cap_table_mixed_running_and_non_running",
           "description": "TEST665: Cap table aggregates caps from every healthy cartridge \u2014 attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view.",
-          "location": "bifaci/host_multi_test.go:1294"
+          "location": "bifaci/host_multi_test.go:1354"
         },
         "py": {
           "function": "test_665_cap_table_mixed_running_and_non_running",
           "description": "TEST665: Cap table aggregates caps from every healthy cartridge \u2014 attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view.",
-          "location": "tests/test_cartridge_host.py:1082"
+          "location": "tests/test_cartridge_host.py:1145"
         },
         "objc": {
           "function": "test665_capTableMixedRunningAndNonRunning",
@@ -19822,7 +19822,7 @@
         "rust": {
           "function": "test772_find_paths_finds_multi_step_paths",
           "description": "TEST772: Tests find_paths_to_exact_target() finds multi-step paths Verifies that paths through intermediate nodes are found correctly",
-          "location": "src/planner/live_cap_fab.rs:1638"
+          "location": "src/planner/live_cap_fab.rs:1641"
         },
         "go": {
           "function": "Test772_find_paths_finds_multi_step_paths",
@@ -19856,7 +19856,7 @@
         "rust": {
           "function": "test773_find_paths_returns_empty_when_no_path",
           "description": "TEST773: Tests find_paths_to_exact_target() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable",
-          "location": "src/planner/live_cap_fab.rs:1669"
+          "location": "src/planner/live_cap_fab.rs:1672"
         },
         "go": {
           "function": "Test773_find_paths_returns_empty_when_no_path",
@@ -19890,7 +19890,7 @@
         "rust": {
           "function": "test774_get_reachable_targets_finds_all_targets",
           "description": "TEST774: Tests get_reachable_targets() returns all reachable targets Verifies that reachable targets include direct cap targets and cardinality variants (list versions via Collect)",
-          "location": "src/planner/live_cap_fab.rs:1691"
+          "location": "src/planner/live_cap_fab.rs:1694"
         },
         "go": {
           "function": "Test774_get_reachable_targets_finds_all_targets",
@@ -19924,7 +19924,7 @@
         "rust": {
           "function": "test777_type_mismatch_pdf_cap_does_not_match_png_input",
           "description": "TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding",
-          "location": "src/planner/live_cap_fab.rs:1723"
+          "location": "src/planner/live_cap_fab.rs:1726"
         },
         "go": {
           "function": "Test777_type_mismatch_pdf_cap_does_not_match_png_input",
@@ -19958,7 +19958,7 @@
         "rust": {
           "function": "test778_type_mismatch_png_cap_does_not_match_pdf_input",
           "description": "TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding",
-          "location": "src/planner/live_cap_fab.rs:1745"
+          "location": "src/planner/live_cap_fab.rs:1748"
         },
         "go": {
           "function": "Test778_type_mismatch_png_cap_does_not_match_pdf_input",
@@ -19992,7 +19992,7 @@
         "rust": {
           "function": "test779_get_reachable_targets_respects_type_matching",
           "description": "TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's)",
-          "location": "src/planner/live_cap_fab.rs:1772"
+          "location": "src/planner/live_cap_fab.rs:1775"
         },
         "go": {
           "function": "Test779_get_reachable_targets_respects_type_matching",
@@ -20064,7 +20064,7 @@
         "rust": {
           "function": "test781_find_paths_respects_type_chain",
           "description": "TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible",
-          "location": "src/planner/live_cap_fab.rs:1825"
+          "location": "src/planner/live_cap_fab.rs:1828"
         },
         "go": {
           "function": "Test781_find_paths_respects_type_chain",
@@ -20288,7 +20288,7 @@
         "rust": {
           "function": "test787_find_paths_sorting_prefers_shorter",
           "description": "TEST787: Tests find_paths_to_exact_target() sorts paths by length, preferring shorter ones Verifies that among multiple paths, the shortest is ranked first",
-          "location": "src/planner/live_cap_fab.rs:2011"
+          "location": "src/planner/live_cap_fab.rs:2014"
         },
         "go": {
           "function": "Test787_find_paths_sorting_prefers_shorter",
@@ -20322,7 +20322,7 @@
         "rust": {
           "function": "test788_foreach_only_with_sequence_input",
           "description": "TEST788: ForEach is only synthesized when is_sequence=true With scalar input (is_sequence=false), disbind output goes directly to choose since media:enc=utf-8;page conforms to media:enc=utf-8. With sequence input (is_sequence=true), ForEach splits the sequence so each item can be processed by disbind individually, then choose.",
-          "location": "src/planner/live_cap_fab.rs:1870"
+          "location": "src/planner/live_cap_fab.rs:1873"
         },
         "go": {
           "function": "Test788_foreach_only_with_sequence_input",
@@ -20356,7 +20356,7 @@
         "rust": {
           "function": "test789_cap_from_json_has_valid_specs",
           "description": "TEST789: Tests that caps loaded from JSON have correct in_spec/out_spec",
-          "location": "src/planner/live_cap_fab.rs:1984"
+          "location": "src/planner/live_cap_fab.rs:1987"
         },
         "go": {
           "function": "Test789_cap_from_json_has_valid_specs",
@@ -20389,7 +20389,7 @@
         "rust": {
           "function": "test790_identity_urn_is_specific",
           "description": "TEST790: Tests identity_urn is specific and doesn't match everything",
-          "location": "src/planner/live_cap_fab.rs:1963"
+          "location": "src/planner/live_cap_fab.rs:1966"
         },
         "go": {
           "function": "Test790_identity_urn_is_specific",
@@ -20428,7 +20428,7 @@
         "rust": {
           "function": "test791_sync_from_cap_urns_adds_edges",
           "description": "TEST791: Tests sync_from_cap_urns actually adds edges",
-          "location": "src/planner/live_cap_fab.rs:1925"
+          "location": "src/planner/live_cap_fab.rs:1928"
         },
         "go": {
           "function": "Test791_sync_from_cap_urns_adds_edges",
@@ -23440,17 +23440,17 @@
         "rust": {
           "function": "test908_cached_caps_accessible_when_offline",
           "description": "TEST908: cached caps remain accessible while offline.",
-          "location": "src/fabric/registry.rs:2719"
+          "location": "src/fabric/registry.rs:3101"
         },
         "go": {
           "function": "Test908_cached_caps_accessible_when_offline",
           "description": "TEST908: cached caps remain accessible while offline.",
-          "location": "cap/registry_test.go:229"
+          "location": "cap/registry_test.go:230"
         },
         "py": {
           "function": "test_908_cached_caps_accessible_when_offline",
           "description": "TEST908: cached caps remain accessible while offline.",
-          "location": "tests/test_registry.py:260"
+          "location": "tests/test_registry.py:261"
         },
         "objc": {
           "function": "test908_map_progress_basic_mapping",
@@ -25536,12 +25536,12 @@
         "rust": {
           "function": "test987_gc_secondary_pass_enforces_hard_cap",
           "description": "/ Contract #3 \u2014 the secondary hard-cap pass kicks in if the / table somehow exceeds `HARD_CAP` (extreme runaway). Without / it, a single GC at the soft watermark would not be enough / to recover headroom and the table could grow without bound / between bursts.",
-          "location": "src/bifaci/host_runtime.rs:5580"
+          "location": "src/bifaci/host_runtime.rs:5678"
         },
         "go": {
           "function": "Test987_gc_secondary_pass_enforces_hard_cap",
           "description": "TEST987: / Contract #3 \u2014 the secondary hard-cap pass kicks in if the / table somehow exceeds `HARD_CAP` (extreme runaway). Without / it, a single GC at the soft watermark would not be enough / to recover headroom and the table could grow without bound / between bursts.",
-          "location": "bifaci/host_multi_test.go:1448"
+          "location": "bifaci/host_multi_test.go:1508"
         },
         "py": {
           "function": "test_987_gc_secondary_pass_enforces_hard_cap",
@@ -25574,12 +25574,12 @@
         "rust": {
           "function": "test988_gc_reduces_table_below_soft_watermark_in_one_pass",
           "description": "/ Contract #1 \u2014 the GC keeps the table strictly below the / hard cap. Seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame- / burst) and call the production GC entry point. The / post-state must be at most `SOFT_WATERMARK` entries / because the GC drops at least / `EVICTION_FRACTION \u00d7 pre_state` entries in one pass and / the pre-state is below the hard cap (i.e. one pass is / enough; the secondary \"hard cap\" pass would only fire if / pre-state crossed the hard cap before insertion completed, / which production prevents by gc-ing on every insert).",
-          "location": "src/bifaci/host_runtime.rs:5467"
+          "location": "src/bifaci/host_runtime.rs:5565"
         },
         "go": {
           "function": "Test988_gc_reduces_table_below_soft_watermark_in_one_pass",
           "description": "TEST988: / Contract #1 \u2014 the GC keeps the table strictly below the / hard cap. Seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame- / burst) and call the production GC entry point. The / post-state must be at most `SOFT_WATERMARK` entries / because the GC drops at least / `EVICTION_FRACTION \u00d7 pre_state` entries in one pass and / the pre-state is below the hard cap (i.e. one pass is / enough; the secondary \"hard cap\" pass would only fire if / pre-state crossed the hard cap before insertion completed, / which production prevents by gc-ing on every insert).",
-          "location": "bifaci/host_multi_test.go:1386"
+          "location": "bifaci/host_multi_test.go:1446"
         },
         "py": {
           "function": "test_988_gc_reduces_table_below_soft_watermark_in_one_pass",
@@ -27471,7 +27471,7 @@
         "rust": {
           "function": "test1111_foreach_for_user_provided_list_source",
           "description": "TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug \u2014 media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source.",
-          "location": "src/planner/live_cap_fab.rs:2112"
+          "location": "src/planner/live_cap_fab.rs:2115"
         },
         "go": {
           "function": "Test1111_foreach_for_user_provided_list_source",
@@ -27505,7 +27505,7 @@
         "rust": {
           "function": "test1112_no_collect_in_path_finding",
           "description": "TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type.",
-          "location": "src/planner/live_cap_fab.rs:2163"
+          "location": "src/planner/live_cap_fab.rs:2166"
         },
         "go": {
           "function": "Test1112_no_collect_in_path_finding",
@@ -27539,7 +27539,7 @@
         "rust": {
           "function": "test1113_multi_cap_path_no_collect",
           "description": "TEST1113: Multi-cap path without Collect \u2014 Collect is not synthesized",
-          "location": "src/planner/live_cap_fab.rs:2189"
+          "location": "src/planner/live_cap_fab.rs:2192"
         },
         "go": {
           "function": "Test1113_multi_cap_path_no_collect",
@@ -27573,7 +27573,7 @@
         "rust": {
           "function": "test1114_graph_stores_only_cap_edges",
           "description": "TEST1114: Graph stores only Cap edges after sync",
-          "location": "src/planner/live_cap_fab.rs:2213"
+          "location": "src/planner/live_cap_fab.rs:2216"
         },
         "go": {
           "function": "Test1114_graph_stores_only_cap_edges",
@@ -27607,7 +27607,7 @@
         "rust": {
           "function": "test1115_dynamic_foreach_with_is_sequence",
           "description": "TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items",
-          "location": "src/planner/live_cap_fab.rs:2249"
+          "location": "src/planner/live_cap_fab.rs:2252"
         },
         "go": {
           "function": "Test1115_dynamic_foreach_with_is_sequence",
@@ -27641,7 +27641,7 @@
         "rust": {
           "function": "test1116_collect_never_synthesized",
           "description": "TEST1116: Collect is never synthesized during path finding",
-          "location": "src/planner/live_cap_fab.rs:2287"
+          "location": "src/planner/live_cap_fab.rs:2290"
         },
         "go": {
           "function": "Test1116_collect_never_synthesized",
@@ -27675,7 +27675,7 @@
         "rust": {
           "function": "test1117_no_foreach_when_not_sequence",
           "description": "TEST1117: ForEach is NOT synthesized when is_sequence=false",
-          "location": "src/planner/live_cap_fab.rs:2314"
+          "location": "src/planner/live_cap_fab.rs:2317"
         },
         "go": {
           "function": "Test1117_no_foreach_when_not_sequence",
@@ -27709,7 +27709,7 @@
         "rust": {
           "function": "test1118_no_foreach_without_cap_consumers",
           "description": "TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true",
-          "location": "src/planner/live_cap_fab.rs:2341"
+          "location": "src/planner/live_cap_fab.rs:2344"
         },
         "go": {
           "function": "Test1118_no_foreach_without_cap_consumers",
@@ -27743,7 +27743,7 @@
         "rust": {
           "function": "test1119_strand_knit_with_registry_returns_single_strand_machine",
           "description": "TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end.",
-          "location": "src/planner/live_cap_fab.rs:2360"
+          "location": "src/planner/live_cap_fab.rs:2363"
         },
         "go": {
           "function": "Test1119_FromStrand_returns_single_strand_machine",
@@ -27777,7 +27777,7 @@
         "rust": {
           "function": "test1120_strand_knit_unknown_cap_fails_hard",
           "description": "TEST1120: Strand::knit fails hard when the cap is not in the registry \u2014 the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed.",
-          "location": "src/planner/live_cap_fab.rs:2406"
+          "location": "src/planner/live_cap_fab.rs:2409"
         },
         "go": {
           "function": "Test1120_FromStrand_unknown_cap_fails_hard",
@@ -28066,7 +28066,7 @@
         "go": {
           "function": "Test1133_media_def_def_documentation_lifecycle",
           "description": "TEST1133: MediaDef set/clear lifecycle for documentation. Setter and clearer must not cross-contaminate the description field.",
-          "location": "media/spec_test.go:704"
+          "location": "media/spec_test.go:706"
         },
         "py": {
           "function": "test_1133_media_def_def_documentation_lifecycle",
@@ -28510,7 +28510,7 @@
         "rust": {
           "function": "test1150_add_cap_and_basic_traversal",
           "description": "TEST1150: Adding one cap creates one edge and makes its output reachable in one step.",
-          "location": "src/planner/live_cap_fab.rs:1412"
+          "location": "src/planner/live_cap_fab.rs:1415"
         },
         "go": {
           "function": "Test1150_add_cap_and_basic_traversal",
@@ -28548,7 +28548,7 @@
         "rust": {
           "function": "test1151_exact_vs_conformance_matching",
           "description": "TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives.",
-          "location": "src/planner/live_cap_fab.rs:1444"
+          "location": "src/planner/live_cap_fab.rs:1447"
         },
         "go": {
           "function": "Test1151_exact_vs_conformance_matching",
@@ -28586,7 +28586,7 @@
         "rust": {
           "function": "test1152_multi_step_path",
           "description": "TEST1152: Path finding returns the expected two-cap chain through an intermediate media type.",
-          "location": "src/planner/live_cap_fab.rs:1522"
+          "location": "src/planner/live_cap_fab.rs:1525"
         },
         "go": {
           "function": "Test1152_multi_step_path",
@@ -28624,7 +28624,7 @@
         "rust": {
           "function": "test1153_deterministic_ordering",
           "description": "TEST1153: Repeated path searches return the same path order for the same graph and target.",
-          "location": "src/planner/live_cap_fab.rs:1551"
+          "location": "src/planner/live_cap_fab.rs:1554"
         },
         "go": {
           "function": "Test1153_deterministic_ordering",
@@ -28662,7 +28662,7 @@
         "rust": {
           "function": "test1154_sync_from_caps",
           "description": "TEST1154: Syncing from caps replaces the existing graph contents with the new cap set.",
-          "location": "src/planner/live_cap_fab.rs:1598"
+          "location": "src/planner/live_cap_fab.rs:1601"
         },
         "go": {
           "function": "Test1154_sync_from_caps",
@@ -29279,7 +29279,7 @@
         "rust": {
           "function": "test1172_serialize_two_step_strand_emits_global_aliases_and_node_names",
           "description": "TEST1172: Serializing a two-step strand emits the expected aliases and node names.",
-          "location": "src/machine/serializer.rs:515"
+          "location": "src/machine/serializer.rs:611"
         },
         "go": {
           "function": "Test1172_MachineStringRepr",
@@ -29313,7 +29313,7 @@
         "rust": {
           "function": "test1173_serialize_then_parse_round_trip_preserves_strict_equivalence",
           "description": "TEST1173: Serializing and reparsing a machine preserves strict machine equivalence.",
-          "location": "src/machine/serializer.rs:538"
+          "location": "src/machine/serializer.rs:634"
         },
         "go": {
           "function": "Test1173_ToMachineNotationRoundTrips",
@@ -29347,7 +29347,7 @@
         "rust": {
           "function": "test1174_line_based_format_round_trips_to_same_machine",
           "description": "TEST1174: The line-based notation format round-trips back to the same machine.",
-          "location": "src/machine/serializer.rs:558"
+          "location": "src/machine/serializer.rs:654"
         },
         "go": {
           "function": "Test1174_LineBasedFormatRoundTripsToSameMachine",
@@ -29381,7 +29381,7 @@
         "rust": {
           "function": "test1175_empty_machine_serializes_to_empty_string",
           "description": "TEST1175: Serializing an empty machine produces an empty string.",
-          "location": "src/machine/serializer.rs:576"
+          "location": "src/machine/serializer.rs:726"
         },
         "go": {
           "function": "Test1175_EmptyMachineSerializesToEmpty",
@@ -29415,7 +29415,7 @@
         "rust": {
           "function": "test1176_render_payload_json_includes_strand_with_anchors",
           "description": "TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine.",
-          "location": "src/machine/serializer.rs:584"
+          "location": "src/machine/serializer.rs:734"
         },
         "go": {
           "function": "Test1176_render_payload_json_includes_strand_with_anchors",
@@ -29449,7 +29449,7 @@
         "rust": {
           "function": "test1177_render_payload_for_empty_machine_has_empty_strands_array",
           "description": "TEST1177: Rendering payload JSON for an empty machine emits an empty strands array.",
-          "location": "src/machine/serializer.rs:613"
+          "location": "src/machine/serializer.rs:763"
         },
         "go": {
           "function": "Test1177_render_payload_for_empty_machine_has_empty_strands_array",
@@ -29936,6 +29936,44 @@
           "function": "test_1191_resolve_strand_disbind_pdf_with_file_path_slot_identity",
           "description": "TEST1191: Disbinding a PDF with a file-path slot preserves the expected identity of the slot binding.",
           "location": "tests/test_machine.py:1118"
+        }
+      }
+    },
+    {
+      "number": 1196,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "js"
+      ],
+      "missing": [
+        "objc"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "objc"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test1196_aliased_serialization_uses_alias_and_round_trips",
+          "description": "TEST1196: `to_machine_notation_aliased` renders a cap header by its registered display alias (shortest, then alphabetical), falls back to the raw URN for a cap with no alias, and the result round-trips back to the same machine (the parser resolves the alias from the warm cache).",
+          "location": "src/machine/serializer.rs:675"
+        },
+        "go": {
+          "function": "Test1196_AliasedSerializationUsesAliasAndRoundTrips",
+          "description": "TEST1196: ToMachineNotationAliased renders a cap by its registered display alias (shortest, then alphabetical), referencing it DIRECTLY in the wiring with NO header, while a cap with no alias keeps its synthetic edge_N header + raw URN; the result round-trips back to the same machine (the parser resolves the alias from the warm cache). Mirrors Rust serializer::test1196.",
+          "location": "machine/alias_test.go:216"
+        },
+        "py": {
+          "function": "test_1196_aliased_serialization_uses_alias_and_round_trips",
+          "description": "TEST1196: `to_machine_notation_aliased` renders a cap by its registered display alias (shortest, then alphabetical), referenced directly in the wiring with no header; falls back to the raw URN + header for a cap with no alias; and the result round-trips back to the same machine (the parser resolves the alias from the warm cache).",
+          "location": "tests/test_machine.py:1153"
+        },
+        "js": {
+          "function": "test1196_aliasedSerializationUsesAliasAndDropsHeader",
+          "description": "TEST1196: toMachineNotationAliased references an aliased cap DIRECTLY in the wiring by its display alias (shortest, then alphabetical) with NO header, and keeps the synthetic `edge_N` token + header for a cap that has no alias.",
+          "location": "capdag.test.js:6448"
         }
       }
     },
@@ -31421,7 +31459,7 @@
         "rust": {
           "function": "test1289_bfs_reachable_includes_source_roundtrip",
           "description": "TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A\u2192B and B\u2192A means A is reachable from A (via A\u2192B\u2192A).",
-          "location": "src/planner/live_cap_fab.rs:2445"
+          "location": "src/planner/live_cap_fab.rs:2448"
         },
         "go": {
           "function": "Test1289_bfs_reachable_includes_source_roundtrip",
@@ -31455,7 +31493,7 @@
         "rust": {
           "function": "test1290_iddfs_finds_roundtrip_paths",
           "description": "TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target. This was a bug where the visited set blocked returning to the source, and early return on target hit at wrong depth prevented exploration.",
-          "location": "src/planner/live_cap_fab.rs:2487"
+          "location": "src/planner/live_cap_fab.rs:2490"
         },
         "go": {
           "function": "Test1290_iddfs_finds_roundtrip_paths",
@@ -31489,7 +31527,7 @@
         "rust": {
           "function": "test1291_iddfs_roundtrip_with_sequence",
           "description": "TEST1291: IDDFS round-trip paths are also found with is_sequence=true. The ForEach/Collect edges must not block round-trip discovery.",
-          "location": "src/planner/live_cap_fab.rs:2526"
+          "location": "src/planner/live_cap_fab.rs:2529"
         },
         "go": {
           "function": "Test1291_iddfs_roundtrip_with_sequence",
@@ -31523,7 +31561,7 @@
         "rust": {
           "function": "test1292_bfs_iddfs_roundtrip_consistency",
           "description": "TEST1292: BFS and IDDFS agree that round-trip targets exist. If BFS says target X is reachable from source X, IDDFS must find at least one path.",
-          "location": "src/planner/live_cap_fab.rs:2559"
+          "location": "src/planner/live_cap_fab.rs:2562"
         },
         "go": {
           "function": "Test1292_bfs_iddfs_roundtrip_consistency",
@@ -31557,7 +31595,7 @@
         "rust": {
           "function": "test1293_roundtrip_requires_cap_steps",
           "description": "TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. Identity-only round trips (no real transformation) must be excluded.",
-          "location": "src/planner/live_cap_fab.rs:2607"
+          "location": "src/planner/live_cap_fab.rs:2610"
         },
         "go": {
           "function": "Test1293_roundtrip_requires_cap_steps",
@@ -31605,7 +31643,7 @@
         "js": {
           "function": "test1294_rule11VoidInputWithStdinRejected",
           "description": "TEST1294: RULE11 - void-input cap with stdin source rejected",
-          "location": "capdag.test.js:2954"
+          "location": "capdag.test.js:2955"
         }
       }
     },
@@ -31643,7 +31681,7 @@
         "js": {
           "function": "test1295_rule11NonVoidInputWithoutStdinRejected",
           "description": "TEST1295: RULE11 - non-void-input cap without stdin source rejected",
-          "location": "capdag.test.js:2969"
+          "location": "capdag.test.js:2970"
         }
       }
     },
@@ -31681,7 +31719,7 @@
         "js": {
           "function": "test1296_rule11VoidInputCliFlagOnly",
           "description": "TEST1296: RULE11 - void-input cap with only cli_flag sources passes",
-          "location": "capdag.test.js:2984"
+          "location": "capdag.test.js:2985"
         }
       }
     },
@@ -31719,7 +31757,7 @@
         "js": {
           "function": "test1297_rule11NonVoidInputWithStdin",
           "description": "TEST1297: RULE11 - non-void-input cap with stdin source passes",
-          "location": "capdag.test.js:2994"
+          "location": "capdag.test.js:2995"
         }
       }
     },
@@ -31966,7 +32004,7 @@
         "rust": {
           "function": "test1879_sync_roster_adds_and_removes_registered_dir_live",
           "description": "TEST1879: SyncRoster updates the LIVE host inventory in place \u2014 the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.",
-          "location": "src/bifaci/host_runtime.rs:5634"
+          "location": "src/bifaci/host_runtime.rs:5732"
         },
         "go": {
           "function": "Test1879_sync_roster_adds_and_removes_registered_dir_live",
@@ -31976,7 +32014,7 @@
         "py": {
           "function": "test_1879_sync_roster_adds_and_removes_registered_dir_live",
           "description": "TEST1879: SyncRoster updates the LIVE host inventory in place \u2014 the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.",
-          "location": "tests/test_cartridge_host.py:1122"
+          "location": "tests/test_cartridge_host.py:1185"
         },
         "objc": {
           "function": "test1879_syncRosterAddsAndRemovesRegisteredDirLive",
@@ -32010,12 +32048,12 @@
         "go": {
           "function": "Test1883_CapPositionAliasResolvesToCap",
           "description": "Test1883: a cap-position name with no local header resolves as a cap alias.",
-          "location": "machine/alias_test.go:166"
+          "location": "machine/alias_test.go:167"
         },
         "py": {
           "function": "test_1883_cap_position_alias_resolves_to_cap",
           "description": "TEST1883: a cap-position name with no local header resolves as a cap alias.",
-          "location": "tests/test_fabric_alias.py:213"
+          "location": "tests/test_fabric_alias.py:214"
         }
       }
     },
@@ -32044,12 +32082,12 @@
         "go": {
           "function": "Test1884_LocalHeaderShadowsCapAlias",
           "description": "Test1884: a local header alias shadows a fabric alias of the same name.",
-          "location": "machine/alias_test.go:177"
+          "location": "machine/alias_test.go:178"
         },
         "py": {
           "function": "test_1884_local_header_shadows_cap_alias",
           "description": "TEST1884: a local header alias shadows a fabric alias of the same name.",
-          "location": "tests/test_fabric_alias.py:223"
+          "location": "tests/test_fabric_alias.py:224"
         }
       }
     },
@@ -32078,12 +32116,12 @@
         "go": {
           "function": "Test1885_CapPositionAliasToMediaIsError",
           "description": "Test1885: a cap-position alias that resolves to a MEDIA URN is a hard error.",
-          "location": "machine/alias_test.go:190"
+          "location": "machine/alias_test.go:191"
         },
         "py": {
           "function": "test_1885_cap_position_alias_to_media_is_error",
           "description": "TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error.",
-          "location": "tests/test_fabric_alias.py:235"
+          "location": "tests/test_fabric_alias.py:236"
         }
       }
     },
@@ -32112,12 +32150,12 @@
         "go": {
           "function": "Test1886_UnregisteredCapNameIsUndefinedAlias",
           "description": "TEST1886: a cap-position name that is neither a local header nor a registered alias still raises UndefinedAlias. The alias mechanism must not mask a genuinely undefined name.",
-          "location": "machine/alias_test.go:202"
+          "location": "machine/alias_test.go:203"
         },
         "py": {
           "function": "test_1886_unregistered_cap_name_is_undefined_alias",
           "description": "TEST1886: a cap-position name that is neither a local header nor a registered alias still raises UndefinedAlias. The alias mechanism must not mask a genuinely undefined name.",
-          "location": "tests/test_fabric_alias.py:255"
+          "location": "tests/test_fabric_alias.py:256"
         }
       }
     },
@@ -32140,17 +32178,17 @@
         "rust": {
           "function": "test1888_resolve_alias_returns_target",
           "description": "TEST1888: resolve_alias returns the alias target untyped. Seeding a media alias and resolving it yields the media URN; a malformed alias name is rejected before any lookup.",
-          "location": "src/fabric/registry.rs:2460"
+          "location": "src/fabric/registry.rs:2717"
         },
         "go": {
           "function": "Test1888_ResolveAliasReturnsTarget",
           "description": "TEST1888: resolve_alias returns the alias target untyped. Seeding a media alias and resolving it yields the media URN; a malformed alias name is rejected before any lookup.",
-          "location": "machine/alias_test.go:74"
+          "location": "machine/alias_test.go:75"
         },
         "py": {
           "function": "test_1888_resolve_alias_returns_target",
           "description": "TEST1888: resolve_alias returns the alias target untyped. Seeding a media alias and resolving it yields the media URN; a malformed alias name is rejected before any lookup.",
-          "location": "tests/test_fabric_alias.py:110"
+          "location": "tests/test_fabric_alias.py:111"
         },
         "objc": {
           "function": "test1888_ResolveAliasReturnsTarget",
@@ -32178,17 +32216,17 @@
         "rust": {
           "function": "test1889_resolve_alias_typed_enforces_kind",
           "description": "TEST1889: resolve_alias_typed enforces the expected kind. A media alias requested as a cap fails hard; requested as media (or untyped) succeeds. This is the typed-boundary contract.",
-          "location": "src/fabric/registry.rs:2480"
+          "location": "src/fabric/registry.rs:2737"
         },
         "go": {
           "function": "Test1889_ResolveAliasTypedEnforcesKind",
           "description": "Test1889: resolve alias typed enforces the expected kind.",
-          "location": "machine/alias_test.go:91"
+          "location": "machine/alias_test.go:92"
         },
         "py": {
           "function": "test_1889_resolve_alias_typed_enforces_kind",
           "description": "TEST1889: resolve_alias_typed enforces the expected kind.",
-          "location": "tests/test_fabric_alias.py:123"
+          "location": "tests/test_fabric_alias.py:124"
         },
         "objc": {
           "function": "test1889_ResolveAliasTypedEnforcesKind",
@@ -32216,17 +32254,17 @@
         "rust": {
           "function": "test1890_get_cap_via_alias_and_type_mismatch",
           "description": "TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface.",
-          "location": "src/fabric/registry.rs:2512"
+          "location": "src/fabric/registry.rs:2769"
         },
         "go": {
           "function": "Test1890_GetCapViaAliasAndTypeMismatch",
           "description": "TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface.",
-          "location": "machine/alias_test.go:104"
+          "location": "machine/alias_test.go:105"
         },
         "py": {
           "function": "test_1890_get_cap_via_alias_and_type_mismatch",
           "description": "TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface.",
-          "location": "tests/test_fabric_alias.py:139"
+          "location": "tests/test_fabric_alias.py:140"
         },
         "objc": {
           "function": "test1890_GetCapViaAliasAndTypeMismatch",
@@ -32254,17 +32292,17 @@
         "rust": {
           "function": "test1891_get_media_def_via_alias_and_type_mismatch",
           "description": "TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard.",
-          "location": "src/fabric/registry.rs:2543"
+          "location": "src/fabric/registry.rs:2800"
         },
         "go": {
           "function": "Test1891_GetMediaDefViaAliasAndTypeMismatch",
           "description": "TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard.",
-          "location": "machine/alias_test.go:121"
+          "location": "machine/alias_test.go:122"
         },
         "py": {
           "function": "test_1891_get_media_def_via_alias_and_type_mismatch",
           "description": "TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard.",
-          "location": "tests/test_fabric_alias.py:163"
+          "location": "tests/test_fabric_alias.py:164"
         },
         "objc": {
           "function": "test1891_GetMediaDefViaAliasAndTypeMismatch",
@@ -32292,17 +32330,17 @@
         "rust": {
           "function": "test1892_unknown_alias_is_not_found",
           "description": "TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the \"expose issues, no fallback\" contract.",
-          "location": "src/fabric/registry.rs:2578"
+          "location": "src/fabric/registry.rs:2835"
         },
         "go": {
           "function": "Test1892_UnknownAliasIsNotFound",
           "description": "TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the \"expose issues, no fallback\" contract.",
-          "location": "machine/alias_test.go:141"
+          "location": "machine/alias_test.go:142"
         },
         "py": {
           "function": "test_1892_unknown_alias_is_not_found",
           "description": "TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the \"expose issues, no fallback\" contract.",
-          "location": "tests/test_fabric_alias.py:189"
+          "location": "tests/test_fabric_alias.py:190"
         },
         "objc": {
           "function": "test1892_UnknownAliasIsNotFound",
@@ -32330,22 +32368,136 @@
         "rust": {
           "function": "test1893_cache_root_is_namespaced_per_registry_origin",
           "description": "TEST1893: The on-disk cache root is namespaced per registry origin, so a prod-populated cache can never satisfy a staging lookup (and vice versa). Without this, a `CDG_FABRIC_REGISTRY_URL=staging` run reuses the prod-cached manifest/caps under one shared `capdag/` directory and resolves against the wrong snapshot \u2014 the bug that made `--staging` appear not to reach the scenario tests. This pins three properties: distinct origins \u2192 distinct roots; same origin \u2192 identical root (deterministic, so caching actually hits); and the slug is the same `slug_for` scheme the cartridge registry layout uses.",
-          "location": "src/fabric/registry.rs:2846"
+          "location": "src/fabric/registry.rs:3228"
         },
         "go": {
           "function": "Test1893_CacheRootIsNamespacedPerRegistryOrigin",
           "description": "TEST1893: The fabric registry's on-disk cache root is namespaced per registry origin. A cache populated from one origin must never be reused to satisfy a lookup against another \u2014 prod and staging serve different bytes for the same URN/version, so an origin-blind cache silently resolves against the wrong snapshot. This pins three properties: distinct origins \u2192 distinct roots; same origin \u2192 identical root (deterministic, so caching actually hits); and the slug is the same slug_for scheme the cartridge registry layout uses, living under the shared \"capdag\" cache directory.",
-          "location": "cap/registry_test.go:250"
+          "location": "cap/registry_test.go:251"
         },
         "py": {
           "function": "test_1893_cache_root_is_namespaced_per_registry_origin",
           "description": "TEST1893: Cache root is namespaced per registry origin. Without the per-origin namespace, a cache populated from one registry (prod) is reused to satisfy a lookup against a different registry (staging) \u2014 and they serve different bytes for the same URN/version, so the lookup resolves against the wrong snapshot. This pins three properties: distinct origins must NOT share a cache root; the same origin must map to a stable (deterministic) root, or caching never hits; and the slug is the same slug_for(url) scheme the cartridge registry layout uses, living directly under the shared \"capdag\" cache directory.",
-          "location": "tests/test_registry.py:363"
+          "location": "tests/test_registry.py:385"
         },
         "objc": {
           "function": "test1893_cacheRootIsNamespacedPerRegistryOrigin",
           "description": "TEST1893: cache root namespaced per registry origin \u2014 prod and staging serve different bytes for the same URN/version, so they must never share a cache root; the same origin must map to a stable (deterministic) root or caching never hits; and the final path component is exactly slugFor(url) under the shared \"capdag\" cache directory \u2014 one slug scheme across the codebase. The old origin-blind code rooted every origin at the same \"capdag\" directory, which makes the prod\u2260staging assertion below fail.",
-          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:121"
+          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:130"
+        }
+      }
+    },
+    {
+      "number": 1894,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "js"
+      ],
+      "missing": [
+        "objc"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "objc"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test1894_select_display_alias_ordering",
+          "description": "TEST1894: select_display_alias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders.",
+          "location": "src/fabric/registry.rs:2886"
+        },
+        "go": {
+          "function": "Test1894_SelectDisplayAliasOrdering",
+          "description": "TEST1894: selectDisplayAlias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders. Mirrors Rust registry::test1894.",
+          "location": "cap/registry_test.go:317"
+        },
+        "py": {
+          "function": "test_1894_select_display_alias_ordering",
+          "description": "TEST1894: select_display_alias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders.",
+          "location": "tests/test_fabric_alias.py:267"
+        },
+        "js": {
+          "function": "test1894_selectDisplayAliasOrdering",
+          "description": "TEST1894: selectDisplayAlias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders.",
+          "location": "capdag.test.js:6391"
+        }
+      }
+    },
+    {
+      "number": 1895,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "js"
+      ],
+      "missing": [
+        "objc"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "objc"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test1895_display_alias_for_urn",
+          "description": "TEST1895: display_alias_for_urn reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns None, (4) a non-URN string returns None.",
+          "location": "src/fabric/registry.rs:2909"
+        },
+        "go": {
+          "function": "Test1895_DisplayAliasForURN",
+          "description": "TEST1895: DisplayAliasForURN reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns not-found, (4) a non-URN string returns not-found. Mirrors Rust registry::test1895.",
+          "location": "cap/registry_test.go:344"
+        },
+        "py": {
+          "function": "test_1895_display_alias_for_urn",
+          "description": "TEST1895: display_alias_for_urn reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns None, (4) a non-URN string returns None.",
+          "location": "tests/test_fabric_alias.py:279"
+        },
+        "js": {
+          "function": "test1895_displayAliasForUrn",
+          "description": "TEST1895: displayAliasForUrn reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns null, (4) a non-URN string returns null.",
+          "location": "capdag.test.js:6407"
+        }
+      }
+    },
+    {
+      "number": 1896,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "js"
+      ],
+      "missing": [
+        "objc"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "objc"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test1896_cached_cap_aliases_filters_to_cap_targets",
+          "description": "TEST1896: cached_cap_aliases returns only CAP-targeted aliases as (name, target) pairs \u2014 media aliases are excluded. Drives the notation editor's registered-alias completions.",
+          "location": "src/fabric/registry.rs:2955"
+        },
+        "go": {
+          "function": "Test1896_CachedCapAliasesFiltersToCapTargets",
+          "description": "TEST1896: CachedCapAliases returns only CAP-targeted aliases as (name, target) pairs \u2014 media aliases are excluded. Drives the notation editor's registered- alias completions. Mirrors Rust registry::test1896.",
+          "location": "cap/registry_test.go:388"
+        },
+        "py": {
+          "function": "test_1896_cached_cap_aliases_filters_to_cap_targets",
+          "description": "TEST1896: cached_cap_aliases returns only CAP-targeted aliases as (name, target) pairs \u2014 media aliases are excluded. Drives the notation editor's registered-alias completions.",
+          "location": "tests/test_fabric_alias.py:319"
+        },
+        "js": {
+          "function": "test1896_cachedCapAliasesFiltersToCapTargets",
+          "description": "TEST1896: cachedCapAliases returns only CAP-targeted aliases as [name, target] pairs \u2014 media aliases are excluded. Drives the notation editor's registered-alias completions.",
+          "location": "capdag.test.js:6434"
         }
       }
     },
@@ -32409,7 +32561,7 @@
         "js": {
           "function": "test6282_resolveCustomMediaDef",
           "description": "TEST6282: Test resolving a custom media URN from a registry-seeded media def",
-          "location": "capdag.test.js:1027"
+          "location": "capdag.test.js:1028"
         },
         "objc": {
           "function": "test6282_resolve_custom_media_def",
@@ -32447,7 +32599,7 @@
         "js": {
           "function": "test6283_resolveCustomWithSchema",
           "description": "TEST6283: Test resolving a custom record media def carrying a schema from a registry-seeded media def",
-          "location": "capdag.test.js:1037"
+          "location": "capdag.test.js:1038"
         },
         "objc": {
           "function": "test6283_resolve_custom_with_schema",
@@ -32658,17 +32810,17 @@
         "rust": {
           "function": "test6382_parse_registry_json_no_stdin",
           "description": "TEST6382: Test parsing registry JSON without stdin args verifies cap structure",
-          "location": "src/fabric/registry.rs:2770"
+          "location": "src/fabric/registry.rs:3152"
         },
         "go": {
           "function": "Test6382_parse_registry_json",
           "description": "TEST6382: Test parsing registry JSON without stdin args verifies cap structure",
-          "location": "cap/registry_test.go:81"
+          "location": "cap/registry_test.go:82"
         },
         "py": {
           "function": "test_6382_parse_registry_json",
           "description": "TEST6382: Test parsing registry JSON without stdin args verifies cap structure",
-          "location": "tests/test_registry.py:52"
+          "location": "tests/test_registry.py:53"
         }
       }
     },
@@ -32691,22 +32843,22 @@
         "rust": {
           "function": "test6388_per_cap_url_uses_sha256",
           "description": "TEST6388: Per-cap URL is /caps/<sha256-hex> \u2014 no URN-grammar characters in the path, no percent-encoding gymnastics.",
-          "location": "src/fabric/registry.rs:2881"
+          "location": "src/fabric/registry.rs:3263"
         },
         "go": {
           "function": "Test6388_per_cap_url_uses_sha256",
           "description": "TEST6388: Per-cap URL is /caps/<sha256-hex> \u2014 no URN-grammar characters in the path, no percent-encoding gymnastics.",
-          "location": "cap/registry_test.go:137"
+          "location": "cap/registry_test.go:138"
         },
         "py": {
           "function": "test_6388_per_cap_url_uses_sha256",
           "description": "TEST6388: Per-cap URLs use SHA-256 of the canonical URN as the path key. The path scheme is /caps/<sha256-hex> \u2014 no colons, no quotes, no percent-encoding gymnastics. Same hash function across every capdag implementation guarantees a single bucket key per equivalence class.",
-          "location": "tests/test_registry.py:123"
+          "location": "tests/test_registry.py:124"
         },
         "objc": {
           "function": "test6388_PerCapURLUsesSHA256",
           "description": "/ Per-cap URLs use /caps/<sha256-hex> \u2014 no URN-grammar characters / in the path, so no percent-encoding gymnastics.",
-          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:68"
+          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:77"
         }
       }
     },
@@ -32729,22 +32881,60 @@
         "rust": {
           "function": "test6391_same_cap_different_spellings_same_url",
           "description": "TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key.",
-          "location": "src/fabric/registry.rs:2892"
+          "location": "src/fabric/registry.rs:3274"
         },
         "go": {
           "function": "Test6391_same_cap_different_spellings_same_url",
           "description": "TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. This is the property that makes cross-language lookups land at the same registry object regardless of which capdag implementation issued the request.",
-          "location": "cap/registry_test.go:151"
+          "location": "cap/registry_test.go:152"
         },
         "py": {
           "function": "test_6391_same_cap_different_spellings_same_url",
           "description": "TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key.",
-          "location": "tests/test_registry.py:179"
+          "location": "tests/test_registry.py:180"
         },
         "objc": {
           "function": "test6391_sameCapDifferentSpellingsSameURL",
           "description": "/ TEST6391: Equivalent URNs (different tag order, etc.) hash to the / same key. This is the property that makes cross-language lookups / land at the same registry object regardless of which capdag / implementation issued the request. Inputs MUST quote any / multi-tag media URN value \u2014 the previous unquoted spelling / `out=media:task;id` was actually a different URN (the bare / `media:task` plus a separate `id` op tag), and treating those / two URNs as equivalent here masked a real spec violation.",
-          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:87"
+          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:96"
+        }
+      }
+    },
+    {
+      "number": 6396,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "objc"
+      ],
+      "missing": [
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test6396_malformed_cap_urn_fails_hard",
+          "description": "TEST6396: A malformed cap URN must FAIL HARD with a ParseError, not be passed through raw (the old fallback) and surface later as a misleading NotFound. The `out` value below contains an unquoted `=`, which the cap grammar rejects. Against the old `Err(_) => urn.to_string()` fallback, `normalize_cap_urn` returned the raw string and `cap_defver` then reported \"not part of manifest\" (a NotFound); this test asserts the truthful error.",
+          "location": "src/fabric/registry.rs:3077"
+        },
+        "go": {
+          "function": "Test6396_MalformedCapUrnFailsHard",
+          "description": "TEST6396: A malformed cap URN must FAIL HARD, not be passed through raw (the old silent fallback) and surface later as a misleading \"not in manifest\" / cache-miss. The `out` value below contains an unquoted `=`, which the cap grammar rejects. Against the old `if err == nil { normalized = ... }` fallback, normalizeCapUrn returned the raw string and GetCap then reported a not-found/manifest error; this test asserts the truthful parse error and that no path panics on a bad URN.",
+          "location": "cap/registry_test.go:284"
+        },
+        "py": {
+          "function": "test_6396_malformed_cap_urn_fails_hard",
+          "description": "TEST6396: A malformed cap URN must FAIL HARD with a ParseError, not be passed through raw (the old fallback) and surface later as a misleading NotFound. The `out` value below contains an unquoted `=`, which the cap grammar rejects. Against the old `except Exception: return urn` fallback, normalize_cap_urn returned the raw string and _cap_defver then reported \"not part of manifest\" (a NotFoundError); this test asserts the truthful error type on both the direct and the public (get_cap) paths.",
+          "location": "tests/test_registry.py:363"
+        },
+        "objc": {
+          "function": "test6396_malformedCapUrnFailsHard",
+          "description": "TEST6396: A malformed cap URN must FAIL HARD \u2014 surfaced as an NSError, not passed through raw (the old fallback) to surface later as a misleading not-found. The `out` value below contains an unquoted `=`, which the cap grammar rejects. Against the old `parsed ? [parsed toString] : urn` fallback, normalizeCapUrn: returned the raw string and the cache lookup reported a (misleading) miss; this test asserts the truthful error and that the process never crashes. Mirrors Rust test6396_malformed_cap_urn_fails_hard.",
+          "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:161"
         }
       }
     },
@@ -32777,7 +32967,7 @@
         "js": {
           "function": "test6544_builderRejectsStructuralKeys",
           "description": "TEST6544: builder rejects structural keys on tag/marker",
-          "location": "capdag.test.js:2935"
+          "location": "capdag.test.js:2936"
         },
         "objc": {
           "function": "test6544_b_builderRejectsStructuralKeys",
@@ -32919,17 +33109,17 @@
         "rust": {
           "function": "test6594_capabilities_empty_initially",
           "description": "TEST6594: aggregate_installed_cartridges() is empty before any cartridge with a resolvable identity is attached. A binary path that does not exist on disk has no identity (`installed_identity` is `None`) and therefore does not appear in the relay payload.",
-          "location": "src/bifaci/host_runtime.rs:3438"
+          "location": "src/bifaci/host_runtime.rs:3536"
         },
         "go": {
           "function": "Test6594_capabilities_empty_initially",
           "description": "TEST6594: capabilities() returns empty JSON initially (no running cartridges)",
-          "location": "bifaci/host_multi_test.go:119"
+          "location": "bifaci/host_multi_test.go:179"
         },
         "py": {
           "function": "test_6594_capabilities_empty_initially",
           "description": "TEST6594: capabilities() with registered cartridge advertises after a rebuild. Mirrors Rust: registration populates cap_groups, then a call to `_rebuild_capabilities` materialises the inventory snapshot. The run loop normally drives rebuild as cartridges attach/die; for a unit test that drives registration directly we trigger it explicitly.",
-          "location": "tests/test_cartridge_host.py:360"
+          "location": "tests/test_cartridge_host.py:422"
         },
         "objc": {
           "function": "test6594_capabilitiesEmptyInitially",
@@ -32958,17 +33148,51 @@
         "rust": {
           "function": "test6600_parse_cap_groups_rejects_manifest_without_identity",
           "description": "TEST6600: parse_cap_groups_from_manifest classifies failures by kind Manifest JSON that parses but lacks CAP_IDENTITY is `Incompatible` (schema-rejected). Manifest bytes that don't parse as CapManifest are `ManifestInvalid` (JSON-level failure). The split lets the host's attachment-error reporter surface the right kind to the UI.",
-          "location": "src/bifaci/host_runtime.rs:3106"
+          "location": "src/bifaci/host_runtime.rs:3153"
         },
         "go": {
           "function": "Test6600_parse_cap_groups_rejects_manifest_without_identity",
           "description": "TEST6600: parse_cap_groups_from_manifest classifies failures by kind Manifest JSON that parses but lacks CAP_IDENTITY is `Incompatible` (schema-rejected). Manifest bytes that don't parse as CapManifest are `ManifestInvalid` (JSON-level failure). The split lets the host's attachment-error reporter surface the right kind to the UI.",
-          "location": "bifaci/host_multi_test.go:1043"
+          "location": "bifaci/host_multi_test.go:1103"
         },
         "py": {
           "function": "test_6600_parse_cap_groups_rejects_manifest_without_identity",
           "description": "TEST6600: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY",
-          "location": "tests/test_cartridge_host.py:143"
+          "location": "tests/test_cartridge_host.py:167"
+        }
+      }
+    },
+    {
+      "number": 6601,
+      "present": [
+        "rust",
+        "go",
+        "py"
+      ],
+      "missing": [
+        "js",
+        "objc"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "js",
+        "objc"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test6601_attached_cartridge_identity_derived_from_manifest",
+          "description": "TEST6601: An attached cartridge (raw-stream, no on-disk anchor) must get a resolvable install identity derived from its HELLO manifest. Advertisement is identity-gated: build_installed_cartridge_identities drops any cartridge whose installed_cartridge_record() is None. If an attached cartridge had no identity it would be silently excluded from every RelayNotify, the host would advertise an empty inventory, and the engine could never route to it \u2014 the deadlock that hung the rust-rust-rust interop echo test forever.",
+          "location": "src/bifaci/host_runtime.rs:3207"
+        },
+        "go": {
+          "function": "Test6601_attached_cartridge_identity_derived_from_manifest",
+          "description": "TEST6601: An attached cartridge (raw-stream, no on-disk anchor) gets a resolvable install identity derived from its HELLO manifest. Advertisement is identity-gated, so without this the attached cartridge would be silently excluded from every RelayNotify and the engine could never route to it \u2014 the deadlock that hung the rust-rust-rust interop echo test. Mirrors the reference test6601.",
+          "location": "bifaci/host_multi_test.go:137"
+        },
+        "py": {
+          "function": "test_6601_attached_cartridge_identity_derived_from_manifest",
+          "description": "TEST6601: An attached cartridge (raw-stream, no on-disk anchor) gets a resolvable install identity derived from its HELLO manifest. Advertisement is identity-gated, so without this the attached cartridge would be silently excluded from every RelayNotify and the engine could never route to it \u2014 the deadlock that hung the rust-rust-rust interop echo test. Mirrors the reference test6601.",
+          "location": "tests/test_cartridge_host.py:363"
         }
       }
     },
@@ -33056,17 +33280,17 @@
         "rust": {
           "function": "test6623_cartridge_death_keeps_caps_advertised",
           "description": "TEST6623: Cartridge death keeps caps advertised for on-demand respawn. The cartridge's `cap_groups` survive process death, so the host can continue advertising the cartridge's caps and the relay can route a fresh REQ to it (which triggers an on-demand respawn).",
-          "location": "src/bifaci/host_runtime.rs:4793"
+          "location": "src/bifaci/host_runtime.rs:4891"
         },
         "go": {
           "function": "Test6623_cartridge_death_keeps_caps_advertised",
           "description": "TEST6623: Cartridge death keeps caps advertised for on-demand respawn. The cartridge's `cap_groups` survive process death, so the host can continue advertising the cartridge's caps and the relay can route a fresh REQ to it (which triggers an on-demand respawn).",
-          "location": "bifaci/host_multi_test.go:1169"
+          "location": "bifaci/host_multi_test.go:1229"
         },
         "py": {
           "function": "test_6623_cartridge_death_keeps_known_caps_advertised",
           "description": "TEST6623: Cartridge death keeps caps advertised for on-demand respawn.",
-          "location": "tests/test_cartridge_host.py:951"
+          "location": "tests/test_cartridge_host.py:1013"
         },
         "objc": {
           "function": "test6623_cartridgeDeathKeepsKnownCapsAdvertised",
@@ -33429,21 +33653,21 @@
       "mirror": "rust",
       "function": "test0121_step_title_query_filters_paths_server_side",
       "description": "TEST0121: Step title query filters paths server side",
-      "location": "src/planner/live_cap_fab.rs:2626"
+      "location": "src/planner/live_cap_fab.rs:2629"
     },
     {
       "number": 122,
       "mirror": "rust",
       "function": "test0122_step_title_query_constrains_streaming_progress_counts",
       "description": "TEST0122: Step title query constrains streaming progress counts",
-      "location": "src/planner/live_cap_fab.rs:2668"
+      "location": "src/planner/live_cap_fab.rs:2671"
     },
     {
       "number": 123,
       "mirror": "go",
       "function": "Test0123_CapExists",
       "description": "TEST0123: Cap exists",
-      "location": "cap/registry_test.go:115"
+      "location": "cap/registry_test.go:116"
     },
     {
       "number": 124,
@@ -33625,7 +33849,7 @@
       "mirror": "py",
       "function": "test_938_different_caps_different_hashes",
       "description": "TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape).",
-      "location": "tests/test_registry.py:212"
+      "location": "tests/test_registry.py:213"
     },
     {
       "number": 943,
@@ -33653,21 +33877,21 @@
       "mirror": "rust",
       "function": "test989_set_observer_none_clears_previous",
       "description": "/ Pins the observer-clearing contract: a setObserver(None) / after a previous registration must drop the strong ref so a / subsequent lifecycle moment doesn't fire into a torn-down / bridge. Matches the Swift `setObserver(nil)` test.",
-      "location": "src/bifaci/host_runtime.rs:3009"
+      "location": "src/bifaci/host_runtime.rs:3056"
     },
     {
       "number": 990,
       "mirror": "rust",
       "function": "test990_observer_is_optional",
       "description": "/ Pins the optional-observer contract: a brand-new runtime with / no observer attached must close cleanly on an empty cartridge / list. A regression here would mean the observer-firing path / became non-optional and broke every call site that doesn't / register an observer (engine in-process runtime, in-process / host tests, integration tests).",
-      "location": "src/bifaci/host_runtime.rs:2997"
+      "location": "src/bifaci/host_runtime.rs:3044"
     },
     {
       "number": 1110,
       "mirror": "rust",
       "function": "test1110_strand_round_trips_through_serde_without_losing_step_types",
       "description": "TEST1110: Strand serializes to JSON and deserializes back preserving all step types",
-      "location": "src/planner/live_cap_fab.rs:2044"
+      "location": "src/planner/live_cap_fab.rs:2047"
     },
     {
       "number": 1121,
@@ -33695,7 +33919,7 @@
       "mirror": "rust",
       "function": "test1137_two_strand_machine_serializes_to_notation_containing_both_ops",
       "description": "TEST1137: A machine built from two independent strands serializes to a non-empty notation string that contains both op tags. Checks that multi-strand serialization doesn't lose or merge strands.",
-      "location": "src/machine/serializer.rs:624"
+      "location": "src/machine/serializer.rs:774"
     },
     {
       "number": 1138,
@@ -33772,42 +33996,42 @@
       "mirror": "rust",
       "function": "test1250_process_handle_snapshot_empty_initially",
       "description": "TEST1250: Process snapshots start empty before any cartridges are attached or spawned.",
-      "location": "src/bifaci/host_runtime.rs:5093"
+      "location": "src/bifaci/host_runtime.rs:5191"
     },
     {
       "number": 1251,
       "mirror": "rust",
       "function": "test1251_process_handle_snapshot_excludes_attached_cartridges",
       "description": "TEST1251: Attached cartridges without child PIDs are excluded from process snapshots.",
-      "location": "src/bifaci/host_runtime.rs:5105"
+      "location": "src/bifaci/host_runtime.rs:5203"
     },
     {
       "number": 1252,
       "mirror": "rust",
       "function": "test1252_process_handle_is_clone_and_send",
       "description": "TEST1252: Cartridge process handles remain usable after clone-and-send across tasks.",
-      "location": "src/bifaci/host_runtime.rs:5137"
+      "location": "src/bifaci/host_runtime.rs:5235"
     },
     {
       "number": 1253,
       "mirror": "rust",
       "function": "test1253_process_handle_kill_unknown_pid_is_noop",
       "description": "TEST1253: Killing an unknown PID is accepted as an asynchronous no-op command.",
-      "location": "src/bifaci/host_runtime.rs:5153"
+      "location": "src/bifaci/host_runtime.rs:5251"
     },
     {
       "number": 1254,
       "mirror": "rust",
       "function": "test1254_oom_kill_sends_err_with_oom_killed_code",
       "description": "TEST1254: OOM shutdowns emit OOM_KILLED ERR frames for in-flight requests.",
-      "location": "src/bifaci/host_runtime.rs:5170"
+      "location": "src/bifaci/host_runtime.rs:5268"
     },
     {
       "number": 1255,
       "mirror": "rust",
       "function": "test1255_app_exit_suppresses_err_frames",
       "description": "TEST1255: App-exit shutdowns suppress ERR frames and close cleanly without noise.",
-      "location": "src/bifaci/host_runtime.rs:5297"
+      "location": "src/bifaci/host_runtime.rs:5395"
     },
     {
       "number": 1270,
@@ -34206,7 +34430,7 @@
       "mirror": "js",
       "function": "test1848_capVersionNonZeroOnWire",
       "description": "TEST1848: Cap with version=N round-trips with `version: N` on wire",
-      "location": "capdag.test.js:6319"
+      "location": "capdag.test.js:6320"
     },
     {
       "number": 6182,
@@ -34241,14 +34465,14 @@
       "mirror": "go",
       "function": "Test6186_RegistryGetCap",
       "description": "TEST136 (deleted): exercised the private `cacheKey` method on the unified FabricRegistry. The on-disk cache filename scheme is an implementation detail of the persistence layer; equivalent observable behavior \u2014 that two equivalent URNs land in the same cache slot \u2014 is covered by Test140 (`same_cap_different_spellings_same_url`). Rust and Python dropped this; this deletion keeps the Go mirror in parity.",
-      "location": "cap/registry_test.go:42"
+      "location": "cap/registry_test.go:43"
     },
     {
       "number": 6189,
       "mirror": "py",
       "function": "test_6189_same_cap_different_spellings_same_hash",
       "description": "TEST6189: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request.",
-      "location": "tests/test_registry.py:150"
+      "location": "tests/test_registry.py:151"
     },
     {
       "number": 6200,
@@ -34262,7 +34486,7 @@
       "mirror": "js",
       "function": "test6201_emptyCapIsIllegal",
       "description": "TEST6201: cap: (empty) is the illegal bare top form",
-      "location": "capdag.test.js:3010"
+      "location": "capdag.test.js:3011"
     },
     {
       "number": 6202,
@@ -34283,7 +34507,7 @@
       "mirror": "js",
       "function": "test6204_Urn",
       "description": "TEST6204: Urn",
-      "location": "capdag.test.js:118"
+      "location": "capdag.test.js:119"
     },
     {
       "number": 6205,
@@ -34297,14 +34521,14 @@
       "mirror": "js",
       "function": "test6206_CapFabAddCapPopulatesEdgesAndNodes",
       "description": "Add a cap and check it becomes an edge with from/to nodes and carries the registry name we passed. This is exactly the shape the renderer depends on.",
-      "location": "capdag.test.js:1370"
+      "location": "capdag.test.js:1371"
     },
     {
       "number": 6208,
       "mirror": "js",
       "function": "test6208_CapFabGetOutgoingConformsToMatching",
       "description": "getOutgoing takes a concrete source URN and returns edges whose from_spec the source conforms to. It must NOT be a plain string lookup.",
-      "location": "capdag.test.js:1388"
+      "location": "capdag.test.js:1389"
     },
     {
       "number": 6209,
@@ -34318,7 +34542,7 @@
       "mirror": "go",
       "function": "Test6210_ResponseWrapperFromText",
       "description": "TEST6210: Response wrapper from text",
-      "location": "cap/response_test.go:45"
+      "location": "cap/response_test.go:42"
     },
     {
       "number": 6211,
@@ -34332,7 +34556,7 @@
       "mirror": "js",
       "function": "test6212_xv5InlineSpecRedefinitionDetected",
       "description": "TEST6212: XV5 - Test inline media def redefinition of existing registry spec is detected and rejected",
-      "location": "capdag.test.js:808"
+      "location": "capdag.test.js:809"
     },
     {
       "number": 6213,
@@ -34346,7 +34570,7 @@
       "mirror": "go",
       "function": "Test6214_ResponseWrapperAsFloat",
       "description": "TEST6214: Response wrapper as float",
-      "location": "cap/response_test.go:96"
+      "location": "cap/response_test.go:85"
     },
     {
       "number": 6215,
@@ -34360,7 +34584,7 @@
       "mirror": "js",
       "function": "test6216_xv5NewInlineSpecAllowed",
       "description": "TEST6216: XV5 - Test new inline media def (not in registry) is allowed",
-      "location": "capdag.test.js:825"
+      "location": "capdag.test.js:826"
     },
     {
       "number": 6217,
@@ -34374,14 +34598,14 @@
       "mirror": "go",
       "function": "Test6218_ResponseWrapperAsBool",
       "description": "TEST6218: Response wrapper as bool",
-      "location": "cap/response_test.go:111"
+      "location": "cap/response_test.go:100"
     },
     {
       "number": 6220,
       "mirror": "js",
       "function": "test6220_xv5EmptyMediaDefsAllowed",
       "description": "TEST6220: XV5 - Test empty media_defs (no inline specs) passes XV5 validation",
-      "location": "capdag.test.js:840"
+      "location": "capdag.test.js:841"
     },
     {
       "number": 6221,
@@ -34395,28 +34619,28 @@
       "mirror": "go",
       "function": "Test6222_ResponseWrapperIsEmpty",
       "description": "TEST6222: Response wrapper is empty",
-      "location": "cap/response_test.go:142"
+      "location": "cap/response_test.go:131"
     },
     {
       "number": 6224,
       "mirror": "js",
       "function": "test6224_CapFabDistinctRegistryNames",
       "description": "Each edge must carry the registry name it was added with. This is how the renderer colours/groups edges by provenance in browse mode.",
-      "location": "capdag.test.js:1409"
+      "location": "capdag.test.js:1410"
     },
     {
       "number": 6226,
       "mirror": "go",
       "function": "Test6226_ResponseWrapperGetContentType",
       "description": "TEST6226: Response wrapper get content type",
-      "location": "cap/response_test.go:153"
+      "location": "cap/response_test.go:142"
     },
     {
       "number": 6228,
       "mirror": "js",
       "function": "test6228_LlmGenerateTextUrnSpecs",
       "description": "Mirror-specific coverage: llm_generate_text_urn input/output specs conform to MEDIA_STRING",
-      "location": "capdag.test.js:1618"
+      "location": "capdag.test.js:1619"
     },
     {
       "number": 6229,
@@ -34430,7 +34654,7 @@
       "mirror": "go",
       "function": "Test6230_ResponseWrapperMatchesOutputType",
       "description": "TEST6230: Response wrapper matches output type",
-      "location": "cap/response_test.go:165"
+      "location": "cap/response_test.go:154"
     },
     {
       "number": 6231,
@@ -34444,14 +34668,14 @@
       "mirror": "js",
       "function": "test6232_JS_buildExtensionIndex",
       "description": "These tests cover JS-specific functionality not in the Rust numbering scheme but are important for capdag-js correctness.",
-      "location": "capdag.test.js:1649"
+      "location": "capdag.test.js:1650"
     },
     {
       "number": 6234,
       "mirror": "go",
       "function": "Test6234_ResponseWrapperValidateAgainstCap",
       "description": "TEST6234: Response wrapper validate against cap",
-      "location": "cap/response_test.go:251"
+      "location": "cap/response_test.go:240"
     },
     {
       "number": 6235,
@@ -34465,7 +34689,7 @@
       "mirror": "js",
       "function": "test6236_JS_mediaUrnsForExtension",
       "description": "TEST6236: J s media urns for extension",
-      "location": "capdag.test.js:1666"
+      "location": "capdag.test.js:1667"
     },
     {
       "number": 6237,
@@ -34493,14 +34717,14 @@
       "mirror": "js",
       "function": "test6240_JS_getExtensionMappings",
       "description": "TEST0070: J s get extension mappings",
-      "location": "capdag.test.js:1695"
+      "location": "capdag.test.js:1696"
     },
     {
       "number": 6242,
       "mirror": "js",
       "function": "test6242_JS_resolveMediaUrnFromSpecs",
       "description": "TEST0073: J s resolve media urn from specs",
-      "location": "capdag.test.js:1706"
+      "location": "capdag.test.js:1707"
     },
     {
       "number": 6243,
@@ -34528,7 +34752,7 @@
       "mirror": "js",
       "function": "test6246_JS_capJSONSerialization",
       "description": "TEST6246: J s cap j s o n serialization",
-      "location": "capdag.test.js:1719"
+      "location": "capdag.test.js:1720"
     },
     {
       "number": 6247,
@@ -34549,7 +34773,7 @@
       "mirror": "js",
       "function": "test6249_JS_capDocumentationRoundTrip",
       "description": "JS round-trip for the documentation field on Cap. Mirrors TEST920 in capdag/src/cap/definition.rs \u2014 the body is non-trivial (newlines, backticks, embedded quotes, Unicode) so escaping mismatches between JSON.stringify on this side and the Rust serializer on the other side surface as failures here.",
-      "location": "capdag.test.js:1742"
+      "location": "capdag.test.js:1743"
     },
     {
       "number": 6251,
@@ -34563,7 +34787,7 @@
       "mirror": "js",
       "function": "test6253_JS_capDocumentationOmittedWhenNull",
       "description": "When documentation is null, toJSON must omit the field entirely. This matches the Rust serializer's skip-when-None semantics and the ObjC toDictionary behaviour. A regression where null is emitted as `documentation: null` would break the symmetric round-trip with Rust (which has no null sentinel) and pollute generated JSON.",
-      "location": "capdag.test.js:1764"
+      "location": "capdag.test.js:1765"
     },
     {
       "number": 6254,
@@ -34584,7 +34808,7 @@
       "mirror": "js",
       "function": "test6257_JS_mediaDefDocumentationPropagatesThroughResolve",
       "description": "Documentation propagates from a mediaDefs definition through resolveMediaUrn into the resolved MediaDef. Mirrors TEST924 on the Rust side. This is the path every UI consumer uses, so a break here makes the new field invisible everywhere downstream.",
-      "location": "capdag.test.js:1787"
+      "location": "capdag.test.js:1788"
     },
     {
       "number": 6258,
@@ -34605,7 +34829,7 @@
       "mirror": "js",
       "function": "test6261_JS_stdinSourceKindConstants",
       "description": "TEST6261: J s stdin source kind constants",
-      "location": "capdag.test.js:1818"
+      "location": "capdag.test.js:1819"
     },
     {
       "number": 6262,
@@ -34633,7 +34857,7 @@
       "mirror": "js",
       "function": "test6265_JS_stdinSourceNullData",
       "description": "TEST6265: J s stdin source null data",
-      "location": "capdag.test.js:1825"
+      "location": "capdag.test.js:1826"
     },
     {
       "number": 6266,
@@ -34661,7 +34885,7 @@
       "mirror": "js",
       "function": "test6269_JS_mediaDefConstruction",
       "description": "TEST6269: J s media def construction",
-      "location": "capdag.test.js:1833"
+      "location": "capdag.test.js:1834"
     },
     {
       "number": 6270,
@@ -34682,7 +34906,7 @@
       "mirror": "js",
       "function": "test6272_isCollection",
       "description": "Mirror-specific coverage: isCollection returns true when collection marker tag is present Mirror-specific coverage: N/A for JS (MEDIA_COLLECTION constants removed - no longer exists)",
-      "location": "capdag.test.js:2784"
+      "location": "capdag.test.js:2785"
     },
     {
       "number": 6273,
@@ -34703,28 +34927,28 @@
       "mirror": "js",
       "function": "test6275_Machine_emptyInput",
       "description": "--- Machine parser tests (mirrors parser.rs tests) ---",
-      "location": "capdag.test.js:3206"
+      "location": "capdag.test.js:3207"
     },
     {
       "number": 6277,
       "mirror": "js",
       "function": "test6277_Machine_whitespaceOnly",
       "description": "TEST0088: Machine whitespace only",
-      "location": "capdag.test.js:3211"
+      "location": "capdag.test.js:3212"
     },
     {
       "number": 6279,
       "mirror": "js",
       "function": "test6279_Machine_headerOnlyNoWirings",
       "description": "TEST0089: Machine header only no wirings",
-      "location": "capdag.test.js:3216"
+      "location": "capdag.test.js:3217"
     },
     {
       "number": 6280,
       "mirror": "js",
       "function": "test6280_Machine_duplicateAlias",
       "description": "TEST0090: Machine duplicate alias",
-      "location": "capdag.test.js:3224"
+      "location": "capdag.test.js:3225"
     },
     {
       "number": 6285,
@@ -34738,7 +34962,7 @@
       "mirror": "js",
       "function": "test6286_Machine_simpleLinearChain",
       "description": "TEST0094: Machine simple linear chain",
-      "location": "capdag.test.js:3236"
+      "location": "capdag.test.js:3237"
     },
     {
       "number": 6287,
@@ -34752,7 +34976,7 @@
       "mirror": "js",
       "function": "test6288_Machine_twoStepChain",
       "description": "TEST0095: Machine two step chain",
-      "location": "capdag.test.js:3252"
+      "location": "capdag.test.js:3253"
     },
     {
       "number": 6289,
@@ -34766,7 +34990,7 @@
       "mirror": "js",
       "function": "test6290_Machine_fanOut",
       "description": "TEST0096: Machine fan out",
-      "location": "capdag.test.js:3267"
+      "location": "capdag.test.js:3268"
     },
     {
       "number": 6291,
@@ -34780,7 +35004,7 @@
       "mirror": "js",
       "function": "test6292_Machine_fanInSecondaryAssignedByPriorWiring",
       "description": "TEST0097: Machine fan in secondary assigned by prior wiring",
-      "location": "capdag.test.js:3285"
+      "location": "capdag.test.js:3286"
     },
     {
       "number": 6293,
@@ -34794,14 +35018,14 @@
       "mirror": "js",
       "function": "test6294_Machine_fanInSecondaryUnassignedGetsWildcard",
       "description": "TEST0098: Machine fan in secondary unassigned gets wildcard",
-      "location": "capdag.test.js:3299"
+      "location": "capdag.test.js:3300"
     },
     {
       "number": 6306,
       "mirror": "js",
       "function": "test6306_Machine_loopEdge",
       "description": "TEST6306: Machine loop edge",
-      "location": "capdag.test.js:3311"
+      "location": "capdag.test.js:3312"
     },
     {
       "number": 6307,
@@ -34815,7 +35039,7 @@
       "mirror": "js",
       "function": "test6308_Machine_undefinedAliasFails",
       "description": "TEST6308: Machine undefined alias fails",
-      "location": "capdag.test.js:3321"
+      "location": "capdag.test.js:3322"
     },
     {
       "number": 6309,
@@ -34829,7 +35053,7 @@
       "mirror": "js",
       "function": "test6310_Machine_nodeAliasCollision",
       "description": "TEST6310: Machine node alias collision",
-      "location": "capdag.test.js:3329"
+      "location": "capdag.test.js:3330"
     },
     {
       "number": 6311,
@@ -34843,7 +35067,7 @@
       "mirror": "js",
       "function": "test6312_Machine_conflictingMediaTypesFail",
       "description": "TEST6312: Machine conflicting media types fail",
-      "location": "capdag.test.js:3340"
+      "location": "capdag.test.js:3341"
     },
     {
       "number": 6313,
@@ -34857,7 +35081,7 @@
       "mirror": "js",
       "function": "test6315_Machine_multilineFormat",
       "description": "TEST6315: Machine multiline format",
-      "location": "capdag.test.js:3353"
+      "location": "capdag.test.js:3354"
     },
     {
       "number": 6316,
@@ -34871,7 +35095,7 @@
       "mirror": "js",
       "function": "test6318_Machine_differentAliasesSameGraph",
       "description": "TEST6318: Machine different aliases same graph",
-      "location": "capdag.test.js:3364"
+      "location": "capdag.test.js:3365"
     },
     {
       "number": 6319,
@@ -34892,7 +35116,7 @@
       "mirror": "js",
       "function": "test6321_Machine_malformedInputFails",
       "description": "TEST6321: Machine malformed input fails",
-      "location": "capdag.test.js:3377"
+      "location": "capdag.test.js:3378"
     },
     {
       "number": 6322,
@@ -34906,7 +35130,7 @@
       "mirror": "js",
       "function": "test6323_Machine_unterminatedBracketFails",
       "description": "TEST6323: Machine unterminated bracket fails",
-      "location": "capdag.test.js:3385"
+      "location": "capdag.test.js:3386"
     },
     {
       "number": 6324,
@@ -34920,7 +35144,7 @@
       "mirror": "go",
       "function": "Test6325_RegistryValidation",
       "description": "TEST6325: Registry validation",
-      "location": "cap/registry_test.go:56"
+      "location": "cap/registry_test.go:57"
     },
     {
       "number": 6326,
@@ -34934,7 +35158,7 @@
       "mirror": "js",
       "function": "test6327_Machine_lineBasedSimpleChain",
       "description": "--- Machine parser line-based mode tests ---",
-      "location": "capdag.test.js:3394"
+      "location": "capdag.test.js:3395"
     },
     {
       "number": 6328,
@@ -34948,14 +35172,14 @@
       "mirror": "go",
       "function": "Test6329_CacheOperations",
       "description": "TEST6329: Cache operations",
-      "location": "cap/registry_test.go:71"
+      "location": "cap/registry_test.go:72"
     },
     {
       "number": 6331,
       "mirror": "js",
       "function": "test6331_Machine_lineBasedTwoStepChain",
       "description": "TEST6331: Machine line based two step chain",
-      "location": "capdag.test.js:3408"
+      "location": "capdag.test.js:3409"
     },
     {
       "number": 6332,
@@ -34969,14 +35193,14 @@
       "mirror": "py",
       "function": "test_6333_registry_add_caps_to_cache",
       "description": "TEST6333: Test adding caps to the registry cache and retrieving them",
-      "location": "tests/test_registry.py:319"
+      "location": "tests/test_registry.py:320"
     },
     {
       "number": 6334,
       "mirror": "js",
       "function": "test6334_Machine_lineBasedLoop",
       "description": "TEST6334: Machine line based loop",
-      "location": "capdag.test.js:3419"
+      "location": "capdag.test.js:3420"
     },
     {
       "number": 6335,
@@ -34990,14 +35214,14 @@
       "mirror": "py",
       "function": "test_6336_registry_config_builder_pattern",
       "description": "TEST6336: Test registry configuration builder sets registry and schema URLs",
-      "location": "tests/test_registry.py:333"
+      "location": "tests/test_registry.py:334"
     },
     {
       "number": 6337,
       "mirror": "js",
       "function": "test6337_Machine_lineBasedFanIn",
       "description": "TEST6337: Machine line based fan in",
-      "location": "capdag.test.js:3429"
+      "location": "capdag.test.js:3430"
     },
     {
       "number": 6338,
@@ -35018,14 +35242,14 @@
       "mirror": "py",
       "function": "test_6340_normalize_urn_with_trailing_semicolon",
       "description": "TEST6340: normalize_cap_urn strips trailing semicolons, producing the same canonical form with or without a trailing semicolon",
-      "location": "tests/test_registry.py:344"
+      "location": "tests/test_registry.py:345"
     },
     {
       "number": 6341,
       "mirror": "js",
       "function": "test6341_Machine_mixedBracketedAndLineBased",
       "description": "TEST6341: Machine mixed bracketed and line based",
-      "location": "capdag.test.js:3443"
+      "location": "capdag.test.js:3444"
     },
     {
       "number": 6342,
@@ -35053,7 +35277,7 @@
       "mirror": "js",
       "function": "test6345_Machine_lineBasedEquivalentToBracketed",
       "description": "TEST6345: Machine line based equivalent to bracketed",
-      "location": "capdag.test.js:3452"
+      "location": "capdag.test.js:3453"
     },
     {
       "number": 6346,
@@ -35081,7 +35305,7 @@
       "mirror": "js",
       "function": "test6349_Machine_lineBasedFormatSerialization",
       "description": "TEST6349: Machine line based format serialization",
-      "location": "capdag.test.js:3465"
+      "location": "capdag.test.js:3466"
     },
     {
       "number": 6350,
@@ -35109,7 +35333,7 @@
       "mirror": "js",
       "function": "test6353_Machine_lineBasedAndBracketedParseSameGraph",
       "description": "TEST6353: Machine line based and bracketed parse same graph",
-      "location": "capdag.test.js:3487"
+      "location": "capdag.test.js:3488"
     },
     {
       "number": 6354,
@@ -35137,7 +35361,7 @@
       "mirror": "js",
       "function": "test6357_Machine_edgeEquivalenceSameUrns",
       "description": "--- Machine graph tests (mirrors graph.rs tests) ---",
-      "location": "capdag.test.js:3513"
+      "location": "capdag.test.js:3514"
     },
     {
       "number": 6358,
@@ -35165,7 +35389,7 @@
       "mirror": "js",
       "function": "test6361_Machine_edgeEquivalenceDifferentCapUrns",
       "description": "TEST6361: Machine edge equivalence different cap urns",
-      "location": "capdag.test.js:3530"
+      "location": "capdag.test.js:3531"
     },
     {
       "number": 6362,
@@ -35186,7 +35410,7 @@
       "mirror": "js",
       "function": "test6365_Machine_edgeEquivalenceDifferentTargets",
       "description": "TEST6365: Machine edge equivalence different targets",
-      "location": "capdag.test.js:3547"
+      "location": "capdag.test.js:3548"
     },
     {
       "number": 6366,
@@ -35214,7 +35438,7 @@
       "mirror": "js",
       "function": "test6369_Machine_edgeEquivalenceDifferentLoopFlag",
       "description": "TEST6369: Machine edge equivalence different loop flag",
-      "location": "capdag.test.js:3564"
+      "location": "capdag.test.js:3565"
     },
     {
       "number": 6370,
@@ -35228,7 +35452,7 @@
       "mirror": "js",
       "function": "test6372_Machine_edgeEquivalenceSourceOrderIndependent",
       "description": "TEST6372: Machine edge equivalence source order independent",
-      "location": "capdag.test.js:3581"
+      "location": "capdag.test.js:3582"
     },
     {
       "number": 6373,
@@ -35249,14 +35473,14 @@
       "mirror": "js",
       "function": "test6375_Machine_edgeEquivalenceDifferentSourceCount",
       "description": "TEST6375: Machine edge equivalence different source count",
-      "location": "capdag.test.js:3598"
+      "location": "capdag.test.js:3599"
     },
     {
       "number": 6377,
       "mirror": "js",
       "function": "test6377_Machine_graphEquivalenceSameEdges",
       "description": "TEST6377: Machine graph equivalence same edges",
-      "location": "capdag.test.js:3615"
+      "location": "capdag.test.js:3616"
     },
     {
       "number": 6378,
@@ -35277,7 +35501,7 @@
       "mirror": "js",
       "function": "test6380_Machine_graphEquivalenceReorderedEdges",
       "description": "TEST6380: Machine graph equivalence reordered edges",
-      "location": "capdag.test.js:3631"
+      "location": "capdag.test.js:3632"
     },
     {
       "number": 6381,
@@ -35291,7 +35515,7 @@
       "mirror": "js",
       "function": "test6383_Machine_graphNotEquivalentDifferentEdgeCount",
       "description": "TEST6383: Machine graph not equivalent different edge count",
-      "location": "capdag.test.js:3647"
+      "location": "capdag.test.js:3648"
     },
     {
       "number": 6384,
@@ -35305,7 +35529,7 @@
       "mirror": "js",
       "function": "test6386_Machine_graphNotEquivalentDifferentCap",
       "description": "TEST6386: Machine graph not equivalent different cap",
-      "location": "capdag.test.js:3662"
+      "location": "capdag.test.js:3663"
     },
     {
       "number": 6387,
@@ -35319,7 +35543,7 @@
       "mirror": "js",
       "function": "test6389_Machine_graphEmpty",
       "description": "TEST6389: Machine graph empty",
-      "location": "capdag.test.js:3676"
+      "location": "capdag.test.js:3677"
     },
     {
       "number": 6390,
@@ -35333,28 +35557,28 @@
       "mirror": "js",
       "function": "test6392_Machine_graphEmptyEquivalence",
       "description": "TEST6392: Machine graph empty equivalence",
-      "location": "capdag.test.js:3683"
+      "location": "capdag.test.js:3684"
     },
     {
       "number": 6395,
       "mirror": "js",
       "function": "test6395_Machine_rootSourcesLinearChain",
       "description": "TEST6395: Machine root sources linear chain",
-      "location": "capdag.test.js:3690"
+      "location": "capdag.test.js:3691"
     },
     {
       "number": 6397,
       "mirror": "js",
       "function": "test6397_Machine_leafTargetsLinearChain",
       "description": "TEST6397: Machine leaf targets linear chain",
-      "location": "capdag.test.js:3705"
+      "location": "capdag.test.js:3706"
     },
     {
       "number": 6398,
       "mirror": "js",
       "function": "test6398_Machine_rootSourcesFanIn",
       "description": "TEST6398: Machine root sources fan in",
-      "location": "capdag.test.js:3720"
+      "location": "capdag.test.js:3721"
     },
     {
       "number": 6399,
@@ -35368,7 +35592,7 @@
       "mirror": "js",
       "function": "test6400_Machine_displayEdge",
       "description": "TEST6400: Machine display edge",
-      "location": "capdag.test.js:3733"
+      "location": "capdag.test.js:3734"
     },
     {
       "number": 6401,
@@ -35382,7 +35606,7 @@
       "mirror": "js",
       "function": "test6402_Machine_displayGraph",
       "description": "TEST6402: Machine display graph",
-      "location": "capdag.test.js:3745"
+      "location": "capdag.test.js:3746"
     },
     {
       "number": 6403,
@@ -35396,7 +35620,7 @@
       "mirror": "js",
       "function": "test6404_Machine_serializeSingleEdge",
       "description": "--- Machine serializer tests (mirrors serializer.rs tests) ---",
-      "location": "capdag.test.js:3758"
+      "location": "capdag.test.js:3759"
     },
     {
       "number": 6405,
@@ -35410,21 +35634,21 @@
       "mirror": "js",
       "function": "test6406_Machine_serializeTwoEdgeChain",
       "description": "TEST6406: Machine serialize two edge chain",
-      "location": "capdag.test.js:3774"
+      "location": "capdag.test.js:3775"
     },
     {
       "number": 6408,
       "mirror": "js",
       "function": "test6408_Machine_serializeEmptyGraph",
       "description": "TEST6408: Machine serialize empty graph",
-      "location": "capdag.test.js:3788"
+      "location": "capdag.test.js:3789"
     },
     {
       "number": 6410,
       "mirror": "js",
       "function": "test6410_Machine_roundtripSingleEdge",
       "description": "TEST6410: Machine roundtrip single edge",
-      "location": "capdag.test.js:3793"
+      "location": "capdag.test.js:3794"
     },
     {
       "number": 6411,
@@ -35445,35 +35669,35 @@
       "mirror": "js",
       "function": "test6413_Machine_roundtripTwoEdgeChain",
       "description": "TEST6413: Machine roundtrip two edge chain",
-      "location": "capdag.test.js:3807"
+      "location": "capdag.test.js:3808"
     },
     {
       "number": 6415,
       "mirror": "js",
       "function": "test6415_Machine_roundtripFanOut",
       "description": "TEST6415: Machine roundtrip fan out",
-      "location": "capdag.test.js:3822"
+      "location": "capdag.test.js:3823"
     },
     {
       "number": 6417,
       "mirror": "js",
       "function": "test6417_Machine_roundtripLoopEdge",
       "description": "TEST6417: Machine roundtrip loop edge",
-      "location": "capdag.test.js:3838"
+      "location": "capdag.test.js:3839"
     },
     {
       "number": 6419,
       "mirror": "js",
       "function": "test6419_Machine_serializationIsDeterministic",
       "description": "TEST6419: Machine serialization is deterministic",
-      "location": "capdag.test.js:3852"
+      "location": "capdag.test.js:3853"
     },
     {
       "number": 6421,
       "mirror": "js",
       "function": "test6421_Machine_reorderedEdgesProduceSameNotation",
       "description": "TEST6421: Machine reordered edges produce same notation",
-      "location": "capdag.test.js:3866"
+      "location": "capdag.test.js:3867"
     },
     {
       "number": 6422,
@@ -35522,7 +35746,7 @@
       "mirror": "js",
       "function": "test6429_Machine_multilineSerializeFormat",
       "description": "TEST6429: Machine multiline serialize format",
-      "location": "capdag.test.js:3883"
+      "location": "capdag.test.js:3884"
     },
     {
       "number": 6431,
@@ -35536,7 +35760,7 @@
       "mirror": "js",
       "function": "test6432_Machine_aliasFromOpTag",
       "description": "Aliases are pure-index `edge_<N>` regardless of the cap's tags; there is no privileged `op` tag to derive a friendlier name from.",
-      "location": "capdag.test.js:3899"
+      "location": "capdag.test.js:3900"
     },
     {
       "number": 6433,
@@ -35550,77 +35774,77 @@
       "mirror": "js",
       "function": "test6434_Machine_aliasFallbackWithoutOpTag",
       "description": "TEST6434: Machine alias fallback without op tag",
-      "location": "capdag.test.js:3911"
+      "location": "capdag.test.js:3912"
     },
     {
       "number": 6435,
       "mirror": "objc",
       "function": "test6435_RegistryValidCapCheck",
       "description": "Registry validator tests removed - not part of current API",
-      "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:52"
+      "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:61"
     },
     {
       "number": 6436,
       "mirror": "js",
       "function": "test6436_Machine_duplicateOpTagsDisambiguated",
       "description": "Pure-index aliases inherently disambiguate edges that share a marker tag.",
-      "location": "capdag.test.js:3923"
+      "location": "capdag.test.js:3924"
     },
     {
       "number": 6437,
       "mirror": "js",
       "function": "test6437_Machine_builderSingleEdge",
       "description": "--- Machine builder tests ---",
-      "location": "capdag.test.js:3945"
+      "location": "capdag.test.js:3946"
     },
     {
       "number": 6438,
       "mirror": "js",
       "function": "test6438_Machine_builderWithLoop",
       "description": "TEST6438: Machine builder with loop",
-      "location": "capdag.test.js:3958"
+      "location": "capdag.test.js:3959"
     },
     {
       "number": 6439,
       "mirror": "js",
       "function": "test6439_Machine_builderChaining",
       "description": "TEST6439: Machine builder chaining",
-      "location": "capdag.test.js:3971"
+      "location": "capdag.test.js:3972"
     },
     {
       "number": 6440,
       "mirror": "js",
       "function": "test6440_Machine_builderEquivalentToParsed",
       "description": "TEST6440: Machine builder equivalent to parsed",
-      "location": "capdag.test.js:3980"
+      "location": "capdag.test.js:3981"
     },
     {
       "number": 6441,
       "mirror": "objc",
       "function": "test6441_GetCapDefinitionReal",
       "description": "TEST6441: Get cap definition real",
-      "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:149"
+      "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:192"
     },
     {
       "number": 6442,
       "mirror": "js",
       "function": "test6442_Machine_builderRoundTrip",
       "description": "TEST6442: Machine builder round trip",
-      "location": "capdag.test.js:3993"
+      "location": "capdag.test.js:3994"
     },
     {
       "number": 6443,
       "mirror": "objc",
       "function": "test6443_ValidateCapCanonical",
       "description": "TEST6443: Validate cap canonical",
-      "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:170"
+      "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:213"
     },
     {
       "number": 6444,
       "mirror": "js",
       "function": "test6444_Machine_capUrnIsEquivalent",
       "description": "--- CapUrn.isEquivalent/isComparable tests ---",
-      "location": "capdag.test.js:4005"
+      "location": "capdag.test.js:4006"
     },
     {
       "number": 6445,
@@ -35634,7 +35858,7 @@
       "mirror": "js",
       "function": "test6446_Machine_capUrnIsComparable",
       "description": "TEST6446: Machine cap urn is comparable",
-      "location": "capdag.test.js:4014"
+      "location": "capdag.test.js:4015"
     },
     {
       "number": 6447,
@@ -35648,91 +35872,91 @@
       "mirror": "js",
       "function": "test6448_Machine_capUrnInMediaUrn",
       "description": "TEST6448: Machine cap urn in media urn",
-      "location": "capdag.test.js:4022"
+      "location": "capdag.test.js:4023"
     },
     {
       "number": 6449,
       "mirror": "js",
       "function": "test6449_Machine_capUrnOutMediaUrn",
       "description": "TEST6449: Machine cap urn out media urn",
-      "location": "capdag.test.js:4030"
+      "location": "capdag.test.js:4031"
     },
     {
       "number": 6450,
       "mirror": "js",
       "function": "test6450_Machine_mediaUrnIsEquivalent",
       "description": "--- MediaUrn.isEquivalent/isComparable tests ---",
-      "location": "capdag.test.js:4039"
+      "location": "capdag.test.js:4040"
     },
     {
       "number": 6451,
       "mirror": "js",
       "function": "test6451_Machine_mediaUrnIsComparable",
       "description": "TEST6451: Machine media urn is comparable",
-      "location": "capdag.test.js:4048"
+      "location": "capdag.test.js:4049"
     },
     {
       "number": 6452,
       "mirror": "js",
       "function": "test6452_Machine_parseMachineWithAST_headerLocation",
       "description": "Phase 0A: Position tracking tests",
-      "location": "capdag.test.js:4061"
+      "location": "capdag.test.js:4062"
     },
     {
       "number": 6453,
       "mirror": "js",
       "function": "test6453_Machine_parseMachineWithAST_wiringLocation",
       "description": "TEST6453: Machine parse machine with a s t wiring location",
-      "location": "capdag.test.js:4078"
+      "location": "capdag.test.js:4079"
     },
     {
       "number": 6454,
       "mirror": "js",
       "function": "test6454_Machine_parseMachineWithAST_multilinePositions",
       "description": "TEST6454: Machine parse machine with a s t multiline positions",
-      "location": "capdag.test.js:4093"
+      "location": "capdag.test.js:4094"
     },
     {
       "number": 6455,
       "mirror": "js",
       "function": "test6455_Machine_parseMachineWithAST_fanInSourceLocations",
       "description": "TEST6455: Machine parse machine with a s t fan in source locations",
-      "location": "capdag.test.js:4103"
+      "location": "capdag.test.js:4104"
     },
     {
       "number": 6456,
       "mirror": "js",
       "function": "test6456_Machine_parseMachineWithAST_aliasMap",
       "description": "TEST6456: Machine parse machine with a s t alias map",
-      "location": "capdag.test.js:4115"
+      "location": "capdag.test.js:4116"
     },
     {
       "number": 6457,
       "mirror": "js",
       "function": "test6457_Machine_parseMachineWithAST_nodeMedia",
       "description": "TEST6457: Machine parse machine with a s t node media",
-      "location": "capdag.test.js:4134"
+      "location": "capdag.test.js:4135"
     },
     {
       "number": 6458,
       "mirror": "js",
       "function": "test6458_Machine_errorLocation_parseError",
       "description": "TEST6458: Machine error location parse error",
-      "location": "capdag.test.js:4147"
+      "location": "capdag.test.js:4148"
     },
     {
       "number": 6459,
       "mirror": "js",
       "function": "test6459_Machine_errorLocation_duplicateAlias",
       "description": "TEST6459: Machine error location duplicate alias",
-      "location": "capdag.test.js:4158"
+      "location": "capdag.test.js:4159"
     },
     {
       "number": 6460,
       "mirror": "js",
       "function": "test6460_Machine_errorLocation_undefinedAlias",
       "description": "TEST6460: Machine error location undefined alias",
-      "location": "capdag.test.js:4173"
+      "location": "capdag.test.js:4174"
     },
     {
       "number": 6461,
@@ -35746,105 +35970,105 @@
       "mirror": "js",
       "function": "test6462_Machine_toMermaid_linearChain",
       "description": "Phase 0C: Machine.toMermaid() tests",
-      "location": "capdag.test.js:4187"
+      "location": "capdag.test.js:4188"
     },
     {
       "number": 6463,
       "mirror": "js",
       "function": "test6463_Machine_toMermaid_loopEdge",
       "description": "TEST6463: Machine to mermaid loop edge",
-      "location": "capdag.test.js:4206"
+      "location": "capdag.test.js:4207"
     },
     {
       "number": 6464,
       "mirror": "js",
       "function": "test6464_Machine_toMermaid_emptyGraph",
       "description": "TEST6464: Machine to mermaid empty graph",
-      "location": "capdag.test.js:4218"
+      "location": "capdag.test.js:4219"
     },
     {
       "number": 6465,
       "mirror": "js",
       "function": "test6465_Machine_toMermaid_fanIn",
       "description": "TEST6465: Machine to mermaid fan in",
-      "location": "capdag.test.js:4225"
+      "location": "capdag.test.js:4226"
     },
     {
       "number": 6466,
       "mirror": "js",
       "function": "test6466_Machine_toMermaid_fanOut",
       "description": "TEST6466: Machine to mermaid fan out",
-      "location": "capdag.test.js:4237"
+      "location": "capdag.test.js:4238"
     },
     {
       "number": 6467,
       "mirror": "js",
       "function": "test6467_Machine_capRegistryEntry_construction",
       "description": "Phase 0B: FabricRegistryClient tests",
-      "location": "capdag.test.js:4257"
+      "location": "capdag.test.js:4258"
     },
     {
       "number": 6468,
       "mirror": "js",
       "function": "test6468_Machine_mediaRegistryEntry_construction",
       "description": "TEST6468: Machine media registry entry construction",
-      "location": "capdag.test.js:4281"
+      "location": "capdag.test.js:4282"
     },
     {
       "number": 6469,
       "mirror": "js",
       "function": "test6469_Machine_capRegistryClient_construction",
       "description": "TEST6469: Machine cap registry client construction",
-      "location": "capdag.test.js:4295"
+      "location": "capdag.test.js:4296"
     },
     {
       "number": 6470,
       "mirror": "js",
       "function": "test6470_Machine_capRegistryEntry_defaults",
       "description": "TEST6470: Machine cap registry entry defaults",
-      "location": "capdag.test.js:4303"
+      "location": "capdag.test.js:4304"
     },
     {
       "number": 6471,
       "mirror": "js",
       "function": "test6471_Renderer_cardinalityLabel_allFourCases",
       "description": "TEST6471: Renderer cardinality label all four cases",
-      "location": "capdag.test.js:4369"
+      "location": "capdag.test.js:4370"
     },
     {
       "number": 6472,
       "mirror": "js",
       "function": "test6472_Renderer_cardinalityLabel_usesUnicodeArrow",
       "description": "TEST6472: Renderer cardinality label uses unicode arrow",
-      "location": "capdag.test.js:4377"
+      "location": "capdag.test.js:4378"
     },
     {
       "number": 6473,
       "mirror": "js",
       "function": "test6473_Renderer_cardinalityFromCap_findsStdinArgNotFirstArg",
       "description": "TEST6473: Renderer cardinality from cap finds stdin arg not first arg",
-      "location": "capdag.test.js:4386"
+      "location": "capdag.test.js:4387"
     },
     {
       "number": 6474,
       "mirror": "js",
       "function": "test6474_Renderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing",
       "description": "TEST6474: Renderer cardinality from cap scalar defaults when fields missing",
-      "location": "capdag.test.js:4411"
+      "location": "capdag.test.js:4412"
     },
     {
       "number": 6475,
       "mirror": "js",
       "function": "test6475_Renderer_cardinalityFromCap_outputOnlySequence",
       "description": "TEST6475: Renderer cardinality from cap output only sequence",
-      "location": "capdag.test.js:4420"
+      "location": "capdag.test.js:4421"
     },
     {
       "number": 6476,
       "mirror": "js",
       "function": "test6476_Renderer_cardinalityFromCap_rejectsStringIsSequence",
       "description": "TEST6476: Renderer cardinality from cap rejects string is sequence",
-      "location": "capdag.test.js:4432"
+      "location": "capdag.test.js:4433"
     },
     {
       "number": 6477,
@@ -35858,49 +36082,49 @@
       "mirror": "js",
       "function": "test6478_Renderer_cardinalityFromCap_throwsOnNonObject",
       "description": "TEST6478: Renderer cardinality from cap throws on non object",
-      "location": "capdag.test.js:4446"
+      "location": "capdag.test.js:4447"
     },
     {
       "number": 6479,
       "mirror": "js",
       "function": "test6479_Renderer_canonicalMediaUrn_normalizesTagOrder",
       "description": "TEST6479: Renderer canonical media urn normalizes tag order",
-      "location": "capdag.test.js:4466"
+      "location": "capdag.test.js:4467"
     },
     {
       "number": 6480,
       "mirror": "js",
       "function": "test6480_Renderer_canonicalMediaUrn_preservesValueTags",
       "description": "TEST6480: Renderer canonical media urn preserves value tags",
-      "location": "capdag.test.js:4476"
+      "location": "capdag.test.js:4477"
     },
     {
       "number": 6481,
       "mirror": "js",
       "function": "test6481_Renderer_canonicalMediaUrn_rejectsCapUrn",
       "description": "TEST6481: Renderer canonical media urn rejects cap urn",
-      "location": "capdag.test.js:4482"
+      "location": "capdag.test.js:4483"
     },
     {
       "number": 6482,
       "mirror": "js",
       "function": "test6482_Renderer_mediaNodeLabel_rejectsUrnDerivedLabels",
       "description": "TEST6482: Renderer media node label rejects urn derived labels",
-      "location": "capdag.test.js:4495"
+      "location": "capdag.test.js:4496"
     },
     {
       "number": 6483,
       "mirror": "js",
       "function": "test6483_Renderer_buildBrowseGraphData_rejectsMissingMediaTitles",
       "description": "TEST6483: Renderer build browse graph data rejects missing media titles",
-      "location": "capdag.test.js:4510"
+      "location": "capdag.test.js:4511"
     },
     {
       "number": 6484,
       "mirror": "js",
       "function": "test6484_Renderer_validateStrandStep_rejectsUnknownVariant",
       "description": "TEST6484: Renderer validate strand step rejects unknown variant",
-      "location": "capdag.test.js:4568"
+      "location": "capdag.test.js:4569"
     },
     {
       "number": 6485,
@@ -35914,28 +36138,28 @@
       "mirror": "js",
       "function": "test6486_Renderer_validateStrandStep_requiresBooleanIsSequence",
       "description": "TEST6486: Renderer validate strand step requires boolean is sequence",
-      "location": "capdag.test.js:4586"
+      "location": "capdag.test.js:4587"
     },
     {
       "number": 6487,
       "mirror": "js",
       "function": "test6487_Renderer_classifyStrandCapSteps_capFlags",
       "description": "TEST6487: Renderer classify strand cap steps cap flags",
-      "location": "capdag.test.js:4609"
+      "location": "capdag.test.js:4610"
     },
     {
       "number": 6488,
       "mirror": "js",
       "function": "test6488_Renderer_classifyStrandCapSteps_nestedForks",
       "description": "TEST6488: Renderer classify strand cap steps nested forks",
-      "location": "capdag.test.js:4631"
+      "location": "capdag.test.js:4632"
     },
     {
       "number": 6489,
       "mirror": "js",
       "function": "test6489_Renderer_buildStrandGraphData_singleCapPlain",
       "description": "TEST6489: Renderer build strand graph data single cap plain",
-      "location": "capdag.test.js:4662"
+      "location": "capdag.test.js:4663"
     },
     {
       "number": 6490,
@@ -35949,224 +36173,224 @@
       "mirror": "js",
       "function": "test6491_Renderer_buildStrandGraphData_sequenceShowsCardinality",
       "description": "TEST6491: Renderer build strand graph data sequence shows cardinality",
-      "location": "capdag.test.js:4690"
+      "location": "capdag.test.js:4691"
     },
     {
       "number": 6492,
       "mirror": "js",
       "function": "test6492_Renderer_buildStrandGraphData_foreachCollectSpan",
       "description": "TEST6492: Renderer build strand graph data foreach collect span",
-      "location": "capdag.test.js:4711"
+      "location": "capdag.test.js:4712"
     },
     {
       "number": 6493,
       "mirror": "js",
       "function": "test6493_Renderer_buildStrandGraphData_standaloneCollect",
       "description": "TEST6493: Renderer build strand graph data standalone collect",
-      "location": "capdag.test.js:4763"
+      "location": "capdag.test.js:4764"
     },
     {
       "number": 6494,
       "mirror": "js",
       "function": "test6494_Renderer_buildStrandGraphData_unclosedForEachBody",
       "description": "TEST6494: Renderer build strand graph data unclosed for each body",
-      "location": "capdag.test.js:4791"
+      "location": "capdag.test.js:4792"
     },
     {
       "number": 6495,
       "mirror": "js",
       "function": "test6495_Renderer_buildStrandGraphData_nestedForEachThrows",
       "description": "TEST6495: Renderer build strand graph data nested for each throws",
-      "location": "capdag.test.js:4829"
+      "location": "capdag.test.js:4830"
     },
     {
       "number": 6496,
       "mirror": "js",
       "function": "test6496_Renderer_collapseStrand_singleCapBodyKeepsCapOwnLabel",
       "description": "TEST6496: Renderer collapse strand single cap body keeps cap own label",
-      "location": "capdag.test.js:4858"
+      "location": "capdag.test.js:4859"
     },
     {
       "number": 6497,
       "mirror": "js",
       "function": "test6497_Renderer_collapseStrand_unclosedForEachBodyCollapses",
       "description": "TEST6497: Renderer collapse strand unclosed for each body collapses",
-      "location": "capdag.test.js:4911"
+      "location": "capdag.test.js:4912"
     },
     {
       "number": 6498,
       "mirror": "js",
       "function": "test6498_Renderer_collapseStrand_standaloneCollectCollapses",
       "description": "TEST6498: Renderer collapse strand standalone collect collapses",
-      "location": "capdag.test.js:4968"
+      "location": "capdag.test.js:4969"
     },
     {
       "number": 6499,
       "mirror": "js",
       "function": "test6499_Renderer_collapseStrand_sequenceProducingCapBeforeForeach",
       "description": "TEST6499: Renderer collapse strand sequence producing cap before foreach",
-      "location": "capdag.test.js:5012"
+      "location": "capdag.test.js:5013"
     },
     {
       "number": 6500,
       "mirror": "js",
       "function": "test6500_Renderer_collapseStrand_plainCapMergesTrailingOutput",
       "description": "TEST6500: Renderer collapse strand plain cap merges trailing output",
-      "location": "capdag.test.js:5077"
+      "location": "capdag.test.js:5078"
     },
     {
       "number": 6501,
       "mirror": "js",
       "function": "test6501_Renderer_collapseStrand_plainCapDistinctTargetNoMerge",
       "description": "TEST6501: Renderer collapse strand plain cap distinct target no merge",
-      "location": "capdag.test.js:5114"
+      "location": "capdag.test.js:5115"
     },
     {
       "number": 6502,
       "mirror": "js",
       "function": "test6502_Renderer_validateStrandPayload_missingSourceMediaUrn",
       "description": "TEST6502: Renderer validate strand payload missing source media urn",
-      "location": "capdag.test.js:5141"
+      "location": "capdag.test.js:5142"
     },
     {
       "number": 6503,
       "mirror": "js",
       "function": "test6503_Renderer_validateBodyOutcome_rejectsNegativeIndex",
       "description": "---------------- run builder ----------------",
-      "location": "capdag.test.js:5154"
+      "location": "capdag.test.js:5155"
     },
     {
       "number": 6504,
       "mirror": "js",
       "function": "test6504_Renderer_buildRunGraphData_pagesSuccessesAndFailures",
       "description": "TEST6504: Renderer build run graph data pages successes and failures",
-      "location": "capdag.test.js:5165"
+      "location": "capdag.test.js:5166"
     },
     {
       "number": 6505,
       "mirror": "js",
       "function": "test6505_Renderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace",
       "description": "TEST6505: Renderer build run graph data failure without failed cap renders full trace",
-      "location": "capdag.test.js:5236"
+      "location": "capdag.test.js:5237"
     },
     {
       "number": 6506,
       "mirror": "js",
       "function": "test6506_Renderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap",
       "description": "TEST6506: Renderer build run graph data uses cap urn is equivalent for failed cap",
-      "location": "capdag.test.js:5275"
+      "location": "capdag.test.js:5276"
     },
     {
       "number": 6507,
       "mirror": "js",
       "function": "test6507_Renderer_buildRunGraphData_backboneHasNoForeachNode",
       "description": "TEST6507: Renderer build run graph data backbone has no foreach node",
-      "location": "capdag.test.js:5335"
+      "location": "capdag.test.js:5336"
     },
     {
       "number": 6508,
       "mirror": "js",
       "function": "test6508_Renderer_buildRunGraphData_allFailedDropsTargetPlaceholder",
       "description": "TEST6508: Renderer build run graph data all failed drops target placeholder",
-      "location": "capdag.test.js:5390"
+      "location": "capdag.test.js:5391"
     },
     {
       "number": 6509,
       "mirror": "js",
       "function": "test6509_Renderer_buildRunGraphData_unclosedForeachSuccessNoMerge",
       "description": "TEST6509: Renderer build run graph data unclosed foreach success no merge",
-      "location": "capdag.test.js:5456"
+      "location": "capdag.test.js:5457"
     },
     {
       "number": 6510,
       "mirror": "js",
       "function": "test6510_Renderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget",
       "description": "TEST6510: Renderer build run graph data closed foreach success merges at collect target",
-      "location": "capdag.test.js:5518"
+      "location": "capdag.test.js:5519"
     },
     {
       "number": 6511,
       "mirror": "js",
       "function": "test6511_Renderer_validateEditorGraphPayload_rejectsUnknownKind",
       "description": "---------------- editor-graph builder ----------------",
-      "location": "capdag.test.js:5573"
+      "location": "capdag.test.js:5574"
     },
     {
       "number": 6512,
       "mirror": "js",
       "function": "test6512_Renderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges",
       "description": "TEST6512: Renderer build editor graph data collapses caps into labeled edges",
-      "location": "capdag.test.js:5588"
+      "location": "capdag.test.js:5589"
     },
     {
       "number": 6513,
       "mirror": "js",
       "function": "test6513_Renderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass",
       "description": "TEST6513: Renderer build editor graph data loop marked edge gets loop class",
-      "location": "capdag.test.js:5627"
+      "location": "capdag.test.js:5628"
     },
     {
       "number": 6514,
       "mirror": "js",
       "function": "test6514_Renderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags",
       "description": "TEST6514: Renderer build editor graph data cardinality from data slot sequence flags",
-      "location": "capdag.test.js:5646"
+      "location": "capdag.test.js:5647"
     },
     {
       "number": 6515,
       "mirror": "js",
       "function": "test6515_Renderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped",
       "description": "TEST6515: Renderer build editor graph data cap without complete args is dropped",
-      "location": "capdag.test.js:5666"
+      "location": "capdag.test.js:5667"
     },
     {
       "number": 6516,
       "mirror": "js",
       "function": "test6516_Renderer_buildEditorGraphData_rejectsEdgeWithMissingSource",
       "description": "TEST6516: Renderer build editor graph data rejects edge with missing source",
-      "location": "capdag.test.js:5684"
+      "location": "capdag.test.js:5685"
     },
     {
       "number": 6517,
       "mirror": "js",
       "function": "test6517_Renderer_buildResolvedMachineGraphData_singleStrandLinearChain",
       "description": "---------------- resolved-machine builder ----------------",
-      "location": "capdag.test.js:5700"
+      "location": "capdag.test.js:5701"
     },
     {
       "number": 6518,
       "mirror": "js",
       "function": "test6518_Renderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass",
       "description": "TEST6518: Renderer build resolved machine graph data loop edge gets loop class",
-      "location": "capdag.test.js:5759"
+      "location": "capdag.test.js:5760"
     },
     {
       "number": 6519,
       "mirror": "js",
       "function": "test6519_Renderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment",
       "description": "TEST6519: Renderer build resolved machine graph data fan in produces edge per assignment",
-      "location": "capdag.test.js:5794"
+      "location": "capdag.test.js:5795"
     },
     {
       "number": 6520,
       "mirror": "js",
       "function": "test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint",
       "description": "TEST6520: Renderer build resolved machine graph data multi strand keeps strands disjoint",
-      "location": "capdag.test.js:5835"
+      "location": "capdag.test.js:5836"
     },
     {
       "number": 6521,
       "mirror": "js",
       "function": "test6521_Renderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard",
       "description": "TEST6521: Renderer build resolved machine graph data duplicate node id across strands fails hard",
-      "location": "capdag.test.js:5898"
+      "location": "capdag.test.js:5899"
     },
     {
       "number": 6522,
       "mirror": "js",
       "function": "test6522_Renderer_validateResolvedMachinePayload_rejectsMissingFields",
       "description": "TEST6522: Renderer validate resolved machine payload rejects missing fields",
-      "location": "capdag.test.js:5934"
+      "location": "capdag.test.js:5935"
     },
     {
       "number": 6523,
@@ -36481,14 +36705,14 @@
       "mirror": "js",
       "function": "test6620_wildcardGenericFormsRejected",
       "description": "TEST6620: Generic top-to-top spellings are all rejected.",
-      "location": "capdag.test.js:3116"
+      "location": "capdag.test.js:3117"
     },
     {
       "number": 6621,
       "mirror": "js",
       "function": "test6621_capIdentityConstantWorks",
       "description": "TEST6621: CAP_IDENTITY constant names the true identity cap, not bare cap:",
-      "location": "capdag.test.js:3137"
+      "location": "capdag.test.js:3138"
     },
     {
       "number": 6622,
@@ -36824,7 +37048,7 @@
       "mirror": "js",
       "function": "test6737_capVersionZeroOmittedOnWire",
       "description": "TEST6737: Cap with version=0 round-trips with no `version` key on wire",
-      "location": "capdag.test.js:6307"
+      "location": "capdag.test.js:6308"
     },
     {
       "number": 6746,
