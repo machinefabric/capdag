@@ -589,6 +589,16 @@ pub struct RelaySwitch {
     /// subscribe and a fresh value every time `rebuild_capabilities` produces
     /// a different snapshot.
     aggregate_installed_cartridges_tx: tokio::sync::watch::Sender<Vec<InstalledCartridgeRecord>>,
+    /// Watch channel broadcasting the latest `aggregate_capabilities` bytes
+    /// (the JSON array of *routable* cap URNs — union of healthy masters
+    /// only). Subscribers receive the current value on subscribe and a fresh
+    /// value every time `rebuild_capabilities` changes the routable set. This
+    /// is the signal an engine-facing relay (e.g. the interop router) uses to
+    /// re-advertise routability: a cap only appears here once its master is
+    /// healthy (identity-verified), so it is the correct readiness signal —
+    /// unlike `aggregate_installed_cartridges`, which is the inventory view
+    /// and is deliberately NOT health-filtered.
+    aggregate_capabilities_tx: tokio::sync::watch::Sender<Vec<u8>>,
     /// Negotiated limits (minimum across all masters)
     negotiated_limits: RwLock<Limits>,
     /// Channel receiver for frames from master reader tasks (Mutex for exclusive receive)
@@ -983,6 +993,10 @@ impl RelaySwitch {
         }
 
         let (aggregate_installed_cartridges_tx, _) = tokio::sync::watch::channel(Vec::new());
+        let (aggregate_capabilities_tx, _) = tokio::sync::watch::channel(
+            serde_json::to_vec(&Vec::<String>::new())
+                .expect("empty capability snapshot must serialize"),
+        );
         let (probes_tx, probes_rx) = mpsc::unbounded_channel::<usize>();
         let switch = Self {
             masters: RwLock::new(masters),
@@ -998,6 +1012,7 @@ impl RelaySwitch {
             ),
             aggregate_installed_cartridges: RwLock::new(Vec::new()),
             aggregate_installed_cartridges_tx,
+            aggregate_capabilities_tx,
             negotiated_limits: RwLock::new(Limits::default()),
             frame_rx: Mutex::new(frame_rx),
             frame_tx,
@@ -1044,6 +1059,17 @@ impl RelaySwitch {
         &self,
     ) -> tokio::sync::watch::Receiver<Vec<InstalledCartridgeRecord>> {
         self.aggregate_installed_cartridges_tx.subscribe()
+    }
+
+    /// Subscribe to changes in the *routable* capability set. The returned
+    /// receiver yields the current `aggregate_capabilities` bytes (a JSON
+    /// array of cap URNs) immediately and a fresh snapshot every time the
+    /// routable set changes — including when a deferred identity probe
+    /// completes and a previously-unhealthy master's caps become routable.
+    /// An engine-facing relay uses this to advertise readiness that is tied
+    /// to master health, not to mere inventory presence.
+    pub fn subscribe_capabilities(&self) -> tokio::sync::watch::Receiver<Vec<u8>> {
+        self.aggregate_capabilities_tx.subscribe()
     }
 
     /// Spawn the persistent background drain pump.
@@ -1109,85 +1135,14 @@ impl RelaySwitch {
         });
         guard.push(handle);
 
-        // Spawn the runtime identity-probe driver. It owns the
-        // `pending_identity_probes_rx` receiver (taken once) and
-        // serially probes each master that flipped from empty caps
-        // to non-empty caps in the last RelayNotify update. Probes
-        // run in their own task so they never block the frame pump
-        // — the probe writes via `write_to_master_idx`, the frame
-        // pump still drives master reads, and the response routes
-        // back through the registered `external_response_channels`
-        // entry that `run_identity_probe_via_relay` set up.
-        let probes_rx = self
-            .pending_identity_probes_rx
-            .lock()
-            .expect("pending_identity_probes_rx mutex poisoned")
-            .take()
-            .expect("start_background_pump called twice");
-        let weak_probe = Arc::downgrade(self);
-        let stop_probe = self.background_pump_stop.clone();
-        let probe_handle = tokio::spawn(async move {
-            let mut rx = probes_rx;
-            loop {
-                if stop_probe.load(Ordering::Relaxed) {
-                    break;
-                }
-                let master_idx = match rx.recv().await {
-                    Some(idx) => idx,
-                    None => break, // sender dropped — relay torn down
-                };
-                let Some(switch) = weak_probe.upgrade() else {
-                    break;
-                };
-                match switch.run_identity_probe_via_relay(master_idx).await {
-                    Ok(()) => {
-                        // Probe passed — flip the master back to
-                        // healthy and rebuild the cap table so its
-                        // caps become routable. We held the master
-                        // unhealthy from the moment caps went non-
-                        // empty until verification completed; this
-                        // is the natural reverse.
-                        let masters = switch.masters.read().await;
-                        if let Some(master) = masters.get(master_idx) {
-                            master.healthy.store(true, Ordering::SeqCst);
-                            master.last_error.write().await.take();
-                        }
-                        drop(masters);
-                        switch.rebuild_cap_table().await;
-                        switch.rebuild_capabilities().await;
-                        info!(
-                            target: "relay_switch",
-                            master_idx = master_idx,
-                            "[RelaySwitch] runtime identity probe passed — master is now healthy"
-                        );
-                    }
-                    Err(detail) => {
-                        // Probe failed — keep the master unhealthy
-                        // and stamp `last_error` so the inventory
-                        // surface shows the reason. The master's
-                        // caps stay published as-is (they came from
-                        // the host's RelayNotify), but `cap_table`
-                        // skips unhealthy masters during dispatch
-                        // so engine REQs won't route here.
-                        tracing::error!(
-                            target: "relay_switch",
-                            master_idx = master_idx,
-                            error = %detail,
-                            "[RelaySwitch] runtime identity probe FAILED — master remains unhealthy"
-                        );
-                        let masters = switch.masters.read().await;
-                        if let Some(master) = masters.get(master_idx) {
-                            master.healthy.store(false, Ordering::SeqCst);
-                            *master.last_error.write().await = Some(detail);
-                        }
-                        drop(masters);
-                        switch.rebuild_cap_table().await;
-                        switch.rebuild_capabilities().await;
-                    }
-                }
-            }
-        });
-        guard.push(probe_handle);
+        // Spawn the runtime identity-probe driver (see
+        // `spawn_identity_probe_driver`). Separated so a host that drives
+        // master reads with its own loop — and therefore must NOT start
+        // the background frame pump above — can still service runtime
+        // capability transitions by calling that method directly.
+        if let Some(probe_handle) = self.spawn_identity_probe_driver() {
+            guard.push(probe_handle);
+        }
 
         // Registry definitions can arrive after a RelayNotify advertised
         // their URNs. LiveCapFab intentionally drops caps whose canonical
@@ -1214,6 +1169,96 @@ impl RelaySwitch {
             }
         });
         guard.push(registry_handle);
+    }
+
+    /// Spawn the runtime identity-probe driver. It owns the
+    /// `pending_identity_probes_rx` receiver (taken once) and serially
+    /// probes each master that flipped from empty caps to non-empty caps
+    /// in the last RelayNotify update; on success it flips the master
+    /// healthy and rebuilds the cap table so its caps become routable, on
+    /// failure it keeps the master unhealthy and stamps `last_error`.
+    ///
+    /// Probes run in their own task so they never block the caller's frame
+    /// loop — the probe writes via `write_to_master_idx`, the caller's
+    /// master-read loop (the background pump, or a host process's own
+    /// multiplexer) still drives master reads, and the response routes back
+    /// through the `external_response_channels` entry that
+    /// `run_identity_probe_via_relay` registers.
+    ///
+    /// `start_background_pump` calls this. A host that runs its OWN
+    /// master-read loop (e.g. the interop router process, which forwards
+    /// master frames to stdout and so must not start the background pump)
+    /// calls this directly, so dynamic capability transitions advertised
+    /// via a later RelayNotify still get probed and become routable.
+    /// Returns the task handle, or `None` if the receiver was already
+    /// taken — idempotent, a second call is a no-op.
+    pub fn spawn_identity_probe_driver(self: &Arc<Self>) -> Option<tokio::task::JoinHandle<()>> {
+        let probes_rx = self
+            .pending_identity_probes_rx
+            .lock()
+            .expect("pending_identity_probes_rx mutex poisoned")
+            .take()?;
+        let weak_probe = Arc::downgrade(self);
+        let stop_probe = self.background_pump_stop.clone();
+        Some(tokio::spawn(async move {
+            let mut rx = probes_rx;
+            loop {
+                if stop_probe.load(Ordering::Relaxed) {
+                    break;
+                }
+                let master_idx = match rx.recv().await {
+                    Some(idx) => idx,
+                    None => break, // sender dropped — relay torn down
+                };
+                let Some(switch) = weak_probe.upgrade() else {
+                    break;
+                };
+                match switch.run_identity_probe_via_relay(master_idx).await {
+                    Ok(()) => {
+                        // Probe passed — flip the master back to healthy and
+                        // rebuild the cap table so its caps become routable.
+                        // We held the master unhealthy from the moment caps
+                        // went non-empty until verification completed; this
+                        // is the natural reverse.
+                        let masters = switch.masters.read().await;
+                        if let Some(master) = masters.get(master_idx) {
+                            master.healthy.store(true, Ordering::SeqCst);
+                            master.last_error.write().await.take();
+                        }
+                        drop(masters);
+                        switch.rebuild_cap_table().await;
+                        switch.rebuild_capabilities().await;
+                        info!(
+                            target: "relay_switch",
+                            master_idx = master_idx,
+                            "[RelaySwitch] runtime identity probe passed — master is now healthy"
+                        );
+                    }
+                    Err(detail) => {
+                        // Probe failed — keep the master unhealthy and stamp
+                        // `last_error` so the inventory surface shows the
+                        // reason. The master's caps stay published as-is
+                        // (they came from the host's RelayNotify), but
+                        // `cap_table` skips unhealthy masters during dispatch
+                        // so engine REQs won't route here.
+                        tracing::error!(
+                            target: "relay_switch",
+                            master_idx = master_idx,
+                            error = %detail,
+                            "[RelaySwitch] runtime identity probe FAILED — master remains unhealthy"
+                        );
+                        let masters = switch.masters.read().await;
+                        if let Some(master) = masters.get(master_idx) {
+                            master.healthy.store(false, Ordering::SeqCst);
+                            *master.last_error.write().await = Some(detail);
+                        }
+                        drop(masters);
+                        switch.rebuild_cap_table().await;
+                        switch.rebuild_capabilities().await;
+                    }
+                }
+            }
+        }))
     }
 
     /// Get the negotiated limits (minimum across all masters).
@@ -3408,6 +3453,22 @@ impl RelaySwitch {
         // Build manifest as JSON array (same format as RelayNotify payloads)
         *self.aggregate_capabilities.write().await =
             serde_json::to_vec(&all_caps).expect("cap URNs must serialize to JSON");
+        // Broadcast the routable-cap change to subscribers (the engine-facing
+        // relay re-advertises readiness off this). Only fire on an actual
+        // change so a deferred probe completing — which flips a master
+        // healthy and adds its caps here — wakes the engine, without a notify
+        // storm from unrelated rebuilds. Use `send_replace`, NOT `send`:
+        // `send` is a no-op (drops the value, leaves the stored snapshot
+        // stale) when there are momentarily zero receivers, which is exactly
+        // the synchronous-verification case — `new()` rebuilds capabilities
+        // before the engine-facing relay has subscribed, so a plain `send`
+        // would silently lose the initial routable set and the engine would
+        // never see readiness. `send_replace` always stores the new value.
+        if changed {
+            let _ = self
+                .aggregate_capabilities_tx
+                .send_replace(serde_json::to_vec(&all_caps).expect("cap URNs must serialize to JSON"));
+        }
         // Installed-cartridges aggregate is the inventory view — what is
         // physically installed and known to any master, regardless of
         // current per-master reachability. We do NOT filter by health
@@ -3806,6 +3867,120 @@ mod tests {
         writer.write(&end).await.unwrap();
 
         (reader, writer)
+    }
+
+    /// Test slave for the DEFERRED runtime-identity-probe path. Sends an
+    /// EMPTY initial RelayNotify (so `RelaySwitch::new` skips synchronous
+    /// verification and the master joins capless+healthy), then a populated
+    /// RelayNotify carrying `caps_json` (the empty→non-empty transition the
+    /// relay must re-verify before routing). It then answers the runtime
+    /// identity probe: if `succeed`, it echoes the probe's nonce back on the
+    /// same flow (probe passes → master flips healthy → caps routable); if
+    /// `!succeed`, it replies ERR (probe fails → master stays unhealthy, caps
+    /// held back). Mirrors what a real CartridgeHost does when a cartridge
+    /// attaches AFTER the host first connected.
+    async fn slave_deferred_identity(
+        socket: UnixStream,
+        caps_json: &serde_json::Value,
+        limits: &Limits,
+        succeed: bool,
+    ) {
+        let (read_half, write_half) = socket.into_split();
+        let mut reader = FrameReader::new(BufReader::new(read_half));
+        let mut writer = FrameWriter::new(BufWriter::new(write_half));
+
+        // 1. Empty initial RelayNotify — new() skips the synchronous probe.
+        let empty = serde_json::json!({ "installed_cartridges": [] });
+        writer
+            .write(&Frame::relay_notify(
+                &serde_json::to_vec(&empty).unwrap(),
+                limits,
+            ))
+            .await
+            .unwrap();
+
+        // 2. Populated RelayNotify — the empty→non-empty transition.
+        let cap_urns_array = caps_json
+            .as_array()
+            .expect("caps_json must be a JSON array of cap URN strings");
+        let group_caps: Vec<serde_json::Value> = cap_urns_array
+            .iter()
+            .map(|v| {
+                let urn = v.as_str().expect("cap URN must be a string").to_string();
+                serde_json::json!({ "urn": urn, "title": "test", "command": "test", "args": [] })
+            })
+            .collect();
+        let notify_payload = serde_json::json!({
+            "installed_cartridges": [
+                {
+                    "registry_url": null,
+                    "channel": "release",
+                    "id": "test-cartridge",
+                    "version": "0.0.0",
+                    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "cap_groups": [
+                        { "name": "test", "caps": group_caps, "adapter_urns": [] }
+                    ],
+                }
+            ],
+        });
+        writer
+            .write(&Frame::relay_notify(
+                &serde_json::to_vec(&notify_payload).unwrap(),
+                limits,
+            ))
+            .await
+            .unwrap();
+
+        // 3. Answer the runtime identity probe.
+        let mut probe_rid = None;
+        let mut probe_xid = None;
+        let mut nonce: Vec<u8> = Vec::new();
+        loop {
+            let f = match reader.read().await {
+                Ok(Some(f)) => f,
+                _ => return,
+            };
+            match f.frame_type {
+                FrameType::Req => {
+                    probe_rid = Some(f.id.clone());
+                    probe_xid = f.routing_id.clone();
+                    if !succeed {
+                        // Broken identity handler: reply ERR on the same flow.
+                        let mut err = Frame::err(f.id.clone(), "BROKEN", "test cartridge");
+                        err.routing_id = f.routing_id.clone();
+                        let _ = writer.write(&err).await;
+                        return;
+                    }
+                }
+                FrameType::Chunk => nonce.extend(f.payload.unwrap_or_default()),
+                FrameType::End => {
+                    // Echo the nonce back on the probe's flow → probe passes.
+                    let rid = probe_rid.clone().expect("probe REQ must precede END");
+                    let stream_id = "identity-echo".to_string();
+                    let mut ss = Frame::stream_start(
+                        rid.clone(),
+                        stream_id.clone(),
+                        "media:".to_string(),
+                        None,
+                    );
+                    ss.routing_id = probe_xid.clone();
+                    let checksum = Frame::compute_checksum(&nonce);
+                    let mut chunk =
+                        Frame::chunk(rid.clone(), stream_id.clone(), 0, nonce.clone(), 0, checksum);
+                    chunk.routing_id = probe_xid.clone();
+                    let mut se = Frame::stream_end(rid.clone(), stream_id, 1);
+                    se.routing_id = probe_xid.clone();
+                    let mut end = Frame::end(rid, None);
+                    end.routing_id = probe_xid.clone();
+                    for fr in [ss, chunk, se, end] {
+                        writer.write(&fr).await.unwrap();
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
     }
 
     // TEST429: Cap routing logic (find_master_for_cap)
@@ -4871,6 +5046,201 @@ mod tests {
             !cap_table.iter().any(|(urn, _)| urn.contains("test")),
             "unverified master's caps must be excluded from cap_table, got: {:?}",
             *cap_table
+        );
+    }
+
+    // TEST0135: the runtime identity probe SUCCESS path — a master that
+    // advertises caps AFTER connecting (empty→non-empty) and then passes the
+    // probe must flip healthy and its caps must become routable. This is the
+    // companion to test0131 (which covers probe FAILURE → stays unhealthy):
+    // together they pin both outcomes of the deferred-probe state machine.
+    #[tokio::test]
+    async fn test0135_runtime_identity_probe_success_makes_caps_routable() {
+        let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
+
+        tokio::spawn(async move {
+            slave_deferred_identity(
+                slave_sock,
+                &serde_json::json!([
+                    "cap:effect=none",
+                    "cap:in=\"media:void\";test;out=\"media:void\""
+                ]),
+                &Limits::default(),
+                true, // probe succeeds
+            )
+            .await;
+        });
+
+        let switch = Arc::new(
+            RelaySwitch::new(
+                wrap_with_test_ids(vec![engine_sock]),
+                test_fabric_registry(),
+            )
+            .await
+            .expect("RelaySwitch construction must succeed for empty-cap initial notify"),
+        );
+        switch.start_background_pump();
+
+        // Poll until the probe driver completes the round-trip: the
+        // post-init advertised cap becomes routable only AFTER the probe
+        // passes (it is held back while the master is unhealthy).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let mut routable = false;
+        while std::time::Instant::now() < deadline {
+            if switch
+                .find_master_for_cap("cap:in=\"media:void\";test;out=\"media:void\"", None)
+                .await
+                == Some(0)
+            {
+                routable = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(
+            routable,
+            "after a successful runtime identity probe the master's post-init advertised cap must become routable"
+        );
+        let masters = switch.masters.read().await;
+        assert!(
+            masters[0].healthy.load(Ordering::SeqCst),
+            "master must be marked healthy after a successful runtime identity probe"
+        );
+    }
+
+    // TEST0138: the installed-cartridge INVENTORY is NOT health-filtered. A
+    // master held unhealthy by a failed runtime identity probe still has its
+    // cartridges visible in the aggregate inventory (so a transient master
+    // flap does not make cartridges "disappear" from the engine's view),
+    // even though its caps are excluded from ROUTING. This pins the
+    // deliberate asymmetry between the inventory aggregate (unfiltered) and
+    // the cap table / routable set (health-filtered).
+    #[tokio::test]
+    async fn test0138_unhealthy_master_inventory_retained_but_not_routable() {
+        let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
+
+        tokio::spawn(async move {
+            slave_deferred_identity(
+                slave_sock,
+                &serde_json::json!([
+                    "cap:effect=none",
+                    "cap:in=\"media:void\";test;out=\"media:void\""
+                ]),
+                &Limits::default(),
+                false, // probe fails → master stays unhealthy
+            )
+            .await;
+        });
+
+        let switch = Arc::new(
+            RelaySwitch::new(
+                wrap_with_test_ids(vec![engine_sock]),
+                test_fabric_registry(),
+            )
+            .await
+            .expect("RelaySwitch construction must succeed for empty-cap initial notify"),
+        );
+        switch.start_background_pump();
+
+        // Wait for the probe driver to fail the probe and mark the master
+        // unhealthy.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let mut unhealthy = false;
+        while std::time::Instant::now() < deadline {
+            {
+                let masters = switch.masters.read().await;
+                if let Some(master) = masters.first() {
+                    if !master.healthy.load(Ordering::SeqCst)
+                        && master.last_error.read().await.is_some()
+                    {
+                        unhealthy = true;
+                        break;
+                    }
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(unhealthy, "master must be unhealthy after the probe fails");
+
+        // ROUTING: the unhealthy master's caps are excluded.
+        assert_eq!(
+            switch
+                .find_master_for_cap("cap:in=\"media:void\";test;out=\"media:void\"", None)
+                .await,
+            None,
+            "an unhealthy master's caps must NOT be routable"
+        );
+
+        // INVENTORY: the cartridge is STILL visible — the inventory aggregate
+        // is deliberately not health-filtered.
+        let inventory = switch.installed_cartridges().await;
+        assert!(
+            inventory.iter().any(|c| c.id == "test-cartridge"),
+            "an unhealthy master's installed cartridges must remain visible in the inventory aggregate, got: {:?}",
+            inventory.iter().map(|c| c.id.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    // TEST0141: the routable-capability watch (subscribe_capabilities). A
+    // subscriber must receive the CURRENT routable cap set on subscribe even
+    // though it was rebuilt during construction — BEFORE any receiver
+    // existed (the channel must persist the value, i.e. use send_replace, not
+    // send, which drops the value when there are momentarily zero receivers).
+    // The delivered set must be the health-filtered routable cap URNs. This
+    // is the engine-readiness signal: a cap appears here only once its master
+    // is verified and routable.
+    #[tokio::test]
+    async fn test0141_subscribe_capabilities_delivers_routable_set() {
+        let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
+
+        tokio::spawn(async move {
+            slave_notify_with_identity(
+                slave_sock,
+                &serde_json::json!([
+                    "cap:effect=none",
+                    "cap:in=\"media:void\";test;out=\"media:void\""
+                ]),
+                &Limits::default(),
+            )
+            .await;
+        });
+
+        // Capabilities are rebuilt inside new() — before we subscribe.
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_sock]),
+            test_fabric_registry(),
+        )
+        .await
+        .unwrap();
+
+        let rx = switch.subscribe_capabilities();
+        let watched = rx.borrow().clone();
+
+        // The watch must mirror the synchronous getter: identical serialized
+        // routable-set snapshot. This is a snapshot-identity check (same
+        // bytes from the same source), NOT a URN comparison. It is also what
+        // catches the bug this test guards: the snapshot is rebuilt inside
+        // new() BEFORE any subscriber exists, so the channel must persist it
+        // (send_replace). A plain `send` is a no-op with zero receivers and
+        // would leave the watch holding the empty initial value while the
+        // getter returns the populated set — making these two diverge.
+        assert_eq!(
+            watched,
+            switch.capabilities().await,
+            "the capability watch must deliver the same routable-set snapshot as capabilities()"
+        );
+
+        // Prove that snapshot is the live ROUTABLE set the only correct way —
+        // via dispatch conformance, not string comparison of URNs. The
+        // request cap is the pattern; find_master_for_cap parses it and
+        // checks each provider with is_dispatchable. A healthy, verified
+        // master makes its advertised cap dispatchable.
+        assert_eq!(
+            switch
+                .find_master_for_cap("cap:in=\"media:void\";test;out=\"media:void\"", None)
+                .await,
+            Some(0),
+            "the routable set the watch delivers must make the master's advertised cap dispatchable"
         );
     }
 
