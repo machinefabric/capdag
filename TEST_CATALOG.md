@@ -1,8 +1,8 @@
-# Rust Test Catalog
+# CapDag (Rust) Test Catalog
 
-**Total Tests:** 1169
+**Total Tests:** 1171
 
-**Numbered Tests:** 1169
+**Numbered Tests:** 1171
 
 **Unnumbered Tests:** 0
 
@@ -12,7 +12,7 @@
 
 All numbered test numbers are unique.
 
-This catalog lists all tests in the Rust codebase.
+This catalog lists all tests in the CapDag (Rust) codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -380,6 +380,7 @@ This catalog lists all tests in the Rust codebase.
 | test411 | `test411_socket_close_detection` | TEST411: Socket close detection (both directions) | src/bifaci/relay.rs:801 |
 | test412 | `test412_bidirectional_concurrent_flow` | TEST412: Bidirectional concurrent frame flow through relay | src/bifaci/relay.rs:842 |
 | test413 | `test413_register_cartridge_adds_to_cap_table` | TEST413: Register cartridge adds entries to cap_table. The cap_table stores canonical URN strings (alphabetical tag order, no unnecessary quotes around single-tag media URNs). The input forms below get canonicalized at parse-time and the table reads back as the canonical form. | src/bifaci/host_runtime.rs:3502 |
+| test414 | `test414_relay_slave_forwards_host_relay_notify` | TEST414: RelaySlave forwards a host-originated RelayNotify (local→socket), dropping only RelayState. The CartridgeHostRuntime publishes capability updates — the installed-cartridge inventory the engine routes by — as RelayNotify frames through the slave's local→socket path; the slave MUST forward them. Regression lock for the drift (reproduced in the go/swift mirrors) where Task 2 dropped RelayNotify alongside RelayState, stranding the host's inventory so the engine never learned the cartridge existed. | src/bifaci/relay.rs:955 |
 | test415 | `test415_req_for_known_cap_triggers_spawn` | TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary) | src/bifaci/host_runtime.rs:3562 |
 | test416 | `test416_attach_cartridge_handshake_updates_capabilities` | TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities | src/bifaci/host_runtime.rs:3639 |
 | test417 | `test417_route_req_to_correct_cartridge` | TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges) | src/bifaci/host_runtime.rs:3696 |
@@ -427,6 +428,7 @@ This catalog lists all tests in the Rust codebase.
 | test459 | `test459_reorder_buffer_end_frame` | TEST459: Terminal END frame flows through correctly | src/bifaci/frame.rs:2201 |
 | test460 | `test460_reorder_buffer_err_frame` | TEST460: Terminal ERR frame flows through correctly | src/bifaci/frame.rs:2219 |
 | test461 | `test461_write_chunked_seq_zero` | TEST461: write_chunked produces frames with seq=0; SeqAssigner assigns at output stage | src/bifaci/io.rs:1908 |
+| test462 | `test462_attached_cartridge_identity_from_manifest` | TEST462: An attached cartridge (pre-connected over raw streams, no on-disk anchor) gets a resolvable install identity derived from its HELLO manifest — `installed_cartridge_record_from_manifest`. Identity gates advertisement (`build_installed_cartridge_identities` drops a cartridge with no record), so a `None` here means the cartridge is silently dropped from every RelayNotify and the engine can never route to it. Regression lock for the attached-cartridge identity path (the swift mirror regressed here: its attached cartridges returned `nil` and never reached the engine). | src/bifaci/host_runtime.rs:5838 |
 | test472 | `test472_handshake_negotiates_reorder_buffer` | TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides) | src/bifaci/io.rs:1961 |
 | test473 | `test473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | src/standard/caps.rs:1144 |
 | test474 | `test474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | src/standard/caps.rs:1163 |
@@ -1187,9 +1189,9 @@ This catalog lists all tests in the Rust codebase.
 | test8028 | `test8028_line_char_to_offset_works` | TEST8028: Line and character coordinates are converted back to byte offsets correctly. | src/machine/notation_ast.rs:2255 |
 ---
 
-*Generated from Rust source tree*
-*Total tests: 1169*
-*Total numbered tests: 1169*
+*Generated from CapDag (Rust) source tree*
+*Total tests: 1171*
+*Total numbered tests: 1171*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 0*

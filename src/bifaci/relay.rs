@@ -54,7 +54,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> RelaySlave<R, W> {
     /// Run the relay bidirectionally using two tasks.
     ///
     /// - Task 1 (socket → local): Reads from socket, intercepts RelayState, forwards others to local
-    /// - Task 2 (local → socket): Reads from local, drops relay frames, forwards others to socket
+    /// - Task 2 (local → socket): Reads from local, drops only RelayState; forwards RelayNotify (host capability updates) and all other frames to socket
     ///
     /// Runs until one side closes or an error occurs.
     /// Consumes self to split local reader/writer across tasks.
@@ -942,5 +942,75 @@ mod tests {
         slave.await.unwrap();
         runtime_read.await.unwrap();
         master_read.await.unwrap();
+    }
+
+    // TEST414: RelaySlave forwards a host-originated RelayNotify (local→socket),
+    // dropping only RelayState. The CartridgeHostRuntime publishes capability
+    // updates — the installed-cartridge inventory the engine routes by — as
+    // RelayNotify frames through the slave's local→socket path; the slave MUST
+    // forward them. Regression lock for the drift (reproduced in the go/swift
+    // mirrors) where Task 2 dropped RelayNotify alongside RelayState, stranding
+    // the host's inventory so the engine never learned the cartridge existed.
+    #[tokio::test]
+    async fn test414_relay_slave_forwards_host_relay_notify() {
+        use tokio::io::split;
+
+        // Socket side: slave ↔ master(router).
+        let (slave_socket, router) = create_pipe_pair();
+        let (slave_sock_r, slave_sock_w) = split(slave_socket);
+        let (router_r, _router_w) = split(router);
+
+        // Local side: host(CartridgeHostRuntime) ↔ slave.
+        let (slave_local, host) = create_pipe_pair();
+        let (slave_local_r, slave_local_w) = split(slave_local);
+        let (_host_r, host_w) = split(host);
+
+        let slave = RelaySlave::new(slave_local_r, slave_local_w);
+
+        let slave_handle = tokio::spawn(async move {
+            let socket_read = FrameReader::new(BufReader::new(slave_sock_r));
+            let socket_write = FrameWriter::new(BufWriter::new(slave_sock_w));
+            let initial = b"{\"installed_cartridges\":[]}".to_vec();
+            let limits = Limits::default();
+            let _ = slave
+                .run(socket_read, socket_write, Some((&initial, &limits)))
+                .await;
+        });
+
+        let mut router_reader = FrameReader::new(BufReader::new(router_r));
+
+        // Frame 1: the initial RelayNotify the slave emits on start.
+        let f1 = router_reader
+            .read()
+            .await
+            .unwrap()
+            .expect("initial RelayNotify");
+        assert_eq!(f1.frame_type, FrameType::RelayNotify);
+
+        // Host writes a RelayState (must be DROPPED), then a populated
+        // RelayNotify (must be FORWARDED).
+        let limits = Limits::default();
+        let mut host_writer = FrameWriter::new(BufWriter::new(host_w));
+        host_writer
+            .write(&Frame::relay_state(b"{\"memory\":1}"))
+            .await
+            .unwrap();
+        let manifest = b"{\"installed_cartridges\":[{\"id\":\"CartA\"}]}";
+        host_writer
+            .write(&Frame::relay_notify(manifest, &limits))
+            .await
+            .unwrap();
+
+        // The next frame the router sees MUST be the RelayNotify — proving the
+        // RelayState was dropped and the RelayNotify forwarded (not the reverse).
+        let f2 = router_reader
+            .read()
+            .await
+            .unwrap()
+            .expect("forwarded RelayNotify (RelayState must be dropped, RelayNotify forwarded)");
+        assert_eq!(f2.frame_type, FrameType::RelayNotify);
+        assert_eq!(f2.relay_notify_manifest(), Some(manifest.as_slice()));
+
+        slave_handle.abort();
     }
 }

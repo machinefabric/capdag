@@ -5824,4 +5824,38 @@ mod tests {
             "an empty SyncRoster must retire the cartridge; got {after_remove:?}"
         );
     }
+
+    // TEST462: An attached cartridge (pre-connected over raw streams, no
+    // on-disk anchor) gets a resolvable install identity derived from its
+    // HELLO manifest — `installed_cartridge_record_from_manifest`. Identity
+    // gates advertisement (`build_installed_cartridge_identities` drops a
+    // cartridge with no record), so a `None` here means the cartridge is
+    // silently dropped from every RelayNotify and the engine can never route
+    // to it. Regression lock for the attached-cartridge identity path (the
+    // swift mirror regressed here: its attached cartridges returned `nil` and
+    // never reached the engine).
+    #[test]
+    fn test462_attached_cartridge_identity_from_manifest() {
+        let manifest = br#"{"name":"TestCart","version":"1.2.3","channel":"nightly","registry_url":null,"description":"d","cap_groups":[{"name":"g","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}"#;
+
+        let record = installed_cartridge_record_from_manifest(manifest)
+            .expect("attached cartridge identity must be derivable from a valid manifest (else it is dropped from advertisement)");
+        assert_eq!(record.id, "TestCart", "id comes from manifest name");
+        assert_eq!(record.version, "1.2.3");
+        assert!(matches!(
+            record.channel,
+            crate::bifaci::cartridge_repo::CartridgeChannel::Nightly
+        ));
+        assert_eq!(record.registry_url, None, "dev build → null registry_url");
+        assert!(!record.sha256.is_empty(), "sha256 taken over manifest bytes");
+        // Attached ⇒ HELLO + identity verification already succeeded ⇒ operational.
+        assert!(matches!(record.lifecycle, CartridgeLifecycle::Operational));
+
+        // An unparseable manifest yields no record (honestly absent, not a
+        // fabricated id) — the producer must surface the gap, not hide it.
+        assert!(
+            installed_cartridge_record_from_manifest(b"{not json").is_none(),
+            "unparseable manifest must yield None, not a placeholder identity"
+        );
+    }
 }
