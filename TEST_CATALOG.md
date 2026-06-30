@@ -1,8 +1,8 @@
 # CapDag (Rust) Test Catalog
 
-**Total Tests:** 1174
+**Total Tests:** 1175
 
-**Numbered Tests:** 1174
+**Numbered Tests:** 1175
 
 **Unnumbered Tests:** 0
 
@@ -151,16 +151,17 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test0136 | `test0136_all_masters_ready_false_when_expected_count_unset` | TEST0136: All masters ready false when expected count unset | src/bifaci/relay_switch.rs:6082 |
 | test0137 | `test0137_all_masters_ready_false_when_partially_connected` | TEST0137: All masters ready false when partially connected | src/bifaci/relay_switch.rs:6100 |
 | test0138 | `test0138_unhealthy_master_inventory_retained_but_not_routable` | TEST0138: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed runtime identity probe still has its cartridges visible in the aggregate inventory (so a transient master flap does not make cartridges "disappear" from the engine's view), even though its caps are excluded from ROUTING. This pins the deliberate asymmetry between the inventory aggregate (unfiltered) and the cap table / routable set (health-filtered). | src/bifaci/relay_switch.rs:5119 |
-| test138 | `test138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | src/fabric/registry.rs:3142 |
+| test138 | `test138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | src/fabric/registry.rs:3192 |
 | test0139 | `test0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST0139: All masters ready true when masters connected but capless | src/bifaci/relay_switch.rs:6151 |
 | test0140 | `test0140_all_masters_ready_does_not_overshoot` | TEST0140: All masters ready does not overshoot | src/bifaci/relay_switch.rs:6174 |
 | test0141 | `test0141_subscribe_capabilities_delivers_routable_set` | TEST0141: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction — BEFORE any receiver existed (the channel must persist the value, i.e. use send_replace, not send, which drops the value when there are momentarily zero receivers). The delivered set must be the health-filtered routable cap URNs. This is the engine-readiness signal: a cap appears here only once its master is verified and routable. | src/bifaci/relay_switch.rs:5193 |
-| test141 | `test141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. | src/fabric/registry.rs:3162 |
-| test142 | `test142_normalize_handles_different_tag_orders` | TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing. | src/fabric/registry.rs:3172 |
-| test143 | `test143_default_config` | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. | src/fabric/registry.rs:3181 |
-| test144 | `test144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | src/fabric/registry.rs:3192 |
-| test145 | `test145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | src/fabric/registry.rs:3200 |
-| test146 | `test146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | src/fabric/registry.rs:3210 |
+| test141 | `test141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. | src/fabric/registry.rs:3212 |
+| test142 | `test142_normalize_handles_different_tag_orders` | TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing. | src/fabric/registry.rs:3222 |
+| test143 | `test143_default_config` | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. | src/fabric/registry.rs:3231 |
+| test0144 | `test0144_media_def_resolves_to_versioned_object_path_under_manifest` | TEST0144: a media def published under a manifest (v>=1) resolves to the VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a registry that silently runs in v0 mode fetches it and 404s every lookup against a versioned registry — the exact regression where a fabric-registry mirror defaulted its manifest version to 0. This pins both the URL rule and the manifest-driven defver resolution. | src/fabric/registry.rs:2993 |
+| test144 | `test144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | src/fabric/registry.rs:3242 |
+| test145 | `test145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | src/fabric/registry.rs:3250 |
+| test146 | `test146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | src/fabric/registry.rs:3260 |
 | test147 | `test147_registry_for_test_with_custom_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | src/fabric/registry.rs:2979 |
 | test148 | `test148_cap_manifest_creation` | TEST148: Manifest creation with cap groups | src/bifaci/manifest.rs:264 |
 | test149 | `test149_cap_manifest_with_author` | TEST149: Author field | src/bifaci/manifest.rs:392 |
@@ -552,15 +553,15 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test603 | `test603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | src/cap/response.rs:285 |
 | test605 | `test605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | src/standard/caps.rs:1191 |
 | test606 | `test606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | src/standard/caps.rs:1219 |
-| test607 | `test607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | src/fabric/registry.rs:2992 |
-| test608 | `test608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | src/fabric/registry.rs:3000 |
-| test609 | `test609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension→URN pairs. | src/fabric/registry.rs:3017 |
-| test610 | `test610_get_cached_media_def` | TEST610: get_cached_spec returns None for unknown and Some for known | src/fabric/registry.rs:3033 |
+| test607 | `test607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | src/fabric/registry.rs:3042 |
+| test608 | `test608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | src/fabric/registry.rs:3050 |
+| test609 | `test609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension→URN pairs. | src/fabric/registry.rs:3067 |
+| test610 | `test610_get_cached_media_def` | TEST610: get_cached_spec returns None for unknown and Some for known | src/fabric/registry.rs:3083 |
 | test612 | `test612_clear_cache` | TEST612: clear_cache empties the in-memory cache for seeded schemas. | src/media/profile.rs:700 |
 | test613 | `test613_validate_cached` | TEST613: validate_cached validates against cached standard schemas | src/media/profile.rs:717 |
-| test614 | `test614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | src/fabric/registry.rs:3043 |
-| test616 | `test616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | src/fabric/registry.rs:3049 |
-| test617 | `test617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | src/fabric/registry.rs:3063 |
+| test614 | `test614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | src/fabric/registry.rs:3093 |
+| test616 | `test616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | src/fabric/registry.rs:3099 |
+| test617 | `test617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | src/fabric/registry.rs:3113 |
 | test618 | `test618_registry_creation` | TEST618: Verify profile schema registry creation succeeds with temp cache | src/media/profile.rs:517 |
 | test619 | `test619_fresh_registry_cache_is_empty` | TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema. | src/media/profile.rs:526 |
 | test620 | `test620_string_validation` | TEST620: Verify string schema validates strings and rejects non-strings | src/media/profile.rs:539 |
@@ -796,7 +797,7 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test903 | `test903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | src/bifaci/frame.rs:1719 |
 | test904 | `test904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | src/bifaci/frame.rs:1744 |
 | test905 | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:5249 |
-| test908 | `test908_cached_caps_accessible_when_offline` | TEST908: cached caps remain accessible while offline. | src/fabric/registry.rs:3101 |
+| test908 | `test908_cached_caps_accessible_when_offline` | TEST908: cached caps remain accessible while offline. | src/fabric/registry.rs:3151 |
 | test910 | `test910_map_progress_monotonic` | TEST910: map_progress output is monotonic for monotonically increasing input | src/orchestrator/executor.rs:1734 |
 | test911 | `test911_map_progress_bounded` | TEST911: map_progress output is bounded within [base, base+weight] | src/orchestrator/executor.rs:1752 |
 | test912 | `test912_progress_mapper_reports_through_parent` | TEST912: ProgressMapper correctly maps through a CapProgressFn | src/orchestrator/executor.rs:1773 |
@@ -1130,7 +1131,7 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test1890 | `test1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. | src/fabric/registry.rs:2769 |
 | test1891 | `test1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | src/fabric/registry.rs:2800 |
 | test1892 | `test1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the "expose issues, no fallback" contract. | src/fabric/registry.rs:2835 |
-| test1893 | `test1893_cache_root_is_namespaced_per_registry_origin` | TEST1893: The on-disk cache root is namespaced per registry origin, so a prod-populated cache can never satisfy a staging lookup (and vice versa). Without this, a `CDG_FABRIC_REGISTRY_URL=staging` run reuses the prod-cached manifest/caps under one shared `capdag/` directory and resolves against the wrong snapshot — the bug that made `--staging` appear not to reach the scenario tests. This pins three properties: distinct origins → distinct roots; same origin → identical root (deterministic, so caching actually hits); and the slug is the same `slug_for` scheme the cartridge registry layout uses. | src/fabric/registry.rs:3228 |
+| test1893 | `test1893_cache_root_is_namespaced_per_registry_origin` | TEST1893: The on-disk cache root is namespaced per registry origin, so a prod-populated cache can never satisfy a staging lookup (and vice versa). Without this, a `CDG_FABRIC_REGISTRY_URL=staging` run reuses the prod-cached manifest/caps under one shared `capdag/` directory and resolves against the wrong snapshot — the bug that made `--staging` appear not to reach the scenario tests. This pins three properties: distinct origins → distinct roots; same origin → identical root (deterministic, so caching actually hits); and the slug is the same `slug_for` scheme the cartridge registry layout uses. | src/fabric/registry.rs:3278 |
 | test1894 | `test1894_select_display_alias_ordering` | TEST1894: select_display_alias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders. | src/fabric/registry.rs:2886 |
 | test1895 | `test1895_display_alias_for_urn` | TEST1895: display_alias_for_urn reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns None, (4) a non-URN string returns None. | src/fabric/registry.rs:2909 |
 | test1896 | `test1896_cached_cap_aliases_filters_to_cap_targets` | TEST1896: cached_cap_aliases returns only CAP-targeted aliases as (name, target) pairs — media aliases are excluded. Drives the notation editor's registered-alias completions. | src/fabric/registry.rs:2955 |
@@ -1138,10 +1139,10 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 | test6317 | `test6317_media_urn_resolution_with_registry` | TEST6317: Media urn resolution with registry | src/cap/schema_validation.rs:499 |
 | test6363 | `test6363_cap_manifest_with_page_url` | TEST6363: Cap manifest with page_url — the optional page_url is carried and serialized as `page_url`. | src/bifaci/manifest.rs:707 |
 | test6371 | `test6371_cap_manifest_compatibility` | TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys). | src/bifaci/manifest.rs:733 |
-| test6382 | `test6382_parse_registry_json_no_stdin` | TEST6382: Test parsing registry JSON without stdin args verifies cap structure | src/fabric/registry.rs:3152 |
-| test6388 | `test6388_per_cap_url_uses_sha256` | TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics. | src/fabric/registry.rs:3263 |
-| test6391 | `test6391_same_cap_different_spellings_same_url` | TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. | src/fabric/registry.rs:3274 |
-| test6396 | `test6396_malformed_cap_urn_fails_hard` | TEST6396: A malformed cap URN must FAIL HARD with a ParseError, not be passed through raw (the old fallback) and surface later as a misleading NotFound. The `out` value below contains an unquoted `=`, which the cap grammar rejects. Against the old `Err(_) => urn.to_string()` fallback, `normalize_cap_urn` returned the raw string and `cap_defver` then reported "not part of manifest" (a NotFound); this test asserts the truthful error. | src/fabric/registry.rs:3077 |
+| test6382 | `test6382_parse_registry_json_no_stdin` | TEST6382: Test parsing registry JSON without stdin args verifies cap structure | src/fabric/registry.rs:3202 |
+| test6388 | `test6388_per_cap_url_uses_sha256` | TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics. | src/fabric/registry.rs:3313 |
+| test6391 | `test6391_same_cap_different_spellings_same_url` | TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. | src/fabric/registry.rs:3324 |
+| test6396 | `test6396_malformed_cap_urn_fails_hard` | TEST6396: A malformed cap URN must FAIL HARD with a ParseError, not be passed through raw (the old fallback) and surface later as a misleading NotFound. The `out` value below contains an unquoted `=`, which the cap grammar rejects. Against the old `Err(_) => urn.to_string()` fallback, `normalize_cap_urn` returned the raw string and `cap_defver` then reported "not part of manifest" (a NotFound); this test asserts the truthful error. | src/fabric/registry.rs:3127 |
 | test6586 | `test6586_file_path_array_invalid_json_fails` | TEST6586: file-path-array with nonexistent path fails clearly | src/bifaci/cartridge_runtime.rs:5996 |
 | test6587 | `test6587_file_path_array_one_file_missing_fails_hard` | TEST6587: file-path-array with literal nonexistent path fails hard | src/bifaci/cartridge_runtime.rs:6053 |
 | test6588 | `test6588_file_path_array_empty_array` | TEST6588: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array — no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only. | src/bifaci/cartridge_runtime.rs:6349 |
@@ -1193,8 +1194,8 @@ This catalog lists all tests in the CapDag (Rust) codebase.
 ---
 
 *Generated from CapDag (Rust) source tree*
-*Total tests: 1174*
-*Total numbered tests: 1174*
+*Total tests: 1175*
+*Total numbered tests: 1175*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 0*

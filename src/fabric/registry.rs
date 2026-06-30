@@ -2982,6 +2982,56 @@ mod parity_port_tests {
         assert_eq!(registry.config().registry_base_url, "https://example.test/registry");
     }
 
+    // TEST0144: a media def published under a manifest (v>=1) resolves to the
+    // VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy
+    // flat path `/media/<sha>`. The flat path is the pre-manifest (v0) layout;
+    // a registry that silently runs in v0 mode fetches it and 404s every
+    // lookup against a versioned registry — the exact regression where a
+    // fabric-registry mirror defaulted its manifest version to 0. This pins
+    // both the URL rule and the manifest-driven defver resolution.
+    #[test]
+    fn test0144_media_def_resolves_to_versioned_object_path_under_manifest() {
+        // 1. Object-path rule: defver >= 1 → versioned; defver 0 → flat.
+        let config = RegistryConfig::new().with_registry_url("https://fabric.example.test");
+        let cache = std::path::Path::new("/tmp/capdag-test-cache-0144");
+        let urn = "media:enc=utf-8;ext=md";
+        let mut hasher = Sha256::new();
+        hasher.update(urn.as_bytes());
+        let hash = format!("{:x}", hasher.finalize());
+
+        let (versioned, _) = media_url_and_cache_path(cache, &config, urn, 1);
+        assert_eq!(
+            versioned,
+            format!("https://fabric.example.test/media/{}/1.json", hash),
+            "a def at manifest defver 1 must resolve to the versioned object path"
+        );
+        let (flat, _) = media_url_and_cache_path(cache, &config, urn, 0);
+        assert_eq!(
+            flat,
+            format!("https://fabric.example.test/media/{}", hash),
+            "defver 0 is the legacy flat path — the wrong target for a versioned registry"
+        );
+
+        // 2. Manifest-driven defver: a registry pinned at v>=1 resolves a
+        // published media def to its pinned defver (versioned), never 0.
+        let registry = FabricRegistry::new_for_test(); // pinned at manifest v1
+        assert!(
+            registry.manifest_version() >= 1,
+            "the production registry must be pinned at manifest v>=1, never the legacy v0 flat-path mode"
+        );
+        registry.insert_cached_media_def_for_test(spec_with_ext(
+            urn,
+            "Markdown",
+            "text/markdown",
+            &["md"],
+        ));
+        assert_eq!(
+            registry.media_defver_for(urn).unwrap(),
+            registry.manifest_version(),
+            "a published media def under a v>=1 manifest must resolve to the pinned defver, not 0"
+        );
+    }
+
     // (Media documentation propagation/round-trip is already covered by the
     // Rust reference's test1131/test1132/test1133 in media/spec.rs; the
     // mirrors' test288/test289 are the same behavior under a different number
