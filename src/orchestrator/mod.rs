@@ -39,8 +39,8 @@ pub use cbor_util::{
 };
 
 pub use executor::{
-    execute_dag, map_progress, CapProgressFn, CartridgeManager, EdgeGroup, ExecutionContext,
-    ExecutionError, NodeData, ProgressMapper,
+    execute_dag, map_progress, CapProgressFn, CapStepProgressFn, CartridgeManager, EdgeGroup,
+    ExecutionContext, ExecutionError, NodeData, ProgressMapper,
 };
 
 pub use stream_io::{

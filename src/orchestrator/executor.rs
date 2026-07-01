@@ -64,6 +64,13 @@ use tokio::sync::mpsc;
 /// Parameters: (progress 0.0–1.0, cap URN string, human-readable message)
 pub type CapProgressFn = Arc<dyn Fn(f32, &str, &str) + Send + Sync>;
 
+/// Side-channel callback reporting a single cap's OWN completion fraction (the
+/// mapper's un-mapped child value, before it is folded into the overall progress).
+/// Parameters: (step_progress 0.0–1.0, cap URN string). Attached only to the
+/// per-cap group mappers so a consumer can persist each section's own progress
+/// distinct from the whole-strand `overall` carried by `CapProgressFn`.
+pub type CapStepProgressFn = Arc<dyn Fn(f32, &str) + Send + Sync>;
+
 /// Maps child progress [0.0, 1.0] into a parent range [base, base + weight].
 ///
 /// This is the single progress mapping computation used everywhere:
@@ -90,6 +97,12 @@ pub struct ProgressMapper {
     base: f32,
     weight: f32,
     parent: CapProgressFn,
+    /// When set, every `report` also emits the raw (un-mapped) child value — this
+    /// cap's OWN completion fraction — so a per-step consumer sees each section's
+    /// progress. Attached only to the per-cap group mappers; sub-mappers created
+    /// via `sub_mapper` deliberately do NOT inherit it (their child is an intra-cap
+    /// phase fraction, not the cap's own progress).
+    step_sink: Option<CapStepProgressFn>,
 }
 
 impl ProgressMapper {
@@ -99,12 +112,26 @@ impl ProgressMapper {
             base,
             weight,
             parent: Arc::clone(parent),
+            step_sink: None,
         }
+    }
+
+    /// Attach a per-step sink that receives this mapper's raw child value (the cap's
+    /// own completion fraction) on every `report`.
+    pub fn with_step_sink(mut self, sink: &CapStepProgressFn) -> Self {
+        self.step_sink = Some(Arc::clone(sink));
+        self
     }
 
     /// Report child progress. The value is clamped to [0.0, 1.0] and mapped.
     pub fn report(&self, child_progress: f32, cap_urn: &str, msg: &str) {
-        let overall = map_progress(child_progress, self.base, self.weight);
+        let clamped = child_progress.clamp(0.0, 1.0);
+        // Emit the cap's own fraction BEFORE the overall so a consumer that reads a
+        // shared "latest step" cell inside the parent callback sees the fresh value.
+        if let Some(sink) = &self.step_sink {
+            sink(clamped, cap_urn);
+        }
+        let overall = map_progress(clamped, self.base, self.weight);
         (self.parent)(overall, cap_urn, msg);
     }
 
@@ -121,11 +148,18 @@ impl ProgressMapper {
     /// Example: if this mapper maps to [0.2, 0.8] (base=0.2, weight=0.6),
     /// and you create a sub-mapper with sub_base=0.5, sub_weight=0.5,
     /// the sub-mapper maps to [0.5, 0.8] in the parent's coordinate space.
+    ///
+    /// The sub-mapper does NOT inherit `step_sink`: it flattens onto this mapper's
+    /// `parent` (the grandparent), and its child is an intra-cap phase fraction, not
+    /// the cap's own progress. The live per-step value is sourced from the per-cap
+    /// group mappers' direct reports, which the machine streaming path drives; this
+    /// intra-cap subdivision is used by non-streaming phases only.
     pub fn sub_mapper(&self, sub_base: f32, sub_weight: f32) -> Self {
         Self {
             base: self.base + sub_base * self.weight,
             weight: sub_weight * self.weight,
             parent: Arc::clone(&self.parent),
+            step_sink: None,
         }
     }
 }
@@ -1837,6 +1871,43 @@ mod tests {
         assert_eq!(reports.len(), 2);
         assert!((reports[0] - 0.5).abs() < 0.001, "sub 0% maps to 0.5");
         assert!((reports[1] - 0.8).abs() < 0.001, "sub 100% maps to 0.8");
+    }
+
+    // TEST914b: ProgressMapper.with_step_sink emits the RAW child (the cap's own
+    // fraction) to the step sink while the parent still receives the MAPPED overall.
+    #[test]
+    fn test914b_progress_mapper_step_sink_reports_raw_child() {
+        let overall = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let overall_clone = Arc::clone(&overall);
+        let parent: CapProgressFn = Arc::new(move |p: f32, _cap: &str, _msg: &str| {
+            overall_clone.lock().unwrap().push(p);
+        });
+        let steps = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let steps_clone = Arc::clone(&steps);
+        let sink: CapStepProgressFn = Arc::new(move |step: f32, cap: &str| {
+            steps_clone.lock().unwrap().push((step, cap.to_string()));
+        });
+
+        // This cap occupies [0.5, 0.75] of the overall run (base=0.5, weight=0.25).
+        let mapper = ProgressMapper::new(&parent, 0.5, 0.25).with_step_sink(&sink);
+        mapper.report(0.0, "cap:x", "start");
+        mapper.report(0.4, "cap:x", "mid");
+        mapper.report(1.0, "cap:x", "end");
+        // A sub-mapper of a step-sink mapper does NOT re-fire the sink (intra-cap
+        // phase) — its child is not the cap's own progress.
+        let sub = mapper.sub_mapper(0.0, 0.5);
+        sub.report(1.0, "cap:x", "phase");
+
+        let steps = steps.lock().unwrap();
+        let overall = overall.lock().unwrap();
+        // The sink saw the cap's OWN progress, unmapped, exactly 3 times (not from the sub).
+        assert_eq!(steps.len(), 3, "only the group mapper fires the sink; sub_mapper does not");
+        assert!((steps[0].0 - 0.0).abs() < 0.001);
+        assert!((steps[1].0 - 0.4).abs() < 0.001, "sink gets the raw child, not the overall");
+        assert!((steps[2].0 - 1.0).abs() < 0.001);
+        assert_eq!(steps[1].1, "cap:x");
+        // The parent still saw that child mapped into [0.5, 0.75].
+        assert!((overall[1] - (0.5 + 0.4 * 0.25)).abs() < 0.001, "parent gets the mapped overall");
     }
 
     // TEST915: Per-group subdivision produces monotonic, bounded progress for N groups

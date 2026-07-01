@@ -227,6 +227,7 @@ pub use orchestrator::{
     unwrap_cbor_value,
     ActivityTimer,
     CapProgressFn,
+    CapStepProgressFn,
     CartridgeManager,
     CborUtilError,
     EdgeGroup,
