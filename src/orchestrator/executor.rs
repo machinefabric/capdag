@@ -66,10 +66,13 @@ pub type CapProgressFn = Arc<dyn Fn(f32, &str, &str) + Send + Sync>;
 
 /// Side-channel callback reporting a single cap's OWN completion fraction (the
 /// mapper's un-mapped child value, before it is folded into the overall progress).
-/// Parameters: (step_progress 0.0–1.0, cap URN string). Attached only to the
-/// per-cap group mappers so a consumer can persist each section's own progress
-/// distinct from the whole-strand `overall` carried by `CapProgressFn`.
-pub type CapStepProgressFn = Arc<dyn Fn(f32, &str) + Send + Sync>;
+/// Parameters: (step_progress 0.0–1.0, cap URN string, step token_id). The token_id
+/// is the stable per-step identity (`StrandStep.token_id`) of the reporting cap —
+/// the unambiguous key a consumer uses to attribute this fraction to the exact
+/// strand step (a cap URN alone is ambiguous when the same URN repeats). Attached
+/// only to the per-cap group mappers so a consumer can persist each section's own
+/// progress distinct from the whole-strand `overall` carried by `CapProgressFn`.
+pub type CapStepProgressFn = Arc<dyn Fn(f32, &str, &str) + Send + Sync>;
 
 /// Maps child progress [0.0, 1.0] into a parent range [base, base + weight].
 ///
@@ -103,6 +106,10 @@ pub struct ProgressMapper {
     /// via `sub_mapper` deliberately do NOT inherit it (their child is an intra-cap
     /// phase fraction, not the cap's own progress).
     step_sink: Option<CapStepProgressFn>,
+    /// The reporting cap's stable per-step identity, emitted to `step_sink` on every
+    /// `report` so the consumer can attribute the fraction unambiguously. Set together
+    /// with `step_sink` via `with_step_sink`; empty when no step sink is attached.
+    step_token_id: String,
 }
 
 impl ProgressMapper {
@@ -113,13 +120,16 @@ impl ProgressMapper {
             weight,
             parent: Arc::clone(parent),
             step_sink: None,
+            step_token_id: String::new(),
         }
     }
 
     /// Attach a per-step sink that receives this mapper's raw child value (the cap's
-    /// own completion fraction) on every `report`.
-    pub fn with_step_sink(mut self, sink: &CapStepProgressFn) -> Self {
+    /// own completion fraction) on every `report`, tagged with `token_id` — the
+    /// reporting cap step's stable identity.
+    pub fn with_step_sink(mut self, sink: &CapStepProgressFn, token_id: &str) -> Self {
         self.step_sink = Some(Arc::clone(sink));
+        self.step_token_id = token_id.to_string();
         self
     }
 
@@ -129,7 +139,7 @@ impl ProgressMapper {
         // Emit the cap's own fraction BEFORE the overall so a consumer that reads a
         // shared "latest step" cell inside the parent callback sees the fresh value.
         if let Some(sink) = &self.step_sink {
-            sink(clamped, cap_urn);
+            sink(clamped, cap_urn, &self.step_token_id);
         }
         let overall = map_progress(clamped, self.base, self.weight);
         (self.parent)(overall, cap_urn, msg);
@@ -160,6 +170,7 @@ impl ProgressMapper {
             weight: sub_weight * self.weight,
             parent: Arc::clone(&self.parent),
             step_sink: None,
+            step_token_id: String::new(),
         }
     }
 }
@@ -241,6 +252,10 @@ pub struct EdgeGroup {
     pub to: String,
     /// Cap URN (same for all edges in the group)
     pub cap_urn: String,
+    /// Stable per-step identity of this cap invocation, carried from the
+    /// originating `StrandStep.token_id`. A group is exactly one cap step, so all
+    /// its edges share this identity; the group's `to` node produced it.
+    pub token_id: String,
     /// All edges in this group (one or more)
     pub edges: Vec<ResolvedEdge>,
 }
@@ -266,9 +281,18 @@ fn build_edge_groups(edges: &[ResolvedEdge]) -> Vec<EdgeGroup> {
         .into_iter()
         .map(|key| {
             let edges = map.remove(&key).unwrap();
+            // A group is exactly one cap step; every edge in it shares the step's
+            // identity. Take the first edge's token_id as the group's identity
+            // (insertion order is preserved above, so this is deterministic).
+            let token_id = edges
+                .first()
+                .expect("edge group is built from a non-empty edge list")
+                .token_id
+                .clone();
             EdgeGroup {
                 to: key.0,
                 cap_urn: key.1,
+                token_id,
                 edges,
             }
         })
@@ -1884,12 +1908,16 @@ mod tests {
         });
         let steps = Arc::new(std::sync::Mutex::new(Vec::new()));
         let steps_clone = Arc::clone(&steps);
-        let sink: CapStepProgressFn = Arc::new(move |step: f32, cap: &str| {
-            steps_clone.lock().unwrap().push((step, cap.to_string()));
+        let sink: CapStepProgressFn = Arc::new(move |step: f32, cap: &str, token: &str| {
+            steps_clone
+                .lock()
+                .unwrap()
+                .push((step, cap.to_string(), token.to_string()));
         });
 
         // This cap occupies [0.5, 0.75] of the overall run (base=0.5, weight=0.25).
-        let mapper = ProgressMapper::new(&parent, 0.5, 0.25).with_step_sink(&sink);
+        let mapper =
+            ProgressMapper::new(&parent, 0.5, 0.25).with_step_sink(&sink, "tok-cap-x");
         mapper.report(0.0, "cap:x", "start");
         mapper.report(0.4, "cap:x", "mid");
         mapper.report(1.0, "cap:x", "end");
@@ -1906,6 +1934,11 @@ mod tests {
         assert!((steps[1].0 - 0.4).abs() < 0.001, "sink gets the raw child, not the overall");
         assert!((steps[2].0 - 1.0).abs() < 0.001);
         assert_eq!(steps[1].1, "cap:x");
+        // Every step report carries the reporting cap's stable identity — the key
+        // that disambiguates a repeated cap URN back to its exact strand step.
+        assert_eq!(steps[0].2, "tok-cap-x");
+        assert_eq!(steps[1].2, "tok-cap-x");
+        assert_eq!(steps[2].2, "tok-cap-x");
         // The parent still saw that child mapped into [0.5, 0.75].
         assert!((overall[1] - (0.5 + 0.4 * 0.25)).abs() < 0.001, "parent gets the mapped overall");
     }

@@ -432,6 +432,10 @@ pub fn parse_machine_with_node_names(
             let target_node_id = intern_named(&w.target, &node_media, &mut nodes, &mut name_to_id);
 
             pre_interned.push(PreInternedWiring {
+                // The notation (static-machine) path has no resolved-strand step to
+                // inherit from, so each parsed wiring's edge gets its own freshly
+                // minted stable identity.
+                token_id: uuid::Uuid::new_v4().to_string(),
                 cap_urn: cap_urn.clone(),
                 source_node_ids,
                 target_node_id,

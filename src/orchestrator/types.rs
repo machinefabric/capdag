@@ -69,6 +69,10 @@ pub enum ParseOrchestrationError {
 /// A resolved edge in the orchestration graph
 #[derive(Debug, Clone)]
 pub struct ResolvedEdge {
+    /// Stable per-step identity carried from the originating `StrandStep.token_id`
+    /// (via the plan's Cap node). This is the key by which a run's live progress
+    /// updates map deterministically back to the client-rendered graph element.
+    pub token_id: String,
     /// Source node name
     pub from: String,
     /// Target node name
@@ -208,6 +212,7 @@ mod tests {
             ]),
             edges: vec![
                 ResolvedEdge {
+                    token_id: "tok-0".to_string(),
                     from: "input".to_string(),
                     to: "middle".to_string(),
                     cap_urn: cap.urn.to_string(),
@@ -216,6 +221,7 @@ mod tests {
                     out_media: "media:enc=utf-8;ext=txt".to_string(),
                 },
                 ResolvedEdge {
+                    token_id: "tok-1".to_string(),
                     from: "input".to_string(),
                     to: "middle".to_string(),
                     cap_urn: cap.urn.to_string(),
@@ -224,6 +230,7 @@ mod tests {
                     out_media: "media:enc=utf-8;ext=txt".to_string(),
                 },
                 ResolvedEdge {
+                    token_id: "tok-2".to_string(),
                     from: "middle".to_string(),
                     to: "output".to_string(),
                     cap_urn: second_cap.urn.to_string(),

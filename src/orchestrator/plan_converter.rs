@@ -151,7 +151,10 @@ pub async fn plan_to_resolved_graph(
                 })?;
 
         // Only create ResolvedEdges for edges that point to Cap nodes
-        if let ExecutionNodeType::Cap { cap_urn, .. } = &to_node.node_type {
+        if let ExecutionNodeType::Cap {
+            cap_urn, token_id, ..
+        } = &to_node.node_type
+        {
             let cap = lookup_cached(cap_urn)?;
             let in_media = cap.urn.in_spec().to_string();
             let out_media = cap.urn.out_spec().to_string();
@@ -168,6 +171,7 @@ pub async fn plan_to_resolved_graph(
             // The cap's output is stored at the cap node itself
             // This allows the next edge (cap_0 → cap_1) to find data at cap_0
             resolved_edges.push(ResolvedEdge {
+                token_id: token_id.clone(),
                 from,
                 to: edge.to_node.clone(), // Store output at the cap node
                 cap_urn: cap_urn.clone(),

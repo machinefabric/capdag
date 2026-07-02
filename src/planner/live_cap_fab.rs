@@ -223,6 +223,14 @@ pub enum StrandStepType {
 /// Information about a single step in a capability chain path.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StrandStep {
+    /// Stable per-step identity, minted once when the step is created (the very
+    /// source of a resolved strand). It is the single key that ties this element
+    /// of the realized graph to every live update the run emits for it — so a
+    /// repeated cap URN in one strand is never ambiguous. Alias-free and
+    /// notation-independent (aliases are display-only); it travels verbatim
+    /// through serialization, the run's persisted `resolved_strand`, the render
+    /// payload, and every progress message.
+    pub token_id: String,
     /// Type of step (cap or cardinality transition)
     pub step_type: StrandStepType,
     /// Input media type for this step
@@ -232,6 +240,23 @@ pub struct StrandStep {
 }
 
 impl StrandStep {
+    /// Create a step, minting its stable `token_id`. This is the ONLY way a step
+    /// is born in production, so every step in a resolved strand carries an id
+    /// from creation; deserialization preserves the stored id verbatim.
+    pub fn new(step_type: StrandStepType, from_spec: MediaUrn, to_spec: MediaUrn) -> Self {
+        Self {
+            token_id: uuid::Uuid::new_v4().to_string(),
+            step_type,
+            from_spec,
+            to_spec,
+        }
+    }
+
+    /// The step's stable identity (see `token_id`).
+    pub fn token_id(&self) -> &str {
+        &self.token_id
+    }
+
     /// Get the title for this step (for display purposes)
     pub fn title(&self) -> String {
         match &self.step_type {
@@ -1172,11 +1197,11 @@ impl LiveCapFab {
                     },
                 };
 
-                current_path.push(StrandStep {
+                current_path.push(StrandStep::new(
                     step_type,
-                    from_spec: edge.from_spec.clone(),
-                    to_spec: edge.to_spec.clone(),
-                });
+                    edge.from_spec.clone(),
+                    edge.to_spec.clone(),
+                ));
 
                 self.iddfs_find_paths(
                     source,
@@ -2047,8 +2072,8 @@ mod tests {
     fn test1110_strand_round_trips_through_serde_without_losing_step_types() {
         let strand = Strand {
             steps: vec![
-                StrandStep {
-                    step_type: StrandStepType::Cap {
+                StrandStep::new(
+                    StrandStepType::Cap {
                         cap_urn: CapUrn::from_string(
                             r#"cap:disbind;in="media:ext=pdf";out="media:enc=utf-8;page""#,
                         )
@@ -2058,16 +2083,16 @@ mod tests {
                         input_is_sequence: false,
                         output_is_sequence: true,
                     },
-                    from_spec: MediaUrn::from_string("media:ext=pdf").unwrap(),
-                    to_spec: MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
-                },
-                StrandStep {
-                    step_type: StrandStepType::ForEach {
+                    MediaUrn::from_string("media:ext=pdf").unwrap(),
+                    MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
+                ),
+                StrandStep::new(
+                    StrandStepType::ForEach {
                         media_def: MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
                     },
-                    from_spec: MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
-                    to_spec: MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
-                },
+                    MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
+                    MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
+                ),
             ],
             source_media_urn: MediaUrn::from_string("media:ext=pdf").unwrap(),
             target_media_urn: MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
@@ -2078,6 +2103,18 @@ mod tests {
 
         let json = serde_json::to_string(&strand).expect("strand should serialize");
         let recovered: Strand = serde_json::from_str(&json).expect("strand should deserialize");
+        // The stable per-step token_id must survive the serde round-trip verbatim —
+        // it's the identity the run's live updates key off, so losing/regenerating
+        // it would silently break update→element routing.
+        assert_eq!(recovered.steps.len(), strand.steps.len());
+        for (orig, got) in strand.steps.iter().zip(recovered.steps.iter()) {
+            assert!(!orig.token_id.is_empty(), "each step is minted with a token_id");
+            assert_eq!(orig.token_id, got.token_id, "token_id must round-trip unchanged");
+        }
+        assert_ne!(
+            strand.steps[0].token_id, strand.steps[1].token_id,
+            "distinct steps get distinct token_ids",
+        );
 
         let expected_source = MediaUrn::from_string("media:ext=pdf").unwrap();
         let expected_target = MediaUrn::from_string("media:enc=utf-8;page").unwrap();
@@ -2370,17 +2407,17 @@ mod tests {
         let cap_urn =
             CapUrn::from_string("cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"").unwrap();
         let strand = Strand {
-            steps: vec![StrandStep {
-                step_type: StrandStepType::Cap {
+            steps: vec![StrandStep::new(
+                StrandStepType::Cap {
                     cap_urn: cap_urn.clone(),
                     title: "Extract".to_string(),
                     specificity: 0,
                     input_is_sequence: false,
                     output_is_sequence: false,
                 },
-                from_spec: MediaUrn::from_string("media:ext=pdf").unwrap(),
-                to_spec: MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
-            }],
+                MediaUrn::from_string("media:ext=pdf").unwrap(),
+                MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
+            )],
             source_media_urn: MediaUrn::from_string("media:ext=pdf").unwrap(),
             target_media_urn: MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
             total_steps: 1,
@@ -2416,17 +2453,17 @@ mod tests {
         let cap_urn =
             CapUrn::from_string("cap:ghost;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"").unwrap();
         let strand = Strand {
-            steps: vec![StrandStep {
-                step_type: StrandStepType::Cap {
+            steps: vec![StrandStep::new(
+                StrandStepType::Cap {
                     cap_urn: cap_urn.clone(),
                     title: "Ghost".to_string(),
                     specificity: 0,
                     input_is_sequence: false,
                     output_is_sequence: false,
                 },
-                from_spec: MediaUrn::from_string("media:ext=pdf").unwrap(),
-                to_spec: MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
-            }],
+                MediaUrn::from_string("media:ext=pdf").unwrap(),
+                MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
+            )],
             source_media_urn: MediaUrn::from_string("media:ext=pdf").unwrap(),
             target_media_urn: MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
             total_steps: 1,

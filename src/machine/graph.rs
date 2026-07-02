@@ -135,6 +135,13 @@ pub struct MachineEdge {
     pub assignment: Vec<EdgeAssignmentBinding>,
     pub target: NodeId,
     pub is_loop: bool,
+    /// Stable identity of the originating resolved-strand step (see
+    /// `StrandStep::token_id`), carried onto the executable DAG unit so a running
+    /// cap can report *which* step it is — the key the run's live updates route
+    /// by. It is IDENTITY, not semantics: `is_equivalent_with` deliberately
+    /// ignores it (two structurally-identical machines stay equivalent even with
+    /// different per-run token_ids).
+    pub token_id: String,
 }
 
 impl MachineEdge {

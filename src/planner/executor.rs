@@ -141,6 +141,7 @@ impl<E: CapExecutor> MachineExecutor<E> {
 
         match &node.node_type {
             ExecutionNodeType::Cap {
+                token_id: _,
                 cap_urn,
                 arg_bindings,
                 preferred_cap,
@@ -211,6 +212,7 @@ impl<E: CapExecutor> MachineExecutor<E> {
             }
 
             ExecutionNodeType::ForEach {
+                token_id: _,
                 input_node,
                 body_entry,
                 body_exit,

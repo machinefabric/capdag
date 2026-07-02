@@ -205,7 +205,12 @@ impl MachinePlanBuilder {
                         }
                     }
 
-                    let node = MachineNode::cap_with_bindings(&node_id, &cap_urn_str, bindings);
+                    let node = MachineNode::cap_with_bindings_token(
+                        &node_id,
+                        &cap_urn_str,
+                        bindings,
+                        step.token_id.clone(),
+                    );
                     plan.add_node(node);
                     plan.add_edge(MachinePlanEdge::direct(&prev_node_id, &node_id));
 
@@ -256,12 +261,14 @@ impl MachinePlanBuilder {
                             )));
                         }
 
-                        // Create the outer ForEach node
-                        let foreach_node = MachineNode::for_each(
+                        // Create the outer ForEach node, preserving the ForEach step's
+                        // identity so its aggregate progress maps to the client graph.
+                        let foreach_node = MachineNode::for_each_token(
                             &outer_foreach_node_id,
                             &outer_foreach_input,
                             &outer_entry,
                             &outer_exit,
+                            path.steps[outer_foreach_idx].token_id.clone(),
                         );
                         plan.add_node(foreach_node);
                         plan.add_edge(MachinePlanEdge::direct(
@@ -297,9 +304,15 @@ impl MachinePlanBuilder {
                             format!("step_{}", foreach_idx - 1)
                         };
 
-                        // Create the ForEach node now that we know the body boundaries
-                        let foreach_node =
-                            MachineNode::for_each(&foreach_node_id, &foreach_input, &entry, &exit);
+                        // Create the ForEach node now that we know the body boundaries,
+                        // preserving the ForEach step's identity.
+                        let foreach_node = MachineNode::for_each_token(
+                            &foreach_node_id,
+                            &foreach_input,
+                            &entry,
+                            &exit,
+                            path.steps[foreach_idx].token_id.clone(),
+                        );
                         plan.add_node(foreach_node);
                         plan.add_edge(MachinePlanEdge::direct(&foreach_input, &foreach_node_id));
 
@@ -371,9 +384,14 @@ impl MachinePlanBuilder {
                     )));
                 }
 
-                // Create the ForEach node
-                let foreach_node =
-                    MachineNode::for_each(&foreach_node_id, &foreach_input, &entry, &exit);
+                // Create the ForEach node, preserving the ForEach step's identity.
+                let foreach_node = MachineNode::for_each_token(
+                    &foreach_node_id,
+                    &foreach_input,
+                    &entry,
+                    &exit,
+                    path.steps[foreach_idx].token_id.clone(),
+                );
                 plan.add_node(foreach_node);
                 plan.add_edge(MachinePlanEdge::direct(&foreach_input, &foreach_node_id));
 

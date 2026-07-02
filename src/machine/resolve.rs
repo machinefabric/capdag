@@ -74,6 +74,9 @@ use super::graph::{EdgeAssignmentBinding, MachineEdge, MachineStrand, NodeId};
 /// interning equivalent URNs into the same `NodeId`.
 #[derive(Debug, Clone)]
 pub struct PreInternedWiring {
+    /// The originating resolved-strand step's stable identity, carried onto the
+    /// resulting `MachineEdge` (see `MachineEdge::token_id`).
+    pub token_id: String,
     pub cap_urn: CapUrn,
     /// Source NodeIds in the order the upstream layer wrote
     /// them. Position carries no semantics — the matching
@@ -152,6 +155,7 @@ pub fn resolve_strand(
                 nodes.push(step.to_spec.clone());
 
                 pre_interned.push(PreInternedWiring {
+                    token_id: step.token_id.clone(),
                     cap_urn: cap_urn.clone(),
                     source_node_ids: vec![source_id],
                     target_node_id: target_id,
@@ -357,6 +361,7 @@ pub fn resolve_pre_interned(
         bindings.sort_by(|a, b| a.cap_arg_media_urn.cmp(&b.cap_arg_media_urn));
 
         indexed_edges.push(MachineEdge {
+            token_id: wiring.token_id.clone(),
             cap_urn: wiring.cap_urn.clone(),
             assignment: bindings,
             target: wiring.target_node_id,
@@ -1291,6 +1296,7 @@ mod tests {
         let cap_urn =
             CapUrn::from_string("cap:in=\"media:ext=pdf\";merge;out=\"media:enc=utf-8;ext=txt\"").unwrap();
         let wirings = vec![PreInternedWiring {
+            token_id: "tok-1".to_string(),
             cap_urn,
             source_node_ids: vec![0, 1], // pdf first, enc=utf-8 second
             target_node_id: 2,
@@ -1331,12 +1337,14 @@ mod tests {
         // node 0 -> cap_a -> node 1  and  node 1 -> cap_b -> node 0 (cycle)
         let wirings = vec![
             PreInternedWiring {
+                token_id: "tok-2".to_string(),
                 cap_urn: CapUrn::from_string(urn_a).unwrap(),
                 source_node_ids: vec![0],
                 target_node_id: 1,
                 is_loop: false,
             },
             PreInternedWiring {
+                token_id: "tok-3".to_string(),
                 cap_urn: CapUrn::from_string(urn_b).unwrap(),
                 source_node_ids: vec![1],
                 target_node_id: 0,

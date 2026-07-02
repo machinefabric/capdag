@@ -14,6 +14,7 @@ use super::cardinality::InputCardinality;
 use super::PlannerError;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use uuid::Uuid;
 
 /// Unique identifier for a node in the execution plan
 pub type NodeId = String;
@@ -24,6 +25,11 @@ pub type NodeId = String;
 pub enum ExecutionNodeType {
     /// Execute a single cap
     Cap {
+        /// Stable per-step identity (the capdag `StrandStep.token_id`). This is the
+        /// canonical, alias-free key by which a run's progress updates map back to the
+        /// exact graph element the client rendered. It is minted once at the strand's
+        /// source and threaded verbatim through the plan → resolved graph → progress.
+        token_id: String,
         /// The cap URN to execute
         cap_urn: String,
         /// Argument bindings for this cap
@@ -42,6 +48,10 @@ pub enum ExecutionNodeType {
     /// Auto-inserted when sequence feeds into single-input cap.
     /// Creates parallel execution branches for each input item.
     ForEach {
+        /// Stable per-step identity (the ForEach `StrandStep.token_id`). The run's
+        /// aggregate per-item progress is reported under this identity so it maps to
+        /// the exact ForEach graph element the client rendered.
+        token_id: String,
         /// Node that provides the input sequence
         input_node: NodeId,
         /// Entry point of the per-item sub-graph
@@ -133,11 +143,17 @@ pub struct MachineNode {
 }
 
 impl MachineNode {
-    /// Create a cap execution node
+    /// Create a cap execution node.
+    ///
+    /// Mints a fresh `token_id`: this constructor builds cap nodes for plans that
+    /// are NOT derived from a resolved strand (notation-derived demos, tests). A run
+    /// whose progress must map back to a client-rendered strand uses
+    /// [`MachineNode::cap_with_bindings_token`] to preserve the strand's identity.
     pub fn cap(id: &str, cap_urn: &str) -> Self {
         Self {
             id: id.to_string(),
             node_type: ExecutionNodeType::Cap {
+                token_id: Uuid::new_v4().to_string(),
                 cap_urn: cap_urn.to_string(),
                 arg_bindings: ArgumentBindings::new(),
                 preferred_cap: None,
@@ -146,11 +162,38 @@ impl MachineNode {
         }
     }
 
-    /// Create a cap node with argument bindings
+    /// Create a cap node with argument bindings.
+    ///
+    /// Mints a fresh `token_id`. See [`MachineNode::cap`] for when identity is minted
+    /// vs preserved; the run path uses [`MachineNode::cap_with_bindings_token`].
     pub fn cap_with_bindings(id: &str, cap_urn: &str, bindings: ArgumentBindings) -> Self {
         Self {
             id: id.to_string(),
             node_type: ExecutionNodeType::Cap {
+                token_id: Uuid::new_v4().to_string(),
+                cap_urn: cap_urn.to_string(),
+                arg_bindings: bindings,
+                preferred_cap: None,
+            },
+            description: None,
+        }
+    }
+
+    /// Create a cap node with argument bindings, preserving a strand step's identity.
+    ///
+    /// Used by the run path (`build_plan_from_path`) so the plan's cap node carries the
+    /// exact `token_id` minted on the originating `StrandStep`. This is what makes a
+    /// run's live progress updates map deterministically to the client's graph element.
+    pub fn cap_with_bindings_token(
+        id: &str,
+        cap_urn: &str,
+        bindings: ArgumentBindings,
+        token_id: String,
+    ) -> Self {
+        Self {
+            id: id.to_string(),
+            node_type: ExecutionNodeType::Cap {
+                token_id,
                 cap_urn: cap_urn.to_string(),
                 arg_bindings: bindings,
                 preferred_cap: None,
@@ -169,6 +212,7 @@ impl MachineNode {
         Self {
             id: id.to_string(),
             node_type: ExecutionNodeType::Cap {
+                token_id: Uuid::new_v4().to_string(),
                 cap_urn: cap_urn.to_string(),
                 arg_bindings: bindings,
                 preferred_cap,
@@ -177,11 +221,33 @@ impl MachineNode {
         }
     }
 
-    /// Create a ForEach (fan-out) node
+    /// Create a ForEach (fan-out) node.
+    ///
+    /// Mints a fresh `token_id`. The run path uses
+    /// [`MachineNode::for_each_token`] to preserve the originating ForEach step's
+    /// identity so its aggregate progress maps to the client's graph element.
     pub fn for_each(id: &str, input_node: &str, body_entry: &str, body_exit: &str) -> Self {
+        Self::for_each_token(
+            id,
+            input_node,
+            body_entry,
+            body_exit,
+            Uuid::new_v4().to_string(),
+        )
+    }
+
+    /// Create a ForEach (fan-out) node, preserving the originating step's identity.
+    pub fn for_each_token(
+        id: &str,
+        input_node: &str,
+        body_entry: &str,
+        body_exit: &str,
+        token_id: String,
+    ) -> Self {
         Self {
             id: id.to_string(),
             node_type: ExecutionNodeType::ForEach {
+                token_id,
                 input_node: input_node.to_string(),
                 body_entry: body_entry.to_string(),
                 body_exit: body_exit.to_string(),
@@ -1478,6 +1544,7 @@ mod tests {
     #[test]
     fn test743_execution_node_type_serialization() {
         let cap_node = ExecutionNodeType::Cap {
+            token_id: "tok-cap-test".to_string(),
             cap_urn: "cap:test".to_string(),
             arg_bindings: ArgumentBindings::new(),
             preferred_cap: None,
@@ -1485,8 +1552,14 @@ mod tests {
         let json = serde_json::to_string(&cap_node).unwrap();
         assert!(json.contains("cap"));
         assert!(json.contains("cap:test"));
+        assert!(
+            json.contains("tok-cap-test"),
+            "Cap node must serialize its token_id identity: {}",
+            json
+        );
 
         let foreach_node = ExecutionNodeType::ForEach {
+            token_id: "tok-foreach".to_string(),
             input_node: "input".to_string(),
             body_entry: "body".to_string(),
             body_exit: "body".to_string(),

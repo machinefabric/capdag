@@ -125,39 +125,39 @@ pub(crate) fn cap(urn: &str) -> CapUrn {
 /// new regime they should match the cap's declared in/out
 /// patterns (or a more-specific URN that conforms).
 pub(crate) fn cap_step(cap_urn_str: &str, title: &str, from: &str, to: &str) -> StrandStep {
-    StrandStep {
-        step_type: StrandStepType::Cap {
+    StrandStep::new(
+        StrandStepType::Cap {
             cap_urn: cap(cap_urn_str),
             title: title.to_string(),
             specificity: 0,
             input_is_sequence: false,
             output_is_sequence: false,
         },
-        from_spec: media(from),
-        to_spec: media(to),
-    }
+        media(from),
+        media(to),
+    )
 }
 
 /// Build a `ForEach` strand step.
 pub(crate) fn for_each_step(media_urn: &str) -> StrandStep {
-    StrandStep {
-        step_type: StrandStepType::ForEach {
+    StrandStep::new(
+        StrandStepType::ForEach {
             media_def: media(media_urn),
         },
-        from_spec: media(media_urn),
-        to_spec: media(media_urn),
-    }
+        media(media_urn),
+        media(media_urn),
+    )
 }
 
 /// Build a `Collect` strand step.
 pub(crate) fn collect_step(media_urn: &str) -> StrandStep {
-    StrandStep {
-        step_type: StrandStepType::Collect {
+    StrandStep::new(
+        StrandStepType::Collect {
             media_def: media(media_urn),
         },
-        from_spec: media(media_urn),
-        to_spec: media(media_urn),
-    }
+        media(media_urn),
+        media(media_urn),
+    )
 }
 
 /// Wrap a list of steps into a `Strand`. Source/target specs
