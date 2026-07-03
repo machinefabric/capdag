@@ -2462,22 +2462,40 @@ impl RelaySwitch {
                         .ok_or_else(|| RelaySwitchError::NoHandler(cap_urn.clone()))?
                 };
 
-                // Assign XID if absent (first arrival at RelaySwitch)
-                let xid = if let Some(ref existing_xid) = frame.routing_id {
-                    existing_xid.clone()
-                } else {
-                    let new_xid =
-                        MessageId::Uint(self.xid_counter.fetch_add(1, Ordering::SeqCst) + 1);
-                    frame.routing_id = Some(new_xid.clone());
-                    new_xid
-                };
+                // A REQ arriving WITH an XID is the pre-registered path:
+                // the caller obtained the XID (and its response channel) from
+                // `register_external_request*` and is now sending the frames
+                // itself. The request is already in the table — registering
+                // again would violate L7's register-once. Route to the
+                // REGISTERED destination (the registration's dispatch
+                // decision is authoritative). An XID-stamped REQ with no
+                // registration is a caller bug and fails hard.
+                if let Some(existing_xid) = frame.routing_id.clone() {
+                    let key = (existing_xid, frame.id.clone());
+                    let registered_dest = self
+                        .requests
+                        .read()
+                        .await
+                        .get(&key)
+                        .map(|state| state.routing.destination_master_idx);
+                    let Some(dest) = registered_dest else {
+                        return Err(RelaySwitchError::Protocol(format!(
+                            "REQ ({}, {}) carries an XID but was never registered —                              obtain the XID from register_external_request (L7)",
+                            key.0, key.1
+                        )));
+                    };
+                    self.write_to_master_idx(dest, &mut frame).await?;
+                    return Ok(());
+                }
 
-                let rid = frame.id.clone();
-                let key = (xid.clone(), rid.clone());
+                // No XID: first arrival at the RelaySwitch — assign and
+                // register (origin None = external caller via send_to_master,
+                // no response channel; responses return via
+                // read_from_masters), then forward (L7).
+                let xid = MessageId::Uint(self.xid_counter.fetch_add(1, Ordering::SeqCst) + 1);
+                frame.routing_id = Some(xid.clone());
+                let key = (xid, frame.id.clone());
 
-                // Register the request: origin None (external caller via
-                // send_to_master), no response channel — responses return via
-                // read_from_masters (L7).
                 self.requests
                     .write()
                     .await

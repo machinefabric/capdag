@@ -803,6 +803,13 @@ pub struct CartridgeHostRuntime {
     /// END later arrives, the entry is released immediately instead of being
     /// marked body-done.
     incoming_response_done: HashSet<(MessageId, MessageId)>,
+    /// Inventory records the host does NOT manage as processes — discovery
+    /// outcomes like incompatible installs (verdict-rejected, wrong manifest
+    /// version, quarantined). Merged into EVERY capabilities advertisement so
+    /// a host-originated RelayNotify can never erase them from the engine's
+    /// inventory. Failure visibility is a hard requirement: a cartridge that
+    /// exists on disk always appears in the inventory, healthy or not.
+    static_inventory_records: Vec<InstalledCartridgeRecord>,
 }
 
 /// The host runtime's protocol observability snapshot (L8): per-reason drop
@@ -845,6 +852,17 @@ impl CartridgeHostRuntime {
     /// GC passes can carry the table back down to half-full if
     /// traffic briefly stays above the watermark.
     pub(crate) const ROUTING_TABLE_GC_EVICTION_FRACTION: f64 = 0.25;
+
+    /// Provide inventory records for cartridges this host does NOT manage as
+    /// processes — discovery outcomes such as incompatible installs, carrying
+    /// their `attachment_error`. They are merged into every capabilities
+    /// advertisement (initial and republished), so the engine's inventory —
+    /// and therefore the UI — always shows every on-disk cartridge with its
+    /// status. Silence on failure is a bug; this is the mechanism that
+    /// prevents it.
+    pub fn set_static_inventory_records(&mut self, records: Vec<InstalledCartridgeRecord>) {
+        self.static_inventory_records = records;
+    }
 
     /// Protocol observability snapshot (L8): drop counters, routing-table
     /// sizes, and GC totals for this host.
@@ -1033,6 +1051,7 @@ impl CartridgeHostRuntime {
             drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
             incoming_body_done: HashSet::new(),
             incoming_response_done: HashSet::new(),
+            static_inventory_records: Vec::new(),
             routing_touch_seq: 0,
             routing_gc_runs_total: 0,
             routing_gc_evicted_total: 0,
@@ -2794,14 +2813,11 @@ impl CartridgeHostRuntime {
             *peer_counts.entry(idx).or_insert(0) += 1;
         }
 
-        let result: Vec<InstalledCartridgeRecord> = self
+        let mut result: Vec<InstalledCartridgeRecord> = self
             .cartridges
             .iter()
             .enumerate()
             .filter_map(|(_idx, cartridge)| {
-                if cartridge.hello_failed {
-                    return None;
-                }
                 let base = cartridge.installed_cartridge_record()?;
                 let pid = cartridge.process.as_ref().and_then(|c| c.id());
                 let stats = CartridgeRuntimeStats {
@@ -2814,6 +2830,31 @@ impl CartridgeHostRuntime {
                     last_heartbeat_unix_seconds: cartridge.last_heartbeat_unix_seconds,
                     restart_count: cartridge.restart_count,
                 };
+                // A cartridge whose HELLO failed (e.g. a pre-v3 binary hard-
+                // rejected by the version check) stays IN the inventory with
+                // an attachment error — never silently absent. It carries no
+                // cap_groups, so it is never routable.
+                if cartridge.hello_failed {
+                    return Some(InstalledCartridgeRecord {
+                        runtime_stats: Some(stats),
+                        cap_groups: Vec::new(),
+                        attachment_error: Some(CartridgeAttachmentError {
+                            kind: CartridgeAttachmentErrorKind::HandshakeFailed,
+                            message: cartridge
+                                .last_death_message
+                                .clone()
+                                .unwrap_or_else(|| {
+                                    "HELLO handshake failed (protocol version mismatch or                                      malformed manifest) — rebuild the cartridge against the                                      current protocol"
+                                        .to_string()
+                                }),
+                            detected_at_unix_seconds: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs() as i64)
+                                .unwrap_or(0),
+                        }),
+                        ..base
+                    });
+                }
                 Some(InstalledCartridgeRecord {
                     runtime_stats: Some(stats),
                     cap_groups: cartridge.cap_groups.clone(),
@@ -2821,6 +2862,9 @@ impl CartridgeHostRuntime {
                 })
             })
             .collect();
+        // Discovery outcomes the host doesn't manage (incompatible installs)
+        // ride every advertisement so no republish can erase them.
+        result.extend(self.static_inventory_records.iter().cloned());
         result
     }
 
