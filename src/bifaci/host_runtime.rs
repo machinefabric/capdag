@@ -362,6 +362,12 @@ struct ManagedCartridge {
     writer_handle: Option<JoinHandle<()>>,
     /// Whether HELLO handshake permanently failed (binary is broken, no relaunch).
     hello_failed: bool,
+    /// Retired by a roster sync (the install was removed/replaced on disk).
+    /// A removed cartridge disappears from the inventory entirely — unlike
+    /// `hello_failed`, which stays visible carrying an attachment error.
+    /// Slots are never physically removed (reader/death events hold indices),
+    /// so this flag is the retirement mechanism. Mirrors Swift's `isRemoved`.
+    removed: bool,
     /// Pending heartbeats sent to this cartridge (ID → sent time).
     pending_heartbeats: HashMap<MessageId, Instant>,
     /// Stderr handle for capturing crash output.
@@ -418,6 +424,7 @@ impl ManagedCartridge {
             reader_handle: None,
             writer_handle: None,
             hello_failed: false,
+            removed: false,
             pending_heartbeats: HashMap::new(),
             stderr_handle: None,
             last_death_message: None,
@@ -534,6 +541,7 @@ impl ManagedCartridge {
             reader_handle: None,
             writer_handle: None,
             hello_failed,
+            removed: false,
             pending_heartbeats: HashMap::new(),
             stderr_handle: None,
             last_death_message: None,
@@ -564,6 +572,7 @@ impl ManagedCartridge {
             reader_handle: None,
             writer_handle: None,
             hello_failed: false,
+            removed: false,
             pending_heartbeats: HashMap::new(),
             stderr_handle: None,
             last_death_message: None,
@@ -2274,7 +2283,7 @@ impl CartridgeHostRuntime {
 
         // Retire registered-dir cartridges no longer desired.
         for idx in 0..self.cartridges.len() {
-            if self.cartridges[idx].hello_failed {
+            if self.cartridges[idx].removed {
                 continue;
             }
             let Some(rec) = self.cartridges[idx].installed_cartridge_record() else {
@@ -2294,7 +2303,8 @@ impl CartridgeHostRuntime {
                     let _ = child.kill().await;
                 }
             }
-            self.cartridges[idx].hello_failed = true; // drop from cap table + inventory
+            self.cartridges[idx].removed = true; // retire: drop from cap table + inventory
+            self.cartridges[idx].hello_failed = true; // keep out of dispatch/spawn paths
         }
 
         // Add newly-desired specs not already registered.
@@ -2818,6 +2828,11 @@ impl CartridgeHostRuntime {
             .iter()
             .enumerate()
             .filter_map(|(_idx, cartridge)| {
+                // Retired installs are gone from the inventory entirely —
+                // retirement is not a failure, there is nothing to report.
+                if cartridge.removed {
+                    return None;
+                }
                 let base = cartridge.installed_cartridge_record()?;
                 let pid = cartridge.process.as_ref().and_then(|c| c.id());
                 let stats = CartridgeRuntimeStats {
@@ -5916,6 +5931,86 @@ mod tests {
     // reconnecting, and a subsequent empty sync removes it. This is the
     // macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a
     // registry verdict flips a held cartridge to Listed.
+    // TEST7089: A cartridge whose HELLO permanently failed stays IN the inventory advertisement carrying a handshake_failed attachment error and no cap groups — failure is named, never silently absent; a roster-retired cartridge disappears entirely.
+    #[tokio::test]
+    async fn test7089_hello_failed_stays_in_inventory_with_error() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("cartridge.json"),
+            r#"{"name":"stalecart","version":"1.0.0","channel":"release","registry_url":null,"entry":"bin","installed_at":"2026-01-01T00:00:00Z","installed_from":"dev"}"#,
+        )
+        .unwrap();
+        let entry = dir.path().join("bin");
+        std::fs::write(&entry, b"#!/bin/sh\n").unwrap();
+
+        let mut runtime = CartridgeHostRuntime::new();
+        runtime.register_cartridge_dir(
+            &entry,
+            dir.path(),
+            "stalecart",
+            crate::bifaci::cartridge_repo::CartridgeChannel::Release,
+            None,
+            "1.0.0",
+            &[],
+        );
+
+        // Healthy (never spawned): advertised without an attachment error.
+        let records = runtime.build_installed_cartridge_identities();
+        assert_eq!(records.len(), 1);
+        assert!(records[0].attachment_error.is_none());
+
+        // HELLO permanently fails (e.g. a pre-v3 binary rejected by the
+        // version check): the record STAYS, carrying the failure — the UI
+        // must always be able to name why a cartridge is not serving.
+        runtime.cartridges[0].hello_failed = true;
+        let records = runtime.build_installed_cartridge_identities();
+        assert_eq!(
+            records.len(),
+            1,
+            "a hello-failed cartridge must remain in the inventory (never silent)"
+        );
+        let record = &records[0];
+        assert_eq!(record.id, "stalecart");
+        assert!(record.cap_groups.is_empty(), "failed ⇒ never routable");
+        let error = record
+            .attachment_error
+            .as_ref()
+            .expect("failure must be named on the record");
+        assert_eq!(
+            error.kind,
+            CartridgeAttachmentErrorKind::HandshakeFailed,
+            "the failure kind identifies the handshake as the cause"
+        );
+
+        // Static inventory records (discovery outcomes the host doesn't
+        // manage) ride every advertisement too.
+        runtime.set_static_inventory_records(vec![InstalledCartridgeRecord {
+            registry_url: None,
+            channel: crate::bifaci::cartridge_repo::CartridgeChannel::Release,
+            id: "rejectedcart".to_string(),
+            version: "2.0.0".to_string(),
+            sha256: String::new(),
+            cap_groups: Vec::new(),
+            attachment_error: Some(CartridgeAttachmentError {
+                kind: CartridgeAttachmentErrorKind::Incompatible,
+                message: "version not listed in registry".to_string(),
+                detected_at_unix_seconds: 1,
+            }),
+            runtime_stats: None,
+            lifecycle: CartridgeLifecycle::Discovered,
+        }]);
+        let records = runtime.build_installed_cartridge_identities();
+        assert_eq!(records.len(), 2, "static inventory merges into every advertisement");
+        assert!(records.iter().any(|r| r.id == "rejectedcart"));
+
+        // Roster retirement is NOT a failure: a removed cartridge disappears
+        // from the inventory entirely (there is nothing to report).
+        runtime.cartridges[0].removed = true;
+        let records = runtime.build_installed_cartridge_identities();
+        assert_eq!(records.len(), 1, "retired installs vanish from the inventory");
+        assert_eq!(records[0].id, "rejectedcart");
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test1879_sync_roster_adds_and_removes_registered_dir_live() {
         // A valid registered-dir cartridge (hashable dir + cartridge.json).
