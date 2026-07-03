@@ -85,7 +85,8 @@ pub use bifaci::cartridge_runtime::{
 };
 pub use bifaci::decode_chunk_payload;
 pub use bifaci::frame::{
-    DropReason, FlowKey, Frame, FrameType, Limits, MessageId, ReorderBuffer, SeqAssigner,
+    CreditDirection, DropReason, FlowKey, Frame, FrameType, Limits, MessageId, ReorderBuffer,
+    SeqAssigner,
     DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_CHUNK, DEFAULT_MAX_FRAME, DEFAULT_MAX_REORDER_BUFFER,
     PROTOCOL_VERSION,
 };

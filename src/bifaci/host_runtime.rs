@@ -789,6 +789,20 @@ pub struct CartridgeHostRuntime {
     /// Dropped-frame accounting (L8): unroutable continuations and frames for
     /// dead cartridges are counted drops, never silent losses.
     drops: Arc<crate::bifaci::stats::DropCounters>,
+    /// Incoming requests whose REQUEST BODY has completed (body END routed to
+    /// the handler) but whose RESPONSE has not yet terminated. v3 keeps
+    /// `incoming_rxids` alive through this phase — engine→cartridge CREDIT
+    /// grants for the handler's OUTPUT arrive throughout it (the pre-v3 code
+    /// removed the entry at body END, silently killing every output grant and
+    /// deadlocking any response larger than the initial window). Data frames
+    /// arriving from the relay during this phase are self-loop peer responses
+    /// and fall through to `outgoing_rids` as before.
+    incoming_body_done: HashSet<(MessageId, MessageId)>,
+    /// Incoming requests whose RESPONSE terminal already passed outbound while
+    /// the request body was still open (response-first race). When the body
+    /// END later arrives, the entry is released immediately instead of being
+    /// marked body-done.
+    incoming_response_done: HashSet<(MessageId, MessageId)>,
 }
 
 /// The host runtime's protocol observability snapshot (L8): per-reason drop
@@ -1017,6 +1031,8 @@ impl CartridgeHostRuntime {
             outgoing_max_seq: HashMap::new(),
             outgoing_max_seq_touched: HashMap::new(),
             drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
+            incoming_body_done: HashSet::new(),
+            incoming_response_done: HashSet::new(),
             routing_touch_seq: 0,
             routing_gc_runs_total: 0,
             routing_gc_evicted_total: 0,
@@ -1517,9 +1533,40 @@ impl CartridgeHostRuntime {
                 //   1. Frames on a single socket are ordered — END is always last
                 //   2. For non-peer requests, no further relay frames arrive after END
                 let key = (xid.clone(), frame.id.clone());
-                let (cartridge_idx, routed_via_incoming) = if let Some(&idx) =
-                    self.incoming_rxids.get(&key)
-                {
+                // Route selection:
+                // - CREDIT routes by its mandatory direction (L11): a
+                //   `response` grant credits the HANDLER's output → incoming
+                //   side; a `request` grant credits the REQUESTER's argument
+                //   streams → outgoing side. The (xid, rid) key alone cannot
+                //   distinguish these for self-loop peer calls.
+                // - Data/terminal frames prefer the incoming side while the
+                //   request body is still flowing; after body END they are
+                //   self-loop peer responses and fall through to outgoing.
+                let prefer_incoming = match frame.frame_type {
+                    FrameType::Credit => match frame.credit_direction() {
+                        Some(crate::bifaci::frame::CreditDirection::Response) => true,
+                        Some(crate::bifaci::frame::CreditDirection::Request) => false,
+                        None => {
+                            let total = self
+                                .drops
+                                .record(crate::bifaci::frame::DropReason::NoRoute);
+                            tracing::warn!(
+                                target: "host_runtime",
+                                rid = ?frame.id,
+                                no_route_total = total,
+                                "[CartridgeHostRuntime] dropped CREDIT without direction — v3 requires credit_dir (no_route, L11)"
+                            );
+                            return Ok(());
+                        }
+                    },
+                    _ => !self.incoming_body_done.contains(&key),
+                };
+                let incoming_hit = if prefer_incoming {
+                    self.incoming_rxids.get(&key).copied()
+                } else {
+                    None
+                };
+                let (cartridge_idx, routed_via_incoming) = if let Some(idx) = incoming_hit {
                     // Hit on incoming side — touch so the GC
                     // doesn't evict an entry that's still seeing
                     // continuations.
@@ -1528,6 +1575,13 @@ impl CartridgeHostRuntime {
                 } else if let Some(&idx) = self.outgoing_rids.get(&frame.id) {
                     self.touch_outgoing_rid(&frame.id);
                     (idx, false)
+                } else if let Some(&idx) = self.incoming_rxids.get(&key) {
+                    // Fallback: no outgoing entry, so this cannot be a
+                    // self-loop peer response — route to the handler even
+                    // post-body-END (defensive; normal requests only ever
+                    // see Credit here, handled above).
+                    self.touch_incoming_rxid(&key);
+                    (idx, true)
                 } else {
                     let total = self
                         .drops
@@ -1575,16 +1629,28 @@ impl CartridgeHostRuntime {
                     self.outgoing_rids_touched.remove(&frame.id);
                     self.incoming_rxids.remove(&key);
                     self.incoming_rxids_touched.remove(&key);
+                    self.incoming_body_done.remove(&key);
+                    self.incoming_response_done.remove(&key);
                     return Ok(());
                 }
 
-                // Clean up routing on terminal frame.
-                // - If routed via incoming_rxids: this was a request body frame to handler
-                // - If routed via outgoing_rids: this was a peer response to requester
+                // Terminal bookkeeping.
+                // - Via incoming_rxids: the REQUEST BODY completed. The entry
+                //   STAYS — the handler's response is still flowing and its
+                //   output CREDIT grants route through it (v3). It is removed
+                //   when the handler's response terminal passes outbound
+                //   (handle_cartridge_frame) or on cartridge death.
+                // - Via outgoing_rids: a peer RESPONSE completed — clean up.
                 if is_terminal {
                     if routed_via_incoming {
-                        self.incoming_rxids.remove(&key);
-                        self.incoming_rxids_touched.remove(&key);
+                        if self.incoming_response_done.remove(&key) {
+                            // Response already terminated (response-first
+                            // race): the request is fully over — release.
+                            self.incoming_rxids.remove(&key);
+                            self.incoming_rxids_touched.remove(&key);
+                        } else {
+                            self.incoming_body_done.insert(key.clone());
+                        }
                     } else {
                         // Peer response completed - clean up outgoing_rids
                         self.outgoing_rids.remove(&frame.id);
@@ -1804,17 +1870,28 @@ impl CartridgeHostRuntime {
                     if is_terminal {
                         self.outgoing_max_seq.remove(&flow_key);
                         self.outgoing_max_seq_touched.remove(&flow_key);
+
+                        // The handler's RESPONSE terminal is the request's true
+                        // end at this host (v3): once the body has completed
+                        // too, release the incoming routing entry and its
+                        // body-done marker. If the response terminates BEFORE
+                        // the body END arrives (response-first race), remember
+                        // it so the body END releases the entry immediately.
+                        if let Some(xid) = frame.routing_id.clone() {
+                            let key = (xid, frame.id.clone());
+                            if self.incoming_body_done.remove(&key) {
+                                self.incoming_rxids.remove(&key);
+                                self.incoming_rxids_touched.remove(&key);
+                            } else if self.incoming_rxids.contains_key(&key) {
+                                self.incoming_response_done.insert(key);
+                            }
+                        }
                     } else {
                         self.outgoing_max_seq.insert(flow_key.clone(), frame.seq);
                         self.touch_outgoing_max_seq(&flow_key);
                         self.gc_routing_tables_if_needed();
                     }
                 }
-
-                // NOTE: Do NOT remove incoming_rxids here!
-                // Response END from cartridge doesn't mean the REQUEST is complete.
-                // Request body frames might still be arriving from relay (async race).
-                // incoming_rxids cleanup happens in handle_relay_frame when request body END arrives.
 
                 // Forward as-is to relay (no routing, no XID manipulation)
                 outbound_tx
@@ -2004,6 +2081,8 @@ impl CartridgeHostRuntime {
         for k in &dying_rxids_keys {
             self.incoming_rxids.remove(k);
             self.incoming_rxids_touched.remove(k);
+            self.incoming_body_done.remove(k);
+            self.incoming_response_done.remove(k);
         }
 
         // Clean up incoming_to_peer_rids for all requests from this cartridge
@@ -2632,6 +2711,8 @@ impl CartridgeHostRuntime {
                     let key = (xid.clone(), rid.clone());
                     self.incoming_rxids.remove(&key);
                     self.incoming_rxids_touched.remove(&key);
+                    self.incoming_body_done.remove(&key);
+                    self.incoming_response_done.remove(&key);
                     self.incoming_to_peer_rids.remove(&key);
                     self.incoming_to_peer_rids_touched.remove(&key);
                 }
@@ -2762,9 +2843,30 @@ impl CartridgeHostRuntime {
                 .with_host_protocol_stats(self.protocol_stats());
             let notify_bytes = serde_json::to_vec(&notify_payload)
                 .expect("Failed to serialize RelayNotify capabilities payload");
-            let notify_frame = Frame::relay_notify(&notify_bytes, &Limits::default());
+            // Advertise the host's REAL aggregate limits — the element-wise
+            // minimum over every running cartridge's negotiated handshake
+            // limits. The switch overwrites the master's limits on each
+            // RelayNotify, so sending defaults here would clobber genuine
+            // negotiations (and misreport initial_credit end-to-end).
+            let notify_frame = Frame::relay_notify(&notify_bytes, &self.aggregate_limits());
             let _ = tx.send(notify_frame); // Ignore error if relay closed
         }
+    }
+
+    /// Element-wise minimum over the negotiated limits of every running
+    /// cartridge; defaults when none are running. This is what the host is
+    /// actually able to honor across its fleet.
+    fn aggregate_limits(&self) -> Limits {
+        let mut limits = Limits::default();
+        for cartridge in self.cartridges.iter().filter(|c| c.running) {
+            limits.max_frame = limits.max_frame.min(cartridge.limits.max_frame);
+            limits.max_chunk = limits.max_chunk.min(cartridge.limits.max_chunk);
+            limits.max_reorder_buffer = limits
+                .max_reorder_buffer
+                .min(cartridge.limits.max_reorder_buffer);
+            limits.initial_credit = limits.initial_credit.min(cartridge.limits.initial_credit);
+        }
+        limits
     }
 
     /// Kill all managed cartridge processes.

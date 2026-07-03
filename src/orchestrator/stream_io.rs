@@ -518,7 +518,25 @@ impl TerminalOutput {
             return None;
         }
         loop {
-            let frame = match self.rx.recv().await {
+            let next = match self.rx.try_recv() {
+                Ok(f) => Some(f),
+                Err(mpsc::error::TryRecvError::Disconnected) => None,
+                Err(mpsc::error::TryRecvError::Empty) => {
+                    // About to block: flush pending sub-batch grants (L10
+                    // deadlock-freedom rule) so a producer with a smaller
+                    // send window than our batch threshold can proceed.
+                    if let Some(plumbing) = &self.credit {
+                        for (stream_id, counter) in self.consumed_since_grant.iter_mut() {
+                            if *counter > 0 {
+                                (plumbing.grant)(stream_id.clone(), *counter);
+                                *counter = 0;
+                            }
+                        }
+                    }
+                    self.rx.recv().await
+                }
+            };
+            let frame = match next {
                 Some(f) => f,
                 None => {
                     self.ended = true;
@@ -888,6 +906,18 @@ pub async fn collect_terminal_output(
                 });
             }
             Err(_timeout) => {
+                // The producer is quiet. Flush any pending sub-batch grants
+                // (L10 deadlock-freedom rule): the producer's send window may
+                // be smaller than our grant batch, in which case it is stalled
+                // waiting for exactly this credit.
+                if let Some(plumbing) = credit {
+                    for (stream_id, counter) in consumed_since_grant.iter_mut() {
+                        if *counter > 0 {
+                            (plumbing.grant)(stream_id.clone(), *counter);
+                            *counter = 0;
+                        }
+                    }
+                }
                 // Per-cap activity-silence observation, NOT an abort.
                 // Long-running terminal caps legitimately sit silent
                 // for far longer than the threshold; cancellation is

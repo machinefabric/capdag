@@ -8,20 +8,20 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
 
 | Mirror | Numbered tests |
 |---|---|
-| rust | 1218 |
+| rust | 1224 |
 | go | 1156 |
 | py | 1109 |
 | js | 352 |
-| objc | 826 |
+| objc | 863 |
 
 ## Summary
 
-- Distinct numbered tests across all mirrors: **1648**
-- Shared (in ≥2 mirrors): **1071**
-- Solo (in exactly 1 mirror): **577**
-  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **547**
+- Distinct numbered tests across all mirrors: **1654**
+- Shared (in ≥2 mirrors): **1108**
+- Solo (in exactly 1 mirror): **546**
+  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **516**
   - …already in the 8000+ impl-specific range (correctly placed): **30**
-- Shared numbers with a parity gap (missing from ≥1 mirror): **924**
+- Shared numbers with a parity gap (missing from ≥1 mirror): **961**
 - Shared numbers with divergent descriptions: **164**
 - Within-mirror duplicate numbers: **11**
 
@@ -68,7 +68,7 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test370 | objc | `test0370_MediaDefDocumentationPropagatesThroughResolve` | Documentation propagates from a mediaDefs definition through CSResolveMediaUrn into the resolved CSMediaDef. Mirrors TEST924 on the Rust side and testJS_mediaDefDocumentationPropagatesThroughResolve on the JS side. | Tests/CapDAGTests/CSCapTests.m:996 |
 | test371 | objc | `test0371_CapVersionZeroRoundTrip` | TEST0371: Cap version zero round trip | Tests/CapDAGTests/CSCapTests.m:1035 |
 | test372 | objc | `test0372_CapVersionNonZeroRoundTrip` | TEST0372: Cap version non zero round trip | Tests/CapDAGTests/CSCapTests.m:1068 |
-| test394 | rust | `test394_peer_invoke_roundtrip` | TEST394: Test peer invoke round-trip (testcartridge calls itself) Disabled: LocalCartridgeRouter feature not implemented - uses non-existent modules | tests/orchestrator_integration.rs:956 |
+| test394 | rust | `test394_peer_invoke_roundtrip` | TEST394: Test peer invoke round-trip (testcartridge calls itself) Disabled: LocalCartridgeRouter feature not implemented - uses non-existent modules | tests/orchestrator_integration.rs:935 |
 | test480 | objc | `test480_discardHandlerConsumesInput` | TEST480: parse_caps_from_manifest rejects manifest without CAP_IDENTITY | Tests/BifaciTests/StandardCapsTests.swift:178 |
 | test552 | rust | `test552_is_csv_recognizes_ext_csv_and_bare_marker` | TEST552: is_csv recognizes the CANONICAL published CSV media, which spells the format as the `ext=csv` extension tag — not a bare `csv` marker. Every datacartridge convert-format/collect-records cap declares its CSV media as `media:fmt=csv;list;record` (see MEDIA_CSV), so an is_csv() that only checked the bare marker returned false for real CSV media, collapsing it to a text list and breaking list<->csv conversion with "Unsupported conversion: TextableList -> TextableList". This test pins both accepted spellings and would FAIL against the old marker-only implementation. | src/urn/media_urn.rs:928 |
 | test651 | rust | `test651_wildcard_013_generic_forms_rejected` | TEST651: All bare/default top-to-top forms are rejected | src/urn/cap_urn.rs:2715 |
@@ -76,16 +76,16 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test888 | rust | `test888_execute_edge1_to_edge2_chain` | TEST888: Execute two-edge chain (test-edge1 -> test-edge2) | tests/orchestrator_integration.rs:420 |
 | test889 | rust | `test889_execute_single_edge_dag` | TEST889: Execute single-edge DAG (test-edge1) | tests/orchestrator_integration.rs:367 |
 | test905 | rust | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:5192 |
-| test916 | rust | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:2627 |
+| test916 | rust | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:2666 |
 | test938 | py | `test_938_different_caps_different_hashes` | TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape). | tests/test_registry.py:213 |
 | test943 | rust | `test943_same_media_different_names_is_not_a_cycle` | TEST943: Two nodes with the same media type but different names are two distinct graph positions — NOT a loop. The identity cap has `in = out` by type, so its upstream and downstream node carry the same media URN; this must not collapse them into a self-loop. Node identity comes from the user-written name, not the media URN. | tests/orchestrator_integration.rs:660 |
 | test951 | rust | `test951_fan_in_pattern` | TEST951: Multi-input DAG (fan-in pattern) | tests/orchestrator_integration.rs:577 |
 | test952 | rust | `test952_execute_large_payload` | TEST952: Execute large payload (test-large cap) | tests/orchestrator_integration.rs:524 |
-| test989 | rust | `test989_set_observer_none_clears_previous` | / Pins the observer-clearing contract: a setObserver(None) / after a previous registration must drop the strong ref so a / subsequent lifecycle moment doesn't fire into a torn-down / bridge. Matches the Swift `setObserver(nil)` test. | src/bifaci/host_runtime.rs:3098 |
-| test990 | rust | `test990_observer_is_optional` | / Pins the optional-observer contract: a brand-new runtime with / no observer attached must close cleanly on an empty cartridge / list. A regression here would mean the observer-firing path / became non-optional and broke every call site that doesn't / register an observer (engine in-process runtime, in-process / host tests, integration tests). | src/bifaci/host_runtime.rs:3086 |
+| test989 | rust | `test989_set_observer_none_clears_previous` | / Pins the observer-clearing contract: a setObserver(None) / after a previous registration must drop the strong ref so a / subsequent lifecycle moment doesn't fire into a torn-down / bridge. Matches the Swift `setObserver(nil)` test. | src/bifaci/host_runtime.rs:3200 |
+| test990 | rust | `test990_observer_is_optional` | / Pins the optional-observer contract: a brand-new runtime with / no observer attached must close cleanly on an empty cartridge / list. A regression here would mean the observer-firing path / became non-optional and broke every call site that doesn't / register an observer (engine in-process runtime, in-process / host tests, integration tests). | src/bifaci/host_runtime.rs:3188 |
 | test1110 | rust | `test1110_strand_round_trips_through_serde_without_losing_step_types` | TEST1110: Strand serializes to JSON and deserializes back preserving all step types | src/planner/live_cap_fab.rs:2072 |
-| test1121 | rust | `test1121_cbor_array_file_paths_in_cbor_mode` | TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support) | src/bifaci/cartridge_runtime.rs:8392 |
-| test1125 | rust | `test1125_map_progress_basic_mapping` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | src/orchestrator/executor.rs:2382 |
+| test1121 | rust | `test1121_cbor_array_file_paths_in_cbor_mode` | TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support) | src/bifaci/cartridge_runtime.rs:8532 |
+| test1125 | rust | `test1125_map_progress_basic_mapping` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | src/orchestrator/executor.rs:2421 |
 | test1134 | rust | `test1134_all_abstraction_error_variants_are_machine_abstraction_error` | TEST1134: All MachineAbstractionError variants are of type MachineAbstractionError and are convertible to MachineParseError::Resolution. This pins the error hierarchy so a refactor that accidentally changes the type relationship is caught immediately. | src/machine/error.rs:163 |
 | test1137 | rust | `test1137_two_strand_machine_serializes_to_notation_containing_both_ops` | TEST1137: A machine built from two independent strands serializes to a non-empty notation string that contains both op tags. Checks that multi-strand serialization doesn't lose or merge strands. | src/machine/serializer.rs:774 |
 | test1138 | rust | `test1138_assignment_bindings_are_sorted_by_cap_arg_media_urn` | TEST1138: EdgeAssignmentBinding list is sorted by cap_arg_media_urn for canonical form. A two-source cap whose args are added in reverse-alphabetical order must still produce bindings sorted alphabetically by cap_arg_media_urn, enabling canonical comparison regardless of creation order. | src/machine/resolve.rs:1279 |
@@ -98,13 +98,13 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test1247 | rust | `test1247_read_from_dir_succeeds_with_valid_cartridge` | TEST1247: Valid cartridge directories load successfully and resolve their entry point. | src/bifaci/cartridge_json.rs:769 |
 | test1248 | rust | `test1248_hash_cartridge_directory_is_deterministic` | TEST1248: Cartridge directory hashes stay stable across metadata changes and change on content edits. | src/bifaci/cartridge_json.rs:949 |
 | test1249 | rust | `test1249_hash_single_binary_matches_flat_layout` | TEST1249: A flat single-binary cartridge directory still produces a SHA-256 content hash. | src/bifaci/cartridge_json.rs:976 |
-| test1250 | rust | `test1250_process_handle_snapshot_empty_initially` | TEST1250: Process snapshots start empty before any cartridges are attached or spawned. | src/bifaci/host_runtime.rs:5233 |
-| test1251 | rust | `test1251_process_handle_snapshot_excludes_attached_cartridges` | TEST1251: Attached cartridges without child PIDs are excluded from process snapshots. | src/bifaci/host_runtime.rs:5245 |
-| test1252 | rust | `test1252_process_handle_is_clone_and_send` | TEST1252: Cartridge process handles remain usable after clone-and-send across tasks. | src/bifaci/host_runtime.rs:5277 |
-| test1253 | rust | `test1253_process_handle_kill_unknown_pid_is_noop` | TEST1253: Killing an unknown PID is accepted as an asynchronous no-op command. | src/bifaci/host_runtime.rs:5293 |
-| test1254 | rust | `test1254_oom_kill_sends_err_with_oom_killed_code` | TEST1254: OOM shutdowns emit OOM_KILLED ERR frames for in-flight requests. | src/bifaci/host_runtime.rs:5310 |
-| test1255 | rust | `test1255_app_exit_suppresses_err_frames` | TEST1255: App-exit shutdowns suppress ERR frames and close cleanly without noise. | src/bifaci/host_runtime.rs:5437 |
-| test1270 | rust | `test1270_get_own_memory_mb_returns_values` | TEST1270: Runtime memory inspection returns non-negative resident and virtual memory values. | src/bifaci/cartridge_runtime.rs:9811 |
+| test1250 | rust | `test1250_process_handle_snapshot_empty_initially` | TEST1250: Process snapshots start empty before any cartridges are attached or spawned. | src/bifaci/host_runtime.rs:5335 |
+| test1251 | rust | `test1251_process_handle_snapshot_excludes_attached_cartridges` | TEST1251: Attached cartridges without child PIDs are excluded from process snapshots. | src/bifaci/host_runtime.rs:5347 |
+| test1252 | rust | `test1252_process_handle_is_clone_and_send` | TEST1252: Cartridge process handles remain usable after clone-and-send across tasks. | src/bifaci/host_runtime.rs:5379 |
+| test1253 | rust | `test1253_process_handle_kill_unknown_pid_is_noop` | TEST1253: Killing an unknown PID is accepted as an asynchronous no-op command. | src/bifaci/host_runtime.rs:5395 |
+| test1254 | rust | `test1254_oom_kill_sends_err_with_oom_killed_code` | TEST1254: OOM shutdowns emit OOM_KILLED ERR frames for in-flight requests. | src/bifaci/host_runtime.rs:5412 |
+| test1255 | rust | `test1255_app_exit_suppresses_err_frames` | TEST1255: App-exit shutdowns suppress ERR frames and close cleanly without noise. | src/bifaci/host_runtime.rs:5539 |
+| test1270 | rust | `test1270_get_own_memory_mb_returns_values` | TEST1270: Runtime memory inspection returns non-negative resident and virtual memory values. | src/bifaci/cartridge_runtime.rs:9964 |
 | test1274 | rust | `test1274_adapter_selection_cap_builder` | TEST1274: adapter_selection_cap() builds a valid Cap with correct args and output | src/standard/caps.rs:1335 |
 | test1309 | py | `test_1309_parse_machine_single_wiring_one_strand` | TEST1309: Parsing a single-cap machine notation produces one strand with one edge. | tests/test_machine.py:365 |
 | test1310 | py | `test_1310_strand_equivalence_rejects_mismatched_node_urns` | TEST1310: Two strands differing only in one node's media URN are not equivalent (Python-specific coverage). | tests/test_machine.py:474 |
@@ -191,19 +191,19 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6224 | js | `test6224_CapFabDistinctRegistryNames` | Each edge must carry the registry name it was added with. This is how the renderer colours/groups edges by provenance in browse mode. | capdag.test.js:1410 |
 | test6226 | go | `Test6226_ResponseWrapperGetContentType` | TEST6226: Response wrapper get content type | cap/response_test.go:142 |
 | test6228 | js | `test6228_LlmGenerateTextUrnSpecs` | Mirror-specific coverage: llm_generate_text_urn input/output specs conform to MEDIA_STRING | capdag.test.js:1619 |
-| test6229 | objc | `test6229_b_limitsNegotiation` | TEST198 (continued): Limits negotiation picks minimum of both sides | Tests/BifaciTests/FrameTests.swift:307 |
+| test6229 | objc | `test6229_b_limitsNegotiation` | TEST198 (continued): Limits negotiation picks minimum of both sides | Tests/BifaciTests/FrameTests.swift:308 |
 | test6230 | go | `Test6230_ResponseWrapperMatchesOutputType` | TEST6230: Response wrapper matches output type | cap/response_test.go:154 |
 | test6231 | py | `test_6231_wildcard_empty_cap_defaults` | TEST6231: cap: (empty) is the illegal bare top form | tests/test_cap_urn.py:935 |
 | test6232 | js | `test6232_JS_buildExtensionIndex` | These tests cover JS-specific functionality not in the Rust numbering scheme but are important for capdag-js correctness. | capdag.test.js:1650 |
 | test6234 | go | `Test6234_ResponseWrapperValidateAgainstCap` | TEST6234: Response wrapper validate against cap | cap/response_test.go:240 |
 | test6235 | py | `test_6235_lookup_cap_fabric_has_defver_arg` | TEST6235: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:181 |
 | test6236 | js | `test6236_JS_mediaUrnsForExtension` | TEST6236: J s media urns for extension | capdag.test.js:1667 |
-| test6237 | objc | `test6237_b_allFrameTypesRoundtrip` | Covers all frame types in a single loop for comprehensive roundtrip verification | Tests/BifaciTests/FrameTests.swift:894 |
+| test6237 | objc | `test6237_b_allFrameTypesRoundtrip` | Covers all frame types in a single loop for comprehensive roundtrip verification | Tests/BifaciTests/FrameTests.swift:895 |
 | test6238 | go | `Test6238_CapRequestHandling` | Additional existing tests below (not part of TEST108-116 sequence) | cap/definition_test.go:450 |
 | test6239 | py | `test_6239_lookup_media_def_fabric_has_defver_arg` | TEST6239: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:206 |
 | test6240 | js | `test6240_JS_getExtensionMappings` | TEST0070: J s get extension mappings | capdag.test.js:1696 |
 | test6242 | js | `test6242_JS_resolveMediaUrnFromSpecs` | TEST0073: J s resolve media urn from specs | capdag.test.js:1707 |
-| test6243 | objc | `test6243_b_streamStartIsSequenceRoundtrip` | TEST389b: STREAM_START with isSequence roundtrips correctly | Tests/BifaciTests/FrameTests.swift:1091 |
+| test6243 | objc | `test6243_b_streamStartIsSequenceRoundtrip` | TEST389b: STREAM_START with isSequence roundtrips correctly | Tests/BifaciTests/FrameTests.swift:1092 |
 | test6244 | objc | `test6244_manifestEnsureIdentityIdempotent` | Mirror-specific coverage: Manifest.ensureIdentity() adds if missing, idempotent if present | Tests/BifaciTests/StandardCapsTests.swift:71 |
 | test6245 | go | `Test6245_CapDescription` | TEST6245: Cap description | cap/definition_test.go:467 |
 | test6246 | js | `test6246_JS_capJSONSerialization` | TEST6246: J s cap j s o n serialization | capdag.test.js:1720 |
@@ -526,60 +526,29 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6709 | py | `test_6709_two_step_chain_shares_intermediate_node` | TEST6709: Resolving a strand with two chained caps shares the intermediate node. | tests/test_machine.py:150 |
 | test6710 | py | `test_6710_resolve_strand_foreach_sets_is_loop_on_next_cap` | TEST6710: A ForEach step immediately preceding a CAP step marks that cap edge as is_loop=True. | tests/test_machine.py:500 |
 | test6713 | py | `test_6713_binding_slot_identity_is_outer_media_urn` | TEST6713: EdgeAssignmentBinding.cap_arg_media_urn is the slot identity (outer media_urn), not the stdin inner URN. | tests/test_machine.py:432 |
-| test6720 | objc | `test6720_writeAfterCloseThrowsCleanly` | TEST6720: Writing to a closed FrameWriter must throw FrameError.ioError("writer closed"), never raise an Objective-C NSException that aborts the process. | Tests/BifaciTests/FrameTests.swift:1791 |
-| test6721 | objc | `test6721_doubleCloseIsIdempotent` | TEST6721: Calling close() twice on a FrameWriter is a no-op — the second call must not throw, must not double-close the underlying fd, and must leave the writer in the closed state. | Tests/BifaciTests/FrameTests.swift:1816 |
-| test6722 | objc | `test6722_flushAfterCloseThrowsCleanly` | TEST6722: flush() on a closed FrameWriter — even with an empty buffer — must throw FrameError.ioError, not silently succeed. A flush call after close() is a programmer error and must surface, not be papered over. | Tests/BifaciTests/FrameTests.swift:1839 |
-| test6723 | objc | `test6723_concurrentCloseAndWriteDoesNotCrash` | TEST6723: Concurrent close() + write() must not raise an Objective-C NSException. This is the regression test for the CartridgeXPCService crash on cartridge OOM: the old writer accessed `handle.fileDescriptor` on every write, so a close() racing a write() called the accessor on a closed handle and aborted the process. The cached-fd writer keeps the descriptor in the writer's own state, so the worst outcome of the race is a clean FrameError thrown from write(). | Tests/BifaciTests/FrameTests.swift:1853 |
-| test6724 | objc | `test6724_closeShutsTheUnderlyingPipe` | TEST6724: After FrameWriter.close(), the underlying FileHandle is closed. A subsequent read on the paired read end must observe EOF — proving that close() actually closes the pipe (not just marks the writer dead in software). This guards against the regression where close() flips the writer flag but leaves the pipe open, which would let buffered data still drain into a peer that's been told the writer is gone. | Tests/BifaciTests/FrameTests.swift:1920 |
-| test6725 | objc | `test6725_deinitDoesNotAccessClosedHandle` | TEST6725: A FrameWriter going through deinit must NOT touch the underlying handle's `fileDescriptor` accessor. The original bug used to deinit-flush by reading `handle.fileDescriptor`, which raises NSFileHandleOperationException on a closed handle and aborts the process. The new contract: deinit does no I/O. This test deinits a writer whose handle was closed externally, then asserts the test process is still alive (i.e. did not crash via NSException). | Tests/BifaciTests/FrameTests.swift:1932 |
+| test6720 | objc | `test6720_writeAfterCloseThrowsCleanly` | TEST6720: Writing to a closed FrameWriter must throw FrameError.ioError("writer closed"), never raise an Objective-C NSException that aborts the process. | Tests/BifaciTests/FrameTests.swift:1785 |
+| test6721 | objc | `test6721_doubleCloseIsIdempotent` | TEST6721: Calling close() twice on a FrameWriter is a no-op — the second call must not throw, must not double-close the underlying fd, and must leave the writer in the closed state. | Tests/BifaciTests/FrameTests.swift:1810 |
+| test6722 | objc | `test6722_flushAfterCloseThrowsCleanly` | TEST6722: flush() on a closed FrameWriter — even with an empty buffer — must throw FrameError.ioError, not silently succeed. A flush call after close() is a programmer error and must surface, not be papered over. | Tests/BifaciTests/FrameTests.swift:1833 |
+| test6723 | objc | `test6723_concurrentCloseAndWriteDoesNotCrash` | TEST6723: Concurrent close() + write() must not raise an Objective-C NSException. This is the regression test for the CartridgeXPCService crash on cartridge OOM: the old writer accessed `handle.fileDescriptor` on every write, so a close() racing a write() called the accessor on a closed handle and aborted the process. The cached-fd writer keeps the descriptor in the writer's own state, so the worst outcome of the race is a clean FrameError thrown from write(). | Tests/BifaciTests/FrameTests.swift:1847 |
+| test6724 | objc | `test6724_closeShutsTheUnderlyingPipe` | TEST6724: After FrameWriter.close(), the underlying FileHandle is closed. A subsequent read on the paired read end must observe EOF — proving that close() actually closes the pipe (not just marks the writer dead in software). This guards against the regression where close() flips the writer flag but leaves the pipe open, which would let buffered data still drain into a peer that's been told the writer is gone. | Tests/BifaciTests/FrameTests.swift:1914 |
+| test6725 | objc | `test6725_deinitDoesNotAccessClosedHandle` | TEST6725: A FrameWriter going through deinit must NOT touch the underlying handle's `fileDescriptor` accessor. The original bug used to deinit-flush by reading `handle.fileDescriptor`, which raises NSFileHandleOperationException on a closed handle and aborts the process. The new contract: deinit does no I/O. This test deinits a writer whose handle was closed externally, then asserts the test process is still alive (i.e. did not crash via NSException). | Tests/BifaciTests/FrameTests.swift:1926 |
 | test6726 | go | `Test6726_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST6726: CartridgeJson with FabricManifestVersion=0 (zero value) is absent on the wire. | bifaci/cartridge_json_test.go:13 |
 | test6727 | go | `Test6727_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST6727: CartridgeJson with FabricManifestVersion>0 round-trips the value correctly. | bifaci/cartridge_json_test.go:44 |
 | test6737 | js | `test6737_capVersionZeroOmittedOnWire` | TEST6737: Cap with version=0 round-trips with no `version` key on wire | capdag.test.js:6308 |
 | test6746 | rust | `test6746_all_masters_ready_true_when_expectation_met` | TEST6746: All masters ready true when expectation met | src/bifaci/relay_switch.rs:6059 |
 | test6747 | rust | `test6747_local_socket_pair_round_trips_in_both_directions` | TEST6747: Local socket pair round trips in both directions | src/bifaci/local_socket.rs:350 |
-| test7000 | rust | `test7000_v3_handshake_negotiates_all_four_limits` | TEST7000: v3 handshake succeeds and negotiates the element-wise minimum of all four limits including initial_credit | src/bifaci/io.rs:2140 |
-| test7001 | rust | `test7001_handshake_rejects_version_2` | TEST7001: HELLO carrying protocol version 2 is rejected at handshake with a version-mismatch error | src/bifaci/io.rs:2163 |
-| test7002 | rust | `test7002_initial_credit_negotiated_minimum` | TEST7002: initial_credit negotiation picks the element-wise minimum of the two proposals | src/bifaci/io.rs:2202 |
-| test7010 | rust | `test7010_credit_frame_roundtrip` | TEST7010: CREDIT frame round-trips encode/decode with rid, stream_id, and credit count | src/bifaci/frame.rs:2649 |
-| test7011 | rust | `test7011_credit_is_non_flow` | TEST7011: CREDIT is a non-flow frame — no seq assigned, passes the reorder buffer untouched regardless of flow state | src/bifaci/frame.rs:2676 |
-| test7012 | rust | `test7012_stream_start_unbounded_roundtrip` | TEST7012: STREAM_START unbounded flag round-trips through CBOR; absent flag means bounded | src/bifaci/frame.rs:2711 |
-| test7013 | rust | `test7013_cbor_rejects_credit_without_count` | TEST7013: CBOR decode REJECTS a CREDIT frame missing its credit count | src/bifaci/frame.rs:2741 |
-| test7014 | rust | `test7014_end_terminal_meta_roundtrip` | TEST7014: END terminal meta (progress, message) round-trips; successful END without progress reads as 1.0; failed END without progress reads as None | src/bifaci/frame.rs:2800 |
-| test7015 | rust | `test7015_credit_gate_acquire_and_grant` | TEST7015: CreditGate acquire succeeds immediately within the initial window and waits when exhausted until a grant arrives. | src/bifaci/credit.rs:242 |
-| test7016 | rust | `test7016_credit_gate_close_releases_waiters` | TEST7016: CreditGate close releases blocked waiters with CreditClosed and fails all future acquires. | src/bifaci/credit.rs:263 |
-| test7017 | rust | `test7017_credit_router_routing` | TEST7017: CreditRouter routes grants by (rid, stream_id), falls back to a request's sole gate for stream-less grants, and reports unmatched grants. | src/bifaci/credit.rs:283 |
-| test7018 | rust | `test7018_credit_router_close_request` | TEST7018: CreditRouter close_request closes and removes every gate of the request, releasing their waiters. | src/bifaci/credit.rs:312 |
-| test7019 | rust | `test7019_drop_counters_record_and_snapshot` | TEST7019: Drop counters record per-reason exactly once per drop, and the snapshot omits zero-count reasons while totalling all of them. | src/bifaci/stats.rs:132 |
-| test7020 | rust | `test7020_writer_gate_drops_post_terminal_flow_frames` | TEST7020: A flow frame reaching the writer after the flow's END has been written is dropped with a counted post_terminal drop — END is the last flow frame on the wire. | src/bifaci/cartridge_runtime.rs:4976 |
-| test7021 | rust | `test7021_writer_gate_precision` | TEST7021: The writer gate is precise — flow frames before END are written, non-flow frames (heartbeat, credit) still pass after a flow's terminal, and only that flow is gated. | src/bifaci/cartridge_runtime.rs:5033 |
-| test7022 | rust | `test7022_final_progress_from_end_meta_default` | TEST7022: The receiver delivers final progress exactly once, sourced from END terminal metadata, defaulting to 1.0 on a plain successful END. | src/orchestrator/stream_io.rs:972 |
-| test7023 | rust | `test7023_final_progress_handler_override` | TEST7023: A handler-declared terminal status (progress + message) in END metadata reaches the progress callback as the final event. | src/orchestrator/stream_io.rs:1010 |
-| test7024 | rust | `test7024_drain_after_end_delivers_logs_without_progress_regression` | TEST7024: Frames already queued behind END are drained before returning — LOG messages are delivered, and no post-terminal progress value can regress the final progress. | src/orchestrator/stream_io.rs:1047 |
-| test7025 | rust | `test7025_unroutable_flow_frame_is_counted_drop` | TEST7025: A flow frame for a request with no routing state is a counted no_route drop — not a protocol error and not a silent loss — observable in the protocol stats snapshot. | src/bifaci/relay_switch.rs:6439 |
-| test7026 | rust | `test7026_reorder_flushes_pre_terminal_before_cleanup` | TEST7026: An out-of-order terminal is buffered until the gap fills; buffered pre-terminal frames flush ahead of it in seq order, and only then may the flow be cleaned up | src/bifaci/frame.rs:2764 |
-| test7027 | rust | `test7027_channel_closed_sends_are_counted` | TEST7027: A frame sent through a ChannelFrameSender whose receiver is gone is a counted channel_closed drop, never a silent loss. | src/bifaci/cartridge_runtime.rs:5115 |
-| test7029 | rust | `test7029_terminated_flows_capacity_and_eviction` | TEST7029: TerminatedFlows membership is exact up to capacity and evicts strictly oldest-first beyond it. | src/bifaci/stats.rs:158 |
-| test7030 | rust | `test7030_register_once_terminate_once` | TEST7030: A request registers exactly once and terminates exactly once — duplicate registration and double termination are rejected, and after terminate zero state remains for the key. | src/bifaci/request_state.rs:531 |
-| test7031 | rust | `test7031_rid_index_consistency` | TEST7031: The rid index and the entry table never disagree across register/terminate cycles, and a terminated rid is immediately reusable. | src/bifaci/request_state.rs:567 |
-| test7032 | rust | `test7032_record_frame_stats_and_phase` | TEST7032: record_frame accumulates per-stream frame/byte/chunk counters by direction, flips phase Created→Streaming on the first flow frame, and tracks unbounded/ended/credit stream markers. | src/bifaci/request_state.rs:589 |
-| test7033 | rust | `test7033_terminated_summaries_ring` | TEST7033: Terminated requests leave a bounded ring of summaries carrying kind, lifetime, and flow totals, and the ring evicts oldest-first at capacity. | src/bifaci/request_state.rs:633 |
-| test7035 | rust | `test7035_end_terminates_and_releases_all_state` | TEST7035: After END, the switch holds zero state for the request — entry, rid index, and response channel all released atomically, with the terminal delivered and a terminated summary recorded. | src/bifaci/relay_switch.rs:6478 |
-| test7036 | rust | `test7036_err_terminates_and_releases_all_state` | TEST7036: After ERR, the same total-cleanup invariant holds as after END, with kind err. | src/bifaci/relay_switch.rs:6550 |
-| test7037 | rust | `test7037_cancel_cascades_to_children_and_cleans_all_state` | TEST7037: Cancelling a request terminates it AND its recursively-linked peer children — Cancel frames reach the destination, waiting channels get ERR CANCELLED, and zero state remains for parent or child. | src/bifaci/relay_switch.rs:6592 |
-| test7038 | rust | `test7038_master_death_terminates_pending_requests` | TEST7038: Master death terminates every request routed to it with kind master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and leaving zero state. | src/bifaci/relay_switch.rs:6681 |
-| test7050 | rust | `test7050_sender_stalls_at_window_and_resumes_on_grant` | TEST7050: A credited sender emits exactly its window of chunks then stalls until a CREDIT grant arrives — observed on the frame channel. | src/bifaci/cartridge_runtime.rs:5149 |
-| test7052 | rust | `test7052_input_grants_are_batched` | TEST7052: Input consumption emits batched CREDIT grants — roughly one grant per half-window consumed, not one per chunk. | src/bifaci/cartridge_runtime.rs:5385 |
-| test7053 | rust | `test7053_over_window_chunk_is_credit_violation` | TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12). | src/bifaci/cartridge_runtime.rs:5464 |
-| test7062 | rust | `test7062_log_flows_while_window_exhausted` | TEST7062: LOG/progress frames flow while the data window is exhausted — control frames are never credited. | src/bifaci/cartridge_runtime.rs:5217 |
-| test7070 | rust | `test7070_unbounded_input_consumed_live` | TEST7070: An unbounded input stream is consumed live — the handler observes early items while the producer is still emitting, and the stream reports itself unbounded. | src/bifaci/cartridge_runtime.rs:5307 |
-| test7071 | rust | `test7071_terminal_output_yields_before_stream_end` | TEST7071: The incremental terminal consumer yields items BEFORE the stream has ended — required for unbounded output (L16) — and completes on an unbounded STREAM_END + END. | src/orchestrator/stream_io.rs:1101 |
-| test7073 | rust | `test7073_collect_refuses_unbounded_streams` | TEST7073: Buffering collectors refuse unbounded streams with a hard error instead of buffering without bound. | src/bifaci/cartridge_runtime.rs:5354 |
-| test7077 | rust | `test7077_per_item_meta_incremental` | TEST7077: Per-item stream metadata arrives WITH its item through incremental delivery, not batched at the end. | src/orchestrator/stream_io.rs:1141 |
-| test7078 | rust | `test7078_pipeline_segment_detection` | TEST7078: Pipeline segment detection — linear chains pipeline; fan-out, fan-in heads, and extra-args groups break segments so those edges still materialize correctly. | src/orchestrator/executor.rs:2319 |
-| test7085 | rust | `test7085_relay_notify_carries_host_protocol_stats` | TEST7085: The RelayNotify capabilities payload carries the host's protocol stats snapshot, surviving the wire round-trip. | src/bifaci/relay_switch.rs:6401 |
-| test7086 | rust | `test7086_drop_snapshot_matches_induced_drops` | TEST7086: One runtime's drop counters aggregate every drop source — post-terminal writer drops and closed-channel sends — each counted exactly once, and the snapshot totals match the induced drops. | src/bifaci/cartridge_runtime.rs:5262 |
-| test7087 | rust | `test7087_snapshot_field_names_are_stable` | TEST7087: Protocol stats snapshots serialize with stable field names — the snapshot shape is the mirror contract. | src/bifaci/request_state.rs:416 |
-| test7088 | rust | `test7088_last_activity_monotonic` | TEST7088: last_activity is monotonic non-decreasing across a long-lived streaming request — idle time resets on every recorded frame and never runs backwards. | src/bifaci/request_state.rs:486 |
+| test7022 | rust | `test7022_final_progress_from_end_meta_default` | TEST7022: The receiver delivers final progress exactly once, sourced from END terminal metadata, defaulting to 1.0 on a plain successful END. | src/orchestrator/stream_io.rs:1002 |
+| test7023 | rust | `test7023_final_progress_handler_override` | TEST7023: A handler-declared terminal status (progress + message) in END metadata reaches the progress callback as the final event. | src/orchestrator/stream_io.rs:1040 |
+| test7024 | rust | `test7024_drain_after_end_delivers_logs_without_progress_regression` | TEST7024: Frames already queued behind END are drained before returning — LOG messages are delivered, and no post-terminal progress value can regress the final progress. | src/orchestrator/stream_io.rs:1077 |
+| test7054 | rust | `test7054_slow_consumer_throttles_input_send` | TEST7054: Input-direction credit: a slow handler recv() throttles the engine's stream send (observed pause on the engine wire). E2E form of the law: the wire pause itself is asserted at the substrate layer (TEST7050); here the observable contract is that a 100-chunk sequence input — 3x the 32-chunk initial window — flows COMPLETELY and CORRECTLY through a deliberately slow consumer. If input-direction grants broke, the engine's send gate would stall forever (timeout fails the test); if the engine ignored the window, the cartridge would terminate with ERR CREDIT_VIOLATION (execution fails); if items were dropped, the count/bytes report would differ. | tests/protocol_v3_e2e.rs:397 |
+| test7056 | rust | `test7056_bidirectional_echo_no_deadlock` | TEST7056: Bidirectional streaming (handler consumes input while emitting output) completes without deadlock at window 2. The window-2 wire variant is the substrate test; at e2e scale the negotiated window is 32 chunks and the input is 100 chunks (>3x the window), so completion is only possible when the engine feeds input concurrently with collecting output (L15) and credit flows in BOTH directions (L14). A deadlock hangs; the timeout converts it into a clear failure. Payload equality proves every item made the round trip in order. | tests/protocol_v3_e2e.rs:481 |
+| test7059 | rust | `test7059_terminal_end_releases_credit_and_leaks_no_state` | TEST7059: Terminal END releases credit waiters and leaks no stream state. Runs a full bidirectional >window request (real credit gates on both directions), then asserts the switch's protocol stats snapshot shows ZERO active requests and the terminated-by-kind accounting recorded the END. A leaked request entry, response channel, or rid-index row keeps `active` non-empty and fails the test (L7/L13). | tests/protocol_v3_e2e.rs:567 |
+| test7061 | rust | `test7061_negotiated_initial_credit_is_min_of_proposals` | TEST7061: The negotiated initial_credit (min of both HELLOs) is the actual first-burst size on the wire. E2E form, in two parts: 1. With the real cartridge host attached (both sides propose the default), the switch's negotiated initial_credit is exactly DEFAULT_INITIAL_CREDIT (32) — and a 48-chunk producer completes correctly, which is only possible if the first burst (32) is followed by grant-driven resumption (the cross-process TEST7055 variant: consumption grants replenish the producer's window). 2. Attaching a second master whose RelayNotify proposes initial_credit=8 drops the switch's negotiated value to the element-wise min, 8 — wire-visible min-negotiation. | tests/protocol_v3_e2e.rs:673 |
+| test7063 | rust | `test7063_pending_grants_flush_before_blocking` | TEST7063: A receiver flushes pending sub-batch grants before blocking on an empty input — progress is guaranteed even when the sender's window is smaller than the receiver's grant batch threshold. | src/bifaci/cartridge_runtime.rs:5528 |
+| test7071 | rust | `test7071_terminal_output_yields_before_stream_end` | TEST7071: The incremental terminal consumer yields items BEFORE the stream has ended — required for unbounded output (L16) — and completes on an unbounded STREAM_END + END. | src/orchestrator/stream_io.rs:1131 |
+| test7076 | rust | `test7076_pipelined_chain_downstream_consumes_before_upstream_finishes` | TEST7076: Pipelined chain execution: the downstream cap receives its first item before the upstream cap emits its last. [input -> test-stream-n-chunks -> mid -> test-echo-stream -> output] is a linear chain, so `execute_dag` pipelines it: the intermediate node's data streams cap-to-cap live and is never materialized. The producer emits 48 chunks (> the 32-chunk window) with a progress log per chunk; the echo cap logs on its first consumed item. With credit flowing per hop, the producer CANNOT emit chunk 33+ until the echo cap has consumed — so the echo's first-item log must appear in the captured event sequence BEFORE the producer's final per-chunk log. A materializing (non-pipelined) executor would show the producer finishing all 48 chunks first and fail the ordering assertion. | tests/protocol_v3_e2e.rs:794 |
+| test7077 | rust | `test7077_per_item_meta_incremental` | TEST7077: Per-item stream metadata arrives WITH its item through incremental delivery, not batched at the end. | src/orchestrator/stream_io.rs:1171 |
+| test7078 | rust | `test7078_pipeline_segment_detection` | TEST7078: Pipeline segment detection — linear chains pipeline; fan-out, fan-in heads, and extra-args groups break segments so those edges still materialize correctly. | src/orchestrator/executor.rs:2358 |
 
 ---
 
@@ -1513,6 +1482,43 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test6749 | rust, go, py, objc | js | TEST6749: InProcessCartridgeHost handles identity verification (echo nonce) |
 | test6750 | rust, go, py, objc | js | TEST6750: InProcessCartridgeHost returns NO_HANDLER for unregistered cap |
 | test6751 | rust, go, py, objc | js | TEST6751: InProcessCartridgeHost manifest includes identity cap and handler caps |
+| test7000 | rust, objc | go, py, js | TEST7000: v3 handshake succeeds and negotiates the element-wise minimum of all four limits including initial_credit |
+| test7001 | rust, objc | go, py, js | TEST7001: HELLO carrying protocol version 2 is rejected at handshake with a version-mismatch error |
+| test7002 | rust, objc | go, py, js | TEST7002: initial_credit negotiation picks the element-wise minimum of the two proposals |
+| test7010 | rust, objc | go, py, js | TEST7010: CREDIT frame round-trips encode/decode with rid, stream_id, and credit count |
+| test7011 | rust, objc | go, py, js | TEST7011: CREDIT is a non-flow frame — no seq assigned, passes the reorder buffer untouched regardless of flow state |
+| test7012 | rust, objc | go, py, js | TEST7012: STREAM_START unbounded flag round-trips through CBOR; absent flag means bounded |
+| test7013 | rust, objc | go, py, js | TEST7013: CBOR decode REJECTS a CREDIT frame missing its credit count |
+| test7014 | rust, objc | go, py, js | TEST7014: END terminal meta (progress, message) round-trips; successful END without progress reads as 1.0; failed END without progress reads as None |
+| test7015 | rust, objc | go, py, js | TEST7015: CreditGate acquire succeeds immediately within the initial window and waits when exhausted until a grant arrives. |
+| test7016 | rust, objc | go, py, js | TEST7016: CreditGate close releases blocked waiters with CreditClosed and fails all future acquires. |
+| test7017 | rust, objc | go, py, js | TEST7017: CreditRouter routes grants by (rid, stream_id), falls back to a request's sole gate for stream-less grants, and reports unmatched grants. |
+| test7018 | rust, objc | go, py, js | TEST7018: CreditRouter close_request closes and removes every gate of the request, releasing their waiters. |
+| test7019 | rust, objc | go, py, js | TEST7019: Drop counters record per-reason exactly once per drop, and the snapshot omits zero-count reasons while totalling all of them. |
+| test7020 | rust, objc | go, py, js | TEST7020: A flow frame reaching the writer after the flow's END has been written is dropped with a counted post_terminal drop — END is the last flow frame on the wire. |
+| test7021 | rust, objc | go, py, js | TEST7021: The writer gate is precise — flow frames before END are written, non-flow frames (heartbeat, credit) still pass after a flow's terminal, and only that flow is gated. |
+| test7025 | rust, objc | go, py, js | TEST7025: A flow frame for a request with no routing state is a counted no_route drop — not a protocol error and not a silent loss — observable in the protocol stats snapshot. |
+| test7026 | rust, objc | go, py, js | TEST7026: An out-of-order terminal is buffered until the gap fills; buffered pre-terminal frames flush ahead of it in seq order, and only then may the flow be cleaned up |
+| test7027 | rust, objc | go, py, js | TEST7027: A frame sent through a ChannelFrameSender whose receiver is gone is a counted channel_closed drop, never a silent loss. |
+| test7029 | rust, objc | go, py, js | TEST7029: TerminatedFlows membership is exact up to capacity and evicts strictly oldest-first beyond it. |
+| test7030 | rust, objc | go, py, js | TEST7030: A request registers exactly once and terminates exactly once — duplicate registration and double termination are rejected, and after terminate zero state remains for the key. |
+| test7031 | rust, objc | go, py, js | TEST7031: The rid index and the entry table never disagree across register/terminate cycles, and a terminated rid is immediately reusable. |
+| test7032 | rust, objc | go, py, js | TEST7032: record_frame accumulates per-stream frame/byte/chunk counters by direction, flips phase Created→Streaming on the first flow frame, and tracks unbounded/ended/credit stream markers. |
+| test7033 | rust, objc | go, py, js | TEST7033: Terminated requests leave a bounded ring of summaries carrying kind, lifetime, and flow totals, and the ring evicts oldest-first at capacity. |
+| test7035 | rust, objc | go, py, js | TEST7035: After END, the switch holds zero state for the request — entry, rid index, and response channel all released atomically, with the terminal delivered and a terminated summary recorded. |
+| test7036 | rust, objc | go, py, js | TEST7036: After ERR, the same total-cleanup invariant holds as after END, with kind err. |
+| test7037 | rust, objc | go, py, js | TEST7037: Cancelling a request terminates it AND its recursively-linked peer children — Cancel frames reach the destination, waiting channels get ERR CANCELLED, and zero state remains for parent or child. |
+| test7038 | rust, objc | go, py, js | TEST7038: Master death terminates every request routed to it with kind master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and leaving zero state. |
+| test7050 | rust, objc | go, py, js | TEST7050: A credited sender emits exactly its window of chunks then stalls until a CREDIT grant arrives — observed on the frame channel. |
+| test7052 | rust, objc | go, py, js | TEST7052: Input consumption emits batched CREDIT grants — roughly one grant per half-window consumed, not one per chunk. |
+| test7053 | rust, objc | go, py, js | TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12). |
+| test7062 | rust, objc | go, py, js | TEST7062: LOG/progress frames flow while the data window is exhausted — control frames are never credited. |
+| test7070 | rust, objc | go, py, js | TEST7070: An unbounded input stream is consumed live — the handler observes early items while the producer is still emitting, and the stream reports itself unbounded. |
+| test7073 | rust, objc | go, py, js | TEST7073: Buffering collectors refuse unbounded streams with a hard error instead of buffering without bound. |
+| test7085 | rust, objc | go, py, js | TEST7085: The RelayNotify capabilities payload carries the host's protocol stats snapshot, surviving the wire round-trip. |
+| test7086 | rust, objc | go, py, js | TEST7086: One runtime's drop counters aggregate every drop source — post-terminal writer drops and closed-channel sends — each counted exactly once, and the snapshot totals match the induced drops. |
+| test7087 | rust, objc | go, py, js | TEST7087: Protocol stats snapshots serialize with stable field names — the snapshot shape is the mirror contract. |
+| test7088 | rust, objc | go, py, js | TEST7088: last_activity is monotonic non-decreasing across a long-lived streaming request — idle time resets on every recorded frame and never runs backwards. |
 
 ---
 
@@ -1698,7 +1704,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **rust**: TEST199: Test PROTOCOL_VERSION is 3
 - **go**: TEST199: Test PROTOCOL_VERSION is 2
 - **py**: TEST199: Test PROTOCOL_VERSION is 2
-- **objc**: TEST199: Test PROTOCOL_VERSION is 2
+- **objc**: TEST199: Test PROTOCOL_VERSION is 3
 
 ### test288
 
@@ -2613,7 +2619,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **rust**: TEST6672: CBOR decode ACCEPTS STREAM_END without chunk_count — unbounded streams make no length promise (v3, L16)
 - **go**: TEST6672: CBOR decode REJECTS STREAM_END frame missing chunk_count field
 - **py**: TEST6672: Offline flag blocks fetch_from_registry without making HTTP request
-- **objc**: TEST6672: Offline flag blocks fetch_from_registry without making HTTP request
+- **objc**: TEST6672: CBOR decode ACCEPTS STREAM_END without chunk_count — unbounded streams make no length promise (v3, L16)
 
 ### test6734
 
@@ -4258,49 +4264,55 @@ A number assigned to more than one function inside a single mirror. These must b
 | test6749 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test6750 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test6751 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test7000 | shared | ✓ | · | · | · | · | solo |
-| test7001 | shared | ✓ | · | · | · | · | solo |
-| test7002 | shared | ✓ | · | · | · | · | solo |
-| test7010 | shared | ✓ | · | · | · | · | solo |
-| test7011 | shared | ✓ | · | · | · | · | solo |
-| test7012 | shared | ✓ | · | · | · | · | solo |
-| test7013 | shared | ✓ | · | · | · | · | solo |
-| test7014 | shared | ✓ | · | · | · | · | solo |
-| test7015 | shared | ✓ | · | · | · | · | solo |
-| test7016 | shared | ✓ | · | · | · | · | solo |
-| test7017 | shared | ✓ | · | · | · | · | solo |
-| test7018 | shared | ✓ | · | · | · | · | solo |
-| test7019 | shared | ✓ | · | · | · | · | solo |
-| test7020 | shared | ✓ | · | · | · | · | solo |
-| test7021 | shared | ✓ | · | · | · | · | solo |
+| test7000 | shared | ✓ | · | · | · | ✓ | shared |
+| test7001 | shared | ✓ | · | · | · | ✓ | shared |
+| test7002 | shared | ✓ | · | · | · | ✓ | shared |
+| test7010 | shared | ✓ | · | · | · | ✓ | shared |
+| test7011 | shared | ✓ | · | · | · | ✓ | shared |
+| test7012 | shared | ✓ | · | · | · | ✓ | shared |
+| test7013 | shared | ✓ | · | · | · | ✓ | shared |
+| test7014 | shared | ✓ | · | · | · | ✓ | shared |
+| test7015 | shared | ✓ | · | · | · | ✓ | shared |
+| test7016 | shared | ✓ | · | · | · | ✓ | shared |
+| test7017 | shared | ✓ | · | · | · | ✓ | shared |
+| test7018 | shared | ✓ | · | · | · | ✓ | shared |
+| test7019 | shared | ✓ | · | · | · | ✓ | shared |
+| test7020 | shared | ✓ | · | · | · | ✓ | shared |
+| test7021 | shared | ✓ | · | · | · | ✓ | shared |
 | test7022 | shared | ✓ | · | · | · | · | solo |
 | test7023 | shared | ✓ | · | · | · | · | solo |
 | test7024 | shared | ✓ | · | · | · | · | solo |
-| test7025 | shared | ✓ | · | · | · | · | solo |
-| test7026 | shared | ✓ | · | · | · | · | solo |
-| test7027 | shared | ✓ | · | · | · | · | solo |
-| test7029 | shared | ✓ | · | · | · | · | solo |
-| test7030 | shared | ✓ | · | · | · | · | solo |
-| test7031 | shared | ✓ | · | · | · | · | solo |
-| test7032 | shared | ✓ | · | · | · | · | solo |
-| test7033 | shared | ✓ | · | · | · | · | solo |
-| test7035 | shared | ✓ | · | · | · | · | solo |
-| test7036 | shared | ✓ | · | · | · | · | solo |
-| test7037 | shared | ✓ | · | · | · | · | solo |
-| test7038 | shared | ✓ | · | · | · | · | solo |
-| test7050 | shared | ✓ | · | · | · | · | solo |
-| test7052 | shared | ✓ | · | · | · | · | solo |
-| test7053 | shared | ✓ | · | · | · | · | solo |
-| test7062 | shared | ✓ | · | · | · | · | solo |
-| test7070 | shared | ✓ | · | · | · | · | solo |
+| test7025 | shared | ✓ | · | · | · | ✓ | shared |
+| test7026 | shared | ✓ | · | · | · | ✓ | shared |
+| test7027 | shared | ✓ | · | · | · | ✓ | shared |
+| test7029 | shared | ✓ | · | · | · | ✓ | shared |
+| test7030 | shared | ✓ | · | · | · | ✓ | shared |
+| test7031 | shared | ✓ | · | · | · | ✓ | shared |
+| test7032 | shared | ✓ | · | · | · | ✓ | shared |
+| test7033 | shared | ✓ | · | · | · | ✓ | shared |
+| test7035 | shared | ✓ | · | · | · | ✓ | shared |
+| test7036 | shared | ✓ | · | · | · | ✓ | shared |
+| test7037 | shared | ✓ | · | · | · | ✓ | shared |
+| test7038 | shared | ✓ | · | · | · | ✓ | shared |
+| test7050 | shared | ✓ | · | · | · | ✓ | shared |
+| test7052 | shared | ✓ | · | · | · | ✓ | shared |
+| test7053 | shared | ✓ | · | · | · | ✓ | shared |
+| test7054 | shared | ✓ | · | · | · | · | solo |
+| test7056 | shared | ✓ | · | · | · | · | solo |
+| test7059 | shared | ✓ | · | · | · | · | solo |
+| test7061 | shared | ✓ | · | · | · | · | solo |
+| test7062 | shared | ✓ | · | · | · | ✓ | shared |
+| test7063 | shared | ✓ | · | · | · | · | solo |
+| test7070 | shared | ✓ | · | · | · | ✓ | shared |
 | test7071 | shared | ✓ | · | · | · | · | solo |
-| test7073 | shared | ✓ | · | · | · | · | solo |
+| test7073 | shared | ✓ | · | · | · | ✓ | shared |
+| test7076 | shared | ✓ | · | · | · | · | solo |
 | test7077 | shared | ✓ | · | · | · | · | solo |
 | test7078 | shared | ✓ | · | · | · | · | solo |
-| test7085 | shared | ✓ | · | · | · | · | solo |
-| test7086 | shared | ✓ | · | · | · | · | solo |
-| test7087 | shared | ✓ | · | · | · | · | solo |
-| test7088 | shared | ✓ | · | · | · | · | solo |
+| test7085 | shared | ✓ | · | · | · | ✓ | shared |
+| test7086 | shared | ✓ | · | · | · | ✓ | shared |
+| test7087 | shared | ✓ | · | · | · | ✓ | shared |
+| test7088 | shared | ✓ | · | · | · | ✓ | shared |
 | test8000 | impl | ✓ | · | · | · | · | solo |
 | test8001 | impl | ✓ | · | · | · | · | solo |
 | test8002 | impl | ✓ | · | · | · | · | solo |

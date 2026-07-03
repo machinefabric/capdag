@@ -696,10 +696,26 @@ impl Frame {
     /// * `stream_id` - The stream being credited (None credits the request's
     ///   sole/default stream)
     /// * `credits` - Number of additional CHUNK frames the sender may emit
-    pub fn credit(target_rid: MessageId, stream_id: Option<String>, credits: u64) -> Self {
+    /// * `direction` - Which side's stream is being credited. Hosts route
+    ///   grants by this: a `Request` grant travels toward the requester (the
+    ///   sender of argument streams), a `Response` grant toward the handler
+    ///   (the sender of output streams). Required — the (xid, rid) key alone
+    ///   is ambiguous for self-loop peer calls.
+    pub fn credit(
+        target_rid: MessageId,
+        stream_id: Option<String>,
+        credits: u64,
+        direction: CreditDirection,
+    ) -> Self {
         let mut frame = Self::new(FrameType::Credit, target_rid);
         frame.stream_id = stream_id;
         frame.credit = Some(credits);
+        let mut meta = BTreeMap::new();
+        meta.insert(
+            "credit_dir".to_string(),
+            ciborium::Value::Text(direction.as_str().to_string()),
+        );
+        frame.meta = Some(meta);
         frame
     }
 
@@ -709,6 +725,24 @@ impl Frame {
             return None;
         }
         self.credit
+    }
+
+    /// Read the direction of a CREDIT frame's grant. None for other frame
+    /// types or a Credit frame without the mandatory direction (a protocol
+    /// violation the receiving router treats as unroutable).
+    pub fn credit_direction(&self) -> Option<CreditDirection> {
+        if self.frame_type != FrameType::Credit {
+            return None;
+        }
+        self.meta.as_ref().and_then(|m| {
+            m.get("credit_dir").and_then(|v| {
+                if let ciborium::Value::Text(s) = v {
+                    CreditDirection::from_str_name(s)
+                } else {
+                    None
+                }
+            })
+        })
     }
 
     /// Extract manifest from RelayNotify metadata.
@@ -1235,6 +1269,36 @@ pub mod keys {
     pub const UNBOUNDED: u64 = 20; // Stream makes no length promise (STREAM_START frames)
 }
 
+/// Which side's stream a CREDIT frame credits (L11 routing discriminator).
+/// `Request` credits a request-direction stream (arguments flowing toward the
+/// handler): the grant travels toward the REQUESTER. `Response` credits a
+/// response-direction stream (handler output): the grant travels toward the
+/// HANDLER. Required on every CREDIT frame — (xid, rid) alone cannot
+/// disambiguate grant direction for self-loop peer calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CreditDirection {
+    Request,
+    Response,
+}
+
+impl CreditDirection {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CreditDirection::Request => "request",
+            CreditDirection::Response => "response",
+        }
+    }
+
+    pub fn from_str_name(s: &str) -> Option<Self> {
+        match s {
+            "request" => Some(CreditDirection::Request),
+            "response" => Some(CreditDirection::Response),
+            _ => None,
+        }
+    }
+}
+
 /// Why a frame was dropped instead of delivered. The shared vocabulary for
 /// counted drops across every runtime (cartridge writer, host, relay switch,
 /// executor); every dropped frame increments exactly one of these counters,
@@ -1303,6 +1367,7 @@ mod tests {
             FrameType::RelayNotify,
             FrameType::RelayState,
             FrameType::Cancel,
+            FrameType::Credit,
         ] {
             let v = t as u8;
             let recovered = FrameType::from_u8(v).expect("should recover frame type");
@@ -1314,8 +1379,8 @@ mod tests {
     #[test]
     fn test172_invalid_frame_type() {
         assert!(
-            FrameType::from_u8(13).is_none(),
-            "value 13 is one past Cancel"
+            FrameType::from_u8(14).is_none(),
+            "value 14 is one past Credit"
         );
         assert!(FrameType::from_u8(100).is_none());
         assert!(FrameType::from_u8(255).is_none());
@@ -1932,13 +1997,18 @@ mod tests {
             Some(FrameType::Cancel),
             "12 is Cancel"
         );
+        assert_eq!(
+            FrameType::from_u8(13),
+            Some(FrameType::Credit),
+            "13 is Credit (v3)"
+        );
         assert!(
-            FrameType::from_u8(13).is_none(),
-            "13 is past the last valid frame type"
+            FrameType::from_u8(14).is_none(),
+            "14 is past the last valid frame type"
         );
         assert!(
             FrameType::from_u8(2).is_none(),
-            "2 (old Res) is still invalid"
+            "2 (old Res) is permanently retired"
         );
     }
 
@@ -2650,7 +2720,7 @@ mod tests {
         use crate::bifaci::io::{decode_frame, encode_frame};
 
         let rid = MessageId::new_uuid();
-        let frame = Frame::credit(rid.clone(), Some("s1".to_string()), 17);
+        let frame = Frame::credit(rid.clone(), Some("s1".to_string()), 17, CreditDirection::Response);
         assert_eq!(frame.credit_count(), Some(17));
 
         let decoded = decode_frame(&encode_frame(&frame).unwrap()).unwrap();
@@ -2658,12 +2728,24 @@ mod tests {
         assert_eq!(decoded.id, rid);
         assert_eq!(decoded.stream_id.as_deref(), Some("s1"));
         assert_eq!(decoded.credit_count(), Some(17));
+        assert_eq!(
+            decoded.credit_direction(),
+            Some(CreditDirection::Response),
+            "the routing direction must survive the wire (L11)"
+        );
 
         // Stream-less grant (request's sole stream) round-trips too
-        let frame = Frame::credit(rid.clone(), None, 3);
+        let frame = Frame::credit(rid.clone(), None, 3, CreditDirection::Request);
         let decoded = decode_frame(&encode_frame(&frame).unwrap()).unwrap();
         assert_eq!(decoded.stream_id, None);
         assert_eq!(decoded.credit_count(), Some(3));
+        assert_eq!(decoded.credit_direction(), Some(CreditDirection::Request));
+
+        // A Credit frame with no direction reports None — hosts drop it as
+        // unroutable (counted), since (xid, rid) alone cannot place it.
+        let mut dirless = Frame::new(FrameType::Credit, MessageId::new_uuid());
+        dirless.credit = Some(1);
+        assert_eq!(dirless.credit_direction(), None);
 
         // credit_count is None on non-Credit frames even if the field is set
         let mut chunkish = Frame::new(FrameType::Log, rid);
@@ -2681,7 +2763,7 @@ mod tests {
         let mut chunk = Frame::chunk(rid.clone(), "s1".to_string(), 0, vec![1], 0, 1);
         assigner.assign(&mut chunk);
         assert_eq!(chunk.seq, 0);
-        let mut credit = Frame::credit(rid.clone(), Some("s1".to_string()), 4);
+        let mut credit = Frame::credit(rid.clone(), Some("s1".to_string()), 4, CreditDirection::Response);
         assigner.assign(&mut credit);
         assert_eq!(credit.seq, 0, "Credit must not consume a flow seq");
         let mut chunk2 = Frame::chunk(rid.clone(), "s1".to_string(), 0, vec![2], 1, 1);
@@ -2696,7 +2778,7 @@ mod tests {
             buffer.accept(gapped).unwrap().is_empty(),
             "out-of-order flow frame must be buffered"
         );
-        let credit = Frame::credit(rid, Some("s1".to_string()), 4);
+        let credit = Frame::credit(rid, Some("s1".to_string()), 4, CreditDirection::Response);
         let delivered = buffer.accept(credit).unwrap();
         assert_eq!(
             delivered.len(),

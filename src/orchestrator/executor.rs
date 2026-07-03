@@ -1429,7 +1429,7 @@ impl ExecutionContext {
         // response channel and are routed into `credit_router`), and we grant
         // for the response chunks we consume so the cartridge's output window
         // replenishes.
-        let initial_credit = self.switch.negotiated_limits().await.initial_credit;
+        let initial_credit = self.switch.limits().await.initial_credit;
         let credit_router = crate::bifaci::credit::CreditRouter::new();
         let grant_switch = self.switch.clone();
         let grant_rid = request_id.clone();
@@ -1437,7 +1437,12 @@ impl ExecutionContext {
             let switch = grant_switch.clone();
             let rid = grant_rid.clone();
             tokio::spawn(async move {
-                let frame = Frame::credit(rid, stream_id, n);
+                let frame = Frame::credit(
+                    rid,
+                    stream_id,
+                    n,
+                    crate::bifaci::frame::CreditDirection::Response,
+                );
                 if let Err(e) = switch.send_to_master(frame, None).await {
                     // The request already terminated — the producer no longer
                     // needs the grant. Observable, not fatal.
@@ -1697,7 +1702,31 @@ async fn forward_frames(
         }
     };
 
-    while let Some(frame) = rx.recv().await {
+    loop {
+        let next = match rx.try_recv() {
+            Ok(f) => Some(f),
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => None,
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                // About to block: flush pending upstream grants (L10
+                // deadlock-freedom rule) — the upstream cap's send window may
+                // be smaller than our batch threshold.
+                for (up_id, (_, _, consumed)) in streams.iter_mut() {
+                    if *consumed > 0 {
+                        let n = *consumed;
+                        *consumed = 0;
+                        let credit = Frame::credit(
+                            rid_up.clone(),
+                            Some(up_id.clone()),
+                            n,
+                            crate::bifaci::frame::CreditDirection::Response,
+                        );
+                        send(credit).await?;
+                    }
+                }
+                rx.recv().await
+            }
+        };
+        let Some(frame) = next else { break };
         match frame.frame_type {
             FrameType::StreamStart => {
                 let Some(up_id) = frame.stream_id.clone() else {
@@ -1721,17 +1750,47 @@ async fn forward_frames(
                         "pipelined forward: CHUNK missing stream_id".to_string(),
                     ));
                 };
-                let Some((down_id, gate, consumed)) = streams.get_mut(&up_id) else {
-                    return Err(ExecutionError::HostError(format!(
-                        "pipelined forward: CHUNK for unknown stream {}",
-                        up_id
-                    )));
+                let has_window = {
+                    let Some((_, gate, _)) = streams.get(&up_id) else {
+                        return Err(ExecutionError::HostError(format!(
+                            "pipelined forward: CHUNK for unknown stream {}",
+                            up_id
+                        )));
+                    };
+                    gate.try_acquire(1)
+                        .map_err(|e| ExecutionError::HostError(e.to_string()))?
                 };
-                // Downstream flow control (L9): wait for the downstream cap's
-                // window before forwarding.
-                gate.acquire(1)
-                    .await
-                    .map_err(|e| ExecutionError::HostError(e.to_string()))?;
+                if !has_window {
+                    // Flush-before-block applies to EVERY blocking point (L10
+                    // corollary): the downstream acquire is about to wait, and
+                    // the upstream producer may be stalled on exactly the
+                    // sub-batch grants we are holding. Flush them all, then
+                    // wait for downstream window.
+                    for (flush_id, (_, _, consumed)) in streams.iter_mut() {
+                        if *consumed > 0 {
+                            let n = *consumed;
+                            *consumed = 0;
+                            let credit = Frame::credit(
+                                rid_up.clone(),
+                                Some(flush_id.clone()),
+                                n,
+                                crate::bifaci::frame::CreditDirection::Response,
+                            );
+                            send(credit).await?;
+                        }
+                    }
+                    let Some((_, gate, _)) = streams.get(&up_id) else {
+                        unreachable!("stream entry checked above");
+                    };
+                    // Downstream flow control (L9): wait for the downstream
+                    // cap's window before forwarding.
+                    gate.acquire(1)
+                        .await
+                        .map_err(|e| ExecutionError::HostError(e.to_string()))?;
+                }
+                let Some((down_id, _, consumed)) = streams.get_mut(&up_id) else {
+                    unreachable!("stream entry checked above");
+                };
 
                 let mut fwd = frame.clone();
                 fwd.id = rid_down.clone();
@@ -1743,7 +1802,12 @@ async fn forward_frames(
                 if *consumed >= grant_batch {
                     let n = *consumed;
                     *consumed = 0;
-                    let credit = Frame::credit(rid_up.clone(), Some(up_id.clone()), n);
+                    let credit = Frame::credit(
+                            rid_up.clone(),
+                            Some(up_id.clone()),
+                            n,
+                            crate::bifaci::frame::CreditDirection::Response,
+                        );
                     send(credit).await?;
                 }
             }
@@ -1829,7 +1893,7 @@ async fn execute_segment_pipelined(
 ) -> Result<(), ExecutionError> {
     assert!(segment.len() >= 2, "pipelined segment needs >= 2 groups");
 
-    let initial_credit = ctx.switch.negotiated_limits().await.initial_credit;
+    let initial_credit = ctx.switch.limits().await.initial_credit;
     let head = &groups[segment[0]];
     let tail = &groups[*segment.last().unwrap()];
 
@@ -1967,7 +2031,12 @@ async fn execute_segment_pipelined(
             let switch = grant_switch.clone();
             let rid = grant_rid.clone();
             tokio::spawn(async move {
-                let frame = Frame::credit(rid, stream_id, n);
+                let frame = Frame::credit(
+                    rid,
+                    stream_id,
+                    n,
+                    crate::bifaci::frame::CreditDirection::Response,
+                );
                 if let Err(e) = switch.send_to_master(frame, None).await {
                     tracing::debug!("[pipelined] terminal grant not deliverable: {}", e);
                 }

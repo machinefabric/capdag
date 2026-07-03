@@ -907,39 +907,18 @@ async fn test944_six_machine() {
         _ => panic!("Expected Bytes output"),
     }
 
-    // Also verify all intermediate nodes have data
-    assert!(outputs.contains_key("B"), "Missing node B (after edge1)");
-    assert!(outputs.contains_key("C"), "Missing node C (after edge2)");
-    assert!(outputs.contains_key("D"), "Missing node D (after edge7)");
-    assert!(outputs.contains_key("E"), "Missing node E (after edge8)");
-    assert!(outputs.contains_key("F"), "Missing node F (after edge9)");
-
-    // Verify intermediate values
-    if let NodeData::Bytes(b) = outputs.get("B").unwrap() {
-        assert_eq!(String::from_utf8(b.clone()).unwrap(), "[PREPEND]hello");
-    }
-    if let NodeData::Bytes(b) = outputs.get("C").unwrap() {
-        assert_eq!(
-            String::from_utf8(b.clone()).unwrap(),
-            "[PREPEND]hello[APPEND]"
-        );
-    }
-    if let NodeData::Bytes(b) = outputs.get("D").unwrap() {
-        assert_eq!(
-            String::from_utf8(b.clone()).unwrap(),
-            "[PREPEND]HELLO[APPEND]"
-        );
-    }
-    if let NodeData::Bytes(b) = outputs.get("E").unwrap() {
-        assert_eq!(
-            String::from_utf8(b.clone()).unwrap(),
-            "]DNEPPA[OLLEH]DNEPERP["
-        );
-    }
-    if let NodeData::Bytes(b) = outputs.get("F").unwrap() {
-        assert_eq!(
-            String::from_utf8(b.clone()).unwrap(),
-            "<<]DNEPPA[OLLEH]DNEPERP[>>"
+    // v3 pipelining regime: this six-cap machine is one linear-chain segment,
+    // so the intermediate nodes stream cap-to-cap and are deliberately NEVER
+    // materialized into the result map — the correct terminal value above
+    // proves every intermediate transformation ran, in order, through live
+    // frame forwarding. Their absence is asserted so a regression back to
+    // materialization (which would silently reintroduce the memory barrier)
+    // is caught.
+    for node in ["B", "C", "D", "E", "F"] {
+        assert!(
+            !outputs.contains_key(node),
+            "pipelined intermediate node {} must not be materialized (L16 pipelining regime)",
+            node
         );
     }
 }

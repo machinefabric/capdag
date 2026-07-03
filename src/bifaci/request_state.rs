@@ -608,7 +608,7 @@ mod tests {
         table.record_frame(&k, FrameDirection::Inbound, &chunk);
         table.record_frame(&k, FrameDirection::Outbound, &chunk);
 
-        let credit = Frame::credit(rid.clone(), Some("s1".to_string()), 4);
+        let credit = Frame::credit(rid.clone(), Some("s1".to_string()), 4, crate::bifaci::frame::CreditDirection::Response);
         table.record_frame(&k, FrameDirection::Outbound, &credit);
 
         let se = Frame::stream_end_unbounded(rid, "s1".to_string());

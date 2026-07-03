@@ -320,6 +320,10 @@ pub(crate) struct InputGrantEmitter {
     /// Some = grant a specific stream; None = grant the request's sole stream
     /// (single-stream peer responses).
     stream_id: Option<String>,
+    /// Which side's stream these grants credit (routing discriminator, L11):
+    /// Request for handler-input consumption, Response for peer-response
+    /// consumption.
+    direction: crate::bifaci::frame::CreditDirection,
     batch: u64,
     consumed_since_grant: u64,
     /// Shared with the demux's violation accounting: granting extends the
@@ -332,17 +336,32 @@ impl InputGrantEmitter {
     fn consumed(&mut self) {
         self.consumed_since_grant += 1;
         if self.consumed_since_grant >= self.batch {
-            let n = self.consumed_since_grant;
-            self.consumed_since_grant = 0;
-            self.window
-                .fetch_add(n as i64, std::sync::atomic::Ordering::SeqCst);
-            let mut frame = Frame::credit(self.rid.clone(), self.stream_id.clone(), n);
-            frame.routing_id = self.xid.clone();
-            // A failed grant send means the runtime is shutting down; the
-            // sender-side gate will be closed by the terminal path (counted
-            // at the ChannelFrameSender).
-            let _ = self.sender.send(&frame);
+            self.flush();
         }
+    }
+
+    /// Emit any pending (sub-batch) grant immediately.
+    ///
+    /// Deadlock-freedom rule (L10): a receiver MUST flush pending grants
+    /// before blocking on an empty input. Batching is a latency optimization
+    /// negotiated per link — the sender's window may come from a DIFFERENT
+    /// link's negotiation, so a sender can legally stall below this
+    /// receiver's batch threshold. Flushing at the block point guarantees
+    /// progress under any window/batch mismatch.
+    fn flush(&mut self) {
+        if self.consumed_since_grant == 0 {
+            return;
+        }
+        let n = self.consumed_since_grant;
+        self.consumed_since_grant = 0;
+        self.window
+            .fetch_add(n as i64, std::sync::atomic::Ordering::SeqCst);
+        let mut frame = Frame::credit(self.rid.clone(), self.stream_id.clone(), n, self.direction);
+        frame.routing_id = self.xid.clone();
+        // A failed grant send means the runtime is shutting down; the
+        // sender-side gate will be closed by the terminal path (counted
+        // at the ChannelFrameSender).
+        let _ = self.sender.send(&frame);
     }
 }
 
@@ -381,7 +400,19 @@ impl InputStream {
     pub async fn recv(
         &mut self,
     ) -> Option<Result<(ciborium::Value, Option<StreamMeta>), StreamError>> {
-        let item = self.rx.recv().await;
+        let item = match self.rx.try_recv() {
+            Ok(item) => Some(item),
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => None,
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                // About to block: flush pending grants first (L10 deadlock-
+                // freedom rule) — the producer may be stalled waiting for
+                // exactly this credit.
+                if let Some(grants) = self.grants.as_mut() {
+                    grants.flush();
+                }
+                self.rx.recv().await
+            }
+        };
         if let (Some(Ok(_)), Some(grants)) = (&item, self.grants.as_mut()) {
             grants.consumed();
         }
@@ -506,7 +537,18 @@ impl PeerResponse {
     /// Data consumption replenishes the responding peer's output window —
     /// a slow consumer naturally throttles the producer (L10).
     pub async fn recv(&mut self) -> Option<PeerResponseItem> {
-        let item = self.rx.recv().await;
+        let item = match self.rx.try_recv() {
+            Ok(item) => Some(item),
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => None,
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                // Flush pending grants before blocking (L10) — the responding
+                // peer may be stalled on exactly this credit.
+                if let Some(grants) = self.grants.as_mut() {
+                    grants.flush();
+                }
+                self.rx.recv().await
+            }
+        };
         if let (Some(PeerResponseItem::Data(Ok(_), _)), Some(grants)) =
             (&item, self.grants.as_mut())
         {
@@ -1622,6 +1664,9 @@ impl PeerCall {
             rid: self.request_id.clone(),
             xid: None,
             stream_id: None,
+            // Peer-response consumption credits the CALLEE's output streams —
+            // response direction, routed toward the handler (L11).
+            direction: crate::bifaci::frame::CreditDirection::Response,
             batch: (self.initial_credit / 2).max(1),
             consumed_since_grant: 0,
             window: Arc::new(std::sync::atomic::AtomicI64::new(0)),
@@ -2817,6 +2862,7 @@ fn demux_multi_stream(
                                 rid: ctx.rid.clone(),
                                 xid: ctx.xid.clone(),
                                 stream_id: Some(stream_id.clone()),
+                                direction: crate::bifaci::frame::CreditDirection::Request,
                                 batch: (ctx.initial_credit / 2).max(1),
                                 consumed_since_grant: 0,
                                 window,
@@ -5065,7 +5111,7 @@ mod tests {
             write_gated(hb, &mut wire, &limits, &mut seq, &mut terminated, &drops),
             GatedWrite::Written
         ));
-        let credit = Frame::credit(rid_a.clone(), None, 4);
+        let credit = Frame::credit(rid_a.clone(), None, 4, crate::bifaci::frame::CreditDirection::Response);
         assert!(matches!(
             write_gated(credit, &mut wire, &limits, &mut seq, &mut terminated, &drops),
             GatedWrite::Written
@@ -5188,7 +5234,7 @@ mod tests {
 
         // Grant 2 → the remaining 2 chunks + STREAM_END flow; data is intact
         // and chunk indexes are contiguous (nothing lost or reordered).
-        router.grant(&Frame::credit(rid, Some("s1".to_string()), 2));
+        router.grant(&Frame::credit(rid, Some("s1".to_string()), 2, crate::bifaci::frame::CreditDirection::Response));
         tokio::time::timeout(std::time::Duration::from_secs(2), writer)
             .await
             .expect("grant must unblock the writer")
@@ -5421,6 +5467,12 @@ mod tests {
             }),
         );
         let mut stream = package.recv().await.unwrap().unwrap();
+        // Let the demux thread forward ALL pre-queued chunks into the
+        // handler's channel before consuming — recv() then never hits an
+        // empty channel, so no flush-before-block fires and batching is
+        // deterministic. (Without the drain pause, the consumer can outpace
+        // the demux thread and legally trigger sub-batch flushes.)
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         let mut consumed = 0;
         for _ in 0..8 {
             stream.recv().await.unwrap().unwrap();
@@ -5435,6 +5487,7 @@ mod tests {
             .unwrap();
         raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
         drop(raw_tx);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         while let Some(item) = stream.recv().await {
             item.unwrap();
             consumed += 1;
@@ -5446,17 +5499,94 @@ mod tests {
             assert_eq!(f.frame_type, FrameType::Credit);
             grants.push(f.credit_count().unwrap());
         }
-        let total: u64 = grants.iter().sum();
-        assert_eq!(total, 16, "every consumed chunk is eventually granted");
-        assert!(
-            grants.len() <= 4,
-            "grants are batched (~window/2 = 4 per grant), got {} grants: {:?}",
-            grants.len(),
-            grants
+        // With both phases fully drained into the handler's channel before
+        // consumption, recv() never blocks mid-phase: no flushes fire and
+        // batching is fully deterministic — four grants of exactly the batch
+        // size (window/2 = 4), one per 4 consumed chunks.
+        assert_eq!(
+            grants,
+            vec![4, 4, 4, 4],
+            "drained consumption must batch deterministically at window/2"
         );
         // Note: 16 chunks arrive against an 8-window with grants extending it
         // as the handler consumes — the shared window accounting is what lets
         // the producer legally exceed the initial window (L10).
+    }
+
+    // TEST7063: A receiver flushes pending sub-batch grants before blocking on an empty input — progress is guaranteed even when the sender's window is smaller than the receiver's grant batch threshold.
+    #[tokio::test]
+    async fn test7063_pending_grants_flush_before_blocking() {
+        let (grant_tx, mut grant_rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
+        let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
+            tx: grant_tx,
+            drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
+        });
+        let rid = MessageId::new_uuid();
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+
+        // Receiver negotiated a 32 window → batch threshold 16. The sender
+        // (a different link) has a window of only 8: it emits 8 chunks and
+        // stalls, BELOW the receiver's batch threshold.
+        raw_tx
+            .send(Frame::stream_start(
+                rid.clone(),
+                "s1".to_string(),
+                "media:enc=utf-8".to_string(),
+                Some(false),
+            ))
+            .unwrap();
+        for i in 0..8u64 {
+            let mut payload = Vec::new();
+            ciborium::into_writer(&ciborium::Value::Bytes(vec![i as u8]), &mut payload).unwrap();
+            let checksum = Frame::compute_checksum(&payload);
+            raw_tx
+                .send(Frame::chunk(
+                    rid.clone(),
+                    "s1".to_string(),
+                    i,
+                    payload,
+                    i,
+                    checksum,
+                ))
+                .unwrap();
+        }
+        // Channel stays open — the sender is stalled, not finished.
+
+        let mut package = demux_multi_stream(
+            raw_rx,
+            None,
+            Some(InputCreditContext {
+                sender,
+                rid: rid.clone(),
+                xid: None,
+                initial_credit: 32,
+            }),
+        );
+        let mut stream = package.recv().await.unwrap().unwrap();
+
+        // Consume all 8 available items, then attempt the 9th — which blocks
+        // on the empty channel and MUST flush the pending 8-chunk grant first.
+        let consumer = tokio::spawn(async move {
+            for _ in 0..8 {
+                stream.recv().await.unwrap().unwrap();
+            }
+            // Blocks (sender stalled) — but only AFTER flushing grants.
+            let _ = stream.recv().await;
+        });
+
+        // The flushed grant must arrive even though 8 < batch(16).
+        let grant = tokio::time::timeout(std::time::Duration::from_secs(2), grant_rx.recv())
+            .await
+            .expect("pending grants must flush before blocking (L10 corollary)")
+            .expect("grant frame");
+        assert_eq!(grant.frame_type, FrameType::Credit);
+        assert_eq!(
+            grant.credit_count(),
+            Some(8),
+            "the full pending consumption is granted on flush"
+        );
+
+        consumer.abort();
     }
 
     // TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12).
@@ -9092,8 +9222,8 @@ mod tests {
     }
 
     // TEST539: OutputStream sends STREAM_START on first write
-    #[test]
-    fn test539_output_stream_sends_stream_start() {
+    #[tokio::test]
+    async fn test539_output_stream_sends_stream_start() {
         let (sender, frames) = MockFrameSender::new();
         let mut stream = OutputStream::new(
             Arc::new(sender),
@@ -9107,6 +9237,7 @@ mod tests {
         stream.start(false, None).expect("start must succeed");
         stream
             .emit_cbor(&Value::Bytes(b"test".to_vec()))
+            .await
             .expect("write must succeed");
 
         let captured = frames.lock().unwrap();
@@ -9120,8 +9251,8 @@ mod tests {
     }
 
     // TEST540: OutputStream::close sends STREAM_END with correct chunk_count
-    #[test]
-    fn test540_output_stream_close_sends_stream_end() {
+    #[tokio::test]
+    async fn test540_output_stream_close_sends_stream_end() {
         let (sender, frames) = MockFrameSender::new();
         let mut stream = OutputStream::new(
             Arc::new(sender),
@@ -9150,8 +9281,8 @@ mod tests {
     }
 
     // TEST541: OutputStream chunks large data correctly
-    #[test]
-    fn test541_output_stream_chunks_large_data() {
+    #[tokio::test]
+    async fn test541_output_stream_chunks_large_data() {
         let (sender, frames) = MockFrameSender::new();
         let max_chunk = 100; // Small chunk size for testing
         let mut stream = OutputStream::new(
@@ -9224,6 +9355,8 @@ mod tests {
             request_id: MessageId::new_uuid(),
             max_chunk: 256_000,
             response_rx: Some(response_rx),
+            credit_router: None,
+            initial_credit: crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
         };
 
         let arg_stream = peer.arg("media:argument");
@@ -9249,6 +9382,8 @@ mod tests {
             request_id: request_id.clone(),
             max_chunk: 256_000,
             response_rx: Some(response_rx),
+            credit_router: None,
+            initial_credit: crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
         };
 
         let _response = peer.finish().await.expect("finish must succeed");
@@ -9308,6 +9443,8 @@ mod tests {
             request_id: req_id,
             max_chunk: 256_000,
             response_rx: Some(response_rx),
+            credit_router: None,
+            initial_credit: crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
         };
 
         let response = peer.finish().await.expect("finish must succeed");
@@ -9365,6 +9502,8 @@ mod tests {
             request_id: req_id.clone(),
             max_chunk: 256_000,
             response_rx: Some(response_rx),
+            credit_router: None,
+            initial_credit: crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
         };
 
         // finish() must return immediately — NOT block waiting for StreamStart
@@ -9492,6 +9631,8 @@ mod tests {
             request_id: req_id,
             max_chunk: 256_000,
             response_rx: Some(response_rx),
+            credit_router: None,
+            initial_credit: crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
         };
 
         let response = peer.finish().await.expect("finish must succeed");
@@ -9553,6 +9694,8 @@ mod tests {
             request_id: req_id,
             max_chunk: 256_000,
             response_rx: Some(response_rx),
+            credit_router: None,
+            initial_credit: crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
         };
 
         let response = peer.finish().await.expect("finish must succeed");

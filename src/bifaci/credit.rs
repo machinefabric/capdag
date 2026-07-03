@@ -69,7 +69,16 @@ impl CreditGate {
         loop {
             // Register interest BEFORE checking state so a grant/close that
             // lands between the check and the await cannot be missed.
+            //
+            // CRITICAL: creating `notified()` does NOT register it —
+            // `notify_waiters()` only wakes futures that have been polled (or
+            // explicitly enabled). Without `enable()`, a grant landing between
+            // the window check and the first poll is lost forever and the
+            // sender stalls permanently (observed as rare, position-varying
+            // pipeline deadlocks with zero dropped frames).
             let notified = self.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             {
                 let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(reason) = &s.closed {
@@ -287,23 +296,23 @@ mod tests {
         router.register(rid.clone(), Some("s1".to_string()), Arc::clone(&gate));
 
         // Exact (rid, stream) match
-        let f = Frame::credit(rid.clone(), Some("s1".to_string()), 3);
+        let f = Frame::credit(rid.clone(), Some("s1".to_string()), 3, crate::bifaci::frame::CreditDirection::Response);
         assert!(router.grant(&f));
         assert_eq!(gate.available(), 3);
 
         // Stream-less grant matches the sole gate
-        let f = Frame::credit(rid.clone(), None, 2);
+        let f = Frame::credit(rid.clone(), None, 2, crate::bifaci::frame::CreditDirection::Response);
         assert!(router.grant(&f));
         assert_eq!(gate.available(), 5);
 
         // Second gate makes a stream-less grant ambiguous → unmatched
         let gate2 = Arc::new(CreditGate::new(0));
         router.register(rid.clone(), Some("s2".to_string()), gate2);
-        let f = Frame::credit(rid.clone(), None, 1);
+        let f = Frame::credit(rid.clone(), None, 1, crate::bifaci::frame::CreditDirection::Response);
         assert!(!router.grant(&f));
 
         // Unknown request → unmatched no-op
-        let f = Frame::credit(MessageId::new_uuid(), None, 1);
+        let f = Frame::credit(MessageId::new_uuid(), None, 1, crate::bifaci::frame::CreditDirection::Response);
         assert!(!router.grant(&f));
     }
 

@@ -6590,7 +6590,6 @@ mod tests {
     // TEST7037: Cancelling a request terminates it AND its recursively-linked peer children — Cancel frames reach the destination, waiting channels get ERR CANCELLED, and zero state remains for parent or child.
     #[tokio::test]
     async fn test7037_cancel_cascades_to_children_and_cleans_all_state() {
-        let registry = test_fabric_registry();
         let (engine_socket, slave_socket) = UnixStream::pair().expect("socket pair");
 
         let limits = Limits::default();
@@ -6679,7 +6678,6 @@ mod tests {
     // TEST7038: Master death terminates every request routed to it with kind master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and leaving zero state.
     #[tokio::test]
     async fn test7038_master_death_terminates_pending_requests() {
-        let registry = test_fabric_registry();
         let (engine_socket, slave_socket) = UnixStream::pair().expect("socket pair");
 
         let limits = Limits::default();
