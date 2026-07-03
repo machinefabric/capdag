@@ -98,6 +98,11 @@ pub struct RequestState {
     pub external_channel: Option<mpsc::UnboundedSender<Frame>>,
     /// Whether this is a cartridge-initiated peer invocation.
     pub is_peer: bool,
+    /// Cap URN of the originating REQ, when known at registration — the
+    /// request's nameable identity on the L8 surface. Without it a stats
+    /// snapshot shows only anonymous rids, making background chatter
+    /// indistinguishable from run traffic.
+    pub cap_urn: Option<String>,
     /// Child peer calls spawned under this request (cancel cascade).
     pub children: Vec<RequestKey>,
     pub phase: RequestPhase,
@@ -120,12 +125,20 @@ impl RequestState {
             origin,
             external_channel,
             is_peer,
+            cap_urn: None,
             children: Vec::new(),
             phase: RequestPhase::Created,
             streams: HashMap::new(),
             created_at: now,
             last_activity: now,
         }
+    }
+
+    /// Attach the originating REQ's cap URN — the request's nameable
+    /// identity in observability surfaces.
+    pub fn with_cap_urn(mut self, cap_urn: Option<String>) -> Self {
+        self.cap_urn = cap_urn;
+        self
     }
 
     fn record(&mut self, direction: FrameDirection, frame: &Frame) {
@@ -170,6 +183,8 @@ pub struct TerminatedSummary {
     pub rid: String,
     pub kind: TerminalKind,
     pub is_peer: bool,
+    #[serde(default)]
+    pub cap_urn: Option<String>,
     pub lifetime_ms: u64,
     pub frames_in: u64,
     pub frames_out: u64,
@@ -269,6 +284,7 @@ impl RequestTable {
             rid: key.1.to_string(),
             kind,
             is_peer: state.is_peer,
+            cap_urn: state.cap_urn.clone(),
             lifetime_ms: state.created_at.elapsed().as_millis() as u64,
             frames_in: totals.0,
             frames_out: totals.1,
@@ -330,6 +346,7 @@ impl RequestTable {
                 rid: key.1.to_string(),
                 phase: s.phase,
                 is_peer: s.is_peer,
+                cap_urn: s.cap_urn.clone(),
                 origin_master: s.origin,
                 destination_master: s.routing.destination_master_idx,
                 age_ms: s.created_at.elapsed().as_millis() as u64,
@@ -374,6 +391,8 @@ pub struct RequestSnapshot {
     pub rid: String,
     pub phase: RequestPhase,
     pub is_peer: bool,
+    #[serde(default)]
+    pub cap_urn: Option<String>,
     pub origin_master: Option<usize>,
     pub destination_master: usize,
     pub age_ms: u64,
@@ -412,6 +431,43 @@ mod tests {
     }
 
     // TEST7087: Protocol stats snapshots serialize with stable field names — the snapshot shape is the mirror contract.
+    #[test]
+    fn test7092_cap_urn_attribution_survives_lifecycle() {
+        // TEST7092: A request registered with its originating REQ's cap URN
+        // carries that identity through the ACTIVE snapshot and into the
+        // terminated ring — observability surfaces can always NAME a request
+        // (background chatter vs run traffic), never just show a bare rid.
+        // A request registered without one (pre-attribution mirror, unknown
+        // origin) snapshots with cap_urn null — absent, never invented.
+        let mut table = RequestTable::new();
+        let named = key(1, 9);
+        table
+            .register(
+                named.clone(),
+                state(0, Some(1), false).with_cap_urn(Some("cap:effect=none".to_string())),
+            )
+            .unwrap();
+        let anonymous = key(2, 10);
+        table.register(anonymous.clone(), state(0, Some(1), true)).unwrap();
+
+        let snapshot = table.snapshot();
+        let by_rid = |rid: &str| snapshot.active.iter().find(|r| r.rid == rid).unwrap();
+        assert_eq!(
+            by_rid("9").cap_urn.as_deref(),
+            Some("cap:effect=none"),
+            "active snapshot names the request's cap"
+        );
+        assert_eq!(by_rid("10").cap_urn, None, "unknown identity stays absent");
+
+        table.terminate(&named, TerminalKind::End).unwrap();
+        let snapshot = table.snapshot();
+        assert_eq!(
+            snapshot.recent_terminated[0].cap_urn.as_deref(),
+            Some("cap:effect=none"),
+            "the terminated ring keeps the cap identity"
+        );
+    }
+
     #[test]
     fn test7087_snapshot_field_names_are_stable() {
         let mut table = RequestTable::new();

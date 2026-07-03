@@ -1590,6 +1590,7 @@ impl RelaySwitch {
         key: (MessageId, MessageId),
         dest_idx: usize,
         tx: mpsc::UnboundedSender<Frame>,
+        cap_urn: Option<String>,
     ) -> Result<(), RelaySwitchError> {
         self.requests
             .write()
@@ -1604,7 +1605,8 @@ impl RelaySwitch {
                     None,
                     Some(tx),
                     false,
-                ),
+                )
+                .with_cap_urn(cap_urn),
             )
             .map_err(RelaySwitchError::Protocol)
     }
@@ -1635,7 +1637,8 @@ impl RelaySwitch {
         let key = (xid.clone(), rid.clone());
 
         // Register response channel + routing + rid index BEFORE sending (L7)
-        self.register_external(key.clone(), dest_idx, tx).await?;
+        self.register_external(key.clone(), dest_idx, tx, Some(cap_urn.to_string()))
+            .await?;
 
         // Build frame with XID
         let mut frame_with_xid = req_frame;
@@ -1679,7 +1682,8 @@ impl RelaySwitch {
         let (tx, rx) = mpsc::unbounded_channel();
 
         // Register response channel + routing + rid index BEFORE sending (L7)
-        self.register_external(key.clone(), dest_idx, tx).await?;
+        self.register_external(key.clone(), dest_idx, tx, Some(cap_urn.to_string()))
+            .await?;
 
         Ok((xid, rx))
     }
@@ -1742,7 +1746,8 @@ impl RelaySwitch {
         let (tx, rx) = mpsc::unbounded_channel();
 
         // Register response channel + routing + rid index BEFORE sending (L7)
-        self.register_external(key.clone(), dest_idx, tx).await?;
+        self.register_external(key.clone(), dest_idx, tx, Some(cap_urn.to_string()))
+            .await?;
 
         Ok((xid, rx))
     }
@@ -1776,9 +1781,14 @@ impl RelaySwitch {
         let key = (xid.clone(), rid.clone());
 
         let (tx, mut rx) = mpsc::unbounded_channel::<Frame>();
-        self.register_external(key.clone(), master_idx, tx)
-            .await
-            .map_err(|e| format!("identity probe registration failed: {}", e))?;
+        self.register_external(
+            key.clone(),
+            master_idx,
+            tx,
+            Some(CAP_IDENTITY.to_string()),
+        )
+        .await
+        .map_err(|e| format!("identity probe registration failed: {}", e))?;
 
         let nonce = identity_nonce();
         let stream_id = "identity-verify-runtime".to_string();
@@ -2541,7 +2551,8 @@ impl RelaySwitch {
                             None,
                             None,
                             false,
-                        ),
+                        )
+                        .with_cap_urn(frame.cap.clone()),
                     )
                     .map_err(RelaySwitchError::Protocol)?;
 
@@ -2942,7 +2953,8 @@ impl RelaySwitch {
                                 Some(source_idx),
                                 None,
                                 true,
-                            ),
+                            )
+                            .with_cap_urn(frame.cap.clone()),
                         )
                         .map_err(RelaySwitchError::Protocol)?;
 
@@ -3012,6 +3024,7 @@ impl RelaySwitch {
                     // and terminal delivery cannot disagree (L6). A frame for
                     // a released key is a counted no_route drop, never a
                     // protocol error and never silent (L8).
+                    let mut cap_for_log: Option<String> = None;
                     let route = {
                         let mut requests = self.requests.write().await;
                         requests.record_frame(&key, FrameDirection::Inbound, &frame);
@@ -3022,9 +3035,12 @@ impl RelaySwitch {
                                 TerminalKind::Err
                             };
                             match requests.terminate(&key, kind) {
-                                Some(state) => match state.origin {
-                                    None => RouteBack::External(state.external_channel),
-                                    Some(idx) => RouteBack::Master(idx),
+                                Some(state) => {
+                                    cap_for_log = state.cap_urn.clone();
+                                    match state.origin {
+                                        None => RouteBack::External(state.external_channel),
+                                        Some(idx) => RouteBack::Master(idx),
+                                    }
                                 },
                                 None => {
                                     let total = self
@@ -3042,9 +3058,12 @@ impl RelaySwitch {
                             }
                         } else {
                             match requests.get(&key) {
-                                Some(state) => match state.origin {
-                                    None => RouteBack::External(state.external_channel.clone()),
-                                    Some(idx) => RouteBack::Master(idx),
+                                Some(state) => {
+                                    cap_for_log = state.cap_urn.clone();
+                                    match state.origin {
+                                        None => RouteBack::External(state.external_channel.clone()),
+                                        Some(idx) => RouteBack::Master(idx),
+                                    }
                                 },
                                 None => {
                                     let total = self
@@ -3072,10 +3091,23 @@ impl RelaySwitch {
                                     .record(crate::bifaci::frame::DropReason::ChannelClosed);
                                 tracing::warn!(
                                     rid = ?rid,
+                                    cap = cap_for_log.as_deref().unwrap_or("?"),
                                     ftype = ?frame.frame_type,
                                     channel_closed_total = total,
                                     "[RelaySwitch] response channel receiver gone (channel_closed)"
                                 );
+                                // A dead consumer on a LIVE request means the
+                                // caller abandoned it (dropped/timed-out
+                                // future). Nobody can ever read this response —
+                                // cancel upstream so the cartridge stops
+                                // producing for a dead channel, instead of
+                                // letting the request run to completion and
+                                // counting a drop for every remaining frame
+                                // (TEST7093). Terminal frames need no cancel:
+                                // the entry is already terminated.
+                                if !is_terminal {
+                                    self.cancel_request(&rid, false).await;
+                                }
                             }
                             Ok(None)
                         }
@@ -6483,6 +6515,85 @@ mod tests {
         let bytes = serde_json::to_vec(&bare).unwrap();
         let parsed = parse_relay_notify_payload(&bytes).expect("bare payload parses");
         assert!(parsed.host_protocol_stats.is_none());
+    }
+
+    // TEST7093: A response frame for a LIVE request whose external consumer is
+    // gone (dropped/timed-out caller future) is a counted channel_closed drop
+    // AND cancels the request upstream — the destination receives Cancel, the
+    // entry terminates as cancelled, and the cartridge stops producing for a
+    // dead channel instead of running to completion against it.
+    #[tokio::test]
+    async fn test7093_dead_consumer_cancels_upstream() {
+        let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
+
+        let slave = tokio::spawn(async move {
+            let (mut reader, mut writer) = slave_notify_with_identity(
+                slave_sock,
+                &serde_json::json!(["cap:effect=none"]),
+                &Limits::default(),
+            )
+            .await;
+
+            // Serve one REQ: read it, then stream a response frame. The
+            // engine-side consumer will already be gone — the switch must
+            // answer with Cancel on this connection.
+            let req = loop {
+                let f = reader.read().await.unwrap().expect("expected REQ");
+                if f.frame_type == FrameType::Req {
+                    break f;
+                }
+            };
+            let mut log = Frame::log(req.id.clone(), "info", "first result row");
+            log.routing_id = req.routing_id.clone();
+            writer.write(&log).await.unwrap();
+
+            // The switch must now cancel this request (dead consumer).
+            loop {
+                let f = reader.read().await.unwrap().expect("expected Cancel");
+                if f.frame_type == FrameType::Cancel {
+                    assert_eq!(f.id, req.id, "cancel targets the abandoned request");
+                    return;
+                }
+            }
+        });
+
+        let switch = Arc::new(
+            RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
+                .await
+                .unwrap(),
+        );
+        switch.start_background_pump();
+
+        let (rid, rx) = switch
+            .execute_cap("cap:effect=none", vec![], "application/cbor")
+            .await
+            .expect("execute_cap");
+        // The caller abandons the request (timed-out/cancelled future).
+        drop(rx);
+        let _ = rid;
+
+        // The slave streams a frame into the dead channel; the switch must
+        // count the drop and cancel upstream (the slave task asserts Cancel).
+        tokio::time::timeout(std::time::Duration::from_secs(5), slave)
+            .await
+            .expect("slave must observe Cancel before timeout")
+            .expect("slave task must not panic");
+
+        let stats = switch.protocol_stats().await;
+        assert_eq!(
+            stats.drops.by_reason.get("channel_closed"),
+            Some(&1),
+            "the abandoned frame is a counted channel_closed drop"
+        );
+        assert_eq!(
+            stats.requests.terminated_by_kind.get("cancelled"),
+            Some(&1),
+            "the abandoned request terminates as cancelled — it never lingers"
+        );
+        assert!(
+            stats.requests.active.is_empty(),
+            "no state remains for the abandoned request (L7)"
+        );
     }
 
     // TEST7091: Host protocol stats carried by a master's RelayNotify are

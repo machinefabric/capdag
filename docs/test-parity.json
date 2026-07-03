@@ -1002,7 +1002,7 @@
         "rust": {
           "function": "test0131_runtime_identity_probe_required_on_empty_to_nonempty_transition",
           "description": "TEST0131: When a master initially advertises empty caps (so `add_master` skips the identity probe) and later sends a RelayNotify update with non-empty caps, the relay must run an end-to-end identity probe before the new caps become routable. A master that fails to answer the runtime probe with the expected nonce echo must end up unhealthy with `last_error` populated, and its caps must NOT appear in the cap_table. This test guards the wire-protocol regression where the RelayNotify-update path published caps without re-verifying identity end-to-end. Removing the runtime probe re-introduces the hole; this test fails loudly when that happens.",
-          "location": "src/bifaci/relay_switch.rs:4922"
+          "location": "src/bifaci/relay_switch.rs:4954"
         },
         "go": {
           "function": "Test0131_runtime_identity_probe_required_on_empty_to_nonempty_transition",
@@ -1040,7 +1040,7 @@
         "rust": {
           "function": "test0132_add_master_dynamic",
           "description": "TEST0132: add_master dynamically connects new host to running switch",
-          "location": "src/bifaci/relay_switch.rs:5417"
+          "location": "src/bifaci/relay_switch.rs:5449"
         },
         "go": {
           "function": "Test0132_add_master_dynamic",
@@ -1078,7 +1078,7 @@
         "rust": {
           "function": "test0133_reattach_by_id_preserves_slot_index",
           "description": "/ Reattach-by-id keeps the slot index stable. / / After a master at slot index 0 dies, a new socket added with / the same id MUST be placed into slot 0 (not appended at index 1). / Without this, request-table entries keyed by `master_idx=0` / would dangle pointing at a permanently-unhealthy zombie slot / while the live caps came back at slot 1 \u2014 exactly the / observed bug.",
-          "location": "src/bifaci/relay_switch.rs:5624"
+          "location": "src/bifaci/relay_switch.rs:5656"
         },
         "go": {
           "function": "Test133_ReattachByIDPreservesSlotIndex",
@@ -1116,7 +1116,7 @@
         "rust": {
           "function": "test0134_add_master_with_duplicate_healthy_id_errors",
           "description": "/ Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug \u2014 the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot.",
-          "location": "src/bifaci/relay_switch.rs:5730"
+          "location": "src/bifaci/relay_switch.rs:5762"
         },
         "go": {
           "function": "Test134_AddMasterWithDuplicateHealthyIDErrors",
@@ -1154,7 +1154,7 @@
         "rust": {
           "function": "test0135_runtime_identity_probe_success_makes_caps_routable",
           "description": "TEST0135: the runtime identity probe SUCCESS path \u2014 a master that advertises caps AFTER connecting (empty\u2192non-empty) and then passes the probe must flip healthy and its caps must become routable. This is the companion to test0131 (which covers probe FAILURE \u2192 stays unhealthy): together they pin both outcomes of the deferred-probe state machine.",
-          "location": "src/bifaci/relay_switch.rs:5052"
+          "location": "src/bifaci/relay_switch.rs:5084"
         },
         "go": {
           "function": "Test0135_runtime_identity_probe_success_makes_caps_routable",
@@ -1193,7 +1193,7 @@
         "rust": {
           "function": "test0136_all_masters_ready_false_when_expected_count_unset",
           "description": "TEST0136: All masters ready false when expected count unset",
-          "location": "src/bifaci/relay_switch.rs:6076"
+          "location": "src/bifaci/relay_switch.rs:6108"
         },
         "go": {
           "function": "Test0136_all_masters_ready_false_when_expected_count_unset",
@@ -1227,7 +1227,7 @@
         "rust": {
           "function": "test0137_all_masters_ready_false_when_partially_connected",
           "description": "TEST0137: All masters ready false when partially connected",
-          "location": "src/bifaci/relay_switch.rs:6094"
+          "location": "src/bifaci/relay_switch.rs:6126"
         },
         "go": {
           "function": "Test0137_all_masters_ready_false_when_partially_connected",
@@ -1299,7 +1299,7 @@
         "rust": {
           "function": "test0139_all_masters_ready_true_when_masters_connected_but_capless",
           "description": "TEST0139: All masters ready true when masters connected but capless",
-          "location": "src/bifaci/relay_switch.rs:6145"
+          "location": "src/bifaci/relay_switch.rs:6177"
         },
         "go": {
           "function": "Test0139_all_masters_ready_true_when_masters_connected_but_capless",
@@ -1333,7 +1333,7 @@
         "rust": {
           "function": "test0140_all_masters_ready_does_not_overshoot",
           "description": "TEST0140: All masters ready does not overshoot",
-          "location": "src/bifaci/relay_switch.rs:6168"
+          "location": "src/bifaci/relay_switch.rs:6200"
         },
         "go": {
           "function": "Test0140_all_masters_ready_does_not_overshoot",
@@ -9980,7 +9980,7 @@
         "rust": {
           "function": "test426_single_master_req_response",
           "description": "TEST426: Single master REQ/response routing",
-          "location": "src/bifaci/relay_switch.rs:4042"
+          "location": "src/bifaci/relay_switch.rs:4074"
         },
         "go": {
           "function": "Test426_relay_switch_single_master_req_response",
@@ -10018,7 +10018,7 @@
         "rust": {
           "function": "test427_multi_master_cap_routing",
           "description": "TEST427: Multi-master cap routing",
-          "location": "src/bifaci/relay_switch.rs:4109"
+          "location": "src/bifaci/relay_switch.rs:4141"
         },
         "go": {
           "function": "Test427_relay_switch_multi_master_cap_routing",
@@ -10056,7 +10056,7 @@
         "rust": {
           "function": "test428_unknown_cap_returns_error",
           "description": "TEST428: Unknown cap returns error",
-          "location": "src/bifaci/relay_switch.rs:4220"
+          "location": "src/bifaci/relay_switch.rs:4252"
         },
         "go": {
           "function": "Test428_relay_switch_unknown_cap_returns_error",
@@ -10094,7 +10094,7 @@
         "rust": {
           "function": "test429_find_master_for_cap",
           "description": "TEST429: Cap routing logic (find_master_for_cap)",
-          "location": "src/bifaci/relay_switch.rs:3982"
+          "location": "src/bifaci/relay_switch.rs:4014"
         },
         "go": {
           "function": "Test429_relay_switch_find_master_for_cap",
@@ -10132,7 +10132,7 @@
         "rust": {
           "function": "test430_tie_breaking_same_cap_multiple_masters",
           "description": "TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent)",
-          "location": "src/bifaci/relay_switch.rs:4255"
+          "location": "src/bifaci/relay_switch.rs:4287"
         },
         "go": {
           "function": "Test430_relay_switch_tie_breaking",
@@ -10170,7 +10170,7 @@
         "rust": {
           "function": "test431_continuation_frame_routing",
           "description": "TEST431: Continuation frame routing (CHUNK, END follow REQ)",
-          "location": "src/bifaci/relay_switch.rs:4361"
+          "location": "src/bifaci/relay_switch.rs:4393"
         },
         "go": {
           "function": "Test431_relay_switch_continuation_frame_routing",
@@ -10208,7 +10208,7 @@
         "rust": {
           "function": "test432_empty_masters_allowed",
           "description": "TEST432: Empty masters list creates empty switch, add_master works",
-          "location": "src/bifaci/relay_switch.rs:4448"
+          "location": "src/bifaci/relay_switch.rs:4480"
         },
         "go": {
           "function": "Test432_relay_switch_empty_masters_list_error",
@@ -10246,7 +10246,7 @@
         "rust": {
           "function": "test433_capability_aggregation_deduplicates",
           "description": "TEST433: Capability aggregation deduplicates caps",
-          "location": "src/bifaci/relay_switch.rs:4466"
+          "location": "src/bifaci/relay_switch.rs:4498"
         },
         "go": {
           "function": "Test433_relay_switch_capability_aggregation_deduplicates",
@@ -10284,7 +10284,7 @@
         "rust": {
           "function": "test434_limits_negotiation_minimum",
           "description": "TEST434: Limits negotiation takes minimum",
-          "location": "src/bifaci/relay_switch.rs:4516"
+          "location": "src/bifaci/relay_switch.rs:4548"
         },
         "go": {
           "function": "Test434_relay_switch_limits_negotiation_minimum",
@@ -10322,7 +10322,7 @@
         "rust": {
           "function": "test435_urn_matching_exact_and_accepts",
           "description": "TEST435: URN matching (exact vs accepts())",
-          "location": "src/bifaci/relay_switch.rs:4560"
+          "location": "src/bifaci/relay_switch.rs:4592"
         },
         "go": {
           "function": "Test435_relay_switch_urn_matching",
@@ -10398,7 +10398,7 @@
         "rust": {
           "function": "test437_preferred_cap_routes_to_generic",
           "description": "TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in=\"media:ext=pdf\") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates",
-          "location": "src/bifaci/relay_switch.rs:4666"
+          "location": "src/bifaci/relay_switch.rs:4698"
         },
         "go": {
           "function": "Test437_preferred_cap_routes_to_generic",
@@ -10436,7 +10436,7 @@
         "rust": {
           "function": "test438_preferred_cap_falls_back_when_not_comparable",
           "description": "TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set",
-          "location": "src/bifaci/relay_switch.rs:4724"
+          "location": "src/bifaci/relay_switch.rs:4756"
         },
         "go": {
           "function": "Test438_preferred_cap_falls_back_when_not_comparable",
@@ -10474,7 +10474,7 @@
         "rust": {
           "function": "test439_generic_provider_can_dispatch_specific_request",
           "description": "TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in=\"media:ext=pdf\") because media: accepts any input type. With preference, can route to generic even when more specific exists.",
-          "location": "src/bifaci/relay_switch.rs:4764"
+          "location": "src/bifaci/relay_switch.rs:4796"
         },
         "go": {
           "function": "Test439_generic_provider_can_dispatch_specific_request",
@@ -11834,7 +11834,7 @@
         "rust": {
           "function": "test487_relay_switch_identity_verification_succeeds",
           "description": "TEST487: RelaySwitch construction verifies identity through relay chain",
-          "location": "src/bifaci/relay_switch.rs:4808"
+          "location": "src/bifaci/relay_switch.rs:4840"
         },
         "go": {
           "function": "Test487_relay_switch_identity_verification_succeeds",
@@ -11872,7 +11872,7 @@
         "rust": {
           "function": "test488_relay_switch_identity_verification_fails",
           "description": "TEST488: RelaySwitch construction fails when master's identity verification fails",
-          "location": "src/bifaci/relay_switch.rs:4845"
+          "location": "src/bifaci/relay_switch.rs:4877"
         },
         "go": {
           "function": "Test488_relay_switch_identity_verification_fails",
@@ -16820,7 +16820,7 @@
         "rust": {
           "function": "test666_preferred_cap_routing",
           "description": "TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match",
-          "location": "src/bifaci/relay_switch.rs:5813"
+          "location": "src/bifaci/relay_switch.rs:5845"
         },
         "go": {
           "function": "Test666_preferred_cap_routing",
@@ -18406,7 +18406,7 @@
         "rust": {
           "function": "test728_cap_node_helpers",
           "description": "TEST728: Tests MachineNode helper methods for identifying node types (cap, fan-out, fan-in) Verifies is_cap(), is_fan_out(), is_fan_in(), and cap_urn() correctly classify node types",
-          "location": "src/planner/plan.rs:1231"
+          "location": "src/planner/plan.rs:1240"
         },
         "go": {
           "function": "Test728_cap_node_helpers",
@@ -18440,7 +18440,7 @@
         "rust": {
           "function": "test729_edge_types",
           "description": "TEST729: Tests creation and classification of different edge types (Direct, Iteration, Collection, JsonField) Verifies that edge constructors produce correct EdgeType variants",
-          "location": "src/planner/plan.rs:1253"
+          "location": "src/planner/plan.rs:1262"
         },
         "go": {
           "function": "Test729_edge_types",
@@ -18626,7 +18626,7 @@
         "rust": {
           "function": "test734_topological_order_self_loop",
           "description": "TEST734: Tests topological sort detects self-referencing cycles (A\u2192A) Verifies that self-loops are recognized as cycles and produce an error",
-          "location": "src/planner/plan.rs:1338"
+          "location": "src/planner/plan.rs:1347"
         },
         "go": {
           "function": "Test734_topological_order_self_loop",
@@ -18660,7 +18660,7 @@
         "rust": {
           "function": "test735_topological_order_multiple_entry_points",
           "description": "TEST735: Tests topological sort handles graphs with multiple independent starting nodes Verifies that parallel entry points (A\u2192C, B\u2192C) both precede their merge point in ordering",
-          "location": "src/planner/plan.rs:1355"
+          "location": "src/planner/plan.rs:1364"
         },
         "go": {
           "function": "Test735_topological_order_multiple_entry_points",
@@ -18694,7 +18694,7 @@
         "rust": {
           "function": "test736_topological_order_complex_dag",
           "description": "TEST736: Tests topological sort on a complex multi-path DAG with 6 nodes Verifies that all dependency constraints are satisfied in a graph with multiple converging paths",
-          "location": "src/planner/plan.rs:1389"
+          "location": "src/planner/plan.rs:1398"
         },
         "go": {
           "function": "Test736_topological_order_complex_dag",
@@ -18728,7 +18728,7 @@
         "rust": {
           "function": "test737_linear_chain_single_cap",
           "description": "TEST737: Tests linear_chain() with exactly one capability Verifies that a single-element chain produces a valid plan with input_slot, cap, and output",
-          "location": "src/planner/plan.rs:1435"
+          "location": "src/planner/plan.rs:1444"
         },
         "go": {
           "function": "Test737_linear_chain_single_cap",
@@ -18762,7 +18762,7 @@
         "rust": {
           "function": "test738_linear_chain_empty",
           "description": "TEST738: Tests linear_chain() with empty capability list Verifies that an empty chain produces a plan with zero nodes and edges",
-          "location": "src/planner/plan.rs:1450"
+          "location": "src/planner/plan.rs:1459"
         },
         "go": {
           "function": "Test738_linear_chain_empty",
@@ -18796,7 +18796,7 @@
         "rust": {
           "function": "test739_node_execution_result_success",
           "description": "TEST739: Tests NodeExecutionResult structure for successful node execution Verifies that success status, outputs (binary and text), and error fields work correctly",
-          "location": "src/planner/plan.rs:1464"
+          "location": "src/planner/plan.rs:1473"
         },
         "go": {
           "function": "Test739_node_execution_result_success",
@@ -18906,7 +18906,7 @@
         "rust": {
           "function": "test742_edge_type_serialization",
           "description": "TEST742: Tests EdgeType enum serialization and deserialization to/from JSON Verifies that edge types like Direct and JsonField correctly round-trip through serde_json",
-          "location": "src/planner/plan.rs:1526"
+          "location": "src/planner/plan.rs:1535"
         },
         "go": {
           "function": "Test742_edge_type_serialization",
@@ -18940,7 +18940,7 @@
         "rust": {
           "function": "test743_execution_node_type_serialization",
           "description": "TEST743: Tests ExecutionNodeType enum serialization and deserialization to/from JSON Verifies that node types like Cap and ForEach correctly serialize with their fields",
-          "location": "src/planner/plan.rs:1545"
+          "location": "src/planner/plan.rs:1554"
         },
         "go": {
           "function": "Test743_execution_node_type_serialization",
@@ -18974,7 +18974,7 @@
         "rust": {
           "function": "test744_plan_serialization",
           "description": "TEST744: Tests MachinePlan serialization and deserialization to/from JSON Verifies that complete plans with nodes and edges correctly round-trip through JSON",
-          "location": "src/planner/plan.rs:1574"
+          "location": "src/planner/plan.rs:1583"
         },
         "go": {
           "function": "Test744_plan_serialization",
@@ -19008,7 +19008,7 @@
         "rust": {
           "function": "test745_merge_strategy_serialization",
           "description": "TEST745: Tests MergeStrategy enum serialization to JSON Verifies that merge strategies like Concat and ZipWith serialize to correct string values",
-          "location": "src/planner/plan.rs:1595"
+          "location": "src/planner/plan.rs:1604"
         },
         "go": {
           "function": "Test745_merge_strategy_serialization",
@@ -19042,7 +19042,7 @@
         "rust": {
           "function": "test746_cap_node_output",
           "description": "TEST746: Tests creation of Output node type that references a source node Verifies that MachineNode::output() correctly constructs an Output node with name and source",
-          "location": "src/planner/plan.rs:1608"
+          "location": "src/planner/plan.rs:1617"
         },
         "go": {
           "function": "Test746_cap_node_output",
@@ -19076,7 +19076,7 @@
         "rust": {
           "function": "test747_cap_node_merge",
           "description": "TEST747: Tests creation and validation of Merge node that combines multiple inputs Verifies that Merge nodes with multiple input nodes and a strategy can be added to plans",
-          "location": "src/planner/plan.rs:1625"
+          "location": "src/planner/plan.rs:1634"
         },
         "go": {
           "function": "Test747_cap_node_merge",
@@ -19110,7 +19110,7 @@
         "rust": {
           "function": "test748_cap_node_split",
           "description": "TEST748: Tests creation of Split node that distributes input to multiple outputs Verifies that Split nodes correctly specify an input node and output count",
-          "location": "src/planner/plan.rs:1652"
+          "location": "src/planner/plan.rs:1661"
         },
         "go": {
           "function": "Test748_cap_node_split",
@@ -19144,7 +19144,7 @@
         "rust": {
           "function": "test749_get_node",
           "description": "TEST749: Tests get_node() method for looking up nodes by ID in a plan Verifies that existing nodes are found and non-existent nodes return None",
-          "location": "src/planner/plan.rs:1677"
+          "location": "src/planner/plan.rs:1686"
         },
         "go": {
           "function": "Test749_get_node",
@@ -19329,7 +19329,7 @@
         "rust": {
           "function": "test754_extract_prefix_nonexistent",
           "description": "TEST754: extract_prefix_to with nonexistent node returns error",
-          "location": "src/planner/plan.rs:1862"
+          "location": "src/planner/plan.rs:1871"
         },
         "go": {
           "function": "Test754_extract_prefix_nonexistent",
@@ -19367,7 +19367,7 @@
         "rust": {
           "function": "test755_extract_foreach_body",
           "description": "TEST755: extract_foreach_body extracts body as standalone plan",
-          "location": "src/planner/plan.rs:1870"
+          "location": "src/planner/plan.rs:1879"
         },
         "go": {
           "function": "Test755_extract_foreach_body",
@@ -19405,7 +19405,7 @@
         "rust": {
           "function": "test756_extract_foreach_body_unclosed",
           "description": "TEST756: extract_foreach_body for unclosed ForEach (single body cap)",
-          "location": "src/planner/plan.rs:1912"
+          "location": "src/planner/plan.rs:1921"
         },
         "go": {
           "function": "Test756_extract_foreach_body_unclosed",
@@ -19443,7 +19443,7 @@
         "rust": {
           "function": "test757_extract_foreach_body_wrong_type",
           "description": "TEST757: extract_foreach_body fails for non-ForEach node",
-          "location": "src/planner/plan.rs:1930"
+          "location": "src/planner/plan.rs:1939"
         },
         "go": {
           "function": "Test757_extract_foreach_body_wrong_type",
@@ -19481,7 +19481,7 @@
         "rust": {
           "function": "test758_extract_suffix_from",
           "description": "TEST758: extract_suffix_from extracts collect \u2192 cap_post \u2192 output",
-          "location": "src/planner/plan.rs:1940"
+          "location": "src/planner/plan.rs:1949"
         },
         "go": {
           "function": "Test758_extract_suffix_from",
@@ -19519,7 +19519,7 @@
         "rust": {
           "function": "test759_extract_suffix_nonexistent",
           "description": "TEST759: extract_suffix_from fails for nonexistent node",
-          "location": "src/planner/plan.rs:1962"
+          "location": "src/planner/plan.rs:1971"
         },
         "go": {
           "function": "Test759_extract_suffix_nonexistent",
@@ -19557,7 +19557,7 @@
         "rust": {
           "function": "test760_decomposition_covers_all_caps",
           "description": "TEST760: Full decomposition roundtrip \u2014 prefix + body + suffix cover all cap nodes",
-          "location": "src/planner/plan.rs:1970"
+          "location": "src/planner/plan.rs:1979"
         },
         "go": {
           "function": "Test760_decomposition_covers_all_caps",
@@ -19595,7 +19595,7 @@
         "rust": {
           "function": "test761_prefix_is_dag",
           "description": "TEST761: Prefix sub-plan can be topologically sorted (is a valid DAG)",
-          "location": "src/planner/plan.rs:2024"
+          "location": "src/planner/plan.rs:2033"
         },
         "go": {
           "function": "Test761_prefix_is_dag",
@@ -19633,7 +19633,7 @@
         "rust": {
           "function": "test762_body_is_dag",
           "description": "TEST762: Body sub-plan can be topologically sorted (is a valid DAG)",
-          "location": "src/planner/plan.rs:2032"
+          "location": "src/planner/plan.rs:2041"
         },
         "go": {
           "function": "Test762_body_is_dag",
@@ -19671,7 +19671,7 @@
         "rust": {
           "function": "test763_suffix_is_dag",
           "description": "TEST763: Suffix sub-plan can be topologically sorted (is a valid DAG)",
-          "location": "src/planner/plan.rs:2042"
+          "location": "src/planner/plan.rs:2051"
         },
         "go": {
           "function": "Test763_suffix_is_dag",
@@ -19709,7 +19709,7 @@
         "rust": {
           "function": "test764_extract_prefix_to_input_slot",
           "description": "TEST764: extract_prefix_to with InputSlot as target (trivial prefix)",
-          "location": "src/planner/plan.rs:2052"
+          "location": "src/planner/plan.rs:2061"
         },
         "go": {
           "function": "Test764_extract_prefix_to_input_slot",
@@ -23947,7 +23947,7 @@
         "rust": {
           "function": "test920_single_cap_plan",
           "description": "TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node",
-          "location": "src/planner/plan.rs:1101"
+          "location": "src/planner/plan.rs:1110"
         },
         "go": {
           "function": "Test920_single_cap_plan",
@@ -23981,7 +23981,7 @@
         "rust": {
           "function": "test921_linear_chain_plan",
           "description": "TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order",
-          "location": "src/planner/plan.rs:1117"
+          "location": "src/planner/plan.rs:1126"
         },
         "go": {
           "function": "Test921_linear_chain_plan",
@@ -24015,7 +24015,7 @@
         "rust": {
           "function": "test922_empty_plan",
           "description": "TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly",
-          "location": "src/planner/plan.rs:1135"
+          "location": "src/planner/plan.rs:1144"
         },
         "go": {
           "function": "Test922_empty_plan",
@@ -24049,7 +24049,7 @@
         "rust": {
           "function": "test923_plan_with_metadata",
           "description": "TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation",
-          "location": "src/planner/plan.rs:1144"
+          "location": "src/planner/plan.rs:1153"
         },
         "go": {
           "function": "Test923_plan_with_metadata",
@@ -24083,7 +24083,7 @@
         "rust": {
           "function": "test924_validate_invalid_edge",
           "description": "TEST924: Tests plan validation detects edges pointing to non-existent nodes Verifies that validate() returns an error when an edge references a missing to_node",
-          "location": "src/planner/plan.rs:1161"
+          "location": "src/planner/plan.rs:1170"
         },
         "go": {
           "function": "Test924_validate_invalid_edge",
@@ -24117,7 +24117,7 @@
         "rust": {
           "function": "test925_topological_order_diamond",
           "description": "TEST925: Tests topological sort correctly orders a diamond-shaped DAG (A->B,C->D) Verifies that nodes with multiple paths respect dependency constraints (A first, D last)",
-          "location": "src/planner/plan.rs:1177"
+          "location": "src/planner/plan.rs:1186"
         },
         "go": {
           "function": "Test925_topological_order_diamond",
@@ -24151,7 +24151,7 @@
         "rust": {
           "function": "test926_topological_order_detects_cycle",
           "description": "TEST926: Tests topological sort detects and rejects cyclic dependencies (A->B->C->A) Verifies that circular references produce a \"Cycle detected\" error",
-          "location": "src/planner/plan.rs:1207"
+          "location": "src/planner/plan.rs:1216"
         },
         "go": {
           "function": "Test926_topological_order_detects_cycle",
@@ -24185,7 +24185,7 @@
         "rust": {
           "function": "test927_execution_result",
           "description": "TEST927: Tests MachineResult structure for successful execution outcomes Verifies that success status, outputs, and primary_output() accessor work correctly",
-          "location": "src/planner/plan.rs:1270"
+          "location": "src/planner/plan.rs:1279"
         },
         "go": {
           "function": "Test927_execution_result",
@@ -24219,7 +24219,7 @@
         "rust": {
           "function": "test928_validate_invalid_from_node",
           "description": "TEST928: Tests plan validation detects edges originating from non-existent nodes Verifies that validate() returns an error when an edge references a missing from_node",
-          "location": "src/planner/plan.rs:1290"
+          "location": "src/planner/plan.rs:1299"
         },
         "go": {
           "function": "Test928_validate_invalid_from_node",
@@ -24253,7 +24253,7 @@
         "rust": {
           "function": "test929_validate_invalid_entry_node",
           "description": "TEST929: Tests plan validation detects invalid entry node references Verifies that validate() returns an error when entry_nodes contains a non-existent node ID",
-          "location": "src/planner/plan.rs:1306"
+          "location": "src/planner/plan.rs:1315"
         },
         "go": {
           "function": "Test929_validate_invalid_entry_node",
@@ -24287,7 +24287,7 @@
         "rust": {
           "function": "test930_validate_invalid_output_node",
           "description": "TEST930: Tests plan validation detects invalid output node references Verifies that validate() returns an error when output_nodes contains a non-existent node ID",
-          "location": "src/planner/plan.rs:1322"
+          "location": "src/planner/plan.rs:1331"
         },
         "go": {
           "function": "Test930_validate_invalid_output_node",
@@ -24321,7 +24321,7 @@
         "rust": {
           "function": "test931_node_execution_result_failure",
           "description": "TEST931: Tests NodeExecutionResult structure for failed node execution Verifies that failure status, error message, and absence of outputs are correctly represented",
-          "location": "src/planner/plan.rs:1486"
+          "location": "src/planner/plan.rs:1495"
         },
         "go": {
           "function": "Test931_node_execution_result_failure",
@@ -24355,7 +24355,7 @@
         "rust": {
           "function": "test932_execution_result_failure",
           "description": "TEST932: Tests MachineResult structure for failed chain execution Verifies that failure status, error message, and absence of outputs are correctly represented",
-          "location": "src/planner/plan.rs:1508"
+          "location": "src/planner/plan.rs:1517"
         },
         "go": {
           "function": "Test932_execution_result_failure",
@@ -24422,7 +24422,7 @@
         "rust": {
           "function": "test934_find_first_foreach",
           "description": "TEST934: find_first_foreach detects ForEach in a plan",
-          "location": "src/planner/plan.rs:1779"
+          "location": "src/planner/plan.rs:1788"
         },
         "go": {
           "function": "Test934_find_first_foreach",
@@ -24460,7 +24460,7 @@
         "rust": {
           "function": "test935_find_first_foreach_linear",
           "description": "TEST935: find_first_foreach returns None for linear plans",
-          "location": "src/planner/plan.rs:1787"
+          "location": "src/planner/plan.rs:1796"
         },
         "go": {
           "function": "Test935_find_first_foreach_linear",
@@ -24498,7 +24498,7 @@
         "rust": {
           "function": "test936_has_foreach",
           "description": "TEST936: has_foreach detects ForEach nodes",
-          "location": "src/planner/plan.rs:1799"
+          "location": "src/planner/plan.rs:1808"
         },
         "go": {
           "function": "Test936_has_foreach",
@@ -24536,7 +24536,7 @@
         "rust": {
           "function": "test937_extract_prefix_to",
           "description": "TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan",
-          "location": "src/planner/plan.rs:1840"
+          "location": "src/planner/plan.rs:1849"
         },
         "go": {
           "function": "Test937_extract_prefix_to",
@@ -33520,7 +33520,7 @@
         "rust": {
           "function": "test6745_relay_switch_new_rejects_duplicate_ids",
           "description": "/ `RelaySwitch::new` rejects duplicate ids in its cardinality / list. Without this guard the first reconnect would / reattach to whichever slot is found first by the linear / scan, leaving the other slot stuck unhealthy forever.",
-          "location": "src/bifaci/relay_switch.rs:5789"
+          "location": "src/bifaci/relay_switch.rs:5821"
         },
         "go": {
           "function": "Test6745_RelaySwitchNewRejectsDuplicateIDs",
@@ -34162,7 +34162,7 @@
         "rust": {
           "function": "test7025_unroutable_flow_frame_is_counted_drop",
           "description": "TEST7025: A flow frame for a request with no routing state is a counted no_route drop \u2014 not a protocol error and not a silent loss \u2014 observable in the protocol stats snapshot.",
-          "location": "src/bifaci/relay_switch.rs:6581"
+          "location": "src/bifaci/relay_switch.rs:6692"
         },
         "objc": {
           "function": "test7025_unroutableFlowFrameIsCountedDrop",
@@ -34282,12 +34282,12 @@
         "rust": {
           "function": "test7030_register_once_terminate_once",
           "description": "TEST7030: A request registers exactly once and terminates exactly once \u2014 duplicate registration and double termination are rejected, and after terminate zero state remains for the key.",
-          "location": "src/bifaci/request_state.rs:531"
+          "location": "src/bifaci/request_state.rs:587"
         },
         "objc": {
           "function": "test7030_registerOnceTerminateOnce",
           "description": "TEST7030: A request registers exactly once and terminates exactly once \u2014 duplicate registration and double termination are rejected, and after terminate zero state remains for the key.",
-          "location": "Tests/BifaciTests/RequestStateTests.swift:122"
+          "location": "Tests/BifaciTests/RequestStateTests.swift:152"
         }
       }
     },
@@ -34312,12 +34312,12 @@
         "rust": {
           "function": "test7031_rid_index_consistency",
           "description": "TEST7031: The rid index and the entry table never disagree across register/terminate cycles, and a terminated rid is immediately reusable.",
-          "location": "src/bifaci/request_state.rs:567"
+          "location": "src/bifaci/request_state.rs:623"
         },
         "objc": {
           "function": "test7031_ridIndexConsistency",
           "description": "TEST7031: The rid index and the entry table never disagree across register/terminate cycles, and a terminated rid is immediately reusable.",
-          "location": "Tests/BifaciTests/RequestStateTests.swift:148"
+          "location": "Tests/BifaciTests/RequestStateTests.swift:178"
         }
       }
     },
@@ -34342,12 +34342,12 @@
         "rust": {
           "function": "test7032_record_frame_stats_and_phase",
           "description": "TEST7032: record_frame accumulates per-stream frame/byte/chunk counters by direction, flips phase Created\u2192Streaming on the first flow frame, and tracks unbounded/ended/credit stream markers.",
-          "location": "src/bifaci/request_state.rs:589"
+          "location": "src/bifaci/request_state.rs:645"
         },
         "objc": {
           "function": "test7032_recordFrameStatsAndPhase",
           "description": "TEST7032: record_frame accumulates per-stream frame/byte/chunk counters by direction, flips phase Created\u2192Streaming on the first flow frame, and tracks unbounded/ended/credit stream markers.",
-          "location": "Tests/BifaciTests/RequestStateTests.swift:169"
+          "location": "Tests/BifaciTests/RequestStateTests.swift:199"
         }
       }
     },
@@ -34372,12 +34372,12 @@
         "rust": {
           "function": "test7033_terminated_summaries_ring",
           "description": "TEST7033: Terminated requests leave a bounded ring of summaries carrying kind, lifetime, and flow totals, and the ring evicts oldest-first at capacity.",
-          "location": "src/bifaci/request_state.rs:633"
+          "location": "src/bifaci/request_state.rs:689"
         },
         "objc": {
           "function": "test7033_terminatedSummariesRing",
           "description": "TEST7033: Terminated requests leave a bounded ring of summaries carrying kind, lifetime, and flow totals, and the ring evicts oldest-first at capacity.",
-          "location": "Tests/BifaciTests/RequestStateTests.swift:207"
+          "location": "Tests/BifaciTests/RequestStateTests.swift:237"
         }
       }
     },
@@ -34402,7 +34402,7 @@
         "rust": {
           "function": "test7035_end_terminates_and_releases_all_state",
           "description": "TEST7035: After END, the switch holds zero state for the request \u2014 entry, rid index, and response channel all released atomically, with the terminal delivered and a terminated summary recorded.",
-          "location": "src/bifaci/relay_switch.rs:6620"
+          "location": "src/bifaci/relay_switch.rs:6731"
         },
         "objc": {
           "function": "test7035_endTerminatesAndReleasesAllState",
@@ -34432,7 +34432,7 @@
         "rust": {
           "function": "test7036_err_terminates_and_releases_all_state",
           "description": "TEST7036: After ERR, the same total-cleanup invariant holds as after END, with kind err.",
-          "location": "src/bifaci/relay_switch.rs:6692"
+          "location": "src/bifaci/relay_switch.rs:6803"
         },
         "objc": {
           "function": "test7036_errTerminatesAndReleasesAllState",
@@ -34462,7 +34462,7 @@
         "rust": {
           "function": "test7037_cancel_cascades_to_children_and_cleans_all_state",
           "description": "TEST7037: Cancelling a request terminates it AND its recursively-linked peer children \u2014 Cancel frames reach the destination, waiting channels get ERR CANCELLED, and zero state remains for parent or child.",
-          "location": "src/bifaci/relay_switch.rs:6734"
+          "location": "src/bifaci/relay_switch.rs:6845"
         },
         "objc": {
           "function": "test7037_cancelCascadesToChildrenAndCleansAllState",
@@ -34492,7 +34492,7 @@
         "rust": {
           "function": "test7038_master_death_terminates_pending_requests",
           "description": "TEST7038: Master death terminates every request routed to it with kind master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and leaving zero state.",
-          "location": "src/bifaci/relay_switch.rs:6822"
+          "location": "src/bifaci/relay_switch.rs:6933"
         },
         "objc": {
           "function": "test7038_masterDeathTerminatesPendingRequests",
@@ -34732,7 +34732,7 @@
         "rust": {
           "function": "test7085_relay_notify_carries_host_protocol_stats",
           "description": "TEST7085: The RelayNotify capabilities payload carries the host's protocol stats snapshot, surviving the wire round-trip.",
-          "location": "src/bifaci/relay_switch.rs:6452"
+          "location": "src/bifaci/relay_switch.rs:6484"
         },
         "objc": {
           "function": "test7085_relayNotifyCarriesHostProtocolStats",
@@ -34791,13 +34791,13 @@
       "canonical": {
         "rust": {
           "function": "test7087_snapshot_field_names_are_stable",
-          "description": "TEST7087: Protocol stats snapshots serialize with stable field names \u2014 the snapshot shape is the mirror contract.",
-          "location": "src/bifaci/request_state.rs:416"
+          "description": "",
+          "location": "src/bifaci/request_state.rs:472"
         },
         "objc": {
           "function": "test7087_snapshotFieldNamesAreStable",
           "description": "TEST7087: Protocol stats snapshots serialize with stable field names \u2014 the snapshot shape is the mirror contract.",
-          "location": "Tests/BifaciTests/RequestStateTests.swift:31"
+          "location": "Tests/BifaciTests/RequestStateTests.swift:61"
         }
       }
     },
@@ -34822,12 +34822,102 @@
         "rust": {
           "function": "test7088_last_activity_monotonic",
           "description": "TEST7088: last_activity is monotonic non-decreasing across a long-lived streaming request \u2014 idle time resets on every recorded frame and never runs backwards.",
-          "location": "src/bifaci/request_state.rs:486"
+          "location": "src/bifaci/request_state.rs:542"
         },
         "objc": {
           "function": "test7088_lastActivityMonotonic",
           "description": "TEST7088: last_activity is monotonic non-decreasing across a long-lived streaming request \u2014 idle time resets on every recorded frame and never runs backwards.",
-          "location": "Tests/BifaciTests/RequestStateTests.swift:80"
+          "location": "Tests/BifaciTests/RequestStateTests.swift:110"
+        }
+      }
+    },
+    {
+      "number": 7090,
+      "present": [
+        "rust",
+        "objc"
+      ],
+      "missing": [
+        "go",
+        "py",
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "go",
+        "py",
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test7090_heartbeat_drops_total_reaches_inventory_stats",
+          "description": "TEST7090: The cartridge's cumulative protocol drop counter (`drops_total` heartbeat meta, L8) is ingested by the host and surfaces on the cartridge's inventory runtime stats as `protocol_drops_total` \u2014 absent until the first reading, then tracking the running total as-is.",
+          "location": "src/bifaci/host_runtime.rs:6036"
+        },
+        "objc": {
+          "function": "test7090_heartbeatDropsTotalReachesInventoryStats",
+          "description": "TEST7090: The cartridge's cumulative protocol drop counter (`drops_total` heartbeat meta, L8) is ingested by the host and surfaces on the cartridge's inventory runtime stats as `protocol_drops_total` \u2014 absent until the first reading, then tracking the running total as-is.",
+          "location": "Tests/BifaciTests/CartridgeHostInstalledRecordTests.swift:312"
+        }
+      }
+    },
+    {
+      "number": 7091,
+      "present": [
+        "rust",
+        "objc"
+      ],
+      "missing": [
+        "go",
+        "py",
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "go",
+        "py",
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test7091_switch_retains_host_protocol_stats_from_relay_notify",
+          "description": "TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in `protocol_stats().hosts` keyed by master id; a master that has not yet advertised stats is absent from the map \u2014 never a zeroed placeholder.",
+          "location": "src/bifaci/relay_switch.rs:6604"
+        },
+        "objc": {
+          "function": "test7091_switchRetainsHostProtocolStatsFromRelayNotify",
+          "description": "TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in `protocolStats().hosts` keyed by master id; a master that has not yet advertised stats is absent from the map \u2014 never a zeroed placeholder.",
+          "location": "Tests/BifaciTests/RelaySwitchTests.swift:1412"
+        }
+      }
+    },
+    {
+      "number": 7092,
+      "present": [
+        "rust",
+        "objc"
+      ],
+      "missing": [
+        "go",
+        "py",
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "go",
+        "py",
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test7092_cap_urn_attribution_survives_lifecycle",
+          "description": "TEST7087: Protocol stats snapshots serialize with stable field names \u2014 the snapshot shape is the mirror contract.",
+          "location": "src/bifaci/request_state.rs:435"
+        },
+        "objc": {
+          "function": "test7092_capUrnAttributionSurvivesLifecycle",
+          "description": "TEST7092: A request registered with its originating REQ's cap URN carries that identity through the ACTIVE snapshot and into the terminated ring \u2014 observability surfaces can always NAME a request (background chatter vs run traffic), never just show a bare rid. A request registered without one snapshots with cap_urn absent \u2014 never invented.",
+          "location": "Tests/BifaciTests/RequestStateTests.swift:31"
         }
       }
     }
@@ -34985,7 +35075,7 @@
       "mirror": "rust",
       "function": "test0130_registry_cache_revision_rebuilds_live_cap_fab_without_capability_change",
       "description": "TEST0130: A cartridge can advertise a cap before the registry cache has finished hydrating that cap's canonical definition. LiveCapFab must retry the already-advertised aggregate capability set when the registry cache later warms; otherwise the cap remains absent from machine selection until an unrelated cartridge reconnect occurs.",
-      "location": "src/bifaci/relay_switch.rs:3697"
+      "location": "src/bifaci/relay_switch.rs:3729"
     },
     {
       "number": 183,
@@ -35132,7 +35222,7 @@
       "mirror": "rust",
       "function": "test905_send_to_master_build_request_frames_roundtrip",
       "description": "TEST905: send_to_master + build_request_frames through RelaySwitch \u2192 RelaySlave \u2192 InProcessCartridgeHost roundtrip",
-      "location": "src/bifaci/relay_switch.rs:5243"
+      "location": "src/bifaci/relay_switch.rs:5275"
     },
     {
       "number": 916,
@@ -35678,49 +35768,49 @@
       "mirror": "rust",
       "function": "test1720_kind_serde_renames_match_proto_snake_case",
       "description": "/ TEST1720: Every variant serializes to the snake_case / string the proto and the Swift / Go / Python ports use. / Adding a new variant requires an entry here AND a matching / CARTRIDGE_ATTACHMENT_ERROR_FOO entry in cartridge.proto; / the test fails with a clear \"expected X for Y\" message / when the two sides drift.",
-      "location": "src/bifaci/relay_switch.rs:6209"
+      "location": "src/bifaci/relay_switch.rs:6241"
     },
     {
       "number": 1721,
       "mirror": "rust",
       "function": "test1721_kind_decodes_wire_format_into_expected_variants",
       "description": "/ TEST1721: Wire-format JSON deserializes into the right / variant. This is the engine-receives-from-XPC path: the / machfab-mac side emits `{\"kind\":\"bad_installation\",...}` / and the engine must resolve it to `BadInstallation`. / Asserts every variant explicitly so a single-variant typo / in the rename map can't hide behind a passing healthy-case.",
-      "location": "src/bifaci/relay_switch.rs:6265"
+      "location": "src/bifaci/relay_switch.rs:6297"
     },
     {
       "number": 1722,
       "mirror": "rust",
       "function": "test1722_unknown_kind_fails_to_decode",
       "description": "/ TEST1722: An unknown wire kind FAILS to decode rather than / silently coercing to a default variant. Older capdag binaries / that don't know `bad_installation` or `disabled` will see / those strings on the wire from a newer Swift side; rejecting / the unknown variant is the correct behaviour because silently / coercing it would hide the version-skew bug. The engine's / per-master JSON parse failure path is what surfaces this to / the operator (the master's manifest fails to parse and the / master is held unhealthy until the version is patched).",
-      "location": "src/bifaci/relay_switch.rs:6440"
+      "location": "src/bifaci/relay_switch.rs:6472"
     },
     {
       "number": 1730,
       "mirror": "rust",
       "function": "test1730_lifecycle_serde_renames_match_proto_snake_case",
       "description": "/ TEST1730: Every `CartridgeLifecycle` variant serializes to / its proto snake_case name byte-for-byte. Adding a variant / requires an entry here AND a `CARTRIDGE_LIFECYCLE_FOO` / constant in `cartridge.proto`. Cross-language drift on this / enum makes lifecycle states silently invisible to one side / of the wire.",
-      "location": "src/bifaci/relay_switch.rs:6319"
+      "location": "src/bifaci/relay_switch.rs:6351"
     },
     {
       "number": 1731,
       "mirror": "rust",
       "function": "test1731_lifecycle_default_is_discovered",
       "description": "/ TEST1731: `CartridgeLifecycle` defaults to `Discovered` / (the safe sentinel) \u2014 never `Operational`. Pins the / safe-default rule the doc explicitly calls out: a / freshly-constructed record without an explicit lifecycle / MUST NOT silently expose an un-inspected cartridge for / dispatch.",
-      "location": "src/bifaci/relay_switch.rs:6345"
+      "location": "src/bifaci/relay_switch.rs:6377"
     },
     {
       "number": 1732,
       "mirror": "rust",
       "function": "test1732_installed_cartridge_record_lifecycle_defaults_when_missing",
       "description": "/ TEST1732: An `InstalledCartridgeRecord` deserialized from a / JSON payload that omits the `lifecycle` field defaults to / `Discovered` \u2014 never `Operational`. The wire-shape contract / covered by the safe-default rule.",
-      "location": "src/bifaci/relay_switch.rs:6359"
+      "location": "src/bifaci/relay_switch.rs:6391"
     },
     {
       "number": 1733,
       "mirror": "rust",
       "function": "test1733_registry_url_scheme_validator",
       "description": "/ TEST1733: `validate_registry_url_scheme` accepts https / unconditionally, rejects non-https in production builds, / and accepts non-https in dev mode. Pins the deepest layer / of the HTTPS rule.",
-      "location": "src/bifaci/relay_switch.rs:6386"
+      "location": "src/bifaci/relay_switch.rs:6418"
     },
     {
       "number": 1848,
@@ -38352,7 +38442,7 @@
       "mirror": "rust",
       "function": "test6746_all_masters_ready_true_when_expectation_met",
       "description": "TEST6746: All masters ready true when expectation met",
-      "location": "src/bifaci/relay_switch.rs:6110"
+      "location": "src/bifaci/relay_switch.rs:6142"
     },
     {
       "number": 6747,
@@ -38446,18 +38536,11 @@
       "location": "src/bifaci/host_runtime.rs:5953"
     },
     {
-      "number": 7090,
+      "number": 7093,
       "mirror": "rust",
-      "function": "test7090_heartbeat_drops_total_reaches_inventory_stats",
-      "description": "TEST7090: The cartridge's cumulative protocol drop counter (`drops_total` heartbeat meta, L8) is ingested by the host and surfaces on the cartridge's inventory runtime stats as `protocol_drops_total` \u2014 absent until the first reading, then tracking the running total as-is.",
-      "location": "src/bifaci/host_runtime.rs:6036"
-    },
-    {
-      "number": 7091,
-      "mirror": "rust",
-      "function": "test7091_switch_retains_host_protocol_stats_from_relay_notify",
-      "description": "TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in `protocol_stats().hosts` keyed by master id; a master that has not yet advertised stats is absent from the map \u2014 never a zeroed placeholder.",
-      "location": "src/bifaci/relay_switch.rs:6493"
+      "function": "test7093_dead_consumer_cancels_upstream",
+      "description": "TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller future) is a counted channel_closed drop AND cancels the request upstream \u2014 the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it.",
+      "location": "src/bifaci/relay_switch.rs:6526"
     }
   ]
 }
