@@ -42,6 +42,7 @@ mod tests {
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 req.output()
                     .emit_cbor(&ciborium::Value::Bytes(bytes))
+                    .await
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 Ok(())
             }
@@ -64,6 +65,7 @@ mod tests {
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 req.output()
                     .emit_cbor(&ciborium::Value::Bytes(b"transformed".to_vec()))
+                    .await
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 Ok(())
             }

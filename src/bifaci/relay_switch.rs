@@ -37,7 +37,7 @@
 //!
 //! **Cartridge → Cartridge** (peer invocations):
 //! - REQ from master: route to destination master (may be same or different)
-//! - Mark in peer_requests set (special cleanup semantics)
+//! - Mark is_peer on the unified request entry (special cleanup semantics)
 //! - Response frames: route back to source master
 //!
 //! **Cleanup**:
@@ -109,14 +109,12 @@ impl From<std::io::Error> for RelaySwitchError {
 // DATA STRUCTURES
 // =============================================================================
 
-/// Routing entry tracking request source and destination.
-#[derive(Debug, Clone)]
-struct RoutingEntry {
-    /// Source master index, or None if from external caller (execute_cap)
-    source_master_idx: Option<usize>,
-    /// Destination master index (where request is being handled)
-    destination_master_idx: usize,
-}
+// RoutingEntry lives in `request_state` — the unified per-request state module
+// shared by every routing runtime (L7).
+use crate::bifaci::request_state::{
+    FrameDirection, RequestState, RequestTable, RoutingEntry, TerminalKind,
+};
+use crate::bifaci::stats::DropCounters;
 
 /// Health status snapshot for a single master connection.
 /// Returned by `RelaySwitch::get_master_health()` for monitoring.
@@ -468,6 +466,11 @@ impl InstalledCartridgeRecord {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RelayNotifyCapabilitiesPayload {
     pub installed_cartridges: Vec<InstalledCartridgeRecord>,
+    /// Host-level protocol observability (L8): drop counters, routing-table
+    /// sizes, GC totals. Refreshed with each stats republish so the engine
+    /// can surface the state of communications per host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_protocol_stats: Option<crate::bifaci::host_runtime::HostProtocolStats>,
 }
 
 impl RelayNotifyCapabilitiesPayload {
@@ -475,7 +478,17 @@ impl RelayNotifyCapabilitiesPayload {
     pub fn new(installed_cartridges: Vec<InstalledCartridgeRecord>) -> Self {
         Self {
             installed_cartridges,
+            host_protocol_stats: None,
         }
+    }
+
+    /// Attach the host's protocol stats snapshot.
+    pub fn with_host_protocol_stats(
+        mut self,
+        stats: crate::bifaci::host_runtime::HostProtocolStats,
+    ) -> Self {
+        self.host_protocol_stats = Some(stats);
+        self
     }
 
     /// Flat cap-URN union across every cartridge in the payload,
@@ -564,20 +577,14 @@ pub struct RelaySwitch {
     masters: RwLock<Vec<MasterConnection>>,
     /// Routing: cap_urn → master index
     cap_table: RwLock<Vec<(String, usize)>>,
-    /// Routing: (xid, rid) → source/destination masters
-    /// Only populated when XID is present (between RelaySwitch hops)
-    request_routing: RwLock<HashMap<(MessageId, MessageId), RoutingEntry>>,
-    /// Peer-initiated request (xid, rid) pairs for cleanup tracking
-    peer_requests: RwLock<HashSet<(MessageId, MessageId)>>,
-    /// Parent→child peer call mapping for cancel cascade.
-    /// Maps parent (xid, rid) → list of child peer (xid, rid) pairs.
-    peer_call_parents: RwLock<HashMap<(MessageId, MessageId), Vec<(MessageId, MessageId)>>>,
-    /// Origin tracking: (xid, rid) → upstream connection index (None = external caller)
-    /// Used to know where to send frames back
-    origin_map: RwLock<HashMap<(MessageId, MessageId), Option<usize>>>,
-    /// Response channels for external execute_cap calls: (xid, rid) → sender
-    external_response_channels:
-        RwLock<HashMap<(MessageId, MessageId), mpsc::UnboundedSender<Frame>>>,
+    /// Unified per-request state (L7): routing, origin, peer markers,
+    /// cancel-cascade children, external response channel, per-stream flow
+    /// stats, and the rid→xid index — one entry, one registration, one
+    /// termination. Replaces the six parallel routing maps.
+    requests: RwLock<RequestTable>,
+    /// Dropped-frame accounting (L8): unroutable/post-terminal frames are
+    /// counted drops, never silent losses and never protocol errors.
+    drops: Arc<DropCounters>,
     /// Aggregate capabilities (union of all masters)
     aggregate_capabilities: RwLock<Vec<u8>>,
     /// Aggregate installed cartridge identities (union of all healthy masters).
@@ -607,8 +614,6 @@ pub struct RelaySwitch {
     frame_tx: mpsc::UnboundedSender<(usize, Result<Frame, CborError>)>,
     /// XID counter for assigning unique routing IDs (RelaySwitch assigns on first arrival)
     xid_counter: AtomicU64,
-    /// RID → XID mapping for engine-initiated requests (so continuation frames can find their XID)
-    rid_to_xid: RwLock<HashMap<MessageId, MessageId>>,
     /// Precomputed capability graph for path finding and reachability queries
     live_cap_fab: RwLock<LiveCapFab>,
     /// Unified registry. Used for cap-definition lookups while building
@@ -685,6 +690,15 @@ impl std::fmt::Debug for RelaySwitch {
             .field("xid_counter", &self.xid_counter.load(Ordering::SeqCst))
             .finish()
     }
+}
+
+/// The switch's protocol observability snapshot (L8): live request state,
+/// recent terminations, and per-reason drop counters. Serializable; field
+/// names are the mirror contract.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RelaySwitchProtocolStats {
+    pub requests: crate::bifaci::request_state::RequestTableSnapshot,
+    pub drops: crate::bifaci::stats::DropSnapshot,
 }
 
 // =============================================================================
@@ -1001,11 +1015,8 @@ impl RelaySwitch {
         let switch = Self {
             masters: RwLock::new(masters),
             cap_table: RwLock::new(Vec::new()),
-            request_routing: RwLock::new(HashMap::new()),
-            peer_requests: RwLock::new(HashSet::new()),
-            peer_call_parents: RwLock::new(HashMap::new()),
-            origin_map: RwLock::new(HashMap::new()),
-            external_response_channels: RwLock::new(HashMap::new()),
+            requests: RwLock::new(RequestTable::new()),
+            drops: Arc::new(DropCounters::new()),
             aggregate_capabilities: RwLock::new(
                 serde_json::to_vec(&Vec::<String>::new())
                     .expect("empty capability snapshot must serialize"),
@@ -1017,7 +1028,6 @@ impl RelaySwitch {
             frame_rx: Mutex::new(frame_rx),
             frame_tx,
             xid_counter,
-            rid_to_xid: RwLock::new(HashMap::new()),
             live_cap_fab: RwLock::new(LiveCapFab::new()),
             fabric_registry,
             // Default 0 — readiness predicate returns false until
@@ -1116,7 +1126,7 @@ impl RelaySwitch {
                 {
                     Ok(Some(_frame)) => {
                         // Dispatched internally by handle_master_frame via
-                        // external_response_channels / peer routing. The
+                        // the unified request table / peer routing. The
                         // returned pass-through frame has no owner in the
                         // background path — drop it.
                     }
@@ -1182,7 +1192,7 @@ impl RelaySwitch {
     /// loop — the probe writes via `write_to_master_idx`, the caller's
     /// master-read loop (the background pump, or a host process's own
     /// multiplexer) still drives master reads, and the response routes back
-    /// through the `external_response_channels` entry that
+    /// through the request entry's external response channel that
     /// `run_identity_probe_via_relay` registers.
     ///
     /// `start_background_pump` calls this. A host that runs its OWN
@@ -1530,6 +1540,45 @@ impl RelaySwitch {
     /// `send_to_master()` to send streaming continuation frames (STREAM_START,
     /// CHUNK, STREAM_END, END) for this request. The receiver streams response
     /// frames — read from it until END or ERR.
+    /// Protocol observability snapshot (L8): every live request's phase, age,
+    /// per-stream flow counters, and children; the recently-terminated ring;
+    /// and the per-reason drop totals. Poll this to understand the state of
+    /// communications and the flow of requests through the switch.
+    pub async fn protocol_stats(&self) -> RelaySwitchProtocolStats {
+        RelaySwitchProtocolStats {
+            requests: self.requests.read().await.snapshot(),
+            drops: self.drops.snapshot(),
+        }
+    }
+
+    /// Register an externally-originated request (engine / execute_cap
+    /// caller): response channel, routing, origin, and rid index land in one
+    /// atomic table registration (L7). Duplicate registration is a protocol
+    /// violation and fails hard.
+    async fn register_external(
+        &self,
+        key: (MessageId, MessageId),
+        dest_idx: usize,
+        tx: mpsc::UnboundedSender<Frame>,
+    ) -> Result<(), RelaySwitchError> {
+        self.requests
+            .write()
+            .await
+            .register(
+                key,
+                RequestState::new(
+                    RoutingEntry {
+                        source_master_idx: None,
+                        destination_master_idx: dest_idx,
+                    },
+                    None,
+                    Some(tx),
+                    false,
+                ),
+            )
+            .map_err(RelaySwitchError::Protocol)
+    }
+
     pub async fn execute_cap(
         &self,
         cap_urn: &str,
@@ -1555,29 +1604,8 @@ impl RelaySwitch {
         let xid = MessageId::Uint(self.xid_counter.fetch_add(1, Ordering::SeqCst) + 1);
         let key = (xid.clone(), rid.clone());
 
-        // Register response channel BEFORE sending
-        self.external_response_channels
-            .write()
-            .await
-            .insert(key.clone(), tx);
-
-        // Record origin (None = external execute_cap caller)
-        self.origin_map.write().await.insert(key.clone(), None);
-
-        // Register routing
-        self.request_routing.write().await.insert(
-            key.clone(),
-            RoutingEntry {
-                source_master_idx: None,
-                destination_master_idx: dest_idx,
-            },
-        );
-
-        // Record RID → XID mapping for continuation frames (if caller sends them)
-        self.rid_to_xid
-            .write()
-            .await
-            .insert(rid.clone(), xid.clone());
+        // Register response channel + routing + rid index BEFORE sending (L7)
+        self.register_external(key.clone(), dest_idx, tx).await?;
 
         // Build frame with XID
         let mut frame_with_xid = req_frame;
@@ -1620,29 +1648,8 @@ impl RelaySwitch {
         // Create response channel
         let (tx, rx) = mpsc::unbounded_channel();
 
-        // Register response channel BEFORE sending
-        self.external_response_channels
-            .write()
-            .await
-            .insert(key.clone(), tx);
-
-        // Record origin (None = external caller)
-        self.origin_map.write().await.insert(key.clone(), None);
-
-        // Register routing
-        self.request_routing.write().await.insert(
-            key.clone(),
-            RoutingEntry {
-                source_master_idx: None,
-                destination_master_idx: dest_idx,
-            },
-        );
-
-        // Record RID → XID mapping for continuation frames
-        self.rid_to_xid
-            .write()
-            .await
-            .insert(rid.clone(), xid.clone());
+        // Register response channel + routing + rid index BEFORE sending (L7)
+        self.register_external(key.clone(), dest_idx, tx).await?;
 
         Ok((xid, rx))
     }
@@ -1704,29 +1711,8 @@ impl RelaySwitch {
         // Create response channel
         let (tx, rx) = mpsc::unbounded_channel();
 
-        // Register response channel BEFORE sending
-        self.external_response_channels
-            .write()
-            .await
-            .insert(key.clone(), tx);
-
-        // Record origin (None = external caller)
-        self.origin_map.write().await.insert(key.clone(), None);
-
-        // Register routing
-        self.request_routing.write().await.insert(
-            key.clone(),
-            RoutingEntry {
-                source_master_idx: None,
-                destination_master_idx: dest_idx,
-            },
-        );
-
-        // Record RID → XID mapping for continuation frames
-        self.rid_to_xid
-            .write()
-            .await
-            .insert(rid.clone(), xid.clone());
+        // Register response channel + routing + rid index BEFORE sending (L7)
+        self.register_external(key.clone(), dest_idx, tx).await?;
 
         Ok((xid, rx))
     }
@@ -1734,7 +1720,7 @@ impl RelaySwitch {
     /// Run an end-to-end identity probe against an already-registered
     /// master, using the relay's normal frame routing (writes via
     /// `write_to_master_idx`, response collected via the same
-    /// `external_response_channels` machinery as `execute_cap`).
+    /// unified-request-table machinery as `execute_cap`).
     ///
     /// This is the post-registration counterpart to the synchronous
     /// probe `add_master` runs at handshake time. It is required for
@@ -1753,29 +1739,16 @@ impl RelaySwitch {
         const RUNTIME_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
         // Build (xid, rid) and a one-shot response channel keyed by
-        // them. The frame loop's `external_response_channels` lookup
+        // them. The frame loop's request-table channel lookup
         // delivers the master's reply frames here.
         let xid = MessageId::Uint(self.xid_counter.fetch_add(1, Ordering::SeqCst) + 1);
         let rid = MessageId::new_uuid();
         let key = (xid.clone(), rid.clone());
 
         let (tx, mut rx) = mpsc::unbounded_channel::<Frame>();
-        self.external_response_channels
-            .write()
+        self.register_external(key.clone(), master_idx, tx)
             .await
-            .insert(key.clone(), tx);
-        self.origin_map.write().await.insert(key.clone(), None);
-        self.request_routing.write().await.insert(
-            key.clone(),
-            RoutingEntry {
-                source_master_idx: None,
-                destination_master_idx: master_idx,
-            },
-        );
-        self.rid_to_xid
-            .write()
-            .await
-            .insert(rid.clone(), xid.clone());
+            .map_err(|e| format!("identity probe registration failed: {}", e))?;
 
         let nonce = identity_nonce();
         let stream_id = "identity-verify-runtime".to_string();
@@ -1873,13 +1846,16 @@ impl RelaySwitch {
         }
         .await;
 
-        // Always purge the routing entries — whether the probe
-        // succeeded, failed, or timed out. Leaking these would waste
-        // memory and confuse introspection over time.
-        self.external_response_channels.write().await.remove(&key);
-        self.origin_map.write().await.remove(&key);
-        self.request_routing.write().await.remove(&key);
-        self.rid_to_xid.write().await.remove(&rid);
+        // Always terminate the request — whether the probe succeeded, failed,
+        // or timed out. Leaking the entry would waste memory and confuse
+        // introspection over time. Success ends via the probe's END; failure
+        // is an Err-kind termination.
+        let kind = if probe_outcome.is_ok() {
+            TerminalKind::End
+        } else {
+            TerminalKind::Err
+        };
+        self.requests.write().await.terminate(&key, kind);
 
         probe_outcome
     }
@@ -1888,58 +1864,53 @@ impl RelaySwitch {
     ///
     /// 1. Looks up RID → XID → routing destination
     /// 2. Sends Cancel frame to destination master
-    /// 3. Recursively cancels child peer calls via peer_call_parents
-    /// 4. Sends ERR "CANCELLED" to external response channels if present
-    /// 5. Cleans up all routing maps
+    /// 3. Terminates the request (Cancelled) — removing ALL its state (L7)
+    /// 4. Recursively cancels the child peer calls recorded on the entry
+    /// 5. Sends ERR "CANCELLED" to the external response channel if present
     pub async fn cancel_request(&self, rid: &MessageId, force_kill: bool) {
         // Find XID for this RID
-        let xid = match self.rid_to_xid.read().await.get(rid).cloned() {
-            Some(xid) => xid,
-            None => return,
+        let xid = {
+            let requests = self.requests.read().await;
+            match requests.xid_for_rid(rid) {
+                Some(xid) => xid,
+                None => return,
+            }
         };
 
         let key = (xid.clone(), rid.clone());
 
-        // Find destination master
-        let dest_idx = {
-            let routing = self.request_routing.read().await;
-            match routing.get(&key) {
-                Some(entry) => entry.destination_master_idx,
-                None => return,
-            }
+        // Terminate FIRST: one atomic removal yields the destination, the
+        // children for the cascade, and the external channel for the final
+        // ERR. A concurrent terminal for the same key loses the race and
+        // becomes a counted no_route drop, never a double-cleanup.
+        let Some(state) = self
+            .requests
+            .write()
+            .await
+            .terminate(&key, TerminalKind::Cancelled)
+        else {
+            return;
         };
 
         // Send Cancel frame to destination
         let mut cancel_frame = Frame::cancel(rid.clone(), force_kill);
         cancel_frame.routing_id = Some(xid.clone());
-        let _ = self.write_to_master_idx(dest_idx, &mut cancel_frame).await;
-
-        // Collect child peer calls for recursive cancel
-        let children = self
-            .peer_call_parents
-            .write()
-            .await
-            .remove(&key)
-            .unwrap_or_default();
+        let _ = self
+            .write_to_master_idx(state.routing.destination_master_idx, &mut cancel_frame)
+            .await;
 
         // Recursively cancel children
-        for (_child_xid, child_rid) in &children {
+        for (_child_xid, child_rid) in &state.children {
             // Use Box::pin for recursive async
             Box::pin(self.cancel_request(child_rid, force_kill)).await;
         }
 
         // Send ERR "CANCELLED" to external response channel if present
-        if let Some(tx) = self.external_response_channels.write().await.remove(&key) {
+        if let Some(tx) = state.external_channel {
             let mut err_frame = Frame::err(rid.clone(), "CANCELLED", "Request cancelled");
             err_frame.routing_id = Some(xid.clone());
             let _ = tx.send(err_frame);
         }
-
-        // Clean up routing maps
-        self.request_routing.write().await.remove(&key);
-        self.origin_map.write().await.remove(&key);
-        self.peer_requests.write().await.remove(&key);
-        self.rid_to_xid.write().await.remove(rid);
     }
 
     /// Cancel all external-origin (engine-initiated) in-flight requests.
@@ -1948,11 +1919,11 @@ impl RelaySwitch {
     pub async fn cancel_all_requests(&self, force_kill: bool) -> Vec<MessageId> {
         // Snapshot all external-origin request RIDs (origin = None)
         let rids: Vec<MessageId> = {
-            let origin_map = self.origin_map.read().await;
-            origin_map
-                .iter()
-                .filter(|(_, origin)| origin.is_none())
-                .map(|((_, rid), _)| rid.clone())
+            let requests = self.requests.read().await;
+            requests
+                .keys_where(|s| s.origin.is_none())
+                .into_iter()
+                .map(|(_, rid)| rid)
                 .collect()
         };
 
@@ -1978,7 +1949,7 @@ impl RelaySwitch {
 
         // Serialise add_master across the whole RelaySwitch.
         //
-        // `master_idx` is the routing key for both `request_routing`
+        // `master_idx` is the routing key for both the request table
         // and `cap_table`. It MUST be decided once and stay stable
         // for the slot's lifetime. Concurrent `add_master` calls
         // would race on `self.masters.len()` — two appenders could
@@ -1999,8 +1970,8 @@ impl RelaySwitch {
         // `"bundled-providers"`, `"xpc-service"` for the website
         // edition). When the host backing a slot dies and
         // reconnects, the new socket reattaches to the SAME slot
-        // index — preserving the request_routing / cap_table /
-        // origin_map entries that were keyed by index.
+        // index — preserving the request-table / cap_table
+        // entries that were keyed by index.
         //
         // - Existing slot with same id, currently UNHEALTHY → reattach
         //   in place at that index.
@@ -2504,20 +2475,25 @@ impl RelaySwitch {
                 let rid = frame.id.clone();
                 let key = (xid.clone(), rid.clone());
 
-                // Record origin (None = external caller via send_to_master)
-                self.origin_map.write().await.insert(key.clone(), None);
-
-                // Register routing (xid, rid) → destination
-                self.request_routing.write().await.insert(
-                    key,
-                    RoutingEntry {
-                        source_master_idx: None,
-                        destination_master_idx: dest_idx,
-                    },
-                );
-
-                // Record RID → XID mapping for continuation frames from engine
-                self.rid_to_xid.write().await.insert(rid, xid);
+                // Register the request: origin None (external caller via
+                // send_to_master), no response channel — responses return via
+                // read_from_masters (L7).
+                self.requests
+                    .write()
+                    .await
+                    .register(
+                        key,
+                        RequestState::new(
+                            RoutingEntry {
+                                source_master_idx: None,
+                                destination_master_idx: dest_idx,
+                            },
+                            None,
+                            None,
+                            false,
+                        ),
+                    )
+                    .map_err(RelaySwitchError::Protocol)?;
 
                 // Forward to destination with XID
                 self.write_to_master_idx(dest_idx, &mut frame).await?;
@@ -2528,64 +2504,33 @@ impl RelaySwitch {
             | FrameType::Chunk
             | FrameType::StreamEnd
             | FrameType::End
-            | FrameType::Err => {
-                // Continuation frames from engine: look up XID from RID if missing
-                let xid = if let Some(ref existing_xid) = frame.routing_id {
-                    existing_xid.clone()
-                } else {
-                    // Engine doesn't send XID - look it up from the REQ's RID → XID mapping
-                    let rid = &frame.id;
-                    let rid_to_xid = self.rid_to_xid.read().await;
-                    let looked_up_xid = rid_to_xid
-                        .get(rid)
-                        .ok_or_else(|| RelaySwitchError::UnknownRequest(rid.clone()))?
-                        .clone();
-                    frame.routing_id = Some(looked_up_xid.clone());
-                    looked_up_xid
-                };
-
-                let key = (xid.clone(), frame.id.clone());
-
-                let dest_idx = {
-                    let routing = self.request_routing.read().await;
-                    let entry = routing
+            | FrameType::Err
+            | FrameType::Cancel
+            | FrameType::Credit => {
+                // Continuation/control frames from engine: look up XID from
+                // RID if missing, then the destination — one table read.
+                // Unknown RID is a hard error back to the caller: the engine
+                // is a direct API client and must observe that the request no
+                // longer exists (already terminated) so it stops sending.
+                let (dest_idx, xid) = {
+                    let requests = self.requests.read().await;
+                    let xid = match frame.routing_id.clone() {
+                        Some(xid) => xid,
+                        None => requests
+                            .xid_for_rid(&frame.id)
+                            .ok_or_else(|| RelaySwitchError::UnknownRequest(frame.id.clone()))?,
+                    };
+                    let key = (xid.clone(), frame.id.clone());
+                    let entry = requests
                         .get(&key)
                         .ok_or_else(|| RelaySwitchError::UnknownRequest(frame.id.clone()))?;
-                    entry.destination_master_idx
+                    (entry.routing.destination_master_idx, xid)
                 };
+                frame.routing_id = Some(xid);
 
                 // Forward to destination
                 self.write_to_master_idx(dest_idx, &mut frame).await?;
 
-                Ok(())
-            }
-
-            FrameType::Cancel => {
-                // Cancel routes like a continuation frame — look up XID from RID
-                let xid = if let Some(ref existing_xid) = frame.routing_id {
-                    existing_xid.clone()
-                } else {
-                    let rid = &frame.id;
-                    let rid_to_xid = self.rid_to_xid.read().await;
-                    let looked_up_xid = rid_to_xid
-                        .get(rid)
-                        .ok_or_else(|| RelaySwitchError::UnknownRequest(rid.clone()))?
-                        .clone();
-                    frame.routing_id = Some(looked_up_xid.clone());
-                    looked_up_xid
-                };
-
-                let key = (xid.clone(), frame.id.clone());
-
-                let dest_idx = {
-                    let routing = self.request_routing.read().await;
-                    let entry = routing
-                        .get(&key)
-                        .ok_or_else(|| RelaySwitchError::UnknownRequest(frame.id.clone()))?;
-                    entry.destination_master_idx
-                };
-
-                self.write_to_master_idx(dest_idx, &mut frame).await?;
                 Ok(())
             }
 
@@ -2679,7 +2624,7 @@ impl RelaySwitch {
 
             // Receive and process under the same lock. Multiple pump tasks
             // call this method concurrently — the lock ensures that a REQ's
-            // routing table writes (rid_to_xid, request_routing) complete
+            // routing table writes (request registration) complete
             // before the next frame is dequeued. Without this, a continuation
             // frame can be dequeued by a second pump before the first pump
             // finishes inserting the REQ's routing entries.
@@ -2932,58 +2877,48 @@ impl RelaySwitch {
                 let rid = frame.id.clone();
                 let key = (xid.clone(), rid.clone());
 
-                // Record RID → XID mapping for continuation frames
-                self.rid_to_xid
-                    .write()
-                    .await
-                    .insert(rid.clone(), xid.clone());
-
-                // Record origin (where this request came from)
-                self.origin_map
-                    .write()
-                    .await
-                    .insert(key.clone(), Some(source_idx));
-
-                // Register routing
-                self.request_routing.write().await.insert(
-                    key.clone(),
-                    RoutingEntry {
-                        source_master_idx: Some(source_idx),
-                        destination_master_idx: dest_idx,
-                    },
-                );
-
-                // Mark as peer request (for cleanup tracking)
-                self.peer_requests.write().await.insert(key.clone());
-
-                // Track parent→child for cancel cascade
-                if let Some(parent_rid) = frame
-                    .meta
-                    .as_ref()
-                    .and_then(|m| m.get("parent_rid"))
-                    .and_then(|v| match v {
-                        ciborium::Value::Bytes(bytes) if bytes.len() == 16 => {
-                            let mut arr = [0u8; 16];
-                            arr.copy_from_slice(bytes);
-                            Some(MessageId::Uuid(arr))
-                        }
-                        ciborium::Value::Integer(i) => {
-                            let n: i128 = (*i).into();
-                            Some(MessageId::Uint(n as u64))
-                        }
-                        _ => None,
-                    })
+                // Register the peer request and link it under its parent for
+                // the cancel cascade — one table write guard (L7).
                 {
-                    // Find parent's XID from its RID
-                    if let Some(parent_xid) = self.rid_to_xid.read().await.get(&parent_rid).cloned()
+                    let mut requests = self.requests.write().await;
+                    requests
+                        .register(
+                            key.clone(),
+                            RequestState::new(
+                                RoutingEntry {
+                                    source_master_idx: Some(source_idx),
+                                    destination_master_idx: dest_idx,
+                                },
+                                Some(source_idx),
+                                None,
+                                true,
+                            ),
+                        )
+                        .map_err(RelaySwitchError::Protocol)?;
+
+                    // Track parent→child for cancel cascade
+                    if let Some(parent_rid) = frame
+                        .meta
+                        .as_ref()
+                        .and_then(|m| m.get("parent_rid"))
+                        .and_then(|v| match v {
+                            ciborium::Value::Bytes(bytes) if bytes.len() == 16 => {
+                                let mut arr = [0u8; 16];
+                                arr.copy_from_slice(bytes);
+                                Some(MessageId::Uuid(arr))
+                            }
+                            ciborium::Value::Integer(i) => {
+                                let n: i128 = (*i).into();
+                                Some(MessageId::Uint(n as u64))
+                            }
+                            _ => None,
+                        })
                     {
-                        let parent_key = (parent_xid, parent_rid);
-                        self.peer_call_parents
-                            .write()
-                            .await
-                            .entry(parent_key)
-                            .or_default()
-                            .push(key);
+                        // Find parent's XID from its RID
+                        if let Some(parent_xid) = requests.xid_for_rid(&parent_rid) {
+                            let parent_key = (parent_xid, parent_rid);
+                            requests.link_child(&parent_key, key.clone());
+                        }
                     }
                 }
 
@@ -2999,7 +2934,8 @@ impl RelaySwitch {
             | FrameType::StreamEnd
             | FrameType::End
             | FrameType::Err
-            | FrameType::Log => {
+            | FrameType::Log
+            | FrameType::Credit => {
                 // Branch based on XID presence to distinguish request vs response direction
                 if frame.routing_id.is_some() {
                     // ========================================
@@ -3010,113 +2946,129 @@ impl RelaySwitch {
                     let rid = frame.id.clone();
                     let key = (xid.clone(), rid.clone());
 
-                    // Look up routing entry
-                    let dest_idx = {
-                        let routing = self.request_routing.read().await;
-                        let entry = routing
-                            .get(&key)
-                            .ok_or_else(|| RelaySwitchError::UnknownRequest(rid.clone()))?;
-                        entry.destination_master_idx
-                    };
-
-                    // Get origin (where request came from)
-                    let origin_idx = {
-                        let origin = self.origin_map.read().await;
-                        origin.get(&key).copied().ok_or_else(|| {
-                            RelaySwitchError::Protocol(format!(
-                                "No origin recorded for request ({:?}, {:?})",
-                                xid, rid
-                            ))
-                        })?
-                    };
-
                     let is_terminal =
                         frame.frame_type == FrameType::End || frame.frame_type == FrameType::Err;
 
-                    // Route back to origin
-                    match origin_idx {
-                        None => {
-                            // External caller (via send_to_master or execute_cap)
-                            // Check if there's a response channel registered
-                            let tx_opt = {
-                                let channels = self.external_response_channels.read().await;
-                                channels.get(&key).cloned()
-                            };
+                    /// Where a response frame must go next.
+                    enum RouteBack {
+                        External(Option<mpsc::UnboundedSender<Frame>>),
+                        Master(usize),
+                    }
 
-                            if let Some(tx) = tx_opt {
-                                // Send to external response channel (keep XID for now)
-                                let send_result = tx.send(frame.clone());
-                                let _ = send_result;
-
-                                // Cleanup on terminal frame
-                                if is_terminal {
-                                    self.external_response_channels.write().await.remove(&key);
-                                    self.request_routing.write().await.remove(&key);
-                                    self.origin_map.write().await.remove(&key);
-                                    self.peer_requests.write().await.remove(&key);
-                                    self.peer_call_parents.write().await.remove(&key);
-                                    self.rid_to_xid.write().await.remove(&rid);
-                                }
-
-                                return Ok(None);
+                    // One table guard: record flow stats, resolve the return
+                    // path, and — on terminal — remove the whole entry
+                    // atomically (L7). The terminal is forwarded using the
+                    // state `terminate` hands back, so routing state release
+                    // and terminal delivery cannot disagree (L6). A frame for
+                    // a released key is a counted no_route drop, never a
+                    // protocol error and never silent (L8).
+                    let route = {
+                        let mut requests = self.requests.write().await;
+                        requests.record_frame(&key, FrameDirection::Inbound, &frame);
+                        if is_terminal {
+                            let kind = if frame.frame_type == FrameType::End {
+                                TerminalKind::End
                             } else {
-                                // No response channel (sent via send_to_master, not execute_cap)
-                                // Strip XID and return to caller (final leg)
-                                frame.routing_id = None;
-
-                                // Cleanup on terminal frame
-                                if is_terminal {
-                                    self.request_routing.write().await.remove(&key);
-                                    self.origin_map.write().await.remove(&key);
-                                    self.peer_requests.write().await.remove(&key);
-                                    self.peer_call_parents.write().await.remove(&key);
-                                    self.rid_to_xid.write().await.remove(&rid);
+                                TerminalKind::Err
+                            };
+                            match requests.terminate(&key, kind) {
+                                Some(state) => match state.origin {
+                                    None => RouteBack::External(state.external_channel),
+                                    Some(idx) => RouteBack::Master(idx),
+                                },
+                                None => {
+                                    let total = self
+                                        .drops
+                                        .record(crate::bifaci::frame::DropReason::NoRoute);
+                                    tracing::debug!(
+                                        rid = ?rid,
+                                        xid = ?xid,
+                                        ftype = ?frame.frame_type,
+                                        no_route_total = total,
+                                        "[RelaySwitch] dropped terminal for released request (no_route)"
+                                    );
+                                    return Ok(None);
                                 }
-
-                                return Ok(Some(frame));
+                            }
+                        } else {
+                            match requests.get(&key) {
+                                Some(state) => match state.origin {
+                                    None => RouteBack::External(state.external_channel.clone()),
+                                    Some(idx) => RouteBack::Master(idx),
+                                },
+                                None => {
+                                    let total = self
+                                        .drops
+                                        .record(crate::bifaci::frame::DropReason::NoRoute);
+                                    tracing::debug!(
+                                        rid = ?rid,
+                                        xid = ?xid,
+                                        ftype = ?frame.frame_type,
+                                        no_route_total = total,
+                                        "[RelaySwitch] dropped post-terminal response frame (no_route)"
+                                    );
+                                    return Ok(None);
+                                }
                             }
                         }
-                        Some(master_idx) => {
+                    };
+
+                    match route {
+                        RouteBack::External(Some(tx)) => {
+                            // Send to external response channel (keep XID)
+                            if tx.send(frame.clone()).is_err() {
+                                let total = self
+                                    .drops
+                                    .record(crate::bifaci::frame::DropReason::ChannelClosed);
+                                tracing::warn!(
+                                    rid = ?rid,
+                                    ftype = ?frame.frame_type,
+                                    channel_closed_total = total,
+                                    "[RelaySwitch] response channel receiver gone (channel_closed)"
+                                );
+                            }
+                            Ok(None)
+                        }
+                        RouteBack::External(None) => {
+                            // No response channel (sent via send_to_master, not
+                            // execute_cap). Strip XID and return to caller.
+                            frame.routing_id = None;
+                            Ok(Some(frame))
+                        }
+                        RouteBack::Master(master_idx) => {
                             // Route back to source master — KEEP XID.
                             self.write_to_master_idx(master_idx, &mut frame).await?;
-
-                            // Cleanup on terminal frame
-                            if is_terminal {
-                                self.request_routing.write().await.remove(&key);
-                                self.origin_map.write().await.remove(&key);
-                                self.peer_requests.write().await.remove(&key);
-                                self.peer_call_parents.write().await.remove(&key);
-                                self.rid_to_xid.write().await.remove(&rid);
-                            }
-
-                            return Ok(None);
+                            Ok(None)
                         }
                     }
                 } else {
                     // ========================================
                     // NO XID = REQUEST CONTINUATION
                     // ========================================
-                    // Frame has no XID, so it's a request continuation flowing to destination
+                    // Frame has no XID, so it's a request continuation
+                    // (peer-call argument streams / grants) flowing to the
+                    // destination. An unknown RID means the request already
+                    // terminated: counted drop (L6), not an error.
                     let rid = frame.id.clone();
-
-                    // Look up XID from RID → XID mapping (added by the REQ)
-                    let xid = {
-                        let rid_to_xid = self.rid_to_xid.read().await;
-                        rid_to_xid
-                            .get(&rid)
-                            .ok_or_else(|| RelaySwitchError::UnknownRequest(rid.clone()))?
-                            .clone()
+                    let lookup = {
+                        let mut requests = self.requests.write().await;
+                        requests.xid_for_rid(&rid).and_then(|xid| {
+                            let key = (xid.clone(), rid.clone());
+                            requests.record_frame(&key, FrameDirection::Inbound, &frame);
+                            requests
+                                .get(&key)
+                                .map(|state| (xid, state.routing.destination_master_idx))
+                        })
                     };
-
-                    let key = (xid.clone(), rid.clone());
-
-                    // Look up routing entry
-                    let dest_idx = {
-                        let routing = self.request_routing.read().await;
-                        let entry = routing
-                            .get(&key)
-                            .ok_or_else(|| RelaySwitchError::UnknownRequest(rid.clone()))?;
-                        entry.destination_master_idx
+                    let Some((xid, dest_idx)) = lookup else {
+                        let total = self.drops.record(crate::bifaci::frame::DropReason::NoRoute);
+                        tracing::debug!(
+                            rid = ?rid,
+                            ftype = ?frame.frame_type,
+                            no_route_total = total,
+                            "[RelaySwitch] dropped continuation for unknown/terminated request (no_route)"
+                        );
+                        return Ok(None);
                     };
 
                     // Add XID to frame for forwarding
@@ -3130,37 +3082,25 @@ impl RelaySwitch {
 
             FrameType::Cancel => {
                 // Cancel from cartridge — route to destination like a continuation frame.
-                // Cartridge is cancelling its own peer call.
+                // Cartridge is cancelling its own peer call. Unknown RID means
+                // the request already completed: a well-defined no-op.
                 let rid = frame.id.clone();
-
-                // Look up XID from RID (Cancel frames from cartridges don't have XID)
-                let xid = if let Some(ref existing_xid) = frame.routing_id {
-                    existing_xid.clone()
-                } else {
-                    let rid_to_xid = self.rid_to_xid.read().await;
-                    match rid_to_xid.get(&rid).cloned() {
-                        Some(xid) => {
-                            frame.routing_id = Some(xid.clone());
-                            xid
-                        }
-                        None => {
-                            // Unknown RID — silently ignore (request may already be completed)
-                            return Ok(None);
-                        }
-                    }
+                let lookup = {
+                    let requests = self.requests.read().await;
+                    let xid = match frame.routing_id.clone() {
+                        Some(xid) => Some(xid),
+                        None => requests.xid_for_rid(&rid),
+                    };
+                    xid.and_then(|xid| {
+                        requests
+                            .get(&(xid.clone(), rid.clone()))
+                            .map(|state| (xid, state.routing.destination_master_idx))
+                    })
                 };
-
-                let key = (xid.clone(), rid.clone());
-                let dest_idx = {
-                    let routing = self.request_routing.read().await;
-                    match routing.get(&key) {
-                        Some(entry) => entry.destination_master_idx,
-                        None => {
-                            return Ok(None);
-                        }
-                    }
+                let Some((xid, dest_idx)) = lookup else {
+                    return Ok(None);
                 };
-
+                frame.routing_id = Some(xid);
                 self.write_to_master_idx(dest_idx, &mut frame).await?;
                 Ok(None)
             }
@@ -3306,26 +3246,33 @@ impl RelaySwitch {
             "[RelaySwitch] Master died - marking unhealthy and cleaning up"
         );
 
-        // Find all pending requests for this master
-        let dead_requests: Vec<((MessageId, MessageId), Option<usize>)> = {
-            let routing = self.request_routing.read().await;
-            routing
-                .iter()
-                .filter(|(_, entry)| entry.destination_master_idx == master_idx)
-                .map(|(key, entry)| (key.clone(), entry.source_master_idx))
-                .collect()
+        // Find all pending requests routed to this master
+        let dead_keys = {
+            let requests = self.requests.read().await;
+            requests.keys_where(|s| s.routing.destination_master_idx == master_idx)
         };
 
-        if !dead_requests.is_empty() {
+        if !dead_keys.is_empty() {
             warn!(
                 master_idx = master_idx,
-                pending_requests = dead_requests.len(),
+                pending_requests = dead_keys.len(),
                 "[RelaySwitch] Failing pending requests due to master death"
             );
         }
 
-        // Send ERR for each pending request
-        for (key, source_idx) in dead_requests {
+        // Terminate each pending request (MasterDied) and deliver a synthetic
+        // ERR to whoever was waiting on it. terminate() atomically removes ALL
+        // state for the key (L7) and hands back the origin + channel needed
+        // for delivery.
+        for key in dead_keys {
+            let Some(state) = self
+                .requests
+                .write()
+                .await
+                .terminate(&key, TerminalKind::MasterDied)
+            else {
+                continue; // raced another terminal — already fully cleaned
+            };
             let (xid, rid) = &key;
 
             // Create ERR frame
@@ -3336,16 +3283,11 @@ impl RelaySwitch {
             );
             err_frame.routing_id = Some(xid.clone());
 
-            match source_idx {
+            match state.origin {
                 None => {
                     // External caller - send to response channel if exists
-                    let tx_opt = {
-                        let channels = self.external_response_channels.read().await;
-                        channels.get(&key).cloned()
-                    };
-                    if let Some(tx) = tx_opt {
+                    if let Some(tx) = state.external_channel {
                         let _ = tx.send(err_frame);
-                        self.external_response_channels.write().await.remove(&key);
                     }
                 }
                 Some(src_master_idx) => {
@@ -3361,12 +3303,6 @@ impl RelaySwitch {
                     }
                 }
             }
-
-            // Cleanup routing
-            self.request_routing.write().await.remove(&key);
-            self.origin_map.write().await.remove(&key);
-            self.peer_requests.write().await.remove(&key);
-            self.peer_call_parents.write().await.remove(&key);
         }
 
         // Rebuild tables
@@ -3555,6 +3491,7 @@ impl RelaySwitch {
     async fn rebuild_limits(&self) {
         let mut min_max_frame = usize::MAX;
         let mut min_max_chunk = usize::MAX;
+        let mut min_initial_credit = u64::MAX;
 
         let masters = self.masters.read().await;
         for master in masters.iter() {
@@ -3562,6 +3499,7 @@ impl RelaySwitch {
                 let limits = master.limits.read().await;
                 min_max_frame = min_max_frame.min(limits.max_frame);
                 min_max_chunk = min_max_chunk.min(limits.max_chunk);
+                min_initial_credit = min_initial_credit.min(limits.initial_credit);
             }
         }
 
@@ -3575,6 +3513,11 @@ impl RelaySwitch {
                 crate::bifaci::frame::DEFAULT_MAX_CHUNK
             } else {
                 min_max_chunk
+            },
+            initial_credit: if min_initial_credit == u64::MAX {
+                crate::bifaci::frame::DEFAULT_INITIAL_CREDIT
+            } else {
+                min_initial_credit
             },
             ..Limits::default()
         };
@@ -5609,8 +5552,8 @@ mod tests {
     // The core regression these guard against: when a master dies
     // and the host reconnects, the new socket MUST attach to the
     // same slot index that the dead master held — preserving any
-    // routing state keyed by index (cap_table, request_routing,
-    // origin_map). The engine has at most a handful of cardinality
+    // routing state keyed by index (cap_table, the request
+    // table). The engine has at most a handful of cardinality
     // slots (3 in the website edition: in-process, bundled
     // providers, XPC-service); accumulating zombie slots on each
     // reconnect was the bug class that left "Master 0 unhealthy"
@@ -5622,7 +5565,7 @@ mod tests {
     ///
     /// After a master at slot index 0 dies, a new socket added with
     /// the same id MUST be placed into slot 0 (not appended at index 1).
-    /// Without this, request_routing entries keyed by `master_idx=0`
+    /// Without this, request-table entries keyed by `master_idx=0`
     /// would dangle pointing at a permanently-unhealthy zombie slot
     /// while the live caps came back at slot 1 — exactly the
     /// observed bug.
@@ -6453,4 +6396,343 @@ mod tests {
             result
         );
     }
+    // TEST7085: The RelayNotify capabilities payload carries the host's protocol stats snapshot, surviving the wire round-trip.
+    #[test]
+    fn test7085_relay_notify_carries_host_protocol_stats() {
+        let stats = crate::bifaci::host_runtime::HostProtocolStats {
+            drops: {
+                let counters = crate::bifaci::stats::DropCounters::new();
+                counters.record(crate::bifaci::frame::DropReason::NoRoute);
+                counters.record(crate::bifaci::frame::DropReason::NoRoute);
+                counters.snapshot()
+            },
+            outgoing_rids: 3,
+            incoming_rxids: 5,
+            incoming_to_peer_rids: 1,
+            outgoing_max_seq: 4,
+            routing_gc_runs_total: 2,
+            routing_gc_evicted_total: 7,
+        };
+        let payload = RelayNotifyCapabilitiesPayload::new(vec![])
+            .with_host_protocol_stats(stats);
+        let bytes = serde_json::to_vec(&payload).unwrap();
+
+        let parsed = parse_relay_notify_payload(&bytes).expect("payload must parse");
+        let got = parsed
+            .host_protocol_stats
+            .expect("host stats must survive the round trip");
+        assert_eq!(got.drops.total, 2);
+        assert_eq!(got.drops.by_reason.get("no_route"), Some(&2));
+        assert_eq!(got.incoming_rxids, 5);
+        assert_eq!(got.routing_gc_evicted_total, 7);
+
+        // A payload WITHOUT stats (initial capability advertisement) still
+        // parses — the field is a per-republish refresh, not a requirement.
+        let bare = RelayNotifyCapabilitiesPayload::new(vec![]);
+        let bytes = serde_json::to_vec(&bare).unwrap();
+        let parsed = parse_relay_notify_payload(&bytes).expect("bare payload parses");
+        assert!(parsed.host_protocol_stats.is_none());
+    }
+
+    // TEST7025: A flow frame for a request with no routing state is a counted no_route drop — not a protocol error and not a silent loss — observable in the protocol stats snapshot.
+    #[tokio::test]
+    async fn test7025_unroutable_flow_frame_is_counted_drop() {
+        let registry = test_fabric_registry();
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![]), registry)
+            .await
+            .expect("empty relay switch must construct");
+
+        // Response continuation (has XID) for a key that was never registered
+        // (or already terminated): must be dropped + counted, never an error.
+        let mut orphan = Frame::progress(MessageId::new_uuid(), 0.5, "orphan");
+        orphan.routing_id = Some(MessageId::Uint(999));
+        let result = switch
+            .handle_master_frame(0, orphan)
+            .await
+            .expect("unroutable frame must not surface as an error (L6)");
+        assert!(result.is_none(), "nothing to deliver");
+
+        // Request continuation (no XID) for an unknown RID: same law.
+        let mut chunk = Frame::new(FrameType::Chunk, MessageId::new_uuid());
+        chunk.stream_id = Some("s".to_string());
+        chunk.chunk_index = Some(0);
+        chunk.checksum = Some(0);
+        let result = switch
+            .handle_master_frame(0, chunk)
+            .await
+            .expect("unknown request continuation must not error");
+        assert!(result.is_none());
+
+        let stats = switch.protocol_stats().await;
+        assert_eq!(
+            stats.drops.by_reason.get("no_route"),
+            Some(&2),
+            "both drops counted, exactly once each (L8): {:?}",
+            stats.drops
+        );
+        assert!(stats.requests.active.is_empty());
+    }
+
+    // TEST7035: After END, the switch holds zero state for the request — entry, rid index, and response channel all released atomically, with the terminal delivered and a terminated summary recorded.
+    #[tokio::test]
+    async fn test7035_end_terminates_and_releases_all_state() {
+        let registry = test_fabric_registry();
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![]), registry)
+            .await
+            .expect("empty relay switch must construct");
+
+        let xid = MessageId::Uint(11);
+        let rid = MessageId::new_uuid();
+        let key = (xid.clone(), rid.clone());
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        switch
+            .requests
+            .write()
+            .await
+            .register(
+                key.clone(),
+                RequestState::new(
+                    RoutingEntry {
+                        source_master_idx: None,
+                        destination_master_idx: 0,
+                    },
+                    None,
+                    Some(tx),
+                    false,
+                ),
+            )
+            .expect("registration must succeed");
+        assert_eq!(switch.protocol_stats().await.requests.active.len(), 1);
+
+        // Terminal END arrives from the master side.
+        let mut end = Frame::end_ok_with(rid.clone(), None, Some(1.0), None);
+        end.routing_id = Some(xid.clone());
+        switch
+            .handle_master_frame(0, end)
+            .await
+            .expect("terminal must route");
+
+        // The terminal was DELIVERED to the waiting channel...
+        let delivered = rx.recv().await.expect("END must reach the response channel");
+        assert_eq!(delivered.frame_type, FrameType::End);
+        assert_eq!(delivered.final_progress(), Some(1.0));
+
+        // ...and zero state remains (L7), with the lifecycle recorded.
+        let stats = switch.protocol_stats().await;
+        assert!(stats.requests.active.is_empty(), "no live entry after END");
+        assert_eq!(stats.requests.terminated_by_kind.get("end"), Some(&1));
+        let summary = stats
+            .requests
+            .recent_terminated
+            .last()
+            .expect("terminated summary must be recorded");
+        assert_eq!(summary.rid, rid.to_string());
+        assert_eq!(
+            summary.frames_in, 1,
+            "ingress recording captured the terminal frame"
+        );
+
+        // A follow-up frame for the released key is a counted no_route drop.
+        let mut late = Frame::progress(rid.clone(), 1.0, "late");
+        late.routing_id = Some(xid);
+        switch
+            .handle_master_frame(0, late)
+            .await
+            .expect("post-terminal frame must not error");
+        assert_eq!(
+            switch.protocol_stats().await.drops.by_reason.get("no_route"),
+            Some(&1)
+        );
+    }
+
+    // TEST7036: After ERR, the same total-cleanup invariant holds as after END, with kind err.
+    #[tokio::test]
+    async fn test7036_err_terminates_and_releases_all_state() {
+        let registry = test_fabric_registry();
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![]), registry)
+            .await
+            .expect("empty relay switch must construct");
+
+        let xid = MessageId::Uint(21);
+        let rid = MessageId::new_uuid();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        switch
+            .requests
+            .write()
+            .await
+            .register(
+                (xid.clone(), rid.clone()),
+                RequestState::new(
+                    RoutingEntry {
+                        source_master_idx: None,
+                        destination_master_idx: 0,
+                    },
+                    None,
+                    Some(tx),
+                    false,
+                ),
+            )
+            .unwrap();
+
+        let mut err = Frame::err(rid.clone(), "HANDLER_ERROR", "boom");
+        err.routing_id = Some(xid);
+        switch.handle_master_frame(0, err).await.unwrap();
+
+        let delivered = rx.recv().await.expect("ERR must reach the channel");
+        assert_eq!(delivered.frame_type, FrameType::Err);
+        assert_eq!(delivered.error_code(), Some("HANDLER_ERROR"));
+
+        let stats = switch.protocol_stats().await;
+        assert!(stats.requests.active.is_empty());
+        assert_eq!(stats.requests.terminated_by_kind.get("err"), Some(&1));
+    }
+
+    // TEST7037: Cancelling a request terminates it AND its recursively-linked peer children — Cancel frames reach the destination, waiting channels get ERR CANCELLED, and zero state remains for parent or child.
+    #[tokio::test]
+    async fn test7037_cancel_cascades_to_children_and_cleans_all_state() {
+        let registry = test_fabric_registry();
+        let (engine_socket, slave_socket) = UnixStream::pair().expect("socket pair");
+
+        let limits = Limits::default();
+        let caps = serde_json::json!([CAP_IDENTITY]);
+        let slave_task = tokio::spawn(async move {
+            let (mut reader, _writer) =
+                slave_notify_with_identity(slave_socket, &caps, &limits).await;
+            // Collect the Cancel frames the cascade sends us.
+            let mut cancels = Vec::new();
+            while cancels.len() < 2 {
+                match reader.read().await {
+                    Ok(Some(f)) if f.frame_type == FrameType::Cancel => cancels.push(f.id),
+                    Ok(Some(_)) => {}
+                    _ => break,
+                }
+            }
+            cancels
+        });
+
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_socket]),
+            test_fabric_registry(),
+        )
+        .await
+        .expect("switch with one master must construct");
+
+        // Parent (engine-origin, has a waiting channel) + child peer call.
+        let parent_key = (MessageId::Uint(1), MessageId::new_uuid());
+        let child_key = (MessageId::Uint(2), MessageId::new_uuid());
+        let (ptx, mut prx) = mpsc::unbounded_channel();
+        {
+            let mut requests = switch.requests.write().await;
+            requests
+                .register(
+                    parent_key.clone(),
+                    RequestState::new(
+                        RoutingEntry {
+                            source_master_idx: None,
+                            destination_master_idx: 0,
+                        },
+                        None,
+                        Some(ptx),
+                        false,
+                    ),
+                )
+                .unwrap();
+            requests
+                .register(
+                    child_key.clone(),
+                    RequestState::new(
+                        RoutingEntry {
+                            source_master_idx: Some(0),
+                            destination_master_idx: 0,
+                        },
+                        Some(0),
+                        None,
+                        true,
+                    ),
+                )
+                .unwrap();
+            requests.link_child(&parent_key, child_key.clone());
+        }
+
+        switch.cancel_request(&parent_key.1, false).await;
+
+        // Parent's waiter observes ERR CANCELLED.
+        let delivered = prx.recv().await.expect("parent channel gets ERR");
+        assert_eq!(delivered.error_code(), Some("CANCELLED"));
+
+        // Both parent and child are fully released (L7), recorded cancelled.
+        let stats = switch.protocol_stats().await;
+        assert!(
+            stats.requests.active.is_empty(),
+            "no state for parent or child remains: {:?}",
+            stats.requests.active
+        );
+        assert_eq!(stats.requests.terminated_by_kind.get("cancelled"), Some(&2));
+
+        // The destination master received Cancel for BOTH rids.
+        let cancels = slave_task.await.expect("slave task");
+        assert_eq!(cancels.len(), 2, "parent + cascaded child Cancel frames");
+        assert!(cancels.contains(&parent_key.1));
+        assert!(cancels.contains(&child_key.1));
+    }
+
+    // TEST7038: Master death terminates every request routed to it with kind master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and leaving zero state.
+    #[tokio::test]
+    async fn test7038_master_death_terminates_pending_requests() {
+        let registry = test_fabric_registry();
+        let (engine_socket, slave_socket) = UnixStream::pair().expect("socket pair");
+
+        let limits = Limits::default();
+        let caps = serde_json::json!([CAP_IDENTITY]);
+        let slave = tokio::spawn(async move {
+            // Keep the connection alive until the test drops it.
+            slave_notify_with_identity(slave_socket, &caps, &limits).await
+        });
+
+        let switch = RelaySwitch::new(
+            wrap_with_test_ids(vec![engine_socket]),
+            test_fabric_registry(),
+        )
+        .await
+        .expect("switch with one master must construct");
+        let _halves = slave.await.expect("slave handshake");
+
+        let key = (MessageId::Uint(5), MessageId::new_uuid());
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        switch
+            .requests
+            .write()
+            .await
+            .register(
+                key.clone(),
+                RequestState::new(
+                    RoutingEntry {
+                        source_master_idx: None,
+                        destination_master_idx: 0,
+                    },
+                    None,
+                    Some(tx),
+                    false,
+                ),
+            )
+            .unwrap();
+
+        switch
+            .handle_master_death(0)
+            .await
+            .expect("death handling must succeed");
+
+        let delivered = rx.recv().await.expect("synthetic ERR must be delivered");
+        assert_eq!(delivered.error_code(), Some("MASTER_DIED"));
+
+        let stats = switch.protocol_stats().await;
+        assert!(stats.requests.active.is_empty(), "zero state remains (L7)");
+        assert_eq!(
+            stats.requests.terminated_by_kind.get("master_died"),
+            Some(&1)
+        );
+        let summary = stats.requests.recent_terminated.last().unwrap();
+        assert_eq!(summary.rid, key.1.to_string());
+    }
 }
+

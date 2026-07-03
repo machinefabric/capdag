@@ -40,8 +40,10 @@ use crate::CapUrn;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Protocol version. Version 2: Result-based emitters, negotiated chunk limits, per-request errors.
-pub const PROTOCOL_VERSION: u8 = 2;
+/// Protocol version. Version 3: credit-based per-stream flow control, unbounded
+/// streams, terminal metadata on END (final progress rides in the terminal frame),
+/// counted drops, handshake version enforcement. Version 2 handshakes are rejected.
+pub const PROTOCOL_VERSION: u8 = 3;
 
 /// Default maximum frame size (3.5 MB) - safe margin below 3.75MB limit
 /// Larger payloads automatically use CHUNK frames
@@ -52,6 +54,11 @@ pub const DEFAULT_MAX_CHUNK: usize = 262_144;
 
 /// Default maximum reorder buffer size (per-flow frame count)
 pub const DEFAULT_MAX_REORDER_BUFFER: usize = 64;
+
+/// Default initial credit window per stream, in CHUNK frames.
+/// A sender may emit this many CHUNKs per stream before it must wait for a
+/// CREDIT grant. 32 chunks ≈ 8 MiB at the default max_chunk (256 KiB).
+pub const DEFAULT_INITIAL_CREDIT: u64 = 32;
 
 /// Frame type discriminator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +89,10 @@ pub enum FrameType {
     RelayState = 11,
     /// Cancel a specific in-flight request by RID. Carries optional force_kill flag.
     Cancel = 12,
+    /// Grant per-stream flow-control credit (in CHUNK units) to the sender of a
+    /// stream. Non-flow: bypasses seq assignment and reorder buffers, and is
+    /// forwarded end-to-end by intermediaries (never originated or absorbed).
+    Credit = 13,
 }
 
 impl FrameType {
@@ -100,6 +111,7 @@ impl FrameType {
             10 => Some(FrameType::RelayNotify),
             11 => Some(FrameType::RelayState),
             12 => Some(FrameType::Cancel),
+            13 => Some(FrameType::Credit),
             _ => None,
         }
     }
@@ -169,6 +181,8 @@ pub struct Limits {
     pub max_chunk: usize,
     /// Maximum reorder buffer size per flow (frame count)
     pub max_reorder_buffer: usize,
+    /// Initial per-stream credit window in CHUNK frames
+    pub initial_credit: u64,
 }
 
 impl Default for Limits {
@@ -177,6 +191,7 @@ impl Default for Limits {
             max_frame: DEFAULT_MAX_FRAME,
             max_chunk: DEFAULT_MAX_CHUNK,
             max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER,
+            initial_credit: DEFAULT_INITIAL_CREDIT,
         }
     }
 }
@@ -228,6 +243,11 @@ pub struct Frame {
     /// Whether Cancel should force-kill the cartridge process (true) or cooperatively cancel (false).
     /// Present on Cancel frames only.
     pub force_kill: Option<bool>,
+    /// Flow-control credit grant in CHUNK units. Present on Credit frames only.
+    pub credit: Option<u64>,
+    /// Whether the stream makes no length promise (no chunk_count on STREAM_END,
+    /// receivers must consume incrementally). Present on STREAM_START frames only.
+    pub unbounded: Option<bool>,
 }
 
 impl Frame {
@@ -253,6 +273,8 @@ impl Frame {
             checksum: None,
             is_sequence: None,
             force_kill: None,
+            credit: None,
+            unbounded: None,
         }
     }
 
@@ -270,6 +292,10 @@ impl Frame {
         meta.insert(
             "max_reorder_buffer".to_string(),
             ciborium::Value::Integer((limits.max_reorder_buffer as i64).into()),
+        );
+        meta.insert(
+            "initial_credit".to_string(),
+            ciborium::Value::Integer((limits.initial_credit as i64).into()),
         );
         meta.insert(
             "version".to_string(),
@@ -297,6 +323,10 @@ impl Frame {
         meta.insert(
             "max_reorder_buffer".to_string(),
             ciborium::Value::Integer((limits.max_reorder_buffer as i64).into()),
+        );
+        meta.insert(
+            "initial_credit".to_string(),
+            ciborium::Value::Integer((limits.initial_credit as i64).into()),
         );
         meta.insert(
             "version".to_string(),
@@ -406,6 +436,69 @@ impl Frame {
         frame
     }
 
+    /// Create an END frame with exit_code=0 (success) carrying terminal metadata.
+    /// `progress` is the authoritative final progress value delivered with the
+    /// terminal frame itself (so it can never race it); `message` is an optional
+    /// final status message. A successful END without an explicit progress reads
+    /// as 1.0 via `final_progress()`.
+    pub fn end_ok_with(
+        id: MessageId,
+        final_payload: Option<Vec<u8>>,
+        progress: Option<f64>,
+        message: Option<&str>,
+    ) -> Self {
+        let mut frame = Self::end_ok(id, final_payload);
+        let meta = frame.meta.get_or_insert_with(BTreeMap::new);
+        if let Some(p) = progress {
+            meta.insert("progress".to_string(), ciborium::Value::Float(p));
+        }
+        if let Some(m) = message {
+            meta.insert("message".to_string(), ciborium::Value::Text(m.to_string()));
+        }
+        frame
+    }
+
+    /// Read the final progress from an END frame's terminal metadata.
+    /// Returns the explicit `progress` meta value when present; a successful END
+    /// (exit_code=0) without an explicit value reads as 1.0. Non-END frames and
+    /// unsuccessful ENDs without a value return None.
+    pub fn final_progress(&self) -> Option<f64> {
+        if self.frame_type != FrameType::End {
+            return None;
+        }
+        let explicit = self.meta.as_ref().and_then(|m| {
+            m.get("progress").and_then(|v| match v {
+                ciborium::Value::Float(f) => Some(*f),
+                ciborium::Value::Integer(i) => {
+                    let n: i128 = (*i).into();
+                    Some(n as f64)
+                }
+                _ => None,
+            })
+        });
+        match explicit {
+            Some(p) => Some(p),
+            None if self.exit_code() == Some(0) => Some(1.0),
+            None => None,
+        }
+    }
+
+    /// Read the final status message from an END frame's terminal metadata.
+    pub fn final_message(&self) -> Option<&str> {
+        if self.frame_type != FrameType::End {
+            return None;
+        }
+        self.meta.as_ref().and_then(|m| {
+            m.get("message").and_then(|v| {
+                if let ciborium::Value::Text(s) = v {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
     /// Read exit_code from an END frame's meta. Returns None if absent.
     pub fn exit_code(&self) -> Option<i64> {
         self.meta.as_ref()?.get("exit_code").and_then(|v| {
@@ -497,6 +590,26 @@ impl Frame {
         frame
     }
 
+    /// Create a STREAM_START frame for an UNBOUNDED stream — one that makes no
+    /// length promise. Its STREAM_END may omit chunk_count, and receivers must
+    /// consume it incrementally (never buffer to completion).
+    pub fn stream_start_unbounded(
+        req_id: MessageId,
+        stream_id: String,
+        media_urn: String,
+        is_sequence: Option<bool>,
+    ) -> Self {
+        let mut frame = Self::stream_start(req_id, stream_id, media_urn, is_sequence);
+        frame.unbounded = Some(true);
+        frame
+    }
+
+    /// Whether this STREAM_START announces an unbounded stream.
+    /// Absent flag means bounded.
+    pub fn is_unbounded(&self) -> bool {
+        self.unbounded.unwrap_or(false)
+    }
+
     /// Create a STREAM_END frame to mark completion of a specific stream.
     /// After this, any CHUNK for this stream_id is a fatal protocol error.
     ///
@@ -508,6 +621,14 @@ impl Frame {
         let mut frame = Self::new(FrameType::StreamEnd, req_id);
         frame.stream_id = Some(stream_id);
         frame.chunk_count = Some(chunk_count);
+        frame
+    }
+
+    /// Create a STREAM_END frame for an unbounded stream — no chunk_count promise.
+    /// Valid only for streams announced with `stream_start_unbounded`.
+    pub fn stream_end_unbounded(req_id: MessageId, stream_id: String) -> Self {
+        let mut frame = Self::new(FrameType::StreamEnd, req_id);
+        frame.stream_id = Some(stream_id);
         frame
     }
 
@@ -535,6 +656,10 @@ impl Frame {
             "max_reorder_buffer".to_string(),
             ciborium::Value::Integer((limits.max_reorder_buffer as i64).into()),
         );
+        meta.insert(
+            "initial_credit".to_string(),
+            ciborium::Value::Integer((limits.initial_credit as i64).into()),
+        );
 
         let mut frame = Self::new(FrameType::RelayNotify, MessageId::Uint(0));
         frame.meta = Some(meta);
@@ -561,6 +686,29 @@ impl Frame {
         let mut frame = Self::new(FrameType::Cancel, target_rid);
         frame.force_kill = Some(force_kill);
         frame
+    }
+
+    /// Create a CREDIT frame granting per-stream flow-control credit to the
+    /// sender of a stream.
+    ///
+    /// # Arguments
+    /// * `target_rid` - The request whose stream is being credited
+    /// * `stream_id` - The stream being credited (None credits the request's
+    ///   sole/default stream)
+    /// * `credits` - Number of additional CHUNK frames the sender may emit
+    pub fn credit(target_rid: MessageId, stream_id: Option<String>, credits: u64) -> Self {
+        let mut frame = Self::new(FrameType::Credit, target_rid);
+        frame.stream_id = stream_id;
+        frame.credit = Some(credits);
+        frame
+    }
+
+    /// Read the credit grant from a CREDIT frame. None for other frame types.
+    pub fn credit_count(&self) -> Option<u64> {
+        if self.frame_type != FrameType::Credit {
+            return None;
+        }
+        self.credit
     }
 
     /// Extract manifest from RelayNotify metadata.
@@ -626,10 +774,26 @@ impl Frame {
                 }
             })
             .unwrap_or(DEFAULT_MAX_REORDER_BUFFER);
+        let initial_credit = meta
+            .get("initial_credit")
+            .and_then(|v| {
+                if let ciborium::Value::Integer(i) = v {
+                    let n: i128 = (*i).into();
+                    if n > 0 && n <= u64::MAX as i128 {
+                        Some(n as u64)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(DEFAULT_INITIAL_CREDIT);
         Some(Limits {
             max_frame,
             max_chunk,
             max_reorder_buffer,
+            initial_credit,
         })
     }
 
@@ -795,6 +959,44 @@ impl Frame {
         })
     }
 
+    /// Extract initial_credit from HELLO metadata
+    pub fn hello_initial_credit(&self) -> Option<u64> {
+        if self.frame_type != FrameType::Hello {
+            return None;
+        }
+        self.meta.as_ref().and_then(|m| {
+            m.get("initial_credit").and_then(|v| {
+                if let ciborium::Value::Integer(i) = v {
+                    let n: i128 = (*i).into();
+                    if n > 0 && n <= u64::MAX as i128 {
+                        Some(n as u64)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
+    /// Extract the protocol version declared in HELLO metadata.
+    pub fn hello_version(&self) -> Option<u8> {
+        if self.frame_type != FrameType::Hello {
+            return None;
+        }
+        self.meta.as_ref().and_then(|m| {
+            m.get("version").and_then(|v| {
+                if let ciborium::Value::Integer(i) = v {
+                    let n: i128 = (*i).into();
+                    Some(n as u8)
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
     /// Extract manifest from HELLO metadata (cartridge side sends this).
     /// Returns None if no manifest present (host HELLO) or not a HELLO frame.
     /// The manifest is JSON-encoded cartridge metadata.
@@ -828,8 +1030,9 @@ impl Frame {
     }
 
     /// Returns true if this frame type participates in flow ordering (seq tracking).
-    /// Non-flow frames (Hello, Heartbeat, RelayNotify, RelayState) bypass seq assignment
-    /// and reorder buffers entirely.
+    /// Non-flow frames (Hello, Heartbeat, RelayNotify, RelayState, Cancel, Credit)
+    /// bypass seq assignment and reorder buffers entirely — Credit in particular must
+    /// never queue behind the data it is flow-controlling.
     pub fn is_flow_frame(&self) -> bool {
         !matches!(
             self.frame_type,
@@ -838,6 +1041,7 @@ impl Frame {
                 | FrameType::RelayNotify
                 | FrameType::RelayState
                 | FrameType::Cancel
+                | FrameType::Credit
         )
     }
 }
@@ -1027,6 +1231,55 @@ pub mod keys {
     pub const CHECKSUM: u64 = 16; // FNV-1a checksum of payload for CHUNK frames
     pub const IS_SEQUENCE: u64 = 17; // Whether producer used emit_list_item (true) or write (false)
     pub const FORCE_KILL: u64 = 18; // Whether Cancel should force-kill the cartridge process
+    pub const CREDIT: u64 = 19; // Flow-control credit grant in CHUNK units (Credit frames)
+    pub const UNBOUNDED: u64 = 20; // Stream makes no length promise (STREAM_START frames)
+}
+
+/// Why a frame was dropped instead of delivered. The shared vocabulary for
+/// counted drops across every runtime (cartridge writer, host, relay switch,
+/// executor); every dropped frame increments exactly one of these counters,
+/// observable via the protocol stats snapshots. Frames are never dropped
+/// silently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DropReason {
+    /// Flow frame enqueued/received after the request's terminal (END/ERR) frame.
+    PostTerminal,
+    /// Flow frame for a request with no routing state (already released or never
+    /// registered).
+    NoRoute,
+    /// Send attempted on a closed channel (receiver gone).
+    ChannelClosed,
+    /// CHUNK received beyond the granted credit window.
+    CreditViolation,
+    /// Frame discarded because its request was cancelled.
+    Cancelled,
+    /// Frame discarded because the owning master/host connection died.
+    MasterDied,
+}
+
+impl DropReason {
+    /// All variants, for counter arrays and snapshot serialization.
+    pub const ALL: [DropReason; 6] = [
+        DropReason::PostTerminal,
+        DropReason::NoRoute,
+        DropReason::ChannelClosed,
+        DropReason::CreditViolation,
+        DropReason::Cancelled,
+        DropReason::MasterDied,
+    ];
+
+    /// Stable snake_case name (the wire/snapshot contract for mirrors).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DropReason::PostTerminal => "post_terminal",
+            DropReason::NoRoute => "no_route",
+            DropReason::ChannelClosed => "channel_closed",
+            DropReason::CreditViolation => "credit_violation",
+            DropReason::Cancelled => "cancelled",
+            DropReason::MasterDied => "master_died",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1154,6 +1407,7 @@ mod tests {
             max_frame: 1_000_000,
             max_chunk: 100_000,
             max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER,
+            initial_credit: DEFAULT_INITIAL_CREDIT,
         });
         assert_eq!(frame.frame_type, FrameType::Hello);
         assert_eq!(frame.version, PROTOCOL_VERSION);
@@ -1177,6 +1431,7 @@ mod tests {
                 max_frame: 1_000_000,
                 max_chunk: 100_000,
                 max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER,
+                initial_credit: DEFAULT_INITIAL_CREDIT,
             },
             manifest_json.as_bytes(),
         );
@@ -1390,6 +1645,7 @@ mod tests {
             max_frame: 1000,
             max_chunk: 500,
             max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER,
+            initial_credit: DEFAULT_INITIAL_CREDIT,
         });
         assert!(hello.error_code().is_none());
     }
@@ -1465,12 +1721,16 @@ mod tests {
         assert_eq!(limits.max_chunk, DEFAULT_MAX_CHUNK);
         assert_eq!(limits.max_frame, 3_670_016, "default max_frame = 3.5 MB");
         assert_eq!(limits.max_chunk, 262_144, "default max_chunk = 256 KB");
+        assert_eq!(
+            limits.initial_credit, 32,
+            "default initial_credit = 32 chunks"
+        );
     }
 
-    // TEST199: Test PROTOCOL_VERSION is 2
+    // TEST199: Test PROTOCOL_VERSION is 3
     #[test]
     fn test199_protocol_version_constant() {
-        assert_eq!(PROTOCOL_VERSION, 2);
+        assert_eq!(PROTOCOL_VERSION, 3);
     }
 
     // TEST200: Test integer key constants match the protocol specification
@@ -1498,6 +1758,7 @@ mod tests {
                 max_frame: 1000,
                 max_chunk: 500,
                 max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER,
+                initial_credit: DEFAULT_INITIAL_CREDIT,
             },
             &binary_manifest,
         );
@@ -2363,32 +2624,206 @@ mod tests {
         );
     }
 
-    // TEST6672: CBOR decode REJECTS STREAM_END frame missing chunk_count field
+    // TEST6672: CBOR decode ACCEPTS STREAM_END without chunk_count — unbounded streams make no length promise (v3, L16)
     #[test]
-    fn test6672_cbor_rejects_stream_end_without_chunk_count() {
+    fn test6672_cbor_accepts_stream_end_without_chunk_count() {
         use crate::bifaci::io::{decode_frame, encode_frame};
 
         let req_id = MessageId::new_uuid();
-
-        // Create STREAM_END without chunk_count
-        let mut frame = Frame::new(FrameType::StreamEnd, req_id);
-        frame.stream_id = Some("s1".to_string());
-        // chunk_count deliberately missing
+        let frame = Frame::stream_end_unbounded(req_id.clone(), "s1".to_string());
+        assert_eq!(frame.chunk_count, None);
 
         let encoded = encode_frame(&frame).expect("encoding should succeed");
+        let decoded = decode_frame(&encoded).expect("v3 accepts STREAM_END without chunk_count");
+        assert_eq!(decoded.frame_type, FrameType::StreamEnd);
+        assert_eq!(decoded.id, req_id);
+        assert_eq!(decoded.stream_id.as_deref(), Some("s1"));
+        assert_eq!(
+            decoded.chunk_count, None,
+            "absent chunk_count must decode as None, not a default"
+        );
+    }
 
-        // Decode should FAIL
+    // TEST7010: CREDIT frame round-trips encode/decode with rid, stream_id, and credit count
+    #[test]
+    fn test7010_credit_frame_roundtrip() {
+        use crate::bifaci::io::{decode_frame, encode_frame};
+
+        let rid = MessageId::new_uuid();
+        let frame = Frame::credit(rid.clone(), Some("s1".to_string()), 17);
+        assert_eq!(frame.credit_count(), Some(17));
+
+        let decoded = decode_frame(&encode_frame(&frame).unwrap()).unwrap();
+        assert_eq!(decoded.frame_type, FrameType::Credit);
+        assert_eq!(decoded.id, rid);
+        assert_eq!(decoded.stream_id.as_deref(), Some("s1"));
+        assert_eq!(decoded.credit_count(), Some(17));
+
+        // Stream-less grant (request's sole stream) round-trips too
+        let frame = Frame::credit(rid.clone(), None, 3);
+        let decoded = decode_frame(&encode_frame(&frame).unwrap()).unwrap();
+        assert_eq!(decoded.stream_id, None);
+        assert_eq!(decoded.credit_count(), Some(3));
+
+        // credit_count is None on non-Credit frames even if the field is set
+        let mut chunkish = Frame::new(FrameType::Log, rid);
+        chunkish.credit = Some(9);
+        assert_eq!(chunkish.credit_count(), None);
+    }
+
+    // TEST7011: CREDIT is a non-flow frame — no seq assigned, passes the reorder buffer untouched regardless of flow state
+    #[test]
+    fn test7011_credit_is_non_flow() {
+        let rid = MessageId::new_uuid();
+
+        // SeqAssigner leaves Credit at seq 0 while flow frames advance
+        let mut assigner = SeqAssigner::new();
+        let mut chunk = Frame::chunk(rid.clone(), "s1".to_string(), 0, vec![1], 0, 1);
+        assigner.assign(&mut chunk);
+        assert_eq!(chunk.seq, 0);
+        let mut credit = Frame::credit(rid.clone(), Some("s1".to_string()), 4);
+        assigner.assign(&mut credit);
+        assert_eq!(credit.seq, 0, "Credit must not consume a flow seq");
+        let mut chunk2 = Frame::chunk(rid.clone(), "s1".to_string(), 0, vec![2], 1, 1);
+        assigner.assign(&mut chunk2);
+        assert_eq!(chunk2.seq, 1, "flow seq must be contiguous across a Credit");
+
+        // ReorderBuffer returns Credit immediately even while the flow is gapped
+        let mut buffer = ReorderBuffer::new(8);
+        let mut gapped = Frame::chunk(rid.clone(), "s1".to_string(), 5, vec![3], 5, 1);
+        gapped.seq = 5;
+        assert!(
+            buffer.accept(gapped).unwrap().is_empty(),
+            "out-of-order flow frame must be buffered"
+        );
+        let credit = Frame::credit(rid, Some("s1".to_string()), 4);
+        let delivered = buffer.accept(credit).unwrap();
+        assert_eq!(
+            delivered.len(),
+            1,
+            "Credit must bypass the reorder buffer and deliver immediately"
+        );
+        assert_eq!(delivered[0].frame_type, FrameType::Credit);
+    }
+
+    // TEST7012: STREAM_START unbounded flag round-trips through CBOR; absent flag means bounded
+    #[test]
+    fn test7012_stream_start_unbounded_roundtrip() {
+        use crate::bifaci::io::{decode_frame, encode_frame};
+
+        let rid = MessageId::new_uuid();
+        let bounded = Frame::stream_start(
+            rid.clone(),
+            "s1".to_string(),
+            "media:enc=utf-8".to_string(),
+            Some(false),
+        );
+        assert!(!bounded.is_unbounded());
+        let decoded = decode_frame(&encode_frame(&bounded).unwrap()).unwrap();
+        assert!(!decoded.is_unbounded(), "absent flag must read as bounded");
+        assert_eq!(decoded.unbounded, None, "bounded frames omit the key");
+
+        let unbounded = Frame::stream_start_unbounded(
+            rid,
+            "s2".to_string(),
+            "media:enc=utf-8".to_string(),
+            Some(true),
+        );
+        assert!(unbounded.is_unbounded());
+        let decoded = decode_frame(&encode_frame(&unbounded).unwrap()).unwrap();
+        assert!(decoded.is_unbounded());
+        assert_eq!(decoded.stream_id.as_deref(), Some("s2"));
+        assert_eq!(decoded.is_sequence, Some(true));
+    }
+
+    // TEST7013: CBOR decode REJECTS a CREDIT frame missing its credit count
+    #[test]
+    fn test7013_cbor_rejects_credit_without_count() {
+        use crate::bifaci::io::{decode_frame, encode_frame};
+
+        let mut frame = Frame::new(FrameType::Credit, MessageId::new_uuid());
+        frame.stream_id = Some("s1".to_string());
+        // credit deliberately missing
+
+        let encoded = encode_frame(&frame).expect("encoding should succeed");
         let result = decode_frame(&encoded);
         assert!(
             result.is_err(),
-            "decode must reject STREAM_END without chunk_count"
+            "decode must reject CREDIT without a credit count"
         );
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("chunk_count") || err.contains("STREAM_END"),
-            "error must mention missing chunk_count: {}",
+            err.contains("credit") || err.contains("CREDIT"),
+            "error must name the missing field: {}",
             err
         );
+    }
+
+    // TEST7026: An out-of-order terminal is buffered until the gap fills; buffered pre-terminal frames flush ahead of it in seq order, and only then may the flow be cleaned up
+    #[test]
+    fn test7026_reorder_flushes_pre_terminal_before_cleanup() {
+        let rid = MessageId::new_uuid();
+        let mut buffer = ReorderBuffer::new(8);
+
+        let mk = |seq: u64, ftype: FrameType| -> Frame {
+            let mut f = Frame::new(ftype, rid.clone());
+            f.seq = seq;
+            f
+        };
+
+        // seq 0 delivers immediately.
+        let delivered = buffer.accept(mk(0, FrameType::Chunk)).unwrap();
+        assert_eq!(delivered.len(), 1);
+
+        // seq 2 (chunk) and seq 3 (END) arrive out of order — both buffered,
+        // nothing delivered, no premature cleanup possible.
+        assert!(buffer.accept(mk(2, FrameType::Chunk)).unwrap().is_empty());
+        assert!(buffer.accept(mk(3, FrameType::End)).unwrap().is_empty());
+
+        // The gap fills: seq 1 arrives → 1, 2, 3(END) all deliver in order.
+        // The terminal is DELIVERED strictly after every pre-terminal frame.
+        let delivered = buffer.accept(mk(1, FrameType::Chunk)).unwrap();
+        let seqs: Vec<u64> = delivered.iter().map(|f| f.seq).collect();
+        assert_eq!(seqs, vec![1, 2, 3]);
+        assert_eq!(delivered.last().unwrap().frame_type, FrameType::End);
+
+        // Cleanup after delivered terminal (as the relay does, post-drain):
+        // the flow state resets and a fresh flow under the same key starts
+        // cleanly at seq 0.
+        buffer.cleanup_flow(&FlowKey::from_frame(&delivered[2]));
+        let fresh = buffer.accept(mk(0, FrameType::Chunk)).unwrap();
+        assert_eq!(fresh.len(), 1, "cleaned flow accepts a fresh seq 0");
+    }
+
+    // TEST7014: END terminal meta (progress, message) round-trips; successful END without progress reads as 1.0; failed END without progress reads as None
+    #[test]
+    fn test7014_end_terminal_meta_roundtrip() {
+        use crate::bifaci::io::{decode_frame, encode_frame};
+
+        let rid = MessageId::new_uuid();
+
+        // Explicit terminal progress + message round-trip
+        let end = Frame::end_ok_with(rid.clone(), None, Some(0.87), Some("partial corpus"));
+        let decoded = decode_frame(&encode_frame(&end).unwrap()).unwrap();
+        assert_eq!(decoded.final_progress(), Some(0.87));
+        assert_eq!(decoded.final_message(), Some("partial corpus"));
+        assert_eq!(decoded.exit_code(), Some(0), "end_ok_with implies success");
+
+        // Successful END with no explicit progress reads as 1.0
+        let end = Frame::end_ok(rid.clone(), None);
+        let decoded = decode_frame(&encode_frame(&end).unwrap()).unwrap();
+        assert_eq!(decoded.final_progress(), Some(1.0));
+        assert_eq!(decoded.final_message(), None);
+
+        // Non-successful END (no exit_code) with no explicit progress: None —
+        // failure must not synthesize a completion value.
+        let end = Frame::end(rid.clone(), None);
+        let decoded = decode_frame(&encode_frame(&end).unwrap()).unwrap();
+        assert_eq!(decoded.final_progress(), None);
+
+        // Non-END frames never report a final progress
+        let log = Frame::progress(rid, 0.5, "halfway");
+        assert_eq!(log.final_progress(), None);
     }
 
     // TEST498: routing_id field roundtrips through CBOR encoding
@@ -2904,6 +3339,7 @@ mod tests {
             max_frame: 3_000_000,
             max_chunk: 256_000,
             max_reorder_buffer: 128,
+            initial_credit: DEFAULT_INITIAL_CREDIT,
         };
 
         let frame = Frame::relay_notify(manifest, &limits);

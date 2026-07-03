@@ -170,6 +170,27 @@ pub type PipelineLogFn =
     Arc<dyn Fn(&str, &str, &str, Option<StreamMeta>, Option<usize>) + Send + Sync>;
 
 // =============================================================================
+// Credit plumbing (flow control, L9–L15)
+// =============================================================================
+
+/// Grants credit back to the producing cartridge for consumed response
+/// chunks. Arguments: `(stream_id, chunks_consumed)`. Implementations send a
+/// CREDIT frame toward the cartridge (via the switch for the engine path,
+/// via the forwarding channel for pipelined execution).
+pub type CreditGrantFn = Arc<dyn Fn(Option<String>, u64) + Send + Sync>;
+
+/// The receive-side credit plumbing for a collect/forward loop (L10/L14):
+/// `router` delivers inbound CREDIT frames (the cartridge crediting OUR input
+/// streams) to the engine-side send gates; `grant` replenishes the
+/// cartridge's output window as response chunks are consumed; `batch` is the
+/// grant batching threshold (chunks consumed per CREDIT frame sent).
+pub struct CreditPlumbing {
+    pub router: crate::bifaci::credit::CreditRouter,
+    pub grant: CreditGrantFn,
+    pub batch: u64,
+}
+
+// =============================================================================
 // Terminal output meta
 // =============================================================================
 
@@ -233,8 +254,35 @@ pub async fn send_one_stream(
     meta: Option<StreamMeta>,
     is_sequence: bool,
     max_chunk: usize,
+    credit: Option<(&crate::bifaci::credit::CreditRouter, u64)>,
 ) -> Result<(), StreamIoError> {
     let stream_id = uuid::Uuid::new_v4().to_string();
+
+    // Flow-control window for this stream (L9): the receiving cartridge's
+    // consumption grants arrive as CREDIT frames which the caller's collect
+    // loop routes into `router`; registration under (rid, stream_id) is what
+    // lets those grants find this gate. The caller releases the request's
+    // gates on terminal via `router.close_request` (L13).
+    let credit = credit.map(|(router, initial_credit)| {
+        let gate = std::sync::Arc::new(crate::bifaci::credit::CreditGate::new(initial_credit));
+        router.register(rid.clone(), Some(stream_id.clone()), std::sync::Arc::clone(&gate));
+        gate
+    });
+    let credit = credit.as_deref();
+
+    // Acquire one flow-control credit (L9). Waits when the receiver's window
+    // is exhausted; fails when the request terminates (L13) so a blocked
+    // sender stops instead of hanging.
+    async fn acquire(
+        credit: Option<&crate::bifaci::credit::CreditGate>,
+    ) -> Result<(), StreamIoError> {
+        if let Some(gate) = credit {
+            gate.acquire(1)
+                .await
+                .map_err(|e| StreamIoError::Transport(e.to_string()))?;
+        }
+        Ok(())
+    }
 
     let mut ss = Frame::stream_start(
         rid.clone(),
@@ -265,6 +313,7 @@ pub async fn send_one_stream(
                 let end_pos = cursor.position() as usize;
                 let item_cbor = &data[start_pos..end_pos];
 
+                acquire(credit).await?;
                 let checksum = Frame::compute_checksum(item_cbor);
                 let chunk = Frame::chunk(
                     rid.clone(),
@@ -288,6 +337,7 @@ pub async fn send_one_stream(
             let mut cbor_payload = Vec::new();
             ciborium::into_writer(&cbor_value, &mut cbor_payload)
                 .map_err(|e| StreamIoError::CborEncode(format!("{}", e)))?;
+            acquire(credit).await?;
             let checksum = Frame::compute_checksum(&cbor_payload);
             let chunk = Frame::chunk(rid.clone(), stream_id.clone(), 0, cbor_payload, 0, checksum);
             switch
@@ -304,6 +354,7 @@ pub async fn send_one_stream(
                 let mut cbor_payload = Vec::new();
                 ciborium::into_writer(&cbor_value, &mut cbor_payload)
                     .map_err(|e| StreamIoError::CborEncode(format!("{}", e)))?;
+                acquire(credit).await?;
                 let checksum = Frame::compute_checksum(&cbor_payload);
                 let chunk = Frame::chunk(
                     rid.clone(),
@@ -390,6 +441,194 @@ pub fn unwrap_cbor_value(
 }
 
 // =============================================================================
+// Incremental terminal consumption (unbounded streams, L16)
+// =============================================================================
+
+/// One item yielded incrementally from a cap's terminal output stream.
+#[derive(Debug)]
+pub struct TerminalItem {
+    /// Raw chunk payload (CBOR transport bytes as sent by the producer).
+    pub payload: Vec<u8>,
+    /// Per-item metadata from the chunk frame (first chunk of an item).
+    pub meta: Option<StreamMeta>,
+    /// The stream this item belongs to.
+    pub stream_id: Option<String>,
+}
+
+/// Incremental consumer for a cap's terminal output: yields items AS THEY
+/// ARRIVE (before STREAM_END or END exist — required for unbounded streams,
+/// L16), then `finish()` returns the terminal metadata after END.
+///
+/// This is the incremental counterpart of `collect_terminal_output`, sharing
+/// its frame semantics: LOG frames drive the progress/log callbacks, CREDIT
+/// frames route to the send gates, chunk consumption emits batched grants,
+/// END delivers the terminal progress event (L5), ERR fails.
+pub struct TerminalOutput {
+    rx: mpsc::UnboundedReceiver<Frame>,
+    cap_urn: String,
+    progress_fn: Option<CapProgressFn>,
+    log_fn: Option<PipelineLogFn>,
+    credit: Option<CreditPlumbing>,
+    consumed_since_grant: std::collections::HashMap<Option<String>, u64>,
+    is_sequence: Option<bool>,
+    terminal_meta: TerminalMeta,
+    /// Set once END was seen; `next_item` returns None afterwards.
+    ended: bool,
+    unbounded: bool,
+}
+
+impl TerminalOutput {
+    pub fn new(
+        rx: mpsc::UnboundedReceiver<Frame>,
+        cap_urn: &str,
+        progress_fn: Option<CapProgressFn>,
+        log_fn: Option<PipelineLogFn>,
+        credit: Option<CreditPlumbing>,
+    ) -> Self {
+        Self {
+            rx,
+            cap_urn: cap_urn.to_string(),
+            progress_fn,
+            log_fn,
+            credit,
+            consumed_since_grant: std::collections::HashMap::new(),
+            is_sequence: None,
+            terminal_meta: TerminalMeta::default(),
+            ended: false,
+            unbounded: false,
+        }
+    }
+
+    /// Whether the response stream declared itself unbounded (known after the
+    /// first STREAM_START has been observed).
+    pub fn is_unbounded(&self) -> bool {
+        self.unbounded
+    }
+
+    /// Whether the producer used sequence mode (known after STREAM_START).
+    pub fn is_sequence(&self) -> Option<bool> {
+        self.is_sequence
+    }
+
+    /// Yield the next data item, or None once the request's END arrived.
+    /// LOG/CREDIT/STREAM_* frames are handled internally; ERR and
+    /// unsuccessful END fail.
+    pub async fn next_item(&mut self) -> Option<Result<TerminalItem, StreamIoError>> {
+        if self.ended {
+            return None;
+        }
+        loop {
+            let frame = match self.rx.recv().await {
+                Some(f) => f,
+                None => {
+                    self.ended = true;
+                    return Some(Err(StreamIoError::Terminal {
+                        cap_urn: self.cap_urn.clone(),
+                        details: "response channel closed without END".to_string(),
+                    }));
+                }
+            };
+            match frame.frame_type {
+                FrameType::StreamStart => {
+                    if let Some(seq) = frame.is_sequence {
+                        self.is_sequence = Some(seq);
+                    }
+                    if frame.is_unbounded() {
+                        self.unbounded = true;
+                    }
+                    self.terminal_meta.stream_meta = frame.meta.clone();
+                }
+                FrameType::Chunk => {
+                    if let Some(plumbing) = &self.credit {
+                        let counter = self
+                            .consumed_since_grant
+                            .entry(frame.stream_id.clone())
+                            .or_insert(0);
+                        *counter += 1;
+                        if *counter >= plumbing.batch {
+                            (plumbing.grant)(frame.stream_id.clone(), *counter);
+                            *counter = 0;
+                        }
+                    }
+                    if let Some(payload) = frame.payload {
+                        return Some(Ok(TerminalItem {
+                            payload,
+                            meta: frame.meta,
+                            stream_id: frame.stream_id,
+                        }));
+                    }
+                }
+                FrameType::Credit => {
+                    if let Some(plumbing) = &self.credit {
+                        plumbing.router.grant(&frame);
+                    }
+                }
+                FrameType::Log => {
+                    let level = frame.log_level().unwrap_or("info");
+                    if let Some(p) = frame.log_progress() {
+                        let msg = frame.log_message().unwrap_or("");
+                        if let Some(pfn) = &self.progress_fn {
+                            pfn(p, &self.cap_urn, msg);
+                        }
+                        if let Some(lfn) = &self.log_fn {
+                            lfn(&self.cap_urn, "progress", msg, frame.meta.clone(), None);
+                        }
+                    } else if let Some(msg) = frame.log_message() {
+                        if let Some(lfn) = &self.log_fn {
+                            lfn(&self.cap_urn, level, msg, frame.meta.clone(), None);
+                        }
+                    }
+                }
+                FrameType::StreamEnd => {
+                    // Structural; chunk_count (when present) is the bounded
+                    // producer's own count. Unbounded streams omit it (L16).
+                }
+                FrameType::End => {
+                    self.ended = true;
+                    if frame.exit_code() != Some(0) {
+                        return Some(Err(StreamIoError::Terminal {
+                            cap_urn: self.cap_urn.clone(),
+                            details: format!(
+                                "END without success: exit_code={:?}",
+                                frame.exit_code()
+                            ),
+                        }));
+                    }
+                    // Terminal metadata IS the final progress event (L5).
+                    let final_progress = frame.final_progress().unwrap_or(1.0) as f32;
+                    let final_message = frame.final_message().unwrap_or("");
+                    if let Some(pfn) = &self.progress_fn {
+                        pfn(final_progress, &self.cap_urn, final_message);
+                    }
+                    return None;
+                }
+                FrameType::Err => {
+                    self.ended = true;
+                    return Some(Err(StreamIoError::Terminal {
+                        cap_urn: self.cap_urn.clone(),
+                        details: frame
+                            .error_message()
+                            .unwrap_or("Unknown cartridge error")
+                            .to_string(),
+                    }));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Drain any remaining items (delivering callbacks) and return the
+    /// stream-level terminal metadata. Call after `next_item` returned None,
+    /// or directly to consume-and-discard the remainder of a bounded stream.
+    pub async fn finish(mut self) -> Result<(TerminalMeta, Option<bool>), StreamIoError> {
+        while let Some(item) = self.next_item().await {
+            item?;
+        }
+        Ok((self.terminal_meta, self.is_sequence))
+    }
+}
+
+// =============================================================================
 // Terminal collect
 // =============================================================================
 
@@ -420,9 +659,15 @@ pub async fn collect_terminal_output(
     stall_tracker: Option<&Arc<PipelineProgressTracker>>,
     writer: Option<&mut dyn IncrementalWriter>,
     activity_timeout_secs: u64,
+    credit: Option<&CreditPlumbing>,
 ) -> Result<(Vec<u8>, Option<bool>, TerminalMeta), StreamIoError> {
     let mut response_chunks: Vec<u8> = Vec::new();
     let mut is_sequence: Option<bool> = None;
+    // Consumed-chunk accounting for batched grants (L10): the producer's
+    // output window is replenished as we consume, so it can stream past the
+    // initial window without stalling.
+    let mut consumed_since_grant: std::collections::HashMap<Option<String>, u64> =
+        std::collections::HashMap::new();
     let mut timer = ActivityTimer::new(activity_timeout_secs);
     let has_writer = writer.is_some();
     let mut terminal_meta = TerminalMeta::default();
@@ -468,6 +713,25 @@ pub async fn collect_terminal_output(
                                 }
                             }
                         }
+                        // Replenish the producer's window (L10), batched.
+                        if let Some(plumbing) = credit {
+                            let counter = consumed_since_grant
+                                .entry(frame.stream_id.clone())
+                                .or_insert(0);
+                            *counter += 1;
+                            if *counter >= plumbing.batch {
+                                (plumbing.grant)(frame.stream_id.clone(), *counter);
+                                *counter = 0;
+                            }
+                        }
+                    }
+                    FrameType::Credit => {
+                        // The cartridge crediting OUR input streams — route the
+                        // grant to the engine-side send gates (L14). Unmatched
+                        // grants are well-defined no-ops (grants only unblock).
+                        if let Some(plumbing) = credit {
+                            plumbing.router.grant(&frame);
+                        }
                     }
                     FrameType::End => {
                         // exit_code in END meta: 0 = success, absent or non-zero
@@ -503,6 +767,53 @@ pub async fn collect_terminal_output(
                             w.on_stream_end().await?;
                         }
                         let _ = has_writer;
+
+                        // Terminal metadata IS the final progress event (L5):
+                        // END carries the authoritative final progress (1.0 by
+                        // default on success, or the handler's declared value).
+                        // Delivering it here — from the terminal frame itself —
+                        // is what makes the final progress un-raceable.
+                        let final_progress = frame.final_progress().unwrap_or(1.0) as f32;
+                        let final_message = frame.final_message().unwrap_or("");
+                        if let Some(pfn) = &progress_fn {
+                            pfn(final_progress, cap_urn, final_message);
+                        }
+                        if let Some(lfn) = &log_fn {
+                            lfn(
+                                cap_urn,
+                                "progress",
+                                final_message,
+                                frame.meta.clone(),
+                                body_index,
+                            );
+                        }
+
+                        // Drain frames already queued locally before returning
+                        // (L4/L5): LOG frames that arrived before END but sit
+                        // behind it in this receiver are delivered, not lost.
+                        // Anything else post-END is a counted drop, never
+                        // silent. try_recv only — never wait after terminal.
+                        while let Ok(late) = rx.try_recv() {
+                            match late.frame_type {
+                                FrameType::Log => {
+                                    let level = late.log_level().unwrap_or("info");
+                                    if let Some(msg) = late.log_message() {
+                                        if let Some(lfn) = &log_fn {
+                                            lfn(cap_urn, level, msg, late.meta.clone(), body_index);
+                                        }
+                                    }
+                                }
+                                other => {
+                                    tracing::warn!(
+                                        cap_urn = %cap_urn,
+                                        ftype = ?other,
+                                        rid = ?late.id,
+                                        "[cap] dropped post-terminal frame after END (post_terminal)"
+                                    );
+                                }
+                            }
+                        }
+
                         return Ok((response_chunks, is_sequence, terminal_meta));
                     }
                     FrameType::Err => {
@@ -602,5 +913,263 @@ pub async fn collect_terminal_output(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Capture progress and log callback invocations for assertions.
+    struct Captured {
+        progress: Arc<Mutex<Vec<(f32, String)>>>,
+        logs: Arc<Mutex<Vec<(String, String)>>>,
+        progress_fn: CapProgressFn,
+        log_fn: PipelineLogFn,
+    }
+
+    fn capture() -> Captured {
+        let progress: Arc<Mutex<Vec<(f32, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let logs: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let p2 = Arc::clone(&progress);
+        let l2 = Arc::clone(&logs);
+        Captured {
+            progress,
+            logs,
+            progress_fn: Arc::new(move |p, _cap, msg| {
+                p2.lock().unwrap().push((p, msg.to_string()));
+            }),
+            log_fn: Arc::new(move |_cap, level, msg, _meta, _body| {
+                l2.lock().unwrap().push((level.to_string(), msg.to_string()));
+            }),
+        }
+    }
+
+    fn stream_start(rid: &MessageId) -> Frame {
+        Frame::stream_start(
+            rid.clone(),
+            "out".to_string(),
+            "media:enc=utf-8".to_string(),
+            Some(false),
+        )
+    }
+
+    fn chunk(rid: &MessageId, payload: &[u8]) -> Frame {
+        let checksum = Frame::compute_checksum(payload);
+        Frame::chunk(
+            rid.clone(),
+            "out".to_string(),
+            0,
+            payload.to_vec(),
+            0,
+            checksum,
+        )
+    }
+
+    // TEST7022: The receiver delivers final progress exactly once, sourced from END terminal metadata, defaulting to 1.0 on a plain successful END.
+    #[tokio::test]
+    async fn test7022_final_progress_from_end_meta_default() {
+        let rid = MessageId::new_uuid();
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(stream_start(&rid)).unwrap();
+        tx.send(chunk(&rid, b"payload")).unwrap();
+        tx.send(Frame::progress(rid.clone(), 0.5, "halfway")).unwrap();
+        tx.send(Frame::end_ok(rid.clone(), None)).unwrap();
+        drop(tx);
+
+        let cap = capture();
+        let (bytes, _seq, _meta) = collect_terminal_output(
+            rx,
+            Some(&cap.progress_fn),
+            "cap:test",
+            Some(&cap.log_fn),
+            None,
+            None,
+            None,
+            5,
+            None,
+        )
+        .await
+        .expect("clean END must succeed");
+        assert_eq!(bytes, b"payload");
+
+        let events = cap.progress.lock().unwrap().clone();
+        assert_eq!(events.len(), 2, "streamed 0.5 + terminal 1.0");
+        assert_eq!(events[0].0, 0.5);
+        assert_eq!(events[1].0, 1.0, "END without explicit progress reads 1.0");
+        assert_eq!(
+            events.iter().filter(|(p, _)| *p >= 1.0).count(),
+            1,
+            "final progress is delivered exactly once (L5)"
+        );
+    }
+
+    // TEST7023: A handler-declared terminal status (progress + message) in END metadata reaches the progress callback as the final event.
+    #[tokio::test]
+    async fn test7023_final_progress_handler_override() {
+        let rid = MessageId::new_uuid();
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(stream_start(&rid)).unwrap();
+        tx.send(chunk(&rid, b"x")).unwrap();
+        tx.send(Frame::end_ok_with(
+            rid.clone(),
+            None,
+            Some(0.87),
+            Some("partial corpus"),
+        ))
+        .unwrap();
+        drop(tx);
+
+        let cap = capture();
+        collect_terminal_output(
+            rx,
+            Some(&cap.progress_fn),
+            "cap:test",
+            Some(&cap.log_fn),
+            None,
+            None,
+            None,
+            5,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let events = cap.progress.lock().unwrap().clone();
+        let last = events.last().expect("terminal event must be delivered");
+        assert!((last.0 - 0.87).abs() < 1e-6);
+        assert_eq!(last.1, "partial corpus");
+    }
+
+    // TEST7024: Frames already queued behind END are drained before returning — LOG messages are delivered, and no post-terminal progress value can regress the final progress.
+    #[tokio::test]
+    async fn test7024_drain_after_end_delivers_logs_without_progress_regression() {
+        let rid = MessageId::new_uuid();
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(stream_start(&rid)).unwrap();
+        tx.send(chunk(&rid, b"data")).unwrap();
+        tx.send(Frame::end_ok(rid.clone(), None)).unwrap();
+        // Stragglers already queued when END is processed (the enqueue race):
+        tx.send(Frame::log(rid.clone(), "info", "flushed-after-end"))
+            .unwrap();
+        tx.send(Frame::progress(rid.clone(), 0.95, "stale keepalive"))
+            .unwrap();
+        drop(tx);
+
+        let cap = capture();
+        collect_terminal_output(
+            rx,
+            Some(&cap.progress_fn),
+            "cap:test",
+            Some(&cap.log_fn),
+            None,
+            None,
+            None,
+            5,
+            None,
+        )
+        .await
+        .expect("drain must not fail the request");
+
+        // Drained LOG messages are delivered (not lost) ...
+        let logs = cap.logs.lock().unwrap().clone();
+        assert!(
+            logs.iter().any(|(_, m)| m == "flushed-after-end"),
+            "post-END queued LOG message must be delivered: {:?}",
+            logs
+        );
+        assert!(
+            logs.iter().any(|(_, m)| m == "stale keepalive"),
+            "post-END progress LOG is delivered as a message: {:?}",
+            logs
+        );
+
+        // ... but the progress CALLBACK sequence ends at the terminal 1.0 —
+        // the stale 0.95 must not regress it.
+        let events = cap.progress.lock().unwrap().clone();
+        let last = events.last().unwrap();
+        assert_eq!(last.0, 1.0, "final progress event is END's, not a straggler");
+        assert!(
+            !events.iter().any(|(p, m)| *p == 0.95 && m == "stale keepalive"),
+            "post-terminal progress value must not reach the progress callback"
+        );
+    }
+
+    // TEST7071: The incremental terminal consumer yields items BEFORE the stream has ended — required for unbounded output (L16) — and completes on an unbounded STREAM_END + END.
+    #[tokio::test]
+    async fn test7071_terminal_output_yields_before_stream_end() {
+        let rid = MessageId::new_uuid();
+        let (tx, rx) = mpsc::unbounded_channel();
+        let mut terminal = TerminalOutput::new(rx, "cap:test", None, None, None);
+
+        // Announce an unbounded stream and one item — nothing has ended.
+        let ss = Frame::stream_start_unbounded(
+            rid.clone(),
+            "out".to_string(),
+            "media:enc=utf-8".to_string(),
+            Some(true),
+        );
+        tx.send(ss).unwrap();
+        tx.send(chunk(&rid, b"first")).unwrap();
+
+        let item = terminal
+            .next_item()
+            .await
+            .expect("item must be yielded live")
+            .expect("no error");
+        assert_eq!(item.payload, b"first");
+        assert!(terminal.is_unbounded());
+        assert_eq!(terminal.is_sequence(), Some(true));
+
+        // TEST7072 behavior folded in: STREAM_END without chunk_count + END
+        // complete the unbounded stream cleanly.
+        tx.send(Frame::stream_end_unbounded(rid.clone(), "out".to_string()))
+            .unwrap();
+        tx.send(Frame::end_ok(rid.clone(), None)).unwrap();
+        drop(tx);
+        assert!(
+            terminal.next_item().await.is_none(),
+            "END completes the request"
+        );
+        let (_meta, is_seq) = terminal.finish().await.expect("clean completion");
+        assert_eq!(is_seq, Some(true));
+    }
+
+    // TEST7077: Per-item stream metadata arrives WITH its item through incremental delivery, not batched at the end.
+    #[tokio::test]
+    async fn test7077_per_item_meta_incremental() {
+        let rid = MessageId::new_uuid();
+        let (tx, rx) = mpsc::unbounded_channel();
+        let mut terminal = TerminalOutput::new(rx, "cap:test", None, None, None);
+
+        tx.send(stream_start(&rid)).unwrap();
+
+        let mut with_meta = chunk(&rid, b"item-0");
+        let mut meta = StreamMeta::new();
+        meta.insert(
+            "title".to_string(),
+            ciborium::Value::Text("page_0".to_string()),
+        );
+        with_meta.meta = Some(meta);
+        tx.send(with_meta).unwrap();
+
+        let item = terminal.next_item().await.unwrap().unwrap();
+        assert_eq!(item.payload, b"item-0");
+        let item_meta = item.meta.expect("meta must ride with its item");
+        assert_eq!(
+            item_meta.get("title"),
+            Some(&ciborium::Value::Text("page_0".to_string()))
+        );
+
+        // A later item without meta yields None meta — no leakage between items.
+        tx.send(chunk(&rid, b"item-1")).unwrap();
+        let item = terminal.next_item().await.unwrap().unwrap();
+        assert_eq!(item.payload, b"item-1");
+        assert!(item.meta.is_none());
+
+        tx.send(Frame::end_ok(rid, None)).unwrap();
+        drop(tx);
+        assert!(terminal.next_item().await.is_none());
     }
 }

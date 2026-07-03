@@ -78,16 +78,23 @@ pub use standard::*;
 pub use bifaci::cartridge_runtime::{
     find_stream, find_stream_conforming, find_stream_meta, find_stream_str,
     find_stream_str_conforming, require_stream, require_stream_str, AdapterSelectionOp,
-    CapacityHandle, CartridgeRuntime, CliStreamEmitter, DiscardOp, FrameSender, IdentityOp,
-    InputPackage, InputStream, NoPeerInvoker, OpFactory, OutputStream, PeerCall, PeerInvoker,
-    PeerResponse, PeerResponseItem, ProgressSender, Request, RuntimeError, StreamError, StreamMeta,
-    StreamSender, WET_KEY_REQUEST,
+    CapacityHandle, CartridgeRuntime, CliStreamEmitter, DiscardOp, FinalStatus, FrameSender,
+    IdentityOp, InputPackage, InputStream, NoPeerInvoker, OpFactory, OutputStream, PeerCall,
+    PeerInvoker, PeerResponse, PeerResponseItem, ProgressSender, Request, RuntimeError,
+    StreamError, StreamMeta, StreamSender, WET_KEY_REQUEST,
 };
 pub use bifaci::decode_chunk_payload;
 pub use bifaci::frame::{
-    FlowKey, Frame, FrameType, Limits, MessageId, ReorderBuffer, SeqAssigner, DEFAULT_MAX_CHUNK,
-    DEFAULT_MAX_FRAME, DEFAULT_MAX_REORDER_BUFFER, PROTOCOL_VERSION,
+    DropReason, FlowKey, Frame, FrameType, Limits, MessageId, ReorderBuffer, SeqAssigner,
+    DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_CHUNK, DEFAULT_MAX_FRAME, DEFAULT_MAX_REORDER_BUFFER,
+    PROTOCOL_VERSION,
 };
+pub use bifaci::credit::{CreditClosed, CreditGate, CreditRouter};
+pub use bifaci::request_state::{
+    FrameDirection, RequestPhase, RequestSnapshot, RequestState, RequestTable,
+    RequestTableSnapshot, RoutingEntry, StreamFlowStats, TerminalKind, TerminatedSummary,
+};
+pub use bifaci::stats::{DropCounters, DropSnapshot, TerminatedFlows};
 pub use bifaci::io::{
     decode_frame, encode_frame, handshake, handshake_accept, read_frame, verify_identity,
     write_frame, CborError, FrameReader, FrameWriter, HandshakeResult,
@@ -226,6 +233,10 @@ pub use orchestrator::{
     split_cbor_sequence,
     unwrap_cbor_value,
     ActivityTimer,
+    CreditGrantFn,
+    CreditPlumbing,
+    TerminalItem,
+    TerminalOutput,
     CapProgressFn,
     CapStepProgressFn,
     CartridgeManager,

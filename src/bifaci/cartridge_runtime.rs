@@ -303,6 +303,56 @@ pub struct InputStream {
     rx: tokio::sync::mpsc::UnboundedReceiver<
         Result<(ciborium::Value, Option<StreamMeta>), StreamError>,
     >,
+    /// Whether the sender declared this stream unbounded (no length promise).
+    /// Buffering collectors refuse unbounded streams (L16).
+    unbounded: bool,
+    /// Grant emitter: consuming chunks replenishes the sender's window (L10).
+    /// None = uncredited context (in-process host, tests).
+    grants: Option<InputGrantEmitter>,
+}
+
+/// Emits CREDIT grants for one input stream as the handler consumes it (L10).
+/// Grants are batched: one CREDIT per `batch` consumed chunks.
+pub(crate) struct InputGrantEmitter {
+    sender: Arc<dyn FrameSender>,
+    rid: MessageId,
+    xid: Option<MessageId>,
+    /// Some = grant a specific stream; None = grant the request's sole stream
+    /// (single-stream peer responses).
+    stream_id: Option<String>,
+    batch: u64,
+    consumed_since_grant: u64,
+    /// Shared with the demux's violation accounting: granting extends the
+    /// window the demux checks arriving chunks against.
+    window: Arc<std::sync::atomic::AtomicI64>,
+}
+
+impl InputGrantEmitter {
+    /// Record one consumed chunk; emit a batched CREDIT grant when due.
+    fn consumed(&mut self) {
+        self.consumed_since_grant += 1;
+        if self.consumed_since_grant >= self.batch {
+            let n = self.consumed_since_grant;
+            self.consumed_since_grant = 0;
+            self.window
+                .fetch_add(n as i64, std::sync::atomic::Ordering::SeqCst);
+            let mut frame = Frame::credit(self.rid.clone(), self.stream_id.clone(), n);
+            frame.routing_id = self.xid.clone();
+            // A failed grant send means the runtime is shutting down; the
+            // sender-side gate will be closed by the terminal path (counted
+            // at the ChannelFrameSender).
+            let _ = self.sender.send(&frame);
+        }
+    }
+}
+
+/// Everything the demux needs to credit a request's input streams:
+/// grant plumbing for the handler side and per-stream violation windows.
+pub(crate) struct InputCreditContext {
+    pub(crate) sender: Arc<dyn FrameSender>,
+    pub(crate) rid: MessageId,
+    pub(crate) xid: Option<MessageId>,
+    pub(crate) initial_credit: u64,
 }
 
 impl InputStream {
@@ -316,12 +366,38 @@ impl InputStream {
         self.stream_meta.as_ref()
     }
 
+    /// Whether the sender declared this stream unbounded — no length promise;
+    /// consume incrementally with `recv()`, never with the `collect_*`
+    /// buffering helpers (L16).
+    pub fn is_unbounded(&self) -> bool {
+        self.unbounded
+    }
+
     /// Receive the next CBOR value with per-item metadata from this stream.
     /// Returns None when the stream ends.
+    ///
+    /// Consumption replenishes the sender's flow-control window (L10) — a
+    /// slow handler naturally throttles the producer.
     pub async fn recv(
         &mut self,
     ) -> Option<Result<(ciborium::Value, Option<StreamMeta>), StreamError>> {
-        self.rx.recv().await
+        let item = self.rx.recv().await;
+        if let (Some(Ok(_)), Some(grants)) = (&item, self.grants.as_mut()) {
+            grants.consumed();
+        }
+        item
+    }
+
+    /// Refuse buffering on unbounded streams (L16) — buffering an unbounded
+    /// stream is unbounded memory; the failure must be explicit, not an OOM.
+    fn check_bounded(&self, method: &str) -> Result<(), StreamError> {
+        if self.unbounded {
+            return Err(StreamError::Protocol(format!(
+                "{} refused: stream is unbounded (no length promise) — consume incrementally with recv() (L16)",
+                method
+            )));
+        }
+        Ok(())
     }
 
     /// Receive the next CBOR value, discarding any per-item metadata.
@@ -340,6 +416,7 @@ impl InputStream {
     pub async fn collect_items(
         mut self,
     ) -> Result<Vec<(Vec<u8>, Option<StreamMeta>)>, StreamError> {
+        self.check_bounded("collect_items")?;
         let mut items = Vec::new();
         while let Some(item) = self.recv().await {
             let (value, meta) = item?;
@@ -363,9 +440,10 @@ impl InputStream {
     /// Extracts inner bytes from Value::Bytes/Text and concatenates.
     /// Per-item metadata is discarded.
     ///
-    /// WARNING: Only call this if you know the stream is finite.
-    /// Infinite streams will block forever.
+    /// Fails hard on streams declared unbounded (L16) — there is no finite
+    /// buffer for a stream with no length promise.
     pub async fn collect_bytes(mut self) -> Result<Vec<u8>, StreamError> {
+        self.check_bounded("collect_bytes")?;
         let mut result = Vec::new();
         while let Some(item) = self.recv().await {
             let (value, _meta) = item?;
@@ -388,6 +466,7 @@ impl InputStream {
     /// Collect a single CBOR value (expects exactly one chunk).
     /// Per-item metadata is discarded.
     pub async fn collect_value(mut self) -> Result<ciborium::Value, StreamError> {
+        self.check_bounded("collect_value")?;
         match self.recv().await {
             Some(Ok((value, _meta))) => Ok(value),
             Some(Err(e)) => Err(e),
@@ -415,13 +494,25 @@ pub enum PeerResponseItem {
 /// silently discard them and return only data.
 pub struct PeerResponse {
     rx: tokio::sync::mpsc::UnboundedReceiver<PeerResponseItem>,
+    /// Consumption grants for the responding peer's output window (L10/L14).
+    /// None = uncredited context (in-process host, synthetic test responses).
+    grants: Option<InputGrantEmitter>,
 }
 
 impl PeerResponse {
     /// Receive the next item (data or LOG) from the peer response.
     /// Returns None when the stream ends.
+    ///
+    /// Data consumption replenishes the responding peer's output window —
+    /// a slow consumer naturally throttles the producer (L10).
     pub async fn recv(&mut self) -> Option<PeerResponseItem> {
-        self.rx.recv().await
+        let item = self.rx.recv().await;
+        if let (Some(PeerResponseItem::Data(Ok(_), _)), Some(grants)) =
+            (&item, self.grants.as_mut())
+        {
+            grants.consumed();
+        }
+        item
     }
 
     /// Construct a `PeerResponse` from a fixed byte payload, for use by
@@ -447,7 +538,7 @@ impl PeerResponse {
         // Dropping `tx` here closes the channel so `recv()` returns None
         // after the single data item.
         drop(tx);
-        Self { rx }
+        Self { rx, grants: None }
     }
 
     /// Collect all data chunks into a single byte vector, discarding LOG frames and metadata.
@@ -695,6 +786,9 @@ pub struct StreamSender {
     chunk_index: Arc<Mutex<u64>>,
     /// Shared chunk_count counter (same instance as OutputStream).
     chunk_count: Arc<Mutex<u64>>,
+    /// Shared flow-control gate (same instance as OutputStream). Blocking
+    /// acquisition — StreamSender lives on blocking threads by design.
+    credit_gate: Option<Arc<crate::bifaci::credit::CreditGate>>,
 }
 
 impl StreamSender {
@@ -720,6 +814,12 @@ impl StreamSender {
     }
 
     fn send_chunk(&self, value: &ciborium::Value) -> Result<(), RuntimeError> {
+        // Blocking credit acquisition (L9) — StreamSender is a
+        // blocking-thread emitter by design.
+        if let Some(gate) = &self.credit_gate {
+            gate.blocking_acquire(1)
+                .map_err(|e| RuntimeError::Handler(e.to_string()))?;
+        }
         let mut cbor_payload = Vec::new();
         ciborium::into_writer(value, &mut cbor_payload)
             .map_err(|e| RuntimeError::Handler(format!("Failed to encode CBOR: {}", e)))?;
@@ -763,6 +863,28 @@ pub struct OutputStream {
     chunk_index: Arc<Mutex<u64>>,
     chunk_count: Arc<Mutex<u64>>,
     closed: AtomicBool,
+    /// Handler-declared terminal status (progress + message), delivered in the
+    /// END frame's terminal metadata (L3/L5). Unset means the runtime stamps
+    /// the default: progress 1.0 on success. Shared with the runtime via
+    /// `final_status_handle()`.
+    final_status: Arc<Mutex<Option<FinalStatus>>>,
+    /// Whether this stream was started unbounded (no length promise, L16).
+    unbounded: AtomicBool,
+    /// Per-stream flow-control window (L9). One credit is acquired per CHUNK
+    /// before it is enqueued; the receiver replenishes via CREDIT frames.
+    /// None = uncredited context (CLI mode, tests, in-process host) — writes
+    /// never wait.
+    credit_gate: Option<Arc<crate::bifaci::credit::CreditGate>>,
+    /// Router the gate registers with on `start()` so inbound CREDIT frames
+    /// find it. Present iff `credit_gate` is.
+    credit_router: Option<crate::bifaci::credit::CreditRouter>,
+}
+
+/// A handler's terminal status override, carried in END terminal metadata.
+#[derive(Debug, Clone)]
+pub struct FinalStatus {
+    pub progress: f64,
+    pub message: Option<String>,
 }
 
 /// `FrameSender` that drops every frame. Used by `OutputStream::discarding`
@@ -811,7 +933,72 @@ impl OutputStream {
             chunk_index: Arc::new(Mutex::new(0)),
             chunk_count: Arc::new(Mutex::new(0)),
             closed: AtomicBool::new(false),
+            final_status: Arc::new(Mutex::new(None)),
+            unbounded: AtomicBool::new(false),
+            credit_gate: None,
+            credit_router: None,
         }
+    }
+
+    /// Attach a flow-control window to this stream (L9). The gate registers
+    /// with `router` on `start()` so inbound CREDIT frames replenish it; the
+    /// runtime closes it via the router on terminal/cancel (L13).
+    pub(crate) fn with_credit(
+        mut self,
+        initial_credit: u64,
+        router: crate::bifaci::credit::CreditRouter,
+    ) -> Self {
+        self.credit_gate = Some(Arc::new(crate::bifaci::credit::CreditGate::new(
+            initial_credit,
+        )));
+        self.credit_router = Some(router);
+        self
+    }
+
+    /// Acquire one chunk of credit, waiting if the window is exhausted.
+    /// Uncredited streams return immediately. A closed gate (request
+    /// terminated/cancelled) fails the write — the producer must stop (L13).
+    async fn acquire_credit(&self) -> Result<(), RuntimeError> {
+        if let Some(gate) = &self.credit_gate {
+            gate.acquire(1)
+                .await
+                .map_err(|e| RuntimeError::Handler(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Blocking-context counterpart of `acquire_credit` (FFI threads,
+    /// spawn_blocking closures).
+    fn blocking_acquire_credit(&self) -> Result<(), RuntimeError> {
+        if let Some(gate) = &self.credit_gate {
+            gate.blocking_acquire(1)
+                .map_err(|e| RuntimeError::Handler(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Declare the request's terminal status (final progress + message),
+    /// delivered in the END frame's terminal metadata when the handler
+    /// completes successfully (L3/L5). Optional — without a call, a
+    /// successful END carries progress 1.0. The last call before the handler
+    /// returns wins. Do NOT emit a trailing 100% progress LOG frame; the END
+    /// terminal metadata IS the final progress event and cannot race END.
+    pub fn finish(&self, progress: f32, message: &str) {
+        let mut fs = self.final_status.lock().unwrap_or_else(|e| e.into_inner());
+        *fs = Some(FinalStatus {
+            progress: progress as f64,
+            message: if message.is_empty() {
+                None
+            } else {
+                Some(message.to_string())
+            },
+        });
+    }
+
+    /// Shared handle to the handler-declared terminal status. The runtime
+    /// reads it after the handler returns to stamp the END frame.
+    pub(crate) fn final_status_handle(&self) -> Arc<Mutex<Option<FinalStatus>>> {
+        Arc::clone(&self.final_status)
     }
 
     fn check_mode(&self, is_sequence: bool) -> Result<(), RuntimeError> {
@@ -860,7 +1047,11 @@ impl OutputStream {
 
     /// Write raw bytes. Splits into max_chunk pieces, each wrapped as CBOR Bytes.
     /// Requires `start(false)` to have been called first.
-    pub fn write(&self, data: &[u8]) -> Result<(), RuntimeError> {
+    ///
+    /// Awaits per chunk when the flow-control window is exhausted (L9); the
+    /// receiver's consumption replenishes it. Use `blocking_write` from
+    /// non-async contexts.
+    pub async fn write(&self, data: &[u8]) -> Result<(), RuntimeError> {
         self.check_mode(false)?;
         if data.is_empty() {
             return Ok(());
@@ -869,6 +1060,26 @@ impl OutputStream {
         while offset < data.len() {
             let chunk_size = (data.len() - offset).min(self.max_chunk);
             let chunk_bytes = data[offset..offset + chunk_size].to_vec();
+            self.acquire_credit().await?;
+            self.send_chunk(&ciborium::Value::Bytes(chunk_bytes))?;
+            offset += chunk_size;
+        }
+        Ok(())
+    }
+
+    /// Blocking-context counterpart of [`write`](Self::write) — for FFI
+    /// threads and `spawn_blocking` closures. Identical framing; the credit
+    /// wait blocks the calling thread instead of yielding.
+    pub fn blocking_write(&self, data: &[u8]) -> Result<(), RuntimeError> {
+        self.check_mode(false)?;
+        if data.is_empty() {
+            return Ok(());
+        }
+        let mut offset = 0;
+        while offset < data.len() {
+            let chunk_size = (data.len() - offset).min(self.max_chunk);
+            let chunk_bytes = data[offset..offset + chunk_size].to_vec();
+            self.blocking_acquire_credit()?;
             self.send_chunk(&ciborium::Value::Bytes(chunk_bytes))?;
             offset += chunk_size;
         }
@@ -887,58 +1098,100 @@ impl OutputStream {
     /// this sends raw CBOR bytes as frame payloads directly.
     ///
     /// `meta` is per-item metadata, placed on the first chunk frame of this item only.
-    pub fn emit_list_item(
+    ///
+    /// Awaits per chunk when the flow-control window is exhausted (L9). Use
+    /// `blocking_emit_list_item` from non-async contexts.
+    pub async fn emit_list_item(
         &self,
         value: &ciborium::Value,
         meta: Option<StreamMeta>,
     ) -> Result<(), RuntimeError> {
         self.check_mode(true)?;
-        let mut cbor_bytes = Vec::new();
-        ciborium::into_writer(value, &mut cbor_bytes)
-            .map_err(|e| RuntimeError::Handler(format!("Failed to encode CBOR: {}", e)))?;
-
+        let cbor_bytes = Self::encode_item(value)?;
         let mut offset = 0;
         let mut first_chunk = true;
         while offset < cbor_bytes.len() {
             let chunk_size = (cbor_bytes.len() - offset).min(self.max_chunk);
-            let chunk_payload = cbor_bytes[offset..offset + chunk_size].to_vec();
-
-            let chunk_index = {
-                let mut guard = self.chunk_index.lock().unwrap();
-                let current = *guard;
-                *guard += 1;
-                current
-            };
-            {
-                let mut guard = self.chunk_count.lock().unwrap();
-                *guard += 1;
-            }
-
-            let checksum = Frame::compute_checksum(&chunk_payload);
-            let mut frame = Frame::chunk(
-                self.request_id.clone(),
-                self.stream_id.clone(),
-                0,
-                chunk_payload,
-                chunk_index,
-                checksum,
-            );
-            frame.routing_id = self.routing_id.clone();
-            // Per-item meta goes on the first chunk frame only
-            if first_chunk {
-                frame.meta = meta.clone();
-                first_chunk = false;
-            }
-            self.sender.send(&frame)?;
+            self.acquire_credit().await?;
+            self.send_item_chunk(
+                &cbor_bytes[offset..offset + chunk_size],
+                if first_chunk { meta.clone() } else { None },
+            )?;
+            first_chunk = false;
             offset += chunk_size;
         }
         Ok(())
     }
 
+    /// Blocking-context counterpart of [`emit_list_item`](Self::emit_list_item).
+    pub fn blocking_emit_list_item(
+        &self,
+        value: &ciborium::Value,
+        meta: Option<StreamMeta>,
+    ) -> Result<(), RuntimeError> {
+        self.check_mode(true)?;
+        let cbor_bytes = Self::encode_item(value)?;
+        let mut offset = 0;
+        let mut first_chunk = true;
+        while offset < cbor_bytes.len() {
+            let chunk_size = (cbor_bytes.len() - offset).min(self.max_chunk);
+            self.blocking_acquire_credit()?;
+            self.send_item_chunk(
+                &cbor_bytes[offset..offset + chunk_size],
+                if first_chunk { meta.clone() } else { None },
+            )?;
+            first_chunk = false;
+            offset += chunk_size;
+        }
+        Ok(())
+    }
+
+    /// CBOR-encode one sequence item.
+    fn encode_item(value: &ciborium::Value) -> Result<Vec<u8>, RuntimeError> {
+        let mut cbor_bytes = Vec::new();
+        ciborium::into_writer(value, &mut cbor_bytes)
+            .map_err(|e| RuntimeError::Handler(format!("Failed to encode CBOR: {}", e)))?;
+        Ok(cbor_bytes)
+    }
+
+    /// Send one raw sequence-item chunk (payload = raw CBOR fragment bytes).
+    fn send_item_chunk(
+        &self,
+        chunk_payload: &[u8],
+        meta: Option<StreamMeta>,
+    ) -> Result<(), RuntimeError> {
+        let chunk_index = {
+            let mut guard = self.chunk_index.lock().unwrap();
+            let current = *guard;
+            *guard += 1;
+            current
+        };
+        {
+            let mut guard = self.chunk_count.lock().unwrap();
+            *guard += 1;
+        }
+
+        let checksum = Frame::compute_checksum(chunk_payload);
+        let mut frame = Frame::chunk(
+            self.request_id.clone(),
+            self.stream_id.clone(),
+            0,
+            chunk_payload.to_vec(),
+            chunk_index,
+            checksum,
+        );
+        frame.routing_id = self.routing_id.clone();
+        // Per-item meta goes on the first chunk frame only
+        frame.meta = meta;
+        self.sender.send(&frame)
+    }
+
     /// Emit a CBOR value. Handles Bytes/Text/Array/Map chunking.
     /// Uses write mode (is_sequence=false) — each chunk is a complete CBOR value.
     /// Requires `start(false)` to have been called first.
-    pub fn emit_cbor(&self, value: &ciborium::Value) -> Result<(), RuntimeError> {
+    ///
+    /// Awaits per chunk when the flow-control window is exhausted (L9).
+    pub async fn emit_cbor(&self, value: &ciborium::Value) -> Result<(), RuntimeError> {
         self.check_mode(false)?;
         match value {
             ciborium::Value::Bytes(bytes) => {
@@ -946,6 +1199,7 @@ impl OutputStream {
                 while offset < bytes.len() {
                     let chunk_size = (bytes.len() - offset).min(self.max_chunk);
                     let chunk_bytes = bytes[offset..offset + chunk_size].to_vec();
+                    self.acquire_credit().await?;
                     self.send_chunk(&ciborium::Value::Bytes(chunk_bytes))?;
                     offset += chunk_size;
                 }
@@ -964,22 +1218,26 @@ impl OutputStream {
                         ));
                     }
                     let chunk_text = text[offset..offset + chunk_size].to_string();
+                    self.acquire_credit().await?;
                     self.send_chunk(&ciborium::Value::Text(chunk_text))?;
                     offset += chunk_size;
                 }
             }
             ciborium::Value::Array(elements) => {
                 for element in elements {
+                    self.acquire_credit().await?;
                     self.send_chunk(element)?;
                 }
             }
             ciborium::Value::Map(entries) => {
                 for (key, val) in entries {
                     let entry = ciborium::Value::Array(vec![key.clone(), val.clone()]);
+                    self.acquire_credit().await?;
                     self.send_chunk(&entry)?;
                 }
             }
             _ => {
+                self.acquire_credit().await?;
                 self.send_chunk(value)?;
             }
         }
@@ -1031,6 +1289,7 @@ impl OutputStream {
             max_chunk: self.max_chunk,
             chunk_index: Arc::clone(&self.chunk_index),
             chunk_count: Arc::clone(&self.chunk_count),
+            credit_gate: self.credit_gate.clone(),
         }
     }
 
@@ -1041,6 +1300,41 @@ impl OutputStream {
     ///   `meta` is placed on the STREAM_START frame (whole-stream metadata).
     /// * `is_sequence = true`  — sequence mode: chunks are CBOR fragments (RFC 8742).
     ///   `meta` is placed on the STREAM_START frame. Per-item metadata goes via `emit_list_item`.
+    /// Send STREAM_START for an UNBOUNDED stream — one that makes no length
+    /// promise (L16). The receiver must consume it incrementally; buffering
+    /// collectors refuse it. `close()` on an unbounded stream sends
+    /// STREAM_END without a chunk_count. Otherwise identical to `start()`.
+    pub fn start_unbounded(
+        &self,
+        is_sequence: bool,
+        meta: Option<StreamMeta>,
+    ) -> Result<(), RuntimeError> {
+        {
+            let mut mode = self.stream_mode.lock().unwrap();
+            if mode.is_some() {
+                return Err(RuntimeError::Handler("stream already started".to_string()));
+            }
+            *mode = Some(is_sequence);
+        }
+        self.unbounded.store(true, Ordering::SeqCst);
+        if let (Some(gate), Some(router)) = (&self.credit_gate, &self.credit_router) {
+            router.register(
+                self.request_id.clone(),
+                Some(self.stream_id.clone()),
+                Arc::clone(gate),
+            );
+        }
+        let mut start_frame = Frame::stream_start_unbounded(
+            self.request_id.clone(),
+            self.stream_id.clone(),
+            self.media_urn.clone(),
+            Some(is_sequence),
+        );
+        start_frame.routing_id = self.routing_id.clone();
+        start_frame.meta = meta;
+        self.sender.send(&start_frame)
+    }
+
     pub fn start(&self, is_sequence: bool, meta: Option<StreamMeta>) -> Result<(), RuntimeError> {
         let mut mode = self.stream_mode.lock().unwrap();
         if mode.is_some() {
@@ -1048,6 +1342,14 @@ impl OutputStream {
         }
         *mode = Some(is_sequence);
         drop(mode);
+        // Register this stream's credit gate so inbound CREDIT frames find it.
+        if let (Some(gate), Some(router)) = (&self.credit_gate, &self.credit_router) {
+            router.register(
+                self.request_id.clone(),
+                Some(self.stream_id.clone()),
+                Arc::clone(gate),
+            );
+        }
         let mut start_frame = Frame::stream_start(
             self.request_id.clone(),
             self.stream_id.clone(),
@@ -1246,12 +1548,17 @@ impl OutputStream {
                 return Ok(()); // Never started — no output produced, nothing to close
             }
         }
-        let chunk_count = {
-            let count_guard = self.chunk_count.lock().unwrap();
-            *count_guard
+        let mut frame = if self.unbounded.load(Ordering::SeqCst) {
+            // Unbounded streams made no length promise — their STREAM_END
+            // carries no chunk_count (L16).
+            Frame::stream_end_unbounded(self.request_id.clone(), self.stream_id.clone())
+        } else {
+            let chunk_count = {
+                let count_guard = self.chunk_count.lock().unwrap();
+                *count_guard
+            };
+            Frame::stream_end(self.request_id.clone(), self.stream_id.clone(), chunk_count)
         };
-        let mut frame =
-            Frame::stream_end(self.request_id.clone(), self.stream_id.clone(), chunk_count);
         frame.routing_id = self.routing_id.clone();
         self.sender.send(&frame)
     }
@@ -1265,21 +1572,28 @@ pub struct PeerCall {
     pub(crate) request_id: MessageId,
     pub(crate) max_chunk: usize,
     pub(crate) response_rx: Option<tokio::sync::mpsc::UnboundedReceiver<Frame>>,
+    pub(crate) credit_router: Option<crate::bifaci::credit::CreditRouter>,
+    pub(crate) initial_credit: u64,
 }
 
 impl PeerCall {
     /// Create a new arg OutputStream for this peer call.
-    /// Each arg is an independent stream (own stream_id, no routing_id).
+    /// Each arg is an independent stream (own stream_id, no routing_id),
+    /// flow-controlled by the callee's consumption (L14).
     pub fn arg(&self, media_urn: &str) -> OutputStream {
         let stream_id = uuid::Uuid::new_v4().to_string();
-        OutputStream::new(
+        let output = OutputStream::new(
             Arc::clone(&self.sender),
             stream_id,
             media_urn.to_string(),
             self.request_id.clone(),
             None, // No routing_id for peer requests
             self.max_chunk,
-        )
+        );
+        match &self.credit_router {
+            Some(router) => output.with_credit(self.initial_credit, router.clone()),
+            None => output,
+        }
     }
 
     /// Finish sending args and get the peer response.
@@ -1300,8 +1614,19 @@ impl PeerCall {
             .ok_or_else(|| RuntimeError::PeerRequest("PeerCall already finished".to_string()))?;
 
         // Start demux — returns immediately so LOG frames can be consumed
-        // before data arrives (critical for keeping activity timer alive)
-        let peer_response = demux_single_stream(response_rx);
+        // before data arrives (critical for keeping activity timer alive).
+        // Consumption grants keep the responding peer's output window
+        // replenished (L10/L14); single-stream response → stream-less grants.
+        let grants = self.credit_router.as_ref().map(|_| InputGrantEmitter {
+            sender: Arc::clone(&self.sender),
+            rid: self.request_id.clone(),
+            xid: None,
+            stream_id: None,
+            batch: (self.initial_credit / 2).max(1),
+            consumed_since_grant: 0,
+            window: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        });
+        let peer_response = demux_single_stream(response_rx, grants);
 
         Ok(peer_response)
     }
@@ -1346,7 +1671,7 @@ pub trait PeerInvoker: Send + Sync {
         for &(media_urn, data) in args {
             let arg = call.arg(media_urn);
             arg.start(false, meta.cloned())?;
-            arg.write(data)?;
+            arg.write(data).await?;
             arg.close()?;
         }
         call.finish().await
@@ -1371,14 +1696,28 @@ impl PeerInvoker for NoPeerInvoker {
 /// CartridgeRuntime has a writer task that drains this channel and writes to stdout.
 pub(crate) struct ChannelFrameSender {
     pub(crate) tx: tokio::sync::mpsc::UnboundedSender<Frame>,
+    /// Dropped-frame accounting: a send on a closed channel is a counted
+    /// channel_closed drop (L8), never a silent loss — even when the caller
+    /// treats the send as infallible (log/progress emitters).
+    pub(crate) drops: Arc<crate::bifaci::stats::DropCounters>,
 }
 
 impl FrameSender for ChannelFrameSender {
     fn send(&self, frame: &Frame) -> Result<(), RuntimeError> {
         // UnboundedSender::send is sync-compatible (no .await needed)
-        self.tx
-            .send(frame.clone())
-            .map_err(|_| RuntimeError::Handler("Output channel closed".to_string()))
+        self.tx.send(frame.clone()).map_err(|_| {
+            let total = self
+                .drops
+                .record(crate::bifaci::frame::DropReason::ChannelClosed);
+            tracing::warn!(
+                target: "cartridge_runtime",
+                rid = ?frame.id,
+                ftype = ?frame.frame_type,
+                channel_closed_total = total,
+                "[CartridgeRuntime] frame dropped: output channel closed"
+            );
+            RuntimeError::Handler("Output channel closed".to_string())
+        })
     }
 }
 
@@ -1675,6 +2014,7 @@ impl Op<()> for IdentityOp {
                 })?;
                 req.output()
                     .emit_cbor(&chunk)
+                    .await
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
             }
         }
@@ -1785,6 +2125,11 @@ struct PeerInvokerImpl {
     max_chunk: usize,
     origin_request_id: MessageId,
     origin_routing_id: Option<MessageId>,
+    drops: Arc<crate::bifaci::stats::DropCounters>,
+    /// Router that delivers inbound CREDIT grants to this cartridge's
+    /// outgoing peer-argument streams (L14 — peer args are credited too).
+    credit_router: crate::bifaci::credit::CreditRouter,
+    initial_credit: u64,
 }
 
 /// Extract the effective payload from a CBOR arguments payload.
@@ -2321,6 +2666,7 @@ impl PeerInvoker for PeerInvokerImpl {
         // Create FrameSender for the PeerCall's arg OutputStreams
         let sender_arc: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
             tx: self.output_tx.clone(),
+            drops: Arc::clone(&self.drops),
         });
 
         Ok(PeerCall {
@@ -2328,6 +2674,8 @@ impl PeerInvoker for PeerInvokerImpl {
             request_id,
             max_chunk: self.max_chunk,
             response_rx: Some(receiver),
+            credit_router: Some(self.credit_router.clone()),
+            initial_credit: self.initial_credit,
         })
     }
 }
@@ -2413,6 +2761,7 @@ impl FilePathContext {
 fn demux_multi_stream(
     raw_rx: crossbeam_channel::Receiver<Frame>,
     file_path_ctx: Option<FilePathContext>,
+    credit: Option<InputCreditContext>,
 ) -> InputPackage {
     let (streams_tx, streams_rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -2426,6 +2775,13 @@ fn demux_multi_stream(
         > = HashMap::new();
         // File-path accumulators: stream_id → (media_urn, accumulated_chunk_payloads)
         let mut fp_accumulators: HashMap<String, (String, Vec<Vec<u8>>)> = HashMap::new();
+        // Per-stream remaining credit windows (L10/L12). The window starts at
+        // the negotiated initial_credit; handler consumption (grants) extends
+        // it; a chunk arriving with the window at zero is a fatal
+        // CREDIT_VIOLATION. The demux itself never blocks — accounting keeps
+        // control frames flowing regardless of data pressure.
+        let mut stream_windows: HashMap<String, Arc<std::sync::atomic::AtomicI64>> =
+            HashMap::new();
 
         for frame in raw_rx {
             match frame.frame_type {
@@ -2451,10 +2807,27 @@ fn demux_multi_stream(
                     } else {
                         let (chunk_tx, chunk_rx) = tokio::sync::mpsc::unbounded_channel();
                         stream_channels.insert(stream_id.clone(), chunk_tx);
+                        let grants = credit.as_ref().map(|ctx| {
+                            let window = Arc::new(std::sync::atomic::AtomicI64::new(
+                                ctx.initial_credit as i64,
+                            ));
+                            stream_windows.insert(stream_id.clone(), Arc::clone(&window));
+                            InputGrantEmitter {
+                                sender: Arc::clone(&ctx.sender),
+                                rid: ctx.rid.clone(),
+                                xid: ctx.xid.clone(),
+                                stream_id: Some(stream_id.clone()),
+                                batch: (ctx.initial_credit / 2).max(1),
+                                consumed_since_grant: 0,
+                                window,
+                            }
+                        });
                         let input_stream = InputStream {
                             media_urn,
                             stream_meta: frame.meta,
                             rx: chunk_rx,
+                            unbounded: frame.unbounded.unwrap_or(false),
+                            grants,
                         };
                         if streams_tx.send(Ok(input_stream)).is_err() {
                             break; // Handler dropped InputPackage
@@ -2465,12 +2838,32 @@ fn demux_multi_stream(
                 FrameType::Chunk => {
                     let stream_id = frame.stream_id.as_ref().cloned().unwrap_or_default();
 
-                    // File-path accumulation?
+                    // File-path accumulation? The demux itself consumes these
+                    // chunks (they never reach the handler), so the sender's
+                    // window is replenished implicitly by the accumulator
+                    // being unbounded-in-practice: fp streams carry short
+                    // path strings, never bulk data, and are consumed on
+                    // arrival — no violation accounting needed.
                     if let Some((_, ref mut chunks)) = fp_accumulators.get_mut(&stream_id) {
                         if let Some(payload) = frame.payload {
                             chunks.push(payload);
                         }
                         continue;
+                    }
+
+                    // Credit-violation check (L12): a chunk beyond the granted
+                    // window is a fatal protocol error for this request.
+                    if let Some(window) = stream_windows.get(&stream_id) {
+                        let before = window.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                        if before <= 0 {
+                            if let Some(tx) = stream_channels.get(&stream_id) {
+                                let _ = tx.send(Err(StreamError::Protocol(format!(
+                                    "CREDIT_VIOLATION: chunk received beyond the granted window on stream {} (L12)",
+                                    stream_id
+                                ))));
+                            }
+                            continue;
+                        }
                     }
 
                     // Regular stream — decode CBOR and forward with per-chunk meta
@@ -2658,6 +3051,10 @@ fn demux_multi_stream(
                                 media_urn: resolved_urn,
                                 stream_meta: None,
                                 rx: chunk_rx,
+                                // Materialized from local files before delivery —
+                                // bounded and already fully buffered; no grants.
+                                unbounded: false,
+                                grants: None,
                             };
                             if streams_tx.send(Ok(input_stream)).is_err() {
                                 break;
@@ -2671,6 +3068,8 @@ fn demux_multi_stream(
                                 media_urn: media_urn.clone(),
                                 stream_meta: None,
                                 rx: chunk_rx,
+                                unbounded: false,
+                                grants: None,
                             };
                             if streams_tx.send(Ok(input_stream)).is_err() {
                                 break;
@@ -2724,7 +3123,10 @@ fn demux_multi_stream(
 /// Returns immediately — LOG frames are delivered in real-time as they arrive,
 /// not blocked until the first data frame. This is critical for keeping the
 /// engine's activity timer alive during long peer calls (e.g., model downloads).
-fn demux_single_stream(mut raw_rx: tokio::sync::mpsc::UnboundedReceiver<Frame>) -> PeerResponse {
+fn demux_single_stream(
+    mut raw_rx: tokio::sync::mpsc::UnboundedReceiver<Frame>,
+    grants: Option<InputGrantEmitter>,
+) -> PeerResponse {
     let (item_tx, item_rx) = tokio::sync::mpsc::unbounded_channel();
 
     tokio::spawn(async move {
@@ -2793,7 +3195,10 @@ fn demux_single_stream(mut raw_rx: tokio::sync::mpsc::UnboundedReceiver<Frame>) 
         }
     });
 
-    PeerResponse { rx: item_rx }
+    PeerResponse {
+        rx: item_rx,
+        grants,
+    }
 }
 
 // =============================================================================
@@ -2886,6 +3291,10 @@ pub struct CartridgeRuntime {
     /// Concurrency capacity: 0 = unlimited, N = max N concurrent handlers.
     /// Shared via CapacityHandle so handlers can adjust dynamically.
     capacity: CapacityHandle,
+
+    /// Process-wide dropped-frame accounting (L8). Shared with the writer
+    /// thread's terminal gate, every ChannelFrameSender, and the stats surface.
+    drop_counters: Arc<crate::bifaci::stats::DropCounters>,
 }
 
 /// Dispatch an Op with a Request via WetContext.
@@ -2912,6 +3321,56 @@ async fn dispatch_op(
     result
 }
 
+/// Outcome of pushing one frame through the terminal gate + writer.
+pub(crate) enum GatedWrite {
+    Written,
+    DroppedPostTerminal,
+    WriterDead,
+}
+
+/// Write one frame through the terminal gate (L4). Once a flow's END/ERR has
+/// been written, any later flow frame for the same FlowKey is post-terminal:
+/// it is dropped and counted, never written. The writer thread is the single
+/// point where wire order is decided, so gating here deterministically closes
+/// every detached-sender race (ProgressSender, keepalive tickers).
+pub(crate) fn write_gated<W: std::io::Write>(
+    mut frame: Frame,
+    writer: &mut W,
+    limits: &Limits,
+    seq_assigner: &mut SeqAssigner,
+    terminated: &mut crate::bifaci::stats::TerminatedFlows,
+    drops: &crate::bifaci::stats::DropCounters,
+) -> GatedWrite {
+    let key = FlowKey::from_frame(&frame);
+    if frame.is_flow_frame() && terminated.contains(&key) {
+        let total = drops.record(crate::bifaci::frame::DropReason::PostTerminal);
+        tracing::warn!(
+            target: "cartridge_runtime",
+            rid = ?frame.id,
+            ftype = ?frame.frame_type,
+            post_terminal_total = total,
+            "[CartridgeRuntime] writer: dropped post-terminal flow frame — END/ERR already written for this flow (L4)"
+        );
+        return GatedWrite::DroppedPostTerminal;
+    }
+    seq_assigner.assign(&mut frame);
+    let ftype = frame.frame_type;
+    if let Err(e) = crate::bifaci::io::write_frame_sync(writer, &frame, limits) {
+        tracing::error!(
+            target: "cartridge_runtime",
+            error = %e,
+            ftype = ?ftype,
+            "[CartridgeRuntime] writer thread: write_frame_sync failed — exiting writer loop. Cartridge → host frames after this point will be lost."
+        );
+        return GatedWrite::WriterDead;
+    }
+    if matches!(ftype, FrameType::End | FrameType::Err) {
+        seq_assigner.remove(&key);
+        terminated.insert(key);
+    }
+    GatedWrite::Written
+}
+
 /// Spawn a handler task for an incoming request.
 ///
 /// The crossbeam receiver carries frames routed by the main loop's active_requests
@@ -2927,19 +3386,35 @@ fn spawn_handler(
     manifest: &Option<CapManifest>,
     max_chunk: usize,
     handler_done_tx: &tokio::sync::mpsc::UnboundedSender<MessageId>,
+    drops: &Arc<crate::bifaci::stats::DropCounters>,
+    credit_router: &crate::bifaci::credit::CreditRouter,
+    initial_credit: u64,
 ) -> JoinHandle<()> {
     let output_tx_clone = output_tx.clone();
     let pending_clone = Arc::clone(pending_peer_requests);
     let manifest_clone = manifest.clone();
     let done_tx = handler_done_tx.clone();
+    let drops = Arc::clone(drops);
+    let credit_router = credit_router.clone();
 
     tokio::spawn(async move {
         let fp_ctx = FilePathContext::new(&cap_urn, manifest_clone).ok();
-        let input_package = demux_multi_stream(raw_rx, fp_ctx);
-
         let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
             tx: output_tx_clone.clone(),
+            drops: Arc::clone(&drops),
         });
+        // Input streams are credited (L14): the handler's consumption grants
+        // the engine's sender window; over-window chunks are CREDIT_VIOLATION.
+        let input_package = demux_multi_stream(
+            raw_rx,
+            fp_ctx,
+            Some(InputCreditContext {
+                sender: Arc::clone(&sender),
+                rid: request_id.clone(),
+                xid: routing_id.clone(),
+                initial_credit,
+            }),
+        );
         let stream_id = uuid::Uuid::new_v4().to_string();
         let out_media = crate::CapUrn::from_string(&cap_urn)
             .map(|u| u.out_spec().to_string())
@@ -2951,7 +3426,9 @@ fn spawn_handler(
             request_id.clone(),
             routing_id.clone(),
             max_chunk,
-        );
+        )
+        .with_credit(initial_credit, credit_router.clone());
+        let final_status = output.final_status_handle();
 
         let peer_invoker = PeerInvokerImpl {
             output_tx: output_tx_clone.clone(),
@@ -2959,6 +3436,9 @@ fn spawn_handler(
             max_chunk,
             origin_request_id: request_id.clone(),
             origin_routing_id: routing_id.clone(),
+            drops: Arc::clone(&drops),
+            credit_router: credit_router.clone(),
+            initial_credit,
         };
 
         let op = factory();
@@ -2967,7 +3447,19 @@ fn spawn_handler(
 
         match result {
             Ok(()) => {
-                let mut end_frame = Frame::end_ok(request_id.clone(), None);
+                // The END frame carries the terminal metadata (L3/L5): the
+                // handler's declared final status, or the 1.0 default. Final
+                // progress rides IN the terminal frame — it cannot race it.
+                let declared = final_status
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take();
+                let (progress, message) = match &declared {
+                    Some(fs) => (fs.progress, fs.message.as_deref()),
+                    None => (1.0, None),
+                };
+                let mut end_frame =
+                    Frame::end_ok_with(request_id.clone(), None, Some(progress), message);
                 end_frame.routing_id = routing_id;
                 let _ = sender.send(&end_frame);
             }
@@ -3025,6 +3517,7 @@ impl CartridgeRuntime {
             manifest: parsed_manifest,
             limits: Limits::default(),
             capacity: CapacityHandle::new(0),
+            drop_counters: Arc::new(crate::bifaci::stats::DropCounters::new()),
         };
         rt.register_standard_caps();
         rt
@@ -3048,6 +3541,7 @@ impl CartridgeRuntime {
             manifest: Some(manifest),
             limits: Limits::default(),
             capacity: CapacityHandle::new(0),
+            drop_counters: Arc::new(crate::bifaci::stats::DropCounters::new()),
         };
         rt.register_standard_caps();
         rt
@@ -3059,6 +3553,12 @@ impl CartridgeRuntime {
     /// CAP_IDENTITY is present in the manifest.
     pub fn with_manifest_json(manifest_json: &str) -> Self {
         Self::new(manifest_json.as_bytes())
+    }
+
+    /// Protocol observability snapshot (L8): this runtime's dropped-frame
+    /// counters (post-terminal gate, closed-channel sends).
+    pub fn protocol_drops(&self) -> crate::bifaci::stats::DropSnapshot {
+        self.drop_counters.snapshot()
     }
 
     /// Register the standard identity and discard handlers.
@@ -3406,7 +3906,7 @@ impl CartridgeRuntime {
             .map_err(|_| RuntimeError::Handler("Failed to send END".to_string()))?;
         drop(tx);
 
-        let input_package = demux_multi_stream(rx, None);
+        let input_package = demux_multi_stream(rx, None, None);
 
         let cli_sender: Arc<dyn FrameSender> = Arc::new(frame_sender);
         let output = OutputStream::new(
@@ -3926,25 +4426,22 @@ impl CartridgeRuntime {
 
         // Spawn writer thread on a plain OS thread — immune to tokio/Metal/GCD.
         let writer_limits = negotiated_limits.clone();
+        let writer_drops = Arc::clone(&self.drop_counters);
         let writer_handle = std::thread::spawn(move || {
             let mut writer = std::io::BufWriter::new(frame_stdout);
             let mut seq_assigner = SeqAssigner::new();
-            while let Ok(mut frame) = output_rx_sync.recv() {
-                seq_assigner.assign(&mut frame);
-                let ftype = frame.frame_type;
-                if let Err(e) =
-                    crate::bifaci::io::write_frame_sync(&mut writer, &frame, &writer_limits)
-                {
-                    tracing::error!(
-                        target: "cartridge_runtime",
-                        error = %e,
-                        ftype = ?ftype,
-                        "[CartridgeRuntime] writer thread: write_frame_sync failed — exiting writer loop. Cartridge → host frames after this point will be lost."
-                    );
-                    break;
-                }
-                if matches!(ftype, FrameType::End | FrameType::Err) {
-                    seq_assigner.remove(&FlowKey::from_frame(&frame));
+            let mut terminated = crate::bifaci::stats::TerminatedFlows::new(1024);
+            'outer: while let Ok(frame) = output_rx_sync.recv() {
+                match write_gated(
+                    frame,
+                    &mut writer,
+                    &writer_limits,
+                    &mut seq_assigner,
+                    &mut terminated,
+                    &writer_drops,
+                ) {
+                    GatedWrite::WriterDead => break,
+                    GatedWrite::Written | GatedWrite::DroppedPostTerminal => {}
                 }
                 // Flush when no more frames are immediately available so the
                 // host sees progress/log frames without waiting for the
@@ -3966,26 +4463,17 @@ impl CartridgeRuntime {
                         }
                     }
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
-                    Ok(mut next_frame) => {
-                        seq_assigner.assign(&mut next_frame);
-                        let nftype = next_frame.frame_type;
-                        if let Err(e) = crate::bifaci::io::write_frame_sync(
-                            &mut writer,
-                            &next_frame,
-                            &writer_limits,
-                        ) {
-                            tracing::error!(
-                                target: "cartridge_runtime",
-                                error = %e,
-                                ftype = ?nftype,
-                                "[CartridgeRuntime] writer thread: write_frame_sync failed (drained frame) — exiting writer loop."
-                            );
-                            break;
-                        }
-                        if matches!(nftype, FrameType::End | FrameType::Err) {
-                            seq_assigner.remove(&FlowKey::from_frame(&next_frame));
-                        }
-                    }
+                    Ok(next_frame) => match write_gated(
+                        next_frame,
+                        &mut writer,
+                        &writer_limits,
+                        &mut seq_assigner,
+                        &mut terminated,
+                        &writer_drops,
+                    ) {
+                        GatedWrite::WriterDead => break 'outer,
+                        GatedWrite::Written | GatedWrite::DroppedPostTerminal => {}
+                    },
                 }
             }
             let _ = writer.flush();
@@ -4009,6 +4497,11 @@ impl CartridgeRuntime {
         // Track cancelled requests to prevent duplicate ERR frames
         let mut cancelled_requests: std::collections::HashSet<MessageId> =
             std::collections::HashSet::new();
+
+        // Routes inbound CREDIT frames to the gates of streams local senders are
+        // writing. Gates register when an OutputStream starts a credited stream;
+        // close_request releases waiters on terminal/cancel.
+        let credit_router = crate::bifaci::credit::CreditRouter::new();
 
         // Queue for requests waiting for a handler slot.
         // Each entry holds the crossbeam receiver (the sender side is in active_requests).
@@ -4083,6 +4576,9 @@ impl CartridgeRuntime {
                     &self.manifest,
                     negotiated_limits.max_chunk,
                     &handler_done_tx,
+                    &self.drop_counters,
+                    &credit_router,
+                    negotiated_limits.initial_credit,
                 );
                 active_handlers.insert(handler_rid.clone(), handle);
                 handler_routing_ids.insert(handler_rid, handler_xid);
@@ -4092,10 +4588,12 @@ impl CartridgeRuntime {
             // Select: either a frame arrives from stdin or a handler finishes.
             let frame = tokio::select! {
                 biased;
-                // Handler done — reap by RID, send deferred ERR if cancelled.
+                // Handler done — reap by RID, release credit waiters (L13),
+                // send deferred ERR if cancelled.
                 Some(rid) = handler_done_rx.recv() => {
                     active_handlers.remove(&rid);
                     running_handler_count = running_handler_count.saturating_sub(1);
+                    credit_router.close_request(&rid, "END");
                     if cancelled_requests.remove(&rid) {
                         let routing_id = handler_routing_ids.remove(&rid).flatten();
                         let mut err = Frame::err(rid, "CANCELLED", "Request cancelled");
@@ -4204,6 +4702,9 @@ impl CartridgeRuntime {
                             &self.manifest,
                             negotiated_limits.max_chunk,
                             &handler_done_tx,
+                            &self.drop_counters,
+                            &credit_router,
+                            negotiated_limits.initial_credit,
                         );
                         active_handlers.insert(handler_rid.clone(), handle);
                         handler_routing_ids.insert(handler_rid, handler_xid);
@@ -4309,6 +4810,9 @@ impl CartridgeRuntime {
                     if active_handlers.contains_key(&target_rid) {
                         cancelled_requests.insert(target_rid.clone());
                         active_requests.remove(&target_rid);
+                        // Release any credit-blocked writers immediately (L13,
+                        // L17) — a cancelled producer must not hang on credit.
+                        credit_router.close_request(&target_rid, "CANCELLED");
 
                         // Cancel peer calls originating from this request
                         let peer_rids_to_cancel: Vec<(MessageId, Option<MessageId>)> = {
@@ -4335,17 +4839,42 @@ impl CartridgeRuntime {
                     // Case 3: Unknown RID — silently ignore
                 }
 
+                FrameType::Credit => {
+                    // Flow-control grant for one of this request's output streams.
+                    // Grants only ever unblock a credit-waiting sender; a grant for
+                    // a request with no registered gate (request finished, or its
+                    // output is not credit-blocked) is a correct no-op.
+                    if !credit_router.grant(&frame) {
+                        tracing::trace!(
+                            target: "cartridge_runtime",
+                            rid = ?frame.id,
+                            stream_id = ?frame.stream_id,
+                            credits = ?frame.credit_count(),
+                            "CREDIT for request with no registered gate — no-op"
+                        );
+                    }
+                }
+
                 FrameType::Heartbeat => {
                     let mut response = Frame::heartbeat(frame.id);
+                    let mut meta = std::collections::BTreeMap::new();
                     if let Some((footprint_mb, rss_mb)) = get_own_memory_mb() {
-                        let mut meta = std::collections::BTreeMap::new();
                         meta.insert(
                             "footprint_mb".into(),
                             ciborium::Value::Integer(footprint_mb.into()),
                         );
                         meta.insert("rss_mb".into(), ciborium::Value::Integer(rss_mb.into()));
-                        response.meta = Some(meta);
                     }
+                    // Protocol observability (L8): the cartridge's dropped-
+                    // frame total rides every heartbeat so the host can
+                    // surface it without a dedicated stats round-trip.
+                    meta.insert(
+                        "drops_total".into(),
+                        ciborium::Value::Integer(
+                            i64::try_from(self.drop_counters.total()).unwrap_or(i64::MAX).into(),
+                        ),
+                    );
+                    response.meta = Some(meta);
                     let _ = output_tx.send(response);
                 }
 
@@ -4425,6 +4954,580 @@ mod tests {
     use super::*;
     use crate::bifaci::frame::DEFAULT_MAX_CHUNK;
 
+    /// Decode every length-prefixed frame from a captured wire buffer.
+    fn decode_wire(buf: &[u8]) -> Vec<Frame> {
+        let mut frames = Vec::new();
+        let mut pos = 0;
+        while pos + 4 <= buf.len() {
+            let len = u32::from_be_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
+            pos += 4;
+            frames.push(
+                crate::bifaci::io::decode_frame(&buf[pos..pos + len])
+                    .expect("wire buffer must hold valid frames"),
+            );
+            pos += len;
+        }
+        assert_eq!(pos, buf.len(), "trailing bytes on the wire");
+        frames
+    }
+
+    // TEST7020: A flow frame reaching the writer after the flow's END has been written is dropped with a counted post_terminal drop — END is the last flow frame on the wire.
+    #[test]
+    fn test7020_writer_gate_drops_post_terminal_flow_frames() {
+        let rid = MessageId::new_uuid();
+        let limits = Limits::default();
+        let mut wire: Vec<u8> = Vec::new();
+        let mut seq = SeqAssigner::new();
+        let mut terminated = crate::bifaci::stats::TerminatedFlows::new(16);
+        let drops = crate::bifaci::stats::DropCounters::new();
+
+        // In-order: chunk, END — both written.
+        let payload = vec![1u8, 2, 3];
+        let checksum = Frame::compute_checksum(&payload);
+        let chunk = Frame::chunk(rid.clone(), "s1".to_string(), 0, payload, 0, checksum);
+        assert!(matches!(
+            write_gated(chunk, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            GatedWrite::Written
+        ));
+        let end = Frame::end_ok_with(rid.clone(), None, Some(1.0), None);
+        assert!(matches!(
+            write_gated(end, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            GatedWrite::Written
+        ));
+
+        // The detached-sender race: a straggler progress LOG enqueued after
+        // the handler returned reaches the writer after END. Dropped+counted.
+        let straggler = Frame::progress(rid.clone(), 1.0, "late keepalive");
+        assert!(matches!(
+            write_gated(
+                straggler,
+                &mut wire,
+                &limits,
+                &mut seq,
+                &mut terminated,
+                &drops
+            ),
+            GatedWrite::DroppedPostTerminal
+        ));
+        assert_eq!(
+            drops.get(crate::bifaci::frame::DropReason::PostTerminal),
+            1
+        );
+
+        let frames = decode_wire(&wire);
+        assert_eq!(frames.len(), 2, "straggler must not reach the wire");
+        assert_eq!(frames[0].frame_type, FrameType::Chunk);
+        assert_eq!(frames[1].frame_type, FrameType::End);
+        assert_eq!(
+            frames.last().unwrap().frame_type,
+            FrameType::End,
+            "END is the last flow frame on the wire (L4)"
+        );
+        // Seq is contiguous and terminal-final
+        assert_eq!(frames[0].seq, 0);
+        assert_eq!(frames[1].seq, 1);
+    }
+
+    // TEST7021: The writer gate is precise — flow frames before END are written, non-flow frames (heartbeat, credit) still pass after a flow's terminal, and only that flow is gated.
+    #[test]
+    fn test7021_writer_gate_precision() {
+        let rid_a = MessageId::Uint(1);
+        let rid_b = MessageId::Uint(2);
+        let limits = Limits::default();
+        let mut wire: Vec<u8> = Vec::new();
+        let mut seq = SeqAssigner::new();
+        let mut terminated = crate::bifaci::stats::TerminatedFlows::new(16);
+        let drops = crate::bifaci::stats::DropCounters::new();
+
+        // Progress before END is written (the gate never over-drops).
+        let progress = Frame::progress(rid_a.clone(), 0.5, "halfway");
+        assert!(matches!(
+            write_gated(
+                progress,
+                &mut wire,
+                &limits,
+                &mut seq,
+                &mut terminated,
+                &drops
+            ),
+            GatedWrite::Written
+        ));
+        let end_a = Frame::end_ok(rid_a.clone(), None);
+        assert!(matches!(
+            write_gated(end_a, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            GatedWrite::Written
+        ));
+
+        // Non-flow frames for the terminated flow still pass (heartbeats and
+        // credit must never be blocked by data-flow termination).
+        let hb = Frame::heartbeat(rid_a.clone());
+        assert!(matches!(
+            write_gated(hb, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            GatedWrite::Written
+        ));
+        let credit = Frame::credit(rid_a.clone(), None, 4);
+        assert!(matches!(
+            write_gated(credit, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            GatedWrite::Written
+        ));
+
+        // A different flow is untouched by A's terminal.
+        let progress_b = Frame::progress(rid_b.clone(), 0.1, "other request");
+        assert!(matches!(
+            write_gated(
+                progress_b,
+                &mut wire,
+                &limits,
+                &mut seq,
+                &mut terminated,
+                &drops
+            ),
+            GatedWrite::Written
+        ));
+
+        // But a flow frame for A is gated.
+        let late_a = Frame::log(rid_a, "info", "late");
+        assert!(matches!(
+            write_gated(late_a, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            GatedWrite::DroppedPostTerminal
+        ));
+
+        let frames = decode_wire(&wire);
+        let types: Vec<FrameType> = frames.iter().map(|f| f.frame_type).collect();
+        assert_eq!(
+            types,
+            vec![
+                FrameType::Log,
+                FrameType::End,
+                FrameType::Heartbeat,
+                FrameType::Credit,
+                FrameType::Log
+            ]
+        );
+        assert_eq!(
+            drops.get(crate::bifaci::frame::DropReason::PostTerminal),
+            1
+        );
+    }
+
+    // TEST7027: A frame sent through a ChannelFrameSender whose receiver is gone is a counted channel_closed drop, never a silent loss.
+    #[tokio::test]
+    async fn test7027_channel_closed_sends_are_counted() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
+        let drops = Arc::new(crate::bifaci::stats::DropCounters::new());
+        let sender = ChannelFrameSender {
+            tx,
+            drops: Arc::clone(&drops),
+        };
+
+        // Receiver alive: send succeeds, nothing counted.
+        let frame = Frame::progress(MessageId::new_uuid(), 0.4, "working");
+        sender.send(&frame).expect("open channel accepts frames");
+        assert_eq!(
+            drops.get(crate::bifaci::frame::DropReason::ChannelClosed),
+            0
+        );
+
+        // Receiver dropped: send fails AND the drop is counted.
+        drop(rx);
+        let err = sender.send(&frame).expect_err("closed channel rejects");
+        assert!(err.to_string().contains("Output channel closed"));
+        assert_eq!(
+            drops.get(crate::bifaci::frame::DropReason::ChannelClosed),
+            1
+        );
+        let _ = sender.send(&frame);
+        assert_eq!(
+            drops.get(crate::bifaci::frame::DropReason::ChannelClosed),
+            2,
+            "every dropped frame increments exactly once (L8)"
+        );
+    }
+
+    // TEST7050: A credited sender emits exactly its window of chunks then stalls until a CREDIT grant arrives — observed on the frame channel.
+    #[tokio::test]
+    async fn test7050_sender_stalls_at_window_and_resumes_on_grant() {
+        let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
+        let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
+            tx: out_tx,
+            drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
+        });
+        let router = crate::bifaci::credit::CreditRouter::new();
+        let rid = MessageId::new_uuid();
+        // Window of 4 chunks; payload needs 6 chunks at max_chunk=4 bytes.
+        let output = OutputStream::new(
+            Arc::clone(&sender),
+            "s1".to_string(),
+            "media:enc=utf-8".to_string(),
+            rid.clone(),
+            None,
+            4, // max_chunk: 4 bytes per chunk
+        )
+        .with_credit(4, router.clone());
+        output.start(false, None).unwrap();
+
+        let data: Vec<u8> = (0u8..24).collect(); // 6 chunks of 4 bytes
+        let writer = tokio::spawn(async move {
+            output.write(&data).await.unwrap();
+            output.close().unwrap();
+        });
+
+        // Exactly STREAM_START + 4 chunks appear, then the sender stalls.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let mut got = Vec::new();
+        while let Ok(f) = out_rx.try_recv() {
+            got.push(f);
+        }
+        assert_eq!(got[0].frame_type, FrameType::StreamStart);
+        let chunks_before = got
+            .iter()
+            .filter(|f| f.frame_type == FrameType::Chunk)
+            .count();
+        assert_eq!(chunks_before, 4, "sender must stall at exactly the window");
+        assert!(!writer.is_finished(), "writer must be blocked on credit");
+
+        // Grant 2 → the remaining 2 chunks + STREAM_END flow; data is intact
+        // and chunk indexes are contiguous (nothing lost or reordered).
+        router.grant(&Frame::credit(rid, Some("s1".to_string()), 2));
+        tokio::time::timeout(std::time::Duration::from_secs(2), writer)
+            .await
+            .expect("grant must unblock the writer")
+            .unwrap();
+        let mut rest = Vec::new();
+        while let Ok(f) = out_rx.try_recv() {
+            rest.push(f);
+        }
+        let chunks_after = rest
+            .iter()
+            .filter(|f| f.frame_type == FrameType::Chunk)
+            .count();
+        assert_eq!(chunks_after, 2, "grant releases exactly the granted chunks");
+        assert_eq!(rest.last().unwrap().frame_type, FrameType::StreamEnd);
+        let indexes: Vec<u64> = got
+            .iter()
+            .chain(rest.iter())
+            .filter(|f| f.frame_type == FrameType::Chunk)
+            .map(|f| f.chunk_index.unwrap())
+            .collect();
+        assert_eq!(indexes, vec![0, 1, 2, 3, 4, 5], "in order, none lost");
+    }
+
+    // TEST7062: LOG/progress frames flow while the data window is exhausted — control frames are never credited.
+    #[tokio::test]
+    async fn test7062_log_flows_while_window_exhausted() {
+        let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
+        let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
+            tx: out_tx,
+            drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
+        });
+        let router = crate::bifaci::credit::CreditRouter::new();
+        let output = Arc::new(
+            OutputStream::new(
+                Arc::clone(&sender),
+                "s1".to_string(),
+                "media:enc=utf-8".to_string(),
+                MessageId::new_uuid(),
+                None,
+                4,
+            )
+            .with_credit(1, router.clone()),
+        );
+        output.start(false, None).unwrap();
+
+        // Exhaust the window (1 chunk), then block trying to send another.
+        let out2 = Arc::clone(&output);
+        let writer = tokio::spawn(async move {
+            let _ = out2.write(&[0u8; 8]).await; // 2 chunks; blocks after 1
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(!writer.is_finished(), "data sender must be stalled");
+
+        // Progress still flows — uncredited (L14).
+        output.progress(0.5, "still alive");
+        let mut saw_progress = false;
+        while let Ok(f) = out_rx.try_recv() {
+            if f.frame_type == FrameType::Log && f.log_progress() == Some(0.5) {
+                saw_progress = true;
+            }
+        }
+        assert!(
+            saw_progress,
+            "progress must bypass the exhausted data window"
+        );
+        writer.abort();
+    }
+
+    // TEST7086: One runtime's drop counters aggregate every drop source — post-terminal writer drops and closed-channel sends — each counted exactly once, and the snapshot totals match the induced drops.
+    #[tokio::test]
+    async fn test7086_drop_snapshot_matches_induced_drops() {
+        let drops = Arc::new(crate::bifaci::stats::DropCounters::new());
+        let rid = MessageId::new_uuid();
+
+        // Source 1: post-terminal drops at the writer gate (two stragglers).
+        let limits = Limits::default();
+        let mut wire: Vec<u8> = Vec::new();
+        let mut seq = SeqAssigner::new();
+        let mut terminated = crate::bifaci::stats::TerminatedFlows::new(4);
+        write_gated(
+            Frame::end_ok(rid.clone(), None),
+            &mut wire,
+            &limits,
+            &mut seq,
+            &mut terminated,
+            &drops,
+        );
+        for _ in 0..2 {
+            write_gated(
+                Frame::progress(rid.clone(), 1.0, "straggler"),
+                &mut wire,
+                &limits,
+                &mut seq,
+                &mut terminated,
+                &drops,
+            );
+        }
+
+        // Source 2: closed-channel send (one drop).
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
+        drop(rx);
+        let sender = ChannelFrameSender {
+            tx,
+            drops: Arc::clone(&drops),
+        };
+        let _ = sender.send(&Frame::log(rid, "info", "dead channel"));
+
+        let snap = drops.snapshot();
+        assert_eq!(snap.total, 3, "each induced drop counted exactly once (L8)");
+        assert_eq!(snap.by_reason.get("post_terminal"), Some(&2));
+        assert_eq!(snap.by_reason.get("channel_closed"), Some(&1));
+    }
+
+    // TEST7070: An unbounded input stream is consumed live — the handler observes early items while the producer is still emitting, and the stream reports itself unbounded.
+    #[tokio::test]
+    async fn test7070_unbounded_input_consumed_live() {
+        let rid = MessageId::new_uuid();
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+
+        let mk_chunk = |i: u64| {
+            let mut payload = Vec::new();
+            ciborium::into_writer(&ciborium::Value::Bytes(vec![i as u8]), &mut payload).unwrap();
+            let checksum = Frame::compute_checksum(&payload);
+            Frame::chunk(rid.clone(), "live".to_string(), i, payload, i, checksum)
+        };
+
+        // Announce an UNBOUNDED stream and send only the first item.
+        raw_tx
+            .send(Frame::stream_start_unbounded(
+                rid.clone(),
+                "live".to_string(),
+                "media:enc=utf-8".to_string(),
+                Some(true),
+            ))
+            .unwrap();
+        raw_tx.send(mk_chunk(0)).unwrap();
+
+        let mut package = demux_multi_stream(raw_rx.clone(), None, None);
+        let mut stream = package.recv().await.unwrap().unwrap();
+        assert!(stream.is_unbounded(), "STREAM_START flag must surface");
+
+        // The handler receives item 0 while the producer has not produced
+        // item 1 — no buffering-to-completion (L16).
+        let (v0, _) = stream.recv().await.unwrap().unwrap();
+        assert_eq!(v0, ciborium::Value::Bytes(vec![0]));
+
+        // Producer continues; consumer keeps up item by item.
+        raw_tx.send(mk_chunk(1)).unwrap();
+        let (v1, _) = stream.recv().await.unwrap().unwrap();
+        assert_eq!(v1, ciborium::Value::Bytes(vec![1]));
+
+        // The unbounded stream still ENDS cleanly — no chunk_count promise.
+        raw_tx
+            .send(Frame::stream_end_unbounded(rid.clone(), "live".to_string()))
+            .unwrap();
+        raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
+        drop(raw_tx);
+        assert!(stream.recv().await.is_none(), "stream closes after STREAM_END");
+    }
+
+    // TEST7073: Buffering collectors refuse unbounded streams with a hard error instead of buffering without bound.
+    #[tokio::test]
+    async fn test7073_collect_refuses_unbounded_streams() {
+        let make_unbounded = || {
+            let (tx, rx) = unbounded_channel();
+            tx.send(Ok((ciborium::Value::Bytes(vec![1]), None))).unwrap();
+            // Producer stays open — an unbounded collect would hang forever;
+            // the guard must reject BEFORE consuming.
+            let stream = InputStream {
+                media_urn: "media:enc=utf-8".to_string(),
+                stream_meta: None,
+                rx,
+                unbounded: true,
+                grants: None,
+            };
+            (stream, tx)
+        };
+
+        let (stream, _tx1) = make_unbounded();
+        let err = stream.collect_bytes().await.expect_err("must refuse");
+        assert!(err.to_string().contains("unbounded"), "{}", err);
+
+        let (stream, _tx2) = make_unbounded();
+        let err = stream.collect_items().await.expect_err("must refuse");
+        assert!(err.to_string().contains("unbounded"), "{}", err);
+
+        let (stream, _tx3) = make_unbounded();
+        let err = stream.collect_value().await.expect_err("must refuse");
+        assert!(err.to_string().contains("unbounded"), "{}", err);
+    }
+
+    // TEST7052: Input consumption emits batched CREDIT grants — roughly one grant per half-window consumed, not one per chunk.
+    #[tokio::test]
+    async fn test7052_input_grants_are_batched() {
+        let (grant_tx, mut grant_rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
+        let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
+            tx: grant_tx,
+            drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
+        });
+        let rid = MessageId::new_uuid();
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+
+        // Stream 16 chunks through a credited demux with window 8.
+        let mk_chunk = |i: u64| {
+            let mut payload = Vec::new();
+            ciborium::into_writer(&ciborium::Value::Bytes(vec![i as u8]), &mut payload).unwrap();
+            let checksum = Frame::compute_checksum(&payload);
+            Frame::chunk(rid.clone(), "s1".to_string(), i, payload, i, checksum)
+        };
+        let ss = Frame::stream_start(
+            rid.clone(),
+            "s1".to_string(),
+            "media:enc=utf-8".to_string(),
+            Some(false),
+        );
+        raw_tx.send(ss).unwrap();
+        // A CONFORMING producer: first burst = the initial window (8)...
+        for i in 0..8u64 {
+            raw_tx.send(mk_chunk(i)).unwrap();
+        }
+
+        let mut package = demux_multi_stream(
+            raw_rx,
+            None,
+            Some(InputCreditContext {
+                sender,
+                rid: rid.clone(),
+                xid: None,
+                initial_credit: 8,
+            }),
+        );
+        let mut stream = package.recv().await.unwrap().unwrap();
+        let mut consumed = 0;
+        for _ in 0..8 {
+            stream.recv().await.unwrap().unwrap();
+            consumed += 1;
+        }
+        // ...then the rest only after consumption granted more window.
+        for i in 8..16u64 {
+            raw_tx.send(mk_chunk(i)).unwrap();
+        }
+        raw_tx
+            .send(Frame::stream_end(rid.clone(), "s1".to_string(), 16))
+            .unwrap();
+        raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
+        drop(raw_tx);
+        while let Some(item) = stream.recv().await {
+            item.unwrap();
+            consumed += 1;
+        }
+        assert_eq!(consumed, 16);
+
+        let mut grants = Vec::new();
+        while let Ok(f) = grant_rx.try_recv() {
+            assert_eq!(f.frame_type, FrameType::Credit);
+            grants.push(f.credit_count().unwrap());
+        }
+        let total: u64 = grants.iter().sum();
+        assert_eq!(total, 16, "every consumed chunk is eventually granted");
+        assert!(
+            grants.len() <= 4,
+            "grants are batched (~window/2 = 4 per grant), got {} grants: {:?}",
+            grants.len(),
+            grants
+        );
+        // Note: 16 chunks arrive against an 8-window with grants extending it
+        // as the handler consumes — the shared window accounting is what lets
+        // the producer legally exceed the initial window (L10).
+    }
+
+    // TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12).
+    #[tokio::test]
+    async fn test7053_over_window_chunk_is_credit_violation() {
+        let (grant_tx, _grant_rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
+        let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
+            tx: grant_tx,
+            drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
+        });
+        let rid = MessageId::new_uuid();
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+
+        let ss = Frame::stream_start(
+            rid.clone(),
+            "s1".to_string(),
+            "media:enc=utf-8".to_string(),
+            Some(false),
+        );
+        raw_tx.send(ss).unwrap();
+        // Window is 2; a misbehaving sender pushes 3 chunks with no grants
+        // possible (nothing consumed yet).
+        for i in 0..3u64 {
+            let mut payload = Vec::new();
+            ciborium::into_writer(&ciborium::Value::Bytes(vec![i as u8]), &mut payload).unwrap();
+            let checksum = Frame::compute_checksum(&payload);
+            raw_tx
+                .send(Frame::chunk(
+                    rid.clone(),
+                    "s1".to_string(),
+                    i,
+                    payload,
+                    i,
+                    checksum,
+                ))
+                .unwrap();
+        }
+        raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(
+            raw_rx,
+            None,
+            Some(InputCreditContext {
+                sender,
+                rid,
+                xid: None,
+                initial_credit: 2,
+            }),
+        );
+        let mut stream = package.recv().await.unwrap().unwrap();
+        // Let the demux drain all three pre-queued chunks before anything is
+        // consumed — no grant can extend the window, so the third chunk is
+        // deterministically a violation.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // First two chunks are within the window.
+        assert!(stream.recv().await.unwrap().is_ok());
+        assert!(stream.recv().await.unwrap().is_ok());
+        // The third is the violation.
+        let err = stream
+            .recv()
+            .await
+            .expect("violation must be surfaced, not silently dropped")
+            .expect_err("over-window chunk is a protocol error");
+        assert!(
+            err.to_string().contains("CREDIT_VIOLATION"),
+            "error must carry the CREDIT_VIOLATION code: {}",
+            err
+        );
+    }
+
     // =========================================================================
     // Reusable test Op structs
     // =========================================================================
@@ -4447,6 +5550,7 @@ mod tests {
                 .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
             req.output()
                 .emit_cbor(&ciborium::Value::Bytes(self.data.clone()))
+                .await
                 .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
             Ok(())
         }
@@ -4486,6 +5590,7 @@ mod tests {
                     }
                     req.output()
                         .emit_cbor(&chunk)
+                        .await
                         .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 }
             }
@@ -4521,11 +5626,13 @@ mod tests {
                     let chunk = chunk.map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                     req.output()
                         .emit_cbor(&chunk)
+                        .await
                         .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 }
             }
             req.output()
                 .emit_cbor(&ciborium::Value::Bytes(self.tag.clone()))
+                .await
                 .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
             Ok(())
         }
@@ -4566,6 +5673,7 @@ mod tests {
                                     *self.received.lock().unwrap() = b.clone();
                                     req.output()
                                         .emit_cbor(&ciborium::Value::Bytes(b))
+                                        .await
                                         .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                                     return Ok(());
                                 }
@@ -4651,14 +5759,17 @@ mod tests {
         raw_tx.send(Frame::end(request_id, None)).ok();
         drop(raw_tx);
 
-        demux_multi_stream(raw_rx, None)
+        demux_multi_stream(raw_rx, None, None)
     }
 
     /// Create an OutputStream backed by a channel for testing.
     /// Returns (OutputStream, frame_receiver) so tests can inspect output.
     fn test_output_stream() -> (OutputStream, tokio::sync::mpsc::UnboundedReceiver<Frame>) {
         let (out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel();
-        let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender { tx: out_tx });
+        let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
+            tx: out_tx,
+            drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
+        });
         let output = OutputStream::new(
             sender,
             uuid::Uuid::new_v4().to_string(),
@@ -4969,6 +6080,7 @@ mod tests {
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 req.output()
                     .emit_cbor(&ciborium::Value::Bytes(bytes.to_vec()))
+                    .await
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 *self.received.lock().unwrap() = bytes.to_vec();
                 Ok(())
@@ -5079,6 +6191,7 @@ mod tests {
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 req.output()
                     .emit_cbor(&ciborium::Value::Bytes(self.data.clone()))
+                    .await
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 *self.received.lock().unwrap() = self.data.clone();
                 Ok(())
@@ -5439,6 +6552,7 @@ mod tests {
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 req.output()
                     .emit_cbor(&ciborium::Value::Bytes(self.data.clone()))
+                    .await
                     .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
                 *self.received.lock().unwrap() = self.data.clone();
                 Ok(())
@@ -7698,6 +8812,8 @@ mod tests {
             media_urn: media_urn.to_string(),
             stream_meta: None,
             rx,
+            unbounded: false,
+            grants: None,
         }
     }
 
@@ -7818,6 +8934,8 @@ mod tests {
                 media_urn: format!("media:stream{}", i),
                 stream_meta: None,
                 rx: stream_rx,
+                unbounded: false,
+                grants: None,
             }))
             .unwrap();
         }
@@ -7856,6 +8974,8 @@ mod tests {
             media_urn: "media:s1".to_string(),
             stream_meta: None,
             rx: s1_rx,
+            unbounded: false,
+            grants: None,
         }))
         .unwrap();
 
@@ -7869,6 +8989,8 @@ mod tests {
             media_urn: "media:s2".to_string(),
             stream_meta: None,
             rx: s2_rx,
+            unbounded: false,
+            grants: None,
         }))
         .unwrap();
 
@@ -7916,6 +9038,8 @@ mod tests {
             media_urn: "media:good".to_string(),
             stream_meta: None,
             rx: s1_rx,
+            unbounded: false,
+            grants: None,
         }))
         .unwrap();
 
@@ -7929,6 +9053,8 @@ mod tests {
             media_urn: "media:bad".to_string(),
             stream_meta: None,
             rx: s2_rx,
+            unbounded: false,
+            grants: None,
         }))
         .unwrap();
 
@@ -8008,9 +9134,9 @@ mod tests {
 
         // Write 3 chunks
         stream.start(false, None).unwrap();
-        stream.emit_cbor(&Value::Bytes(b"chunk1".to_vec())).unwrap();
-        stream.emit_cbor(&Value::Bytes(b"chunk2".to_vec())).unwrap();
-        stream.emit_cbor(&Value::Bytes(b"chunk3".to_vec())).unwrap();
+        stream.emit_cbor(&Value::Bytes(b"chunk1".to_vec())).await.unwrap();
+        stream.emit_cbor(&Value::Bytes(b"chunk2".to_vec())).await.unwrap();
+        stream.emit_cbor(&Value::Bytes(b"chunk3".to_vec())).await.unwrap();
 
         stream.close().expect("close must succeed");
 
@@ -8040,7 +9166,7 @@ mod tests {
         // Write 250 bytes (should create 3 chunks: 100, 100, 50)
         stream.start(false, None).unwrap();
         let large_data = vec![0xAA; 250];
-        stream.emit_cbor(&Value::Bytes(large_data)).unwrap();
+        stream.emit_cbor(&Value::Bytes(large_data)).await.unwrap();
         stream.close().unwrap();
 
         let captured = frames.lock().unwrap();

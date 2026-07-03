@@ -9,6 +9,7 @@ pub mod cartridge_json;
 pub mod cartridge_repo;
 pub mod cartridge_runtime;
 pub mod cartridge_slug;
+pub mod credit;
 pub mod frame;
 pub mod host_runtime;
 pub mod in_process_host;
@@ -17,7 +18,9 @@ pub mod local_socket;
 pub mod manifest;
 pub mod relay;
 pub mod relay_switch;
+pub mod request_state;
 pub mod router;
+pub mod stats;
 
 #[cfg(test)]
 mod integration_tests;

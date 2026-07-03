@@ -314,6 +314,7 @@ impl PeerInvoker for InProcessPeerInvoker {
         // Create FrameSender for PeerCall's arg OutputStreams
         let sender_arc: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
             tx: self.write_tx.clone(),
+            drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
         });
 
         Ok(PeerCall {
@@ -321,6 +322,10 @@ impl PeerInvoker for InProcessPeerInvoker {
             request_id,
             max_chunk: self.max_chunk,
             response_rx: Some(receiver),
+            // In-process dispatch shares one address space — frames land in
+            // handler channels directly, so peer args are uncredited here.
+            credit_router: None,
+            initial_credit: crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
         })
     }
 }

@@ -16,8 +16,8 @@
 //! The CBOR payload is a map with integer keys (see cbor_frame.rs).
 
 use crate::bifaci::frame::{
-    keys, Frame, FrameType, Limits, MessageId, DEFAULT_MAX_CHUNK, DEFAULT_MAX_FRAME,
-    DEFAULT_MAX_REORDER_BUFFER,
+    keys, Frame, FrameType, Limits, MessageId, DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_CHUNK,
+    DEFAULT_MAX_FRAME, DEFAULT_MAX_REORDER_BUFFER, PROTOCOL_VERSION,
 };
 use ciborium::Value;
 use std::collections::BTreeMap;
@@ -181,6 +181,20 @@ pub fn encode_frame(frame: &Frame) -> Result<Vec<u8>, CborError> {
         map.push((
             Value::Integer(keys::FORCE_KILL.into()),
             Value::Bool(force_kill),
+        ));
+    }
+
+    if let Some(credit) = frame.credit {
+        map.push((
+            Value::Integer(keys::CREDIT.into()),
+            Value::Integer(credit.into()), // Keep unsigned - credit is u64
+        ));
+    }
+
+    if let Some(unbounded) = frame.unbounded {
+        map.push((
+            Value::Integer(keys::UNBOUNDED.into()),
+            Value::Bool(unbounded),
         ));
     }
 
@@ -381,6 +395,19 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, CborError> {
         _ => None,
     });
 
+    let credit = lookup.get(&keys::CREDIT).and_then(|v| match v {
+        Value::Integer(i) => {
+            let n: i128 = (*i).into();
+            Some(n as u64)
+        }
+        _ => None,
+    });
+
+    let unbounded = lookup.get(&keys::UNBOUNDED).and_then(|v| match v {
+        Value::Bool(b) => Some(*b),
+        _ => None,
+    });
+
     let frame = Frame {
         version,
         frame_type,
@@ -401,6 +428,8 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, CborError> {
         checksum,
         is_sequence,
         force_kill,
+        credit,
+        unbounded,
     };
 
     // Validate required fields based on frame type
@@ -417,10 +446,13 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, CborError> {
                 ));
             }
         }
-        FrameType::StreamEnd => {
-            if frame.chunk_count.is_none() {
+        // STREAM_END: chunk_count is optional on the wire — unbounded streams make
+        // no length promise (L16). Bounded-stream receivers that want to verify
+        // completeness check chunk_count when present.
+        FrameType::Credit => {
+            if frame.credit.is_none() {
                 return Err(CborError::InvalidFrame(
-                    "STREAM_END frame missing required field: chunk_count".to_string(),
+                    "CREDIT frame missing required field: credit".to_string(),
                 ));
             }
         }
@@ -726,6 +758,15 @@ pub async fn handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         )));
     }
 
+    // Protocol version must match exactly (L1). No cross-version operation.
+    let their_version = their_frame.hello_version().unwrap_or(their_frame.version);
+    if their_version != PROTOCOL_VERSION {
+        return Err(CborError::Handshake(format!(
+            "protocol version mismatch: ours {}, theirs {}",
+            PROTOCOL_VERSION, their_version
+        )));
+    }
+
     // Extract manifest - REQUIRED for cartridges
     let manifest = their_frame
         .hello_manifest()
@@ -740,11 +781,15 @@ pub async fn handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     let their_max_reorder_buffer = their_frame
         .hello_max_reorder_buffer()
         .unwrap_or(DEFAULT_MAX_REORDER_BUFFER);
+    let their_initial_credit = their_frame
+        .hello_initial_credit()
+        .unwrap_or(DEFAULT_INITIAL_CREDIT);
 
     let limits = Limits {
         max_frame: DEFAULT_MAX_FRAME.min(their_max_frame),
         max_chunk: DEFAULT_MAX_CHUNK.min(their_max_chunk),
         max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER.min(their_max_reorder_buffer),
+        initial_credit: DEFAULT_INITIAL_CREDIT.min(their_initial_credit),
     };
 
     // Update both reader and writer with negotiated limits
@@ -775,17 +820,30 @@ pub async fn handshake_accept<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         )));
     }
 
+    // Protocol version must match exactly (L1). No cross-version operation.
+    let their_version = their_frame.hello_version().unwrap_or(their_frame.version);
+    if their_version != PROTOCOL_VERSION {
+        return Err(CborError::Handshake(format!(
+            "protocol version mismatch: ours {}, theirs {}",
+            PROTOCOL_VERSION, their_version
+        )));
+    }
+
     // Negotiate minimum of both
     let their_max_frame = their_frame.hello_max_frame().unwrap_or(DEFAULT_MAX_FRAME);
     let their_max_chunk = their_frame.hello_max_chunk().unwrap_or(DEFAULT_MAX_CHUNK);
     let their_max_reorder_buffer = their_frame
         .hello_max_reorder_buffer()
         .unwrap_or(DEFAULT_MAX_REORDER_BUFFER);
+    let their_initial_credit = their_frame
+        .hello_initial_credit()
+        .unwrap_or(DEFAULT_INITIAL_CREDIT);
 
     let limits = Limits {
         max_frame: DEFAULT_MAX_FRAME.min(their_max_frame),
         max_chunk: DEFAULT_MAX_CHUNK.min(their_max_chunk),
         max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER.min(their_max_reorder_buffer),
+        initial_credit: DEFAULT_INITIAL_CREDIT.min(their_initial_credit),
     };
 
     // Send our HELLO with manifest
@@ -967,6 +1025,7 @@ mod tests {
             max_frame: 500_000,
             max_chunk: 50_000,
             max_reorder_buffer: 128,
+            initial_credit: DEFAULT_INITIAL_CREDIT,
         });
         let bytes = encode_frame(&original).expect("encode should succeed");
         let decoded = decode_frame(&bytes).expect("decode should succeed");
@@ -1115,6 +1174,7 @@ mod tests {
                 max_frame: 1_000_000,
                 max_chunk: 100_000,
                 max_reorder_buffer: 48,
+                initial_credit: DEFAULT_INITIAL_CREDIT,
             },
             manifest,
         );
@@ -1696,6 +1756,7 @@ mod tests {
                 max_frame: 1_000_000,
                 max_chunk: 200_000,
                 max_reorder_buffer: DEFAULT_MAX_REORDER_BUFFER,
+                initial_credit: DEFAULT_INITIAL_CREDIT,
             });
             writer.write(&no_manifest_hello).await.unwrap();
         });
@@ -1964,6 +2025,7 @@ mod tests {
             max_frame: DEFAULT_MAX_FRAME,
             max_chunk: DEFAULT_MAX_CHUNK,
             max_reorder_buffer: 32,
+            initial_credit: DEFAULT_INITIAL_CREDIT,
         };
         let manifest = br#"{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}"#;
 
@@ -2002,6 +2064,159 @@ mod tests {
         };
         let host_reorder = host_frame.hello_max_reorder_buffer().unwrap();
         assert_eq!(host_reorder, DEFAULT_MAX_REORDER_BUFFER);
+    }
+
+    const V3_TEST_MANIFEST: &[u8] = br#"{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}"#;
+
+    /// Run a real host↔cartridge handshake over a bidirectional duplex pair.
+    /// The cartridge side proposes `cartridge_limits` in its HELLO.
+    /// Returns (host result, cartridge negotiated limits).
+    async fn run_v3_handshake(
+        cartridge_limits: Limits,
+    ) -> (
+        Result<HandshakeResult, CborError>,
+        Result<Limits, CborError>,
+    ) {
+        let (host_side, cartridge_side) = tokio::io::duplex(64 * 1024);
+        let (host_r, host_w) = tokio::io::split(host_side);
+        let (cart_r, cart_w) = tokio::io::split(cartridge_side);
+
+        let host_task = tokio::spawn(async move {
+            let mut reader = FrameReader::new(host_r);
+            let mut writer = FrameWriter::new(host_w);
+            handshake(&mut reader, &mut writer).await
+        });
+        // Cartridge side: read host HELLO, verify version, respond with a HELLO
+        // proposing `cartridge_limits`, and negotiate the element-wise minimum —
+        // the same steps handshake_accept performs, but with configurable
+        // proposals instead of the process-wide defaults.
+        let cart_task = tokio::spawn(async move {
+            let mut reader = FrameReader::new(cart_r);
+            let mut writer = FrameWriter::new(cart_w);
+            let their_frame = reader
+                .read()
+                .await?
+                .ok_or_else(|| CborError::Handshake("closed".to_string()))?;
+            let their_version = their_frame.hello_version().unwrap_or(their_frame.version);
+            if their_version != PROTOCOL_VERSION {
+                return Err(CborError::Handshake(format!(
+                    "protocol version mismatch: ours {}, theirs {}",
+                    PROTOCOL_VERSION, their_version
+                )));
+            }
+            writer
+                .write(&Frame::hello_with_manifest(
+                    &cartridge_limits,
+                    V3_TEST_MANIFEST,
+                ))
+                .await?;
+            Ok(Limits {
+                max_frame: cartridge_limits
+                    .max_frame
+                    .min(their_frame.hello_max_frame().unwrap_or(DEFAULT_MAX_FRAME)),
+                max_chunk: cartridge_limits
+                    .max_chunk
+                    .min(their_frame.hello_max_chunk().unwrap_or(DEFAULT_MAX_CHUNK)),
+                max_reorder_buffer: cartridge_limits.max_reorder_buffer.min(
+                    their_frame
+                        .hello_max_reorder_buffer()
+                        .unwrap_or(DEFAULT_MAX_REORDER_BUFFER),
+                ),
+                initial_credit: cartridge_limits.initial_credit.min(
+                    their_frame
+                        .hello_initial_credit()
+                        .unwrap_or(DEFAULT_INITIAL_CREDIT),
+                ),
+            })
+        });
+
+        let host_result = host_task.await.unwrap();
+        let cart_result = cart_task.await.unwrap();
+        (host_result, cart_result)
+    }
+
+    // TEST7000: v3 handshake succeeds and negotiates the element-wise minimum of all four limits including initial_credit
+    #[tokio::test]
+    async fn test7000_v3_handshake_negotiates_all_four_limits() {
+        let cartridge_limits = Limits {
+            max_frame: 2_000_000,
+            max_chunk: 128_000,
+            max_reorder_buffer: 32,
+            initial_credit: 16,
+        };
+        let (host_result, cart_result) = run_v3_handshake(cartridge_limits).await;
+
+        let host = host_result.expect("v3 handshake must succeed");
+        assert_eq!(host.limits.max_frame, 2_000_000, "min(3.5MB, 2MB)");
+        assert_eq!(host.limits.max_chunk, 128_000, "min(256KB, 128KB)");
+        assert_eq!(host.limits.max_reorder_buffer, 32, "min(64, 32)");
+        assert_eq!(host.limits.initial_credit, 16, "min(32, 16)");
+        assert!(!host.manifest.is_empty(), "manifest must be extracted");
+
+        let cart = cart_result.expect("cartridge side must succeed");
+        assert_eq!(cart.initial_credit, 16);
+        assert_eq!(cart.max_reorder_buffer, 32);
+    }
+
+    // TEST7001: HELLO carrying protocol version 2 is rejected at handshake with a version-mismatch error
+    #[tokio::test]
+    async fn test7001_handshake_rejects_version_2() {
+        let (host_side, cartridge_side) = tokio::io::duplex(64 * 1024);
+        let (host_r, host_w) = tokio::io::split(host_side);
+        let (cart_r, cart_w) = tokio::io::split(cartridge_side);
+
+        // Fake v2 cartridge: replies to the host HELLO with a version=2 HELLO.
+        let cart_task = tokio::spawn(async move {
+            let mut reader = FrameReader::new(cart_r);
+            let mut writer = FrameWriter::new(cart_w);
+            let _host_hello = reader.read().await.unwrap().unwrap();
+            let mut hello = Frame::hello_with_manifest(&Limits::default(), V3_TEST_MANIFEST);
+            hello.version = 2;
+            if let Some(meta) = hello.meta.as_mut() {
+                meta.insert("version".to_string(), ciborium::Value::Integer(2.into()));
+            }
+            writer.write(&hello).await.unwrap();
+        });
+
+        let mut reader = FrameReader::new(host_r);
+        let mut writer = FrameWriter::new(host_w);
+        let result = handshake(&mut reader, &mut writer).await;
+        cart_task.await.unwrap();
+
+        let err = result.expect_err("v2 HELLO must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("version"),
+            "error must name the version mismatch: {}",
+            msg
+        );
+        assert!(
+            msg.contains('2') && msg.contains('3'),
+            "error must state both versions: {}",
+            msg
+        );
+    }
+
+    // TEST7002: initial_credit negotiation picks the element-wise minimum of the two proposals
+    #[tokio::test]
+    async fn test7002_initial_credit_negotiated_minimum() {
+        // Cartridge proposes a smaller window than the host default (32) → 8 wins.
+        let smaller = Limits {
+            initial_credit: 8,
+            ..Limits::default()
+        };
+        let (host_result, cart_result) = run_v3_handshake(smaller).await;
+        assert_eq!(host_result.unwrap().limits.initial_credit, 8);
+        assert_eq!(cart_result.unwrap().initial_credit, 8);
+
+        // Cartridge proposes a larger window (128) → the host default 32 wins.
+        let larger = Limits {
+            initial_credit: 128,
+            ..Limits::default()
+        };
+        let (host_result, cart_result) = run_v3_handshake(larger).await;
+        assert_eq!(host_result.unwrap().limits.initial_credit, 32);
+        assert_eq!(cart_result.unwrap().initial_credit, 32);
     }
 
     // =========================================================================
@@ -2170,6 +2385,7 @@ mod tests {
             max_frame: 1_000_000,
             max_chunk: 100,
             max_reorder_buffer: 48,
+            initial_credit: DEFAULT_INITIAL_CREDIT,
         };
         let data: Vec<u8> = (0u8..=249).collect(); // 250 bytes → 3 chunks of 100/100/50
 
@@ -2221,6 +2437,7 @@ mod tests {
             max_frame: 1_000_000,
             max_chunk: 1_000_000,
             max_reorder_buffer: 48,
+            initial_credit: DEFAULT_INITIAL_CREDIT,
         };
         let mut reader = FrameReader::with_limits(server, read_limits);
 
@@ -2265,6 +2482,7 @@ mod tests {
             max_frame: 1_000_000,
             max_chunk: 100,
             max_reorder_buffer: 48,
+            initial_credit: DEFAULT_INITIAL_CREDIT,
         };
         let data: Vec<u8> = vec![0xAB; 100];
 
@@ -2303,6 +2521,7 @@ mod tests {
             max_frame: 1_000_000,
             max_chunk: 1_000_000,
             max_reorder_buffer: 48,
+            initial_credit: DEFAULT_INITIAL_CREDIT,
         };
         let mut reader = FrameReader::with_limits(server, read_limits);
 

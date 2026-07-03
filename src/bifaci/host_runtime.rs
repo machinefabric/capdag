@@ -786,6 +786,23 @@ pub struct CartridgeHostRuntime {
     /// cartridge transitions in/out of the running state. Mirrors the Swift
     /// `CartridgeHost.observer` field.
     observer: Option<Arc<dyn CartridgeHostObserver>>,
+    /// Dropped-frame accounting (L8): unroutable continuations and frames for
+    /// dead cartridges are counted drops, never silent losses.
+    drops: Arc<crate::bifaci::stats::DropCounters>,
+}
+
+/// The host runtime's protocol observability snapshot (L8): per-reason drop
+/// counters, routing-table sizes, and GC totals. Serializable; field names are
+/// the mirror contract.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HostProtocolStats {
+    pub drops: crate::bifaci::stats::DropSnapshot,
+    pub outgoing_rids: usize,
+    pub incoming_rxids: usize,
+    pub incoming_to_peer_rids: usize,
+    pub outgoing_max_seq: usize,
+    pub routing_gc_runs_total: u64,
+    pub routing_gc_evicted_total: u64,
 }
 
 impl CartridgeHostRuntime {
@@ -814,6 +831,20 @@ impl CartridgeHostRuntime {
     /// GC passes can carry the table back down to half-full if
     /// traffic briefly stays above the watermark.
     pub(crate) const ROUTING_TABLE_GC_EVICTION_FRACTION: f64 = 0.25;
+
+    /// Protocol observability snapshot (L8): drop counters, routing-table
+    /// sizes, and GC totals for this host.
+    pub fn protocol_stats(&self) -> HostProtocolStats {
+        HostProtocolStats {
+            drops: self.drops.snapshot(),
+            outgoing_rids: self.outgoing_rids.len(),
+            incoming_rxids: self.incoming_rxids.len(),
+            incoming_to_peer_rids: self.incoming_to_peer_rids.len(),
+            outgoing_max_seq: self.outgoing_max_seq.len(),
+            routing_gc_runs_total: self.routing_gc_runs_total,
+            routing_gc_evicted_total: self.routing_gc_evicted_total,
+        }
+    }
 
     /// Stamp `key` in `incoming_rxids_touched` with a fresh
     /// touch sequence. Called both on insert and on every read
@@ -985,6 +1016,7 @@ impl CartridgeHostRuntime {
             incoming_to_peer_rids_touched: HashMap::new(),
             outgoing_max_seq: HashMap::new(),
             outgoing_max_seq_touched: HashMap::new(),
+            drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
             routing_touch_seq: 0,
             routing_gc_runs_total: 0,
             routing_gc_evicted_total: 0,
@@ -1454,8 +1486,13 @@ impl CartridgeHostRuntime {
             | FrameType::Chunk
             | FrameType::StreamEnd
             | FrameType::End
-            | FrameType::Err => {
-                // PATH C: Continuation frame from relay
+            | FrameType::Err
+            | FrameType::Credit => {
+                // PATH C: Continuation frame from relay. Credit rides the same
+                // route as data continuations: it targets whichever cartridge is
+                // sending the credited stream — the handler cartridge for a normal
+                // request (via incoming_rxids) or the requester cartridge for a
+                // peer call's argument streams (via outgoing_rids).
                 // MUST have XID (else FATAL)
                 let xid = match frame.routing_id.as_ref() {
                     Some(xid) => xid.clone(),
@@ -1492,6 +1529,9 @@ impl CartridgeHostRuntime {
                     self.touch_outgoing_rid(&frame.id);
                     (idx, false)
                 } else {
+                    let total = self
+                        .drops
+                        .record(crate::bifaci::frame::DropReason::NoRoute);
                     tracing::warn!(
                         target: "host_runtime",
                         ftype = ?frame.frame_type,
@@ -1499,7 +1539,8 @@ impl CartridgeHostRuntime {
                         xid = ?xid,
                         incoming_rxids_size = self.incoming_rxids.len(),
                         outgoing_rids_size = self.outgoing_rids.len(),
-                        "[CartridgeHostRuntime] DROP — no routing for continuation frame, no entry in either incoming_rxids or outgoing_rids"
+                        no_route_total = total,
+                        "[CartridgeHostRuntime] dropped continuation frame — no routing entry (no_route, L6/L8)"
                     );
                     return Ok(()); // Already cleaned up
                 };
@@ -2717,7 +2758,8 @@ impl CartridgeHostRuntime {
         // `build_installed_cartridge_identities`.
         if let Some(tx) = outbound_tx {
             let installed_cartridges = self.build_installed_cartridge_identities();
-            let notify_payload = RelayNotifyCapabilitiesPayload::new(installed_cartridges);
+            let notify_payload = RelayNotifyCapabilitiesPayload::new(installed_cartridges)
+                .with_host_protocol_stats(self.protocol_stats());
             let notify_bytes = serde_json::to_vec(&notify_payload)
                 .expect("Failed to serialize RelayNotify capabilities payload");
             let notify_frame = Frame::relay_notify(&notify_bytes, &Limits::default());
