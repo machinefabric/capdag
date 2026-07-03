@@ -93,7 +93,8 @@ pub use bifaci::frame::{
 pub use bifaci::credit::{CreditClosed, CreditGate, CreditRouter};
 pub use bifaci::request_state::{
     FrameDirection, RequestPhase, RequestSnapshot, RequestState, RequestTable,
-    RequestTableSnapshot, RoutingEntry, StreamFlowStats, TerminalKind, TerminatedSummary,
+    RequestTableSnapshot, RoutingEntry, StreamFlowStats, StreamSnapshot, TerminalKind,
+    TerminatedSummary,
 };
 pub use bifaci::stats::{DropCounters, DropSnapshot, TerminatedFlows};
 pub use bifaci::io::{
@@ -151,8 +152,9 @@ pub use bifaci::relay::{RelayMaster, RelaySlave};
 pub use bifaci::relay_switch::{
     CartridgeAttachmentError, CartridgeAttachmentErrorKind, CartridgeLifecycle,
     InstalledCartridgeRecord, MasterHealthStatus, RelayNotifyCapabilitiesPayload, RelaySwitch,
-    RelaySwitchError,
+    RelaySwitchError, RelaySwitchProtocolStats,
 };
+pub use bifaci::host_runtime::HostProtocolStats;
 
 // Planner — planning, discovery, and execution for machines
 pub use planner::{

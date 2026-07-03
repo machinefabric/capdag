@@ -392,6 +392,12 @@ struct ManagedCartridge {
     last_heartbeat_unix_seconds: Option<i64>,
     /// Number of times this cartridge has been respawned after death.
     restart_count: u64,
+    /// Cumulative protocol drop count self-reported by the cartridge as
+    /// `drops_total` in heartbeat response meta (writer-gate post-terminal
+    /// drops, closed-channel sends, …). `None` until the first heartbeat
+    /// round-trip carries the counter. Survives across readings (each
+    /// heartbeat carries the cartridge's running total).
+    protocol_drops_total: Option<u64>,
 }
 
 impl ManagedCartridge {
@@ -433,6 +439,7 @@ impl ManagedCartridge {
             memory_rss_mb: 0,
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
+            protocol_drops_total: None,
         }
     }
 
@@ -550,6 +557,7 @@ impl ManagedCartridge {
             memory_rss_mb: 0,
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
+            protocol_drops_total: None,
         }
     }
 
@@ -581,6 +589,7 @@ impl ManagedCartridge {
             memory_rss_mb: 0,
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
+            protocol_drops_total: None,
         }
     }
 
@@ -1798,6 +1807,13 @@ impl CartridgeHostRuntime {
                             self.cartridges[cartridge_idx].memory_rss_mb =
                                 u64::try_from(*v).unwrap_or(0);
                         }
+                        // Cumulative protocol drop counter (L8). The reading
+                        // is the cartridge's running total — stored as-is,
+                        // never merged or maxed.
+                        if let Some(ciborium::Value::Integer(v)) = meta.get("drops_total") {
+                            self.cartridges[cartridge_idx].protocol_drops_total =
+                                Some(u64::try_from(*v).unwrap_or(0));
+                        }
                     }
                     // Stamp the round-trip completion timestamp so the
                     // runtime-stats snapshot can surface heartbeat age to the UI.
@@ -2844,6 +2860,7 @@ impl CartridgeHostRuntime {
                     memory_rss_mb: cartridge.memory_rss_mb,
                     last_heartbeat_unix_seconds: cartridge.last_heartbeat_unix_seconds,
                     restart_count: cartridge.restart_count,
+                    protocol_drops_total: cartridge.protocol_drops_total,
                 };
                 // A cartridge whose HELLO failed (e.g. a pre-v3 binary hard-
                 // rejected by the version check) stays IN the inventory with
@@ -6009,6 +6026,86 @@ mod tests {
         let records = runtime.build_installed_cartridge_identities();
         assert_eq!(records.len(), 1, "retired installs vanish from the inventory");
         assert_eq!(records[0].id, "rejectedcart");
+    }
+
+    // TEST7090: The cartridge's cumulative protocol drop counter (`drops_total`
+    // heartbeat meta, L8) is ingested by the host and surfaces on the
+    // cartridge's inventory runtime stats as `protocol_drops_total` — absent
+    // until the first reading, then tracking the running total as-is.
+    #[tokio::test]
+    async fn test7090_heartbeat_drops_total_reaches_inventory_stats() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("cartridge.json"),
+            r#"{"name":"dropcart","version":"1.0.0","channel":"release","registry_url":null,"entry":"bin","installed_at":"2026-01-01T00:00:00Z","installed_from":"dev"}"#,
+        )
+        .unwrap();
+        let entry = dir.path().join("bin");
+        std::fs::write(&entry, b"#!/bin/sh\n").unwrap();
+
+        let mut runtime = CartridgeHostRuntime::new();
+        runtime.register_cartridge_dir(
+            &entry,
+            dir.path(),
+            "dropcart",
+            crate::bifaci::cartridge_repo::CartridgeChannel::Release,
+            None,
+            "1.0.0",
+            &[],
+        );
+
+        // No heartbeat round-trip yet: the reading must be ABSENT, never a
+        // fabricated zero (a zero claims "measured: no drops").
+        let records = runtime.build_installed_cartridge_identities();
+        let stats = records[0]
+            .runtime_stats
+            .as_ref()
+            .expect("inventory records always carry runtime stats");
+        assert!(
+            stats.protocol_drops_total.is_none(),
+            "no reading before the first heartbeat round-trip"
+        );
+
+        // Heartbeat response to our pending probe, carrying the cartridge's
+        // running drop total exactly as cartridge_runtime emits it.
+        let (outbound_tx, _outbound_rx) = mpsc::unbounded_channel();
+        let hb_id = MessageId::new_uuid();
+        runtime.cartridges[0]
+            .pending_heartbeats
+            .insert(hb_id.clone(), std::time::Instant::now().into());
+        let mut response = Frame::heartbeat(hb_id);
+        let mut meta = std::collections::BTreeMap::new();
+        meta.insert("drops_total".into(), ciborium::Value::Integer(42.into()));
+        response.meta = Some(meta);
+        runtime
+            .handle_cartridge_frame(0, response, &outbound_tx)
+            .expect("heartbeat response must be handled locally");
+
+        let records = runtime.build_installed_cartridge_identities();
+        let stats = records[0].runtime_stats.as_ref().unwrap();
+        assert_eq!(
+            stats.protocol_drops_total,
+            Some(42),
+            "the heartbeat's drops_total must reach the inventory stats"
+        );
+
+        // A later heartbeat carries a larger running total — stored as-is.
+        let hb_id = MessageId::new_uuid();
+        runtime.cartridges[0]
+            .pending_heartbeats
+            .insert(hb_id.clone(), std::time::Instant::now().into());
+        let mut response = Frame::heartbeat(hb_id);
+        let mut meta = std::collections::BTreeMap::new();
+        meta.insert("drops_total".into(), ciborium::Value::Integer(45.into()));
+        response.meta = Some(meta);
+        runtime
+            .handle_cartridge_frame(0, response, &outbound_tx)
+            .expect("heartbeat response must be handled locally");
+        let records = runtime.build_installed_cartridge_identities();
+        assert_eq!(
+            records[0].runtime_stats.as_ref().unwrap().protocol_drops_total,
+            Some(45),
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

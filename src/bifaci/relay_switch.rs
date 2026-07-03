@@ -301,6 +301,13 @@ pub struct CartridgeRuntimeStats {
     pub last_heartbeat_unix_seconds: Option<i64>,
     /// Number of times this cartridge has been respawned after death.
     pub restart_count: u64,
+    /// Total protocol-level frame drops inside the cartridge runtime
+    /// (post-terminal writer-gate drops, closed-channel sends, credit
+    /// violations, …), self-reported as `drops_total` on every heartbeat
+    /// response meta (L8: every drop is countable end-to-end). `None`
+    /// until the first heartbeat round-trip delivers a reading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_drops_total: Option<u64>,
 }
 
 impl CartridgeRuntimeStats {
@@ -315,6 +322,7 @@ impl CartridgeRuntimeStats {
             memory_rss_mb: 0,
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
+            protocol_drops_total: None,
         }
     }
 }
@@ -539,6 +547,12 @@ struct MasterConnection {
     caps: RwLock<Vec<String>>,
     /// Installed cartridge identities reported by this master
     installed_cartridges: RwLock<Vec<InstalledCartridgeRecord>>,
+    /// Latest per-host protocol stats (drops, routing-table sizes, GC
+    /// totals) reported by this master's RelayNotify. `None` until the
+    /// first advertisement that carries them. Previously this payload
+    /// field was parsed and silently discarded — the L8 surface now
+    /// retains it so `protocol_stats()` can name the host behind a drop.
+    host_protocol_stats: RwLock<Option<crate::bifaci::host_runtime::HostProtocolStats>>,
     /// Connection health status
     healthy: AtomicBool,
     /// Reader task handle. `Mutex<Option<…>>` so reattach can swap
@@ -699,6 +713,11 @@ impl std::fmt::Debug for RelaySwitch {
 pub struct RelaySwitchProtocolStats {
     pub requests: crate::bifaci::request_state::RequestTableSnapshot,
     pub drops: crate::bifaci::stats::DropSnapshot,
+    /// Per-master host protocol stats, keyed by master id, as reported in
+    /// each host's latest RelayNotify. A master that has not yet advertised
+    /// host stats is absent (never a zeroed placeholder).
+    #[serde(default)]
+    pub hosts: std::collections::BTreeMap<String, crate::bifaci::host_runtime::HostProtocolStats>,
 }
 
 // =============================================================================
@@ -957,6 +976,7 @@ impl RelaySwitch {
                 limits: RwLock::new(limits),
                 caps: RwLock::new(caps),
                 installed_cartridges: RwLock::new(payload.installed_cartridges),
+                host_protocol_stats: RwLock::new(payload.host_protocol_stats),
                 healthy: AtomicBool::new(true),
                 reader_handle: Mutex::new(None), // Spawned in phase 2
                 connected_at: std::sync::Mutex::new(Instant::now()),
@@ -1545,9 +1565,19 @@ impl RelaySwitch {
     /// and the per-reason drop totals. Poll this to understand the state of
     /// communications and the flow of requests through the switch.
     pub async fn protocol_stats(&self) -> RelaySwitchProtocolStats {
+        let mut hosts = std::collections::BTreeMap::new();
+        {
+            let masters = self.masters.read().await;
+            for master in masters.iter() {
+                if let Some(stats) = master.host_protocol_stats.read().await.clone() {
+                    hosts.insert(master.id.clone(), stats);
+                }
+            }
+        }
         RelaySwitchProtocolStats {
             requests: self.requests.read().await.snapshot(),
             drops: self.drops.snapshot(),
+            hosts,
         }
     }
 
@@ -2334,6 +2364,7 @@ impl RelaySwitch {
                     limits: RwLock::new(limits),
                     caps: RwLock::new(caps),
                     installed_cartridges: RwLock::new(payload.installed_cartridges),
+                host_protocol_stats: RwLock::new(payload.host_protocol_stats),
                     healthy: AtomicBool::new(healthy_at_register),
                     reader_handle: Mutex::new(Some(reader_handle)),
                     connected_at: std::sync::Mutex::new(Instant::now()),
@@ -2366,6 +2397,7 @@ impl RelaySwitch {
                 *slot.limits.write().await = limits;
                 *slot.caps.write().await = caps;
                 *slot.installed_cartridges.write().await = payload.installed_cartridges;
+                *slot.host_protocol_stats.write().await = payload.host_protocol_stats;
                 slot.healthy.store(healthy_at_register, Ordering::SeqCst);
                 *slot.last_error.write().await = identity_failure.clone();
                 {
@@ -3164,6 +3196,7 @@ impl RelaySwitch {
                     if let Some(master) = masters.get(source_idx) {
                         *master.caps.write().await = new_caps;
                         *master.installed_cartridges.write().await = payload.installed_cartridges;
+                        *master.host_protocol_stats.write().await = payload.host_protocol_stats;
                         *master.manifest.write().await = caps_payload.to_vec();
                         if let Some(new_limits) = frame.relay_notify_limits() {
                             *master.limits.write().await = new_limits;
@@ -6450,6 +6483,97 @@ mod tests {
         let bytes = serde_json::to_vec(&bare).unwrap();
         let parsed = parse_relay_notify_payload(&bytes).expect("bare payload parses");
         assert!(parsed.host_protocol_stats.is_none());
+    }
+
+    // TEST7091: Host protocol stats carried by a master's RelayNotify are
+    // RETAINED by the switch (not parsed-and-discarded) and surface in
+    // `protocol_stats().hosts` keyed by master id; a master that has not yet
+    // advertised stats is absent from the map — never a zeroed placeholder.
+    #[tokio::test]
+    async fn test7091_switch_retains_host_protocol_stats_from_relay_notify() {
+        let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
+
+        let slave = tokio::spawn(async move {
+            let (reader, mut writer) = slave_notify_with_identity(
+                slave_sock,
+                &serde_json::json!(["cap:effect=none"]),
+                &Limits::default(),
+            )
+            .await;
+
+            // Republish the SAME inventory (no cap change → no re-verify),
+            // now carrying host protocol stats — the periodic refresh path.
+            let notify_payload = serde_json::json!({
+                "installed_cartridges": [
+                    {
+                        "registry_url": null,
+                        "channel": "release",
+                        "id": "test-cartridge",
+                        "version": "0.0.0",
+                        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                        "cap_groups": [
+                            {
+                                "name": "test",
+                                "caps": [
+                                    { "urn": "cap:effect=none", "title": "test", "command": "test", "args": [] }
+                                ],
+                                "adapter_urns": [],
+                            }
+                        ],
+                    }
+                ],
+                "host_protocol_stats": {
+                    "drops": { "total": 3, "by_reason": { "post_terminal": 2, "no_route": 1 } },
+                    "outgoing_rids": 4,
+                    "incoming_rxids": 6,
+                    "incoming_to_peer_rids": 0,
+                    "outgoing_max_seq": 2,
+                    "routing_gc_runs_total": 1,
+                    "routing_gc_evicted_total": 9,
+                },
+            });
+            writer
+                .write(&Frame::relay_notify(
+                    &serde_json::to_vec(&notify_payload).unwrap(),
+                    &Limits::default(),
+                ))
+                .await
+                .unwrap();
+            // Keep the connection open until the assertion side finishes.
+            (reader, writer)
+        });
+
+        let switch = Arc::new(
+            RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
+                .await
+                .unwrap(),
+        );
+
+        // The initial advertisement carried no host stats: absent, not zeroed.
+        assert!(
+            switch.protocol_stats().await.hosts.is_empty(),
+            "no host stats before a RelayNotify carries them"
+        );
+
+        switch.start_background_pump();
+
+        let stats = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let stats = switch.protocol_stats().await;
+                if let Some(host) = stats.hosts.get("test-master-0") {
+                    return host.clone();
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("host stats must surface in protocol_stats().hosts after RelayNotify");
+
+        assert_eq!(stats.drops.total, 3);
+        assert_eq!(stats.drops.by_reason.get("post_terminal"), Some(&2));
+        assert_eq!(stats.incoming_rxids, 6);
+        assert_eq!(stats.routing_gc_evicted_total, 9);
+        drop(slave);
     }
 
     // TEST7025: A flow frame for a request with no routing state is a counted no_route drop — not a protocol error and not a silent loss — observable in the protocol stats snapshot.
