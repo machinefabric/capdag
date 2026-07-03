@@ -1057,6 +1057,15 @@ pub struct BodyOutcome {
     pub total_bytes: usize,
     /// Execution duration in milliseconds.
     pub duration_ms: u64,
+    /// Bounded UTF-8 preview of the body's INPUT item as it entered the
+    /// ForEach split — the intermediate that is deliberately never
+    /// materialized to disk under the pipelined regime. `None` for
+    /// non-textable items and for linear pipelines (no split).
+    #[serde(default)]
+    pub item_preview_text: Option<String>,
+    /// Byte size of the body's input item at the split (0 for linear).
+    #[serde(default)]
+    pub item_byte_count: u64,
 }
 
 /// Overall result of executing a machine
