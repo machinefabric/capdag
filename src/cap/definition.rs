@@ -637,6 +637,44 @@ impl Cap {
         self.get_stdin_media_urn().is_some()
     }
 
+    /// Cardinality shape of this cap's primary data path:
+    /// `(input_is_sequence, output_is_sequence)`.
+    ///
+    /// `input_is_sequence` is the `is_sequence` flag of the first arg that carries
+    /// a `Stdin` source — the primary data input the wire delivers. `output_is_sequence`
+    /// is the output's `is_sequence` flag.
+    ///
+    /// This is THE single definition of cap cardinality. Path search
+    /// (`planner::live_cap_fab::get_outgoing_edges`), editor realization
+    /// (`realize_runtime_linear_machine_strand`), and notation resolution
+    /// (`machine::resolve`) all read it here so they can never diverge — the
+    /// distinction that decides whether a ForEach is synthesized.
+    pub fn sequence_shape(&self) -> (bool, bool) {
+        let input_is_sequence = self
+            .args
+            .iter()
+            .find(|arg| {
+                arg.sources
+                    .iter()
+                    .any(|s| matches!(s, ArgSource::Stdin { .. }))
+            })
+            .map_or(false, |arg| arg.is_sequence);
+        let output_is_sequence = self.output.as_ref().map_or(false, |o| o.is_sequence);
+        (input_is_sequence, output_is_sequence)
+    }
+
+    /// Whether a data position of cardinality `source_is_sequence` feeding this cap's
+    /// primary input requires a ForEach (per-item map) to be inserted before it.
+    ///
+    /// The one rule, shared by every planner/resolver path: a sequence feeding a
+    /// scalar-input cap must be mapped. Mirrors `get_outgoing_edges` line 673
+    /// (`is_sequence && !input_is_sequence`). The media URN does not change — ForEach
+    /// is a shape transition, not a type transition.
+    pub fn needs_foreach(&self, source_is_sequence: bool) -> bool {
+        let (input_is_sequence, _) = self.sequence_shape();
+        source_is_sequence && !input_is_sequence
+    }
+
     /// Check if this cap (provider) can dispatch the given request.
     ///
     /// Uses `is_dispatchable` which correctly handles the 3-axis Cap URN matching:

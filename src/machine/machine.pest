@@ -10,7 +10,6 @@
 //   extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"
 //   doc -> extract -> text
 //   (thumbnail, model_spec) -> describe -> description
-//   pages -> LOOP p2t -> texts
 //
 // Both forms can be freely mixed in the same program.
 //
@@ -33,18 +32,11 @@ inner = { wiring | header }
 // with "cap:" — they can't run together).
 header = { alias ~ cap_urn }
 
-wiring = { source ~ arrow ~ loop_cap ~ arrow ~ alias }
+wiring = { source ~ arrow ~ alias ~ arrow ~ alias }
 
 source = { group | alias }
 
 group = { "(" ~ alias ~ ("," ~ alias)+ ~ ")" }
-
-// loop_cap must be atomic so that "LOOP" and the alias aren't
-// separated by implicit whitespace in a way that would consume
-// the required space between them. Instead we use the non-atomic
-// rule with the ordered choice: first try LOOP + alias, then bare alias.
-loop_cap = { loop_keyword ~ alias | alias }
-loop_keyword = { "LOOP" }
 
 arrow = { "-"+ ~ ">" }
 

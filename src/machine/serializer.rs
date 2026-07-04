@@ -15,8 +15,8 @@
 //! [<global alias 0> <cap-urn 0>]
 //! [<global alias 1> <cap-urn 1>]
 //! ...
-//! [<source nodes> -> [LOOP] <global alias 0> -> <target node>]
-//! [<source nodes> -> [LOOP] <global alias 1> -> <target node>]
+//! [<source nodes> -> <global alias 0> -> <target node>]
+//! [<source nodes> -> <global alias 1> -> <target node>]
 //! ...
 //! ```
 //!
@@ -248,22 +248,16 @@ fn format_wiring(edge: &MachineEdge, alias: &str, strand_plan: &StrandPlan) -> S
         .map(|b| &strand_plan.node_names[b.source as usize])
         .collect();
     let target_name = &strand_plan.node_names[edge.target as usize];
-    let loop_prefix = if edge.is_loop { "LOOP " } else { "" };
+    // The per-item map (`edge.is_loop`) is NOT emitted into notation text: it is a
+    // derived cardinality property, not authored syntax (the `LOOP` keyword is
+    // retired). Re-parsing this notation re-derives the same `is_loop` from the cap
+    // shapes, so round-trip stays semantically stable.
 
     if source_names.len() == 1 {
-        format!(
-            "{} -> {}{} -> {}",
-            source_names[0], loop_prefix, alias, target_name
-        )
+        format!("{} -> {} -> {}", source_names[0], alias, target_name)
     } else {
         let group: Vec<&str> = source_names.iter().map(|s| s.as_str()).collect();
-        format!(
-            "({}) -> {}{} -> {}",
-            group.join(", "),
-            loop_prefix,
-            alias,
-            target_name
-        )
+        format!("({}) -> {} -> {}", group.join(", "), alias, target_name)
     }
 }
 

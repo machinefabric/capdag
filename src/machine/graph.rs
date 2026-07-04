@@ -183,7 +183,9 @@ impl fmt::Display for MachineEdge {
             .iter()
             .map(|b| format!("{}<-#{}", b.cap_arg_media_urn, b.source))
             .collect();
-        let loop_prefix = if self.is_loop { "LOOP " } else { "" };
+        // Debug-only marker for a per-item map edge. Not notation syntax (the `LOOP`
+        // keyword is retired); `is_loop` is a derived cardinality property.
+        let loop_prefix = if self.is_loop { "map " } else { "" };
         write!(
             f,
             "{}{} ({}) -> #{}",
@@ -427,8 +429,9 @@ impl Machine {
     /// from a planner-produced `Strand`.
     ///
     /// Each `Cap` step in the planner strand becomes one resolved
-    /// `MachineEdge`; `ForEach` sets `is_loop` on the next cap
-    /// edge; `Collect` is elided. The cap registry is consulted
+    /// `MachineEdge`; `ForEach`/`Collect` steps are elided — `is_loop` is
+    /// derived from cardinality in the resolver, not from those steps. The cap
+    /// registry is consulted
     /// to look up each cap's `args` list, which the resolver
     /// uses to compute the source-to-arg assignment via
     /// minimum-cost bipartite matching.

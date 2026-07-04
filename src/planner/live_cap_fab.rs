@@ -587,17 +587,9 @@ impl LiveCapFab {
 
         // Create edge
         let edge_idx = self.edges.len();
-        // Main input arg: the one with a stdin source
-        let input_is_sequence = cap
-            .args
-            .iter()
-            .find(|arg| {
-                arg.sources
-                    .iter()
-                    .any(|s| matches!(s, crate::cap::definition::ArgSource::Stdin { .. }))
-            })
-            .map_or(false, |arg| arg.is_sequence);
-        let output_is_sequence = cap.output.as_ref().map_or(false, |o| o.is_sequence);
+        // Cardinality shape from the single canonical definition (`Cap::sequence_shape`)
+        // so path search, editor realization, and notation resolution never diverge.
+        let (input_is_sequence, output_is_sequence) = cap.sequence_shape();
 
         // Update indices with URN clones — MediaUrn and CapUrn
         // are the HashMap keys directly via their derived

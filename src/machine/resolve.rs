@@ -85,7 +85,6 @@ pub struct PreInternedWiring {
     pub source_node_ids: Vec<NodeId>,
     /// Target NodeId.
     pub target_node_id: NodeId,
-    pub is_loop: bool,
 }
 
 /// Resolve a planner-produced `Strand` into a single
@@ -105,9 +104,11 @@ pub struct PreInternedWiring {
 /// through both. The more-specific URN wins as the canonical
 /// representative of the shared data position.
 ///
-/// `ForEach` sets `is_loop = true` on the next cap and
-/// preserves the boundary position through the cardinality
-/// transition. `Collect` is elided.
+/// `ForEach` and `Collect` steps are elided here — they preserve the boundary
+/// position through the cardinality transition. `is_loop` is not carried on the
+/// wiring; it is derived from cardinality in `resolve_pre_interned`
+/// (`node_is_sequence[source] && !cap_input_is_sequence`), the single source of
+/// truth shared with path search.
 pub fn resolve_strand(
     strand: &Strand,
     registry: &FabricRegistry,
@@ -115,7 +116,6 @@ pub fn resolve_strand(
 ) -> Result<MachineStrand, MachineAbstractionError> {
     let mut nodes: Vec<MediaUrn> = Vec::new();
     let mut pre_interned: Vec<PreInternedWiring> = Vec::new();
-    let mut pending_loop = false;
 
     // The NodeId of the most recently produced output
     // position. The NEXT cap step's source will try to
@@ -159,19 +159,16 @@ pub fn resolve_strand(
                     cap_urn: cap_urn.clone(),
                     source_node_ids: vec![source_id],
                     target_node_id: target_id,
-                    is_loop: pending_loop,
                 });
-                pending_loop = false;
 
                 // This target becomes the boundary for the
                 // next cap step's source.
                 prev_target = Some(target_id);
             }
             StrandStepType::ForEach { .. } => {
-                pending_loop = true;
-                // prev_target passes through ForEach
-                // unchanged — the data position is the
-                // same, only the cardinality changes.
+                // prev_target passes through ForEach unchanged — the data position is
+                // the same, only the cardinality changes. Whether the following cap
+                // maps per-item is derived from cardinality in `resolve_pre_interned`.
             }
             StrandStepType::Collect { .. } => {
                 // Elided — cardinality transitions are
@@ -225,6 +222,24 @@ pub fn resolve_pre_interned(
 ) -> Result<MachineStrand, MachineAbstractionError> {
     if wirings.is_empty() {
         return Err(MachineAbstractionError::NoCapabilitySteps);
+    }
+
+    // Cardinality of every node, derived from the single canonical rule
+    // (`Cap::sequence_shape`): a node holds a sequence iff the cap that PRODUCES it
+    // has a sequence output; root nodes (never a wiring target) are scalar. This is
+    // exactly the `is_sequence` state `live_cap_fab::get_outgoing_edges` threads
+    // through a path (its line 706: outgoing `is_sequence == output_is_sequence`),
+    // evaluated over the resolved graph so `is_loop` is DERIVED from cardinality,
+    // never authored. It replaces the retired `LOOP` keyword.
+    let mut node_is_sequence = vec![false; nodes.len()];
+    for wiring in wirings {
+        let cap = registry
+            .get_cached_cap(&wiring.cap_urn.to_string())
+            .ok_or_else(|| MachineAbstractionError::UnknownCap {
+                cap_urn: wiring.cap_urn.to_string(),
+            })?;
+        let (_input_is_sequence, output_is_sequence) = cap.sequence_shape();
+        node_is_sequence[wiring.target_node_id as usize] = output_is_sequence;
     }
 
     // Step 1: per-wiring source-to-cap-arg matching. The
@@ -360,12 +375,31 @@ pub fn resolve_pre_interned(
         // slot identity (`cap_arg_media_urn`) before storing.
         bindings.sort_by(|a, b| a.cap_arg_media_urn.cmp(&b.cap_arg_media_urn));
 
+        // Derive `is_loop` from cardinality — the single ForEach rule
+        // (`Cap::needs_foreach`, mirroring `get_outgoing_edges` line 673): the
+        // primary data input (the first stdin arg) carries a sequence but this cap
+        // consumes it as a scalar, so it maps per-item. The primary stdin source node
+        // is the binding feeding the first stdin arg's slot. A cap with no stdin arg
+        // (config-only) never loops.
+        let primary_stdin_source_is_sequence = stdin_arg_slot_urns
+            .first()
+            .and_then(|primary_slot| {
+                bindings.iter().find(|b| {
+                    b.cap_arg_media_urn
+                        .is_equivalent(primary_slot)
+                        .unwrap_or(false)
+                })
+            })
+            .map(|b| node_is_sequence[b.source as usize])
+            .unwrap_or(false);
+        let is_loop = cap.needs_foreach(primary_stdin_source_is_sequence);
+
         indexed_edges.push(MachineEdge {
             token_id: wiring.token_id.clone(),
             cap_urn: wiring.cap_urn.clone(),
             assignment: bindings,
             target: wiring.target_node_id,
-            is_loop: wiring.is_loop,
+            is_loop,
         });
     }
 
@@ -1002,14 +1036,17 @@ mod tests {
     // TEST1186: Resolving a strand with ForEach marks the following cap edge as a loop.
     #[test]
     fn test1186_resolve_strand_foreach_marks_following_cap_as_loop() {
-        // ForEach immediately followed by a cap. The cap's edge
-        // must have is_loop=true. Collect at the end is elided.
-        let disbind = build_cap(
+        // ForEach immediately followed by a cap. `is_loop` is derived from
+        // cardinality: disbind produces a SEQUENCE of pages, and make_decision
+        // consumes a scalar page, so make_decision's edge maps per item. Collect at
+        // the end is elided.
+        let mut disbind = build_cap(
             "cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\"",
             "disbind",
             &["media:ext=pdf"],
             "media:enc=utf-8;page",
         );
+        disbind.output.as_mut().unwrap().is_sequence = true;
         let make_decision = build_cap(
             "cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;fmt=json;record\"",
             "make_decision",

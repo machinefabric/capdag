@@ -82,8 +82,6 @@ pub struct ParsedWiring {
     pub cap_alias_span: NotationSpan,
     pub target: String,
     pub target_span: NotationSpan,
-    pub is_loop: bool,
-    pub loop_keyword_span: Option<NotationSpan>,
     pub arrow_spans: Vec<NotationSpan>,
     pub statement_span: NotationSpan,
     /// Open and close paren spans for fan-in groups.
@@ -120,8 +118,6 @@ pub struct NotationAST {
     pub alias_map: BTreeMap<String, ParsedHeader>,
     /// Node name → derived media URN mapping.
     pub node_media: HashMap<String, MediaUrn>,
-    /// Node name → whether the node carries a sequence shape.
-    pub node_is_sequence: HashMap<String, bool>,
     /// First error encountered during parsing, if any.
     pub error: Option<MachineSyntaxError>,
 }
@@ -144,7 +140,6 @@ pub enum SemanticTokenType {
     KeywordOp,
     Assignment,
     Arrow,
-    LoopKeyword,
     Alias,
     Node,
     String,
@@ -172,7 +167,6 @@ pub enum NotationEntityKind {
     CapUrn,
     Node,
     CapAliasReference,
-    LoopKeyword,
     Arrow,
 }
 
@@ -235,7 +229,7 @@ pub enum CompletionContextType {
     MediaUrn,
     /// In wiring source position (before first `->` or between arrows).
     WiringSource,
-    /// In wiring target position (after second `->` or LOOP alias `->` alias).
+    /// In wiring target position (after the second `->`).
     WiringTarget,
     /// No valid completion context.
     Unknown,
@@ -261,7 +255,6 @@ pub fn parse_notation_ast(input: &str) -> NotationAST {
         bracket_spans: Vec::new(),
         alias_map: BTreeMap::new(),
         node_media: HashMap::new(),
-        node_is_sequence: HashMap::new(),
         error: None,
     };
 
@@ -393,13 +386,14 @@ pub fn parse_notation_ast(input: &str) -> NotationAST {
                     ));
                 }
 
-                // loop_cap (optional LOOP + alias)
-                let loop_cap_pair = match inner_pairs.next() {
+                // Cap alias (the cap-position node name)
+                let cap_pair = match inner_pairs.next() {
                     Some(p) => p,
                     None => continue,
                 };
-                let (is_loop, cap_alias, cap_alias_span, loop_keyword_span) =
-                    parse_loop_cap_with_spans(&loop_cap_pair, trimmed, trim_start);
+                let cap_alias = cap_pair.as_str().to_string();
+                let cap_alias_span =
+                    pest_span_to_notation_span(&cap_pair.as_span(), trimmed, trim_start);
 
                 // Second arrow
                 let arrow2 = inner_pairs.next();
@@ -426,8 +420,6 @@ pub fn parse_notation_ast(input: &str) -> NotationAST {
                     cap_alias_span,
                     target,
                     target_span,
-                    is_loop,
-                    loop_keyword_span,
                     arrow_spans,
                     statement_span: stmt_span,
                     paren_spans,
@@ -458,13 +450,12 @@ pub fn parse_notation_ast(input: &str) -> NotationAST {
         }
     }
 
-    // Phase 4: Build the lexical node_media / node_is_sequence
-    // maps from the AST wirings + alias map. This is the
-    // editor's lexical view; full anchor resolution against
-    // the cap registry is done elsewhere (the gRPC layer
-    // calls `Machine::from_string` for the resolved view).
+    // Phase 4: Build the lexical node_media map from the AST wirings + alias map.
+    // This is the editor's lexical view; full anchor resolution against the cap
+    // registry is done elsewhere (the gRPC layer calls `Machine::from_string` for the
+    // resolved view). Node sequence-shape (cardinality) is NOT lexical — it needs cap
+    // definitions — so it is derived in `build_editor_model` from `cap_shapes`.
     build_node_media(&ast.statements, &ast.alias_map, &mut ast.node_media);
-    build_node_sequence_map(&ast.statements, &ast.alias_map, &mut ast.node_is_sequence);
 
     ast
 }
@@ -501,76 +492,6 @@ fn build_node_media(
             }
         }
     }
-}
-
-/// Build node sequence-shape metadata from wiring statements and their loop flags.
-fn build_node_sequence_map(
-    statements: &[ParsedStatement],
-    alias_map: &BTreeMap<String, ParsedHeader>,
-    node_is_sequence: &mut HashMap<String, bool>,
-) {
-    for stmt in statements {
-        if let ParsedStatement::Wiring(w) = stmt {
-            if w.is_loop {
-                if let Some((source_name, _)) = w.sources.first() {
-                    if !alias_map.contains_key(source_name) {
-                        node_is_sequence.insert(source_name.clone(), true);
-                    }
-                }
-            }
-
-            if !alias_map.contains_key(&w.target) {
-                node_is_sequence
-                    .entry(w.target.clone())
-                    .and_modify(|existing| *existing = *existing || w.is_loop)
-                    .or_insert(w.is_loop);
-            }
-        }
-    }
-}
-
-/// Whether LOOP is valid at the given cursor position.
-///
-/// LOOP may only appear in the cap position of a wiring (`source -> LOOP alias -> target`)
-/// and only when the primary source node carries sequence-shaped data.
-pub fn should_suggest_loop_keyword(ast: &NotationAST, line: usize, character: usize) -> bool {
-    for stmt in &ast.statements {
-        let ParsedStatement::Wiring(wiring) = stmt else {
-            continue;
-        };
-
-        if !wiring.statement_span.contains(line, character) {
-            continue;
-        }
-
-        let Some(first_arrow_span) = wiring.arrow_spans.first() else {
-            continue;
-        };
-
-        let at_or_after_first_arrow = line > first_arrow_span.end.line
-            || (line == first_arrow_span.end.line && character >= first_arrow_span.end.character);
-        let before_second_arrow = wiring.arrow_spans.get(1).map_or(true, |second_arrow_span| {
-            line < second_arrow_span.start.line
-                || (line == second_arrow_span.start.line
-                    && character <= second_arrow_span.start.character)
-        });
-
-        if !at_or_after_first_arrow || !before_second_arrow {
-            continue;
-        }
-
-        let Some((source_name, _)) = wiring.sources.first() else {
-            return false;
-        };
-
-        return ast
-            .node_is_sequence
-            .get(source_name)
-            .copied()
-            .unwrap_or(false);
-    }
-
-    false
 }
 
 // =============================================================================
@@ -736,7 +657,7 @@ pub fn get_completion_replacement_span(
 /// Build a digested editor model from the parsed AST.
 ///
 /// Every logical token (node, cap invocation, alias definition, cap URN,
-/// arrow, LOOP keyword) gets a stable UUID `token_id`. That same id is
+/// arrow) gets a stable UUID `token_id`. That same id is
 /// stamped on every `NotationEntityInfo` record that anchors the token in
 /// the source text, AND on every `NotationGraphElementInfo` record that
 /// represents the token in the graph preview. The UI can then cross-
@@ -750,9 +671,8 @@ pub fn get_completion_replacement_span(
 ///     the single graph node carries the same id.
 ///   - A cap invocation (the `alias` in `foo -> alias -> bar`) is one
 ///     logical token per wiring statement. The cap's `token_id` is shared
-///     by: the cap alias reference text entity, the LOOP keyword text
-///     entity (if any), any arrows in that wiring, and the graph's cap
-///     element.
+///     by: the cap alias reference text entity, any arrows in that wiring,
+///     and the graph's cap element.
 ///   - Each alias definition in a header and each cap URN in a header is
 ///     its own logical token with no corresponding graph element.
 ///   - Each wiring edge is its own logical token. The arrows flanking the
@@ -763,6 +683,7 @@ pub fn build_editor_model(
     ast: &NotationAST,
     cap_details: &HashMap<String, (String, String, Option<String>)>,
     media_details: &HashMap<String, (String, String, Option<String>)>,
+    cap_shapes: &HashMap<String, (bool, bool)>,
 ) -> (Vec<NotationEntityInfo>, Vec<NotationGraphElementInfo>) {
     let mut entities = Vec::new();
     let mut graph_elements = Vec::new();
@@ -770,6 +691,27 @@ pub fn build_editor_model(
     // always resolves to one logical token and one graph node.
     let mut node_identity_by_name: HashMap<String, (String, String)> = HashMap::new();
     let mut wiring_index = 0usize;
+
+    // Cardinality of every node, derived from cap shapes (`cap_shapes`: cap URN →
+    // `(input_is_sequence, output_is_sequence)`). A node holds a sequence iff the cap
+    // that PRODUCES it (the wiring whose target is that node) has a sequence output;
+    // nodes that are never a target are scalar roots. This is exactly the rule
+    // `resolve::resolve_pre_interned` and `live_cap_fab::get_outgoing_edges` use — the
+    // single source of truth — so the editor's ForEach badge matches execution. It
+    // replaces the retired `LOOP` keyword: ForEach is shown wherever a sequence feeds
+    // a scalar-input cap, never authored.
+    let mut node_is_sequence: HashMap<String, bool> = HashMap::new();
+    for stmt in &ast.statements {
+        if let ParsedStatement::Wiring(wiring) = stmt {
+            let output_is_sequence = ast
+                .alias_map
+                .get(&wiring.cap_alias)
+                .and_then(|header| cap_shapes.get(&header.cap_urn_str))
+                .map(|(_, out)| *out)
+                .unwrap_or(false);
+            node_is_sequence.insert(wiring.target.clone(), output_is_sequence);
+        }
+    }
 
     for stmt in &ast.statements {
         match stmt {
@@ -827,23 +769,21 @@ pub fn build_editor_model(
                     color_index: Some(color_index),
                 });
 
-                // LOOP keyword shares the cap's token_id — it's an
-                // attribute of the cap invocation, not its own thing.
-                if let Some(loop_span) = &wiring.loop_keyword_span {
-                    entities.push(NotationEntityInfo {
-                        token_id: cap_token_id.clone(),
-                        kind: NotationEntityKind::LoopKeyword,
-                        range: loop_span.clone(),
-                        label: "LOOP".to_string(),
-                        detail: Some("ForEach iteration".to_string()),
-                        hover_markdown: Some(
-                            "**LOOP** (ForEach)\n\nApplies the capability to each item in the input list individually. Each body instance runs concurrently."
-                                .to_string(),
-                        ),
-                        linked_cap_urn: linked_cap_urn.clone(),
-                        color_index: Some(color_index),
-                    });
-                }
+                // Whether this cap maps per-item (ForEach), derived from cardinality:
+                // its primary source node carries a sequence but the cap consumes a
+                // scalar. `Cap::needs_foreach` is the canonical rule; here we apply it
+                // to the editor's cap shapes so the badge matches what execution does.
+                let (input_is_sequence, _output_is_sequence) = linked_cap_urn
+                    .as_deref()
+                    .and_then(|urn| cap_shapes.get(urn))
+                    .copied()
+                    .unwrap_or((false, false));
+                let primary_source_is_sequence = wiring
+                    .sources
+                    .first()
+                    .map(|(name, _)| node_is_sequence.get(name).copied().unwrap_or(false))
+                    .unwrap_or(false);
+                let is_loop = primary_source_is_sequence && !input_is_sequence;
 
                 // Source nodes: each named node resolves to ONE logical
                 // token and ONE graph node, shared across all wirings.
@@ -855,6 +795,7 @@ pub fn build_editor_model(
                         source_name,
                         ast,
                         media_details,
+                        &node_is_sequence,
                     );
                     source_identities.push((source_token_id.clone(), source_graph_id));
 
@@ -881,6 +822,7 @@ pub fn build_editor_model(
                     &wiring.target,
                     ast,
                     media_details,
+                    &node_is_sequence,
                 );
                 entities.push(NotationEntityInfo {
                     token_id: target_token_id.clone(),
@@ -932,11 +874,17 @@ pub fn build_editor_model(
                         detail: Some("Source connection".to_string()),
                         linked_cap_urn: linked_cap_urn.clone(),
                         linked_media_urn: None,
-                        is_sequence: None,
+                        is_sequence: Some(
+                            wiring
+                                .sources
+                                .get(source_idx)
+                                .map(|(name, _)| node_is_sequence.get(name).copied().unwrap_or(false))
+                                .unwrap_or(false),
+                        ),
                         source_graph_id: Some(source_graph_id.clone()),
                         target_graph_id: Some(cap_fab_id.clone()),
                         color_index: Some(color_index),
-                        is_loop: wiring.is_loop,
+                        is_loop,
                     });
                 }
 
@@ -948,11 +896,11 @@ pub fn build_editor_model(
                     detail: Some("Result connection".to_string()),
                     linked_cap_urn: linked_cap_urn.clone(),
                     linked_media_urn: None,
-                    is_sequence: None,
+                    is_sequence: Some(node_is_sequence.get(&wiring.target).copied().unwrap_or(false)),
                     source_graph_id: Some(cap_fab_id.clone()),
                     target_graph_id: Some(target_graph_id),
                     color_index: Some(color_index),
-                    is_loop: wiring.is_loop,
+                    is_loop,
                 });
 
                 graph_elements.push(NotationGraphElementInfo {
@@ -963,11 +911,11 @@ pub fn build_editor_model(
                     detail: linked_cap_urn.clone(),
                     linked_cap_urn,
                     linked_media_urn: None,
-                    is_sequence: Some(wiring.is_loop),
+                    is_sequence: Some(is_loop),
                     source_graph_id: None,
                     target_graph_id: None,
                     color_index: Some(color_index),
-                    is_loop: wiring.is_loop,
+                    is_loop,
                 });
 
                 wiring_index += 1;
@@ -991,7 +939,7 @@ fn new_token_id() -> String {
 /// Walks the AST and emits tokens for every syntactic element:
 /// - Brackets `[]`, parens `()`, commas, semicolons
 /// - Cap URN internals (cap:, in, out, op, =, ;, quoted strings, media:, tags)
-/// - Arrows `->`, LOOP keyword
+/// - Arrows `->`
 /// - Aliases and node names
 pub fn emit_semantic_tokens(ast: &NotationAST, _input: &str) -> Vec<SemanticTokenInfo> {
     let mut tokens = Vec::new();
@@ -1035,11 +983,6 @@ pub fn emit_semantic_tokens(ast: &NotationAST, _input: &str) -> Vec<SemanticToke
                 // Arrows
                 for arrow_span in &w.arrow_spans {
                     tokens.push(span_to_token(arrow_span, SemanticTokenType::Arrow));
-                }
-
-                // LOOP keyword
-                if let Some(ref loop_span) = w.loop_keyword_span {
-                    tokens.push(span_to_token(loop_span, SemanticTokenType::LoopKeyword));
                 }
 
                 // Cap alias in wiring (reference to a defined capability)
@@ -1154,6 +1097,7 @@ fn ensure_graph_node(
     node_name: &str,
     ast: &NotationAST,
     media_details: &HashMap<String, (String, String, Option<String>)>,
+    node_is_sequence: &HashMap<String, bool>,
 ) -> (String, String) {
     if let Some(existing) = node_identity_by_name.get(node_name) {
         return existing.clone();
@@ -1185,7 +1129,7 @@ fn ensure_graph_node(
         detail,
         linked_cap_urn: None,
         linked_media_urn,
-        is_sequence: ast.node_is_sequence.get(node_name).copied(),
+        is_sequence: Some(node_is_sequence.get(node_name).copied().unwrap_or(false)),
         source_graph_id: None,
         target_graph_id: None,
         color_index: None,
@@ -1386,46 +1330,6 @@ fn parse_source_with_spans(
     }
 
     (sources, paren_spans, comma_spans)
-}
-
-/// Parse a loop_cap pair, extracting is_loop flag, alias, and spans.
-fn parse_loop_cap_with_spans(
-    pair: &pest::iterators::Pair<Rule>,
-    source: &str,
-    offset: usize,
-) -> (bool, String, NotationSpan, Option<NotationSpan>) {
-    let mut is_loop = false;
-    let mut cap_alias = String::new();
-    let mut cap_alias_span = NotationSpan {
-        start: NotationPosition {
-            line: 0,
-            character: 0,
-        },
-        end: NotationPosition {
-            line: 0,
-            character: 0,
-        },
-        start_byte: 0,
-        end_byte: 0,
-    };
-    let mut loop_keyword_span = None;
-
-    for inner in pair.clone().into_inner() {
-        match inner.as_rule() {
-            Rule::loop_keyword => {
-                is_loop = true;
-                loop_keyword_span =
-                    Some(pest_span_to_notation_span(&inner.as_span(), source, offset));
-            }
-            Rule::alias => {
-                cap_alias = inner.as_str().to_string();
-                cap_alias_span = pest_span_to_notation_span(&inner.as_span(), source, offset);
-            }
-            _ => {}
-        }
-    }
-
-    (is_loop, cap_alias, cap_alias_span, loop_keyword_span)
 }
 
 // =============================================================================
@@ -1743,28 +1647,22 @@ mod tests {
         assert!(!ast.bracket_spans.is_empty() || ast.statements.is_empty());
     }
 
-    // TEST8003: Parsing loop wiring records the loop structure in the notation AST.
+    // TEST8003: The retired `LOOP` keyword is no longer grammar — a wiring that still
+    // writes it parses the leading token as the cap alias, so the trailing real cap
+    // alias makes the statement structurally invalid. ForEach is never authored.
     #[test]
-    fn test8003_parse_loop_wiring() {
+    fn test8003_loop_keyword_is_not_grammar() {
         let input = concat!(
             r#"[p2t cap:in="media:page";page-to-text;out="media:ext=txt"]"#,
             "\n[pages -> LOOP p2t -> texts]"
         );
         let ast = parse_notation_ast(input);
-        assert!(ast.error.is_none(), "got: {:?}", ast.error);
-
-        // Find the wiring statement
-        let wiring = ast.statements.iter().find_map(|s| {
-            if let ParsedStatement::Wiring(w) = s {
-                Some(w)
-            } else {
-                None
-            }
-        });
-        let wiring = wiring.expect("should have a wiring statement");
-        assert!(wiring.is_loop);
-        assert!(wiring.loop_keyword_span.is_some());
-        assert_eq!(wiring.cap_alias, "p2t");
+        // `LOOP` is now just an identifier in cap position; `p2t` after it has no
+        // arrow, so the wiring cannot parse as a valid `source -> cap -> target`.
+        assert!(
+            ast.error.is_some(),
+            "`LOOP p2t` must not parse as a valid wiring now that the keyword is retired"
+        );
     }
 
     // TEST8004: Parsing a fan-in group records grouped input sources correctly.
@@ -1917,7 +1815,7 @@ mod tests {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
-        let (entities, _) = build_editor_model(&ast, &HashMap::new(), &HashMap::new());
+        let (entities, _) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
 
         let entity = entity_at(&entities, 0, 1);
         assert_eq!(entity.kind, NotationEntityKind::AliasDefinition);
@@ -1938,7 +1836,7 @@ mod tests {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
-        let (entities, _) = build_editor_model(&ast, &HashMap::new(), &HashMap::new());
+        let (entities, _) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
 
         let entity = entity_at(&entities, 1, 1);
         assert_eq!(entity.kind, NotationEntityKind::Node);
@@ -1947,22 +1845,51 @@ mod tests {
         assert!(md.contains("node"), "node hover should identify type");
     }
 
-    // TEST8013: Editor model hover metadata resolves correctly for the loop keyword.
+    // TEST8013: The editor model derives the ForEach badge from cardinality, not from
+    // a keyword. A cap whose primary source node carries a sequence (its producer has
+    // a sequence output) but which consumes a scalar is marked `is_loop`; a
+    // scalar→scalar cap is not. This is the same `Cap::needs_foreach` rule execution
+    // uses, so the editor and the run agree.
     #[test]
-    fn test8013_editor_model_entity_hover_for_loop_keyword() {
+    fn test8013_editor_model_derives_foreach_from_cardinality() {
+        // `disbind` outputs a sequence of pages; `p2t` consumes one page (scalar).
+        // pages -> p2t maps per item → ForEach; doc -> disbind does not.
         let input = concat!(
+            r#"[disbind cap:in="media:ext=pdf";disbind;out="media:page"]"#,
+            "\n",
             r#"[p2t cap:in="media:page";page-to-text;out="media:ext=txt"]"#,
-            "\n[pages -> LOOP p2t -> texts]"
+            "\n[doc -> disbind -> pages]\n[pages -> p2t -> texts]"
         );
         let ast = parse_notation_ast(input);
-        let (entities, _) = build_editor_model(&ast, &HashMap::new(), &HashMap::new());
+        assert!(ast.error.is_none(), "got: {:?}", ast.error);
 
-        let entity = entity_at(&entities, 1, 10);
-        assert_eq!(entity.kind, NotationEntityKind::LoopKeyword);
-        let md = entity.hover_markdown.as_deref().unwrap_or("");
+        // Key cap_shapes on the exact canonical URN strings the parser produced, the
+        // same keys `build_editor_model` looks up. (input_is_sequence, output_is_sequence)
+        let mut cap_shapes: HashMap<String, (bool, bool)> = HashMap::new();
+        cap_shapes.insert(
+            ast.alias_map.get("disbind").unwrap().cap_urn_str.clone(),
+            (false, true),
+        );
+        cap_shapes.insert(
+            ast.alias_map.get("p2t").unwrap().cap_urn_str.clone(),
+            (false, false),
+        );
+
+        let (_, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &cap_shapes);
+
+        let cap_for = |alias: &str| {
+            graph
+                .iter()
+                .find(|e| e.kind == NotationGraphElementKind::Cap && e.label == alias)
+                .unwrap_or_else(|| panic!("expected a graph cap element for '{alias}'"))
+        };
         assert!(
-            md.contains("ForEach"),
-            "loop hover should explain semantics"
+            !cap_for("disbind").is_loop,
+            "scalar source feeding a scalar-input cap must not map"
+        );
+        assert!(
+            cap_for("p2t").is_loop,
+            "a sequence source feeding a scalar-input cap must map (ForEach)"
         );
     }
 
@@ -1972,7 +1899,7 @@ mod tests {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
-        let (_, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new());
+        let (_, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
 
         let node_count = graph
             .iter()
@@ -2001,7 +1928,7 @@ mod tests {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
-        let (entities, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new());
+        let (entities, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
 
         let cap_alias_entity = entities
             .iter()
@@ -2054,7 +1981,7 @@ mod tests {
             "[mid -> b -> shared]"
         );
         let ast = parse_notation_ast(input);
-        let (entities, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new());
+        let (entities, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
 
         let shared_entities: Vec<&NotationEntityInfo> = entities
             .iter()
@@ -2160,36 +2087,6 @@ doc -> extract -> text"#;
     fn test8023_line_based_completion_context_start() {
         let (ctx, _) = get_completion_context("ex", 0, 2);
         assert_eq!(ctx, CompletionContextType::HeaderStart);
-    }
-
-    // TEST8024: Loop keyword completion is suggested only when the source is a sequence.
-    #[test]
-    fn test8024_loop_keyword_suggested_only_for_sequence_source() {
-        let ast = parse_notation_ast(concat!(
-            r#"p2t cap:in="media:page";page-to-text;out="media:ext=txt""#,
-            "\n",
-            "pages -> LOOP p2t -> texts"
-        ));
-
-        assert!(
-            should_suggest_loop_keyword(&ast, 1, 12),
-            "sequence source should allow LOOP suggestion in cap position"
-        );
-    }
-
-    // TEST8025: Loop keyword completion is not suggested for scalar sources.
-    #[test]
-    fn test8025_loop_keyword_not_suggested_for_scalar_source() {
-        let ast = parse_notation_ast(concat!(
-            r#"extract cap:in="media:ext=pdf";extract;out="media:ext=txt""#,
-            "\n",
-            "doc -> extract -> text"
-        ));
-
-        assert!(
-            !should_suggest_loop_keyword(&ast, 1, 8),
-            "scalar source should not allow LOOP suggestion in cap position"
-        );
     }
 
     // TEST8026: Semantic tokens are produced correctly for line-based notation without brackets.

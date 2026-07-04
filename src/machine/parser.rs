@@ -25,11 +25,10 @@
 //! stmt         = "[" inner "]" | inner
 //! inner        = wiring | header
 //! header       = alias cap_urn
-//! wiring       = source arrow loop_cap arrow alias
+//! wiring       = source arrow alias arrow alias
 //! source       = group | alias
 //! group        = "(" alias ("," alias)+ ")"
 //! arrow        = "-"+ ">"
-//! loop_cap     = "LOOP" alias | alias
 //! alias        = (ALPHA | "_") (ALNUM | "_" | "-")*
 //! cap_urn      = "cap:" cap_urn_body*
 //! cap_urn_body = quoted_value | !("]" | NEWLINE) ANY
@@ -91,7 +90,6 @@ struct RawWiring {
     cap_alias: String,
     /// Node-name alias for the target.
     target: String,
-    is_loop: bool,
     /// Index of this wiring in the textual input. Used to
     /// order connected components by first appearance.
     position: usize,
@@ -181,8 +179,11 @@ pub fn parse_machine_with_node_names(
                 let source_pair = inner_pairs.next().expect("wiring has source");
                 let sources = parse_source(source_pair);
                 inner_pairs.next(); // arrow
-                let loop_cap_pair = inner_pairs.next().expect("wiring has loop_cap");
-                let (is_loop, cap_alias) = parse_loop_cap(loop_cap_pair);
+                let cap_alias = inner_pairs
+                    .next()
+                    .expect("wiring has cap alias")
+                    .as_str()
+                    .to_string();
                 inner_pairs.next(); // arrow
                 let target = inner_pairs
                     .next()
@@ -193,7 +194,6 @@ pub fn parse_machine_with_node_names(
                     sources,
                     cap_alias,
                     target,
-                    is_loop,
                     position: stmt_idx,
                 });
             }
@@ -223,8 +223,8 @@ pub fn parse_machine_with_node_names(
 
     // Phase 3b: cap-alias resolution against the fabric registry.
     //
-    // A wiring's cap-position name (`loop_cap`) that is NOT defined by a
-    // local header is taken to be a fabric **cap alias** and resolved
+    // A wiring's cap-position name (the alias in cap position) that is NOT defined by
+    // a local header is taken to be a fabric **cap alias** and resolved
     // through the registry: an identifier without a local definition is an
     // alias, resolved before we conclude it is undefined. The resolved cap
     // URN is injected into `alias_map` as if a header had defined it, so
@@ -439,7 +439,6 @@ pub fn parse_machine_with_node_names(
                 cap_urn: cap_urn.clone(),
                 source_node_ids,
                 target_node_id,
-                is_loop: w.is_loop,
             });
         }
 
@@ -502,7 +501,7 @@ fn extract_header_cap_urns(input: &str) -> Result<Vec<String>, MachineParseError
 
 /// Run only the pest grammar parse over `input` and return, in textual
 /// order with duplicates suppressed, the cap-position names in wirings
-/// (`loop_cap`) that are NOT defined by a local header. These are the
+/// (the alias in cap position) that are NOT defined by a local header. These are the
 /// candidate **cap aliases** the async warm-up must hydrate before the
 /// synchronous resolver runs.
 fn extract_unresolved_cap_alias_names(input: &str) -> Result<Vec<String>, MachineParseError> {
@@ -541,8 +540,11 @@ fn extract_unresolved_cap_alias_names(input: &str) -> Result<Vec<String>, Machin
                 let mut ip = content.into_inner();
                 let _source = ip.next();
                 let _arrow = ip.next();
-                let loop_cap = ip.next().expect("wiring has loop_cap");
-                let (_is_loop, cap_alias) = parse_loop_cap(loop_cap);
+                let cap_alias = ip
+                    .next()
+                    .expect("wiring has cap alias")
+                    .as_str()
+                    .to_string();
                 cap_names.push((cap_alias, true));
             }
             _ => {}
@@ -679,20 +681,6 @@ fn parse_source(pair: pest::iterators::Pair<Rule>) -> Vec<String> {
         Rule::alias => vec![inner.as_str().to_string()],
         _ => unreachable!("source is group or alias"),
     }
-}
-
-/// Extract is_loop flag and cap alias from a loop_cap pair.
-fn parse_loop_cap(pair: pest::iterators::Pair<Rule>) -> (bool, String) {
-    let mut is_loop = false;
-    let mut cap_alias = String::new();
-    for inner in pair.into_inner() {
-        match inner.as_rule() {
-            Rule::loop_keyword => is_loop = true,
-            Rule::alias => cap_alias = inner.as_str().to_string(),
-            _ => {}
-        }
-    }
-    (is_loop, cap_alias)
 }
 
 /// Bind a media URN to a node, or check that an existing
@@ -928,26 +916,54 @@ mod tests {
         ));
     }
 
-    // TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step.
+    // TEST1169: A sequence-output cap feeding a scalar-input cap makes the resolved
+    // edge a per-item map (`is_loop`), derived from cardinality — the single rule
+    // `Cap::needs_foreach`, which replaces the retired `LOOP` keyword. The
+    // scalar→sequence producer edge itself does not loop.
     #[test]
-    fn test1169_parse_loop_marker_sets_is_loop_on_resolved_edge() {
-        let cap_def = build_cap(
-            "cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"",
-            "t",
+    fn test1169_sequence_into_scalar_cap_derives_is_loop() {
+        // Producer: scalar text → SEQUENCE of items.
+        let mut splitter = build_cap(
+            "cap:in=\"media:enc=utf-8\";split;out=\"media:enc=utf-8;item\"",
+            "split",
             &["media:enc=utf-8"],
+            "media:enc=utf-8;item",
+        );
+        splitter.output.as_mut().unwrap().is_sequence = true;
+        // Consumer: scalar item → scalar text.
+        let texter = build_cap(
+            "cap:in=\"media:enc=utf-8;item\";t;out=\"media:enc=utf-8\"",
+            "t",
+            &["media:enc=utf-8;item"],
             "media:enc=utf-8",
         );
-        let registry = registry_with(vec![cap_def]);
+        let registry = registry_with(vec![splitter, texter]);
         let notation = "\
-[t cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"]\
-[a -> LOOP t -> b]";
+[split cap:in=\"media:enc=utf-8\";split;out=\"media:enc=utf-8;item\"]\
+[t cap:in=\"media:enc=utf-8;item\";t;out=\"media:enc=utf-8\"]\
+[a -> split -> items]\
+[items -> t -> b]";
         let machine = parse_machine(notation, &registry).expect("must parse");
         assert_eq!(machine.strand_count(), 1);
         let strand = &machine.strands()[0];
-        assert_eq!(strand.edges().len(), 1);
+        assert_eq!(strand.edges().len(), 2);
+        let split_edge = strand
+            .edges()
+            .iter()
+            .find(|e| e.cap_urn.to_string().contains("split"))
+            .expect("split edge");
+        let t_edge = strand
+            .edges()
+            .iter()
+            .find(|e| !e.cap_urn.to_string().contains("split"))
+            .expect("t edge");
         assert!(
-            strand.edges()[0].is_loop,
-            "LOOP marker must propagate to MachineEdge::is_loop"
+            !split_edge.is_loop,
+            "a scalar source feeding the sequence-producing cap must not map"
+        );
+        assert!(
+            t_edge.is_loop,
+            "a sequence feeding a scalar-input cap must map per item (is_loop)"
         );
     }
 
