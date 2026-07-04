@@ -677,6 +677,11 @@ pub fn all_coercion_paths() -> Vec<(&'static str, &'static str)> {
         ("string", "number"),
         ("integer", "number"),
         ("boolean", "number"),
+        // To boolean (strict spellings — see datacartridge's
+        // coerce_to_boolean for the accepted set)
+        ("string", "boolean"),
+        ("integer", "boolean"),
+        ("number", "boolean"),
         // To object (wrap in object)
         ("string", "object"),
         ("integer", "object"),
