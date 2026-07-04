@@ -593,6 +593,16 @@ pub fn extract_urn(lang_code: &str) -> CapUrn {
     semantic_judgment_urn("extract", lang_code)
 }
 
+/// Build URN for the `ask` grounded question-answering capability.
+pub fn ask_urn(lang_code: &str) -> CapUrn {
+    semantic_judgment_urn("ask", lang_code)
+}
+
+/// Build URN for the `explain` opaque-data root-cause capability.
+pub fn explain_urn(lang_code: &str) -> CapUrn {
+    semantic_judgment_urn("explain", lang_code)
+}
+
 /// Build URN for the `summarize` purpose-driven compression
 /// capability. Unlike the judgment caps its output is finalised
 /// plain text (the summary itself), not a judgment record.
