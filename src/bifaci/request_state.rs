@@ -198,13 +198,29 @@ const RECENT_TERMINATED_CAP: usize = 64;
 /// The unified request table (L7): one entry per in-flight request, one
 /// registration, one termination, plus the rid→xid secondary index and the
 /// recently-terminated ring.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct RequestTable {
     entries: HashMap<RequestKey, RequestState>,
     rid_index: HashMap<MessageId, MessageId>,
     recent_terminated: VecDeque<TerminatedSummary>,
     total_registered: u64,
     terminated_by_kind: BTreeMap<&'static str, u64>,
+    /// Called with every termination's summary, synchronously under the
+    /// table guard — observers must be cheap and non-blocking (an engine
+    /// aggregating per-run history, a test recorder). The bounded ring
+    /// serves polling; this hook serves accumulation that must not miss
+    /// terminations between polls (the ring evicts at 64).
+    terminate_observer: Option<Box<dyn Fn(&TerminatedSummary) + Send + Sync>>,
+}
+
+impl std::fmt::Debug for RequestTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RequestTable")
+            .field("entries", &self.entries.len())
+            .field("recent_terminated", &self.recent_terminated.len())
+            .field("total_registered", &self.total_registered)
+            .finish()
+    }
 }
 
 impl RequestTable {
@@ -292,7 +308,23 @@ impl RequestTable {
             bytes_out: totals.3,
         });
         *self.terminated_by_kind.entry(kind.as_str()).or_insert(0) += 1;
+        if let Some(observer) = &self.terminate_observer {
+            observer(
+                self.recent_terminated
+                    .back()
+                    .expect("summary was just pushed"),
+            );
+        }
         Some(state)
+    }
+
+    /// Install the termination observer (see field docs). One observer;
+    /// installing replaces any previous one.
+    pub fn set_terminate_observer(
+        &mut self,
+        observer: Box<dyn Fn(&TerminatedSummary) + Send + Sync>,
+    ) {
+        self.terminate_observer = Some(observer);
     }
 
     /// Record a frame moving through the runtime for this request.

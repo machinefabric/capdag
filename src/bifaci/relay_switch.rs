@@ -1564,6 +1564,17 @@ impl RelaySwitch {
     /// per-stream flow counters, and children; the recently-terminated ring;
     /// and the per-reason drop totals. Poll this to understand the state of
     /// communications and the flow of requests through the switch.
+    /// Install a termination observer on the request table (L8): called with
+    /// every termination's summary, under the table guard — must be cheap.
+    /// Lets an engine accumulate complete per-run history without missing
+    /// terminations between stats polls (the ring evicts at 64).
+    pub async fn set_terminate_observer(
+        &self,
+        observer: Box<dyn Fn(&crate::bifaci::request_state::TerminatedSummary) + Send + Sync>,
+    ) {
+        self.requests.write().await.set_terminate_observer(observer);
+    }
+
     pub async fn protocol_stats(&self) -> RelaySwitchProtocolStats {
         let mut hosts = std::collections::BTreeMap::new();
         {
