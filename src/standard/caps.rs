@@ -533,6 +533,21 @@ pub fn generate_json_urn(lang_code: &str) -> CapUrn {
         .expect("Failed to build generate-json cap URN")
 }
 
+/// Build URN for the `same` semantic-equivalence capability.
+/// Two items + optional context in; a semantic-judgment record
+/// (`{same, confidence, reason}`) out. The first of the
+/// semantic-primitive family (docs/semantic-primitives.md).
+pub fn same_urn(lang_code: &str) -> CapUrn {
+    CapUrnBuilder::new()
+        .marker("same")
+        .tag("language", lang_code)
+        .marker("constrained")
+        .in_spec(MEDIA_STRING)
+        .out_spec(crate::urn::media_urn::MEDIA_SEMANTIC_JUDGMENT)
+        .build()
+        .expect("Failed to build same cap URN")
+}
+
 /// Build URN for make-decision capability
 /// Output is MEDIA_DECISION: media:decision;fmt=json;record
 pub fn make_decision_urn(lang_code: &str) -> CapUrn {

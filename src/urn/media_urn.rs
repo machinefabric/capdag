@@ -355,6 +355,12 @@ pub const MEDIA_TRANSCRIPTION_OUTPUT: &str = "media:enc=utf-8;record;transcripti
 /// Media URN for decision output — JSON object with identifier and boolean value
 pub const MEDIA_DECISION: &str = "media:decision;fmt=json;record";
 
+/// Media URN for a semantic-judgment record — the shared output
+/// envelope of the semantic-primitive cap family (`same`, and the
+/// primitives that follow it): `{result..., confidence, reason}`.
+/// See docs/semantic-primitives.md (law P2).
+pub const MEDIA_SEMANTIC_JUDGMENT: &str = "media:fmt=json;record;semantic-judgment";
+
 /// Media URN for adapter selection output — JSON object with media_urns array
 /// Returned by cartridge content-inspection adapters to identify file media types
 pub const MEDIA_ADAPTER_SELECTION: &str = "media:adapter-selection;fmt=json;record";
