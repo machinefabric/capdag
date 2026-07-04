@@ -548,6 +548,65 @@ pub fn same_urn(lang_code: &str) -> CapUrn {
         .expect("Failed to build same cap URN")
 }
 
+/// Shared shape of the semantic-primitive judgment cap URNs
+/// (docs/semantic-primitives.md): a bare marker + language +
+/// constrained, text in, judgment-envelope out.
+fn semantic_judgment_urn(marker: &str, lang_code: &str) -> CapUrn {
+    CapUrnBuilder::new()
+        .marker(marker)
+        .tag("language", lang_code)
+        .marker("constrained")
+        .in_spec(MEDIA_STRING)
+        .out_spec(crate::urn::media_urn::MEDIA_SEMANTIC_JUDGMENT)
+        .build()
+        .unwrap_or_else(|e| panic!("Failed to build {} cap URN: {}", marker, e))
+}
+
+/// Build URN for the `classify` closed-set labeling capability.
+pub fn classify_urn(lang_code: &str) -> CapUrn {
+    semantic_judgment_urn("classify", lang_code)
+}
+
+/// Build URN for the `score` rubric-scoring capability.
+pub fn score_urn(lang_code: &str) -> CapUrn {
+    semantic_judgment_urn("score", lang_code)
+}
+
+/// Build URN for the `verify` requirements-check capability.
+pub fn verify_urn(lang_code: &str) -> CapUrn {
+    semantic_judgment_urn("verify", lang_code)
+}
+
+/// Build URN for the `route` dispatch-judgment capability.
+pub fn route_urn(lang_code: &str) -> CapUrn {
+    semantic_judgment_urn("route", lang_code)
+}
+
+/// Build URN for the `normalize` entity-canonicalization capability.
+pub fn normalize_urn(lang_code: &str) -> CapUrn {
+    semantic_judgment_urn("normalize", lang_code)
+}
+
+/// Build URN for the `extract` schema-guided extraction capability
+/// (the judgment-envelope generalization of `generate-json`).
+pub fn extract_urn(lang_code: &str) -> CapUrn {
+    semantic_judgment_urn("extract", lang_code)
+}
+
+/// Build URN for the `summarize` purpose-driven compression
+/// capability. Unlike the judgment caps its output is finalised
+/// plain text (the summary itself), not a judgment record.
+pub fn summarize_urn(lang_code: &str) -> CapUrn {
+    CapUrnBuilder::new()
+        .marker("summarize")
+        .tag("language", lang_code)
+        .marker("constrained")
+        .in_spec(MEDIA_STRING)
+        .out_spec(crate::urn::media_urn::MEDIA_PLAIN_TEXT)
+        .build()
+        .expect("Failed to build summarize cap URN")
+}
+
 /// Build URN for make-decision capability
 /// Output is MEDIA_DECISION: media:decision;fmt=json;record
 pub fn make_decision_urn(lang_code: &str) -> CapUrn {
