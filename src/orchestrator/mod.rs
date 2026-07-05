@@ -20,7 +20,10 @@
 //! ```
 
 pub mod cbor_util;
+pub mod dev_bin_runtime;
+pub mod execute_plan;
 pub mod executor;
+pub mod machine_plan;
 pub mod parser;
 pub mod plan_converter;
 pub mod stream_io;
@@ -30,6 +33,15 @@ pub mod types;
 pub use types::{ParseOrchestrationError, ResolvedEdge, ResolvedGraph};
 
 pub use parser::parse_machine_to_cap_dag;
+
+pub use machine_plan::build_plans_from_notation;
+
+pub use execute_plan::{
+    execute_plan, BodyOutcomeFn, EngineRuntime, OutputItem, PipelineItemFn, PipelineResult,
+    SegmentOutput, WriterResult,
+};
+
+pub use dev_bin_runtime::DevBinRuntime;
 
 pub use plan_converter::plan_to_resolved_graph;
 

@@ -210,7 +210,7 @@ pub async fn parse_machine_to_cap_dag(
 /// matching failures map onto the orchestrator's existing
 /// public error variants so callers see one consistent error
 /// surface for "this notation can't be turned into a DAG."
-fn translate_machine_parse_error(err: MachineParseError) -> ParseOrchestrationError {
+pub(crate) fn translate_machine_parse_error(err: MachineParseError) -> ParseOrchestrationError {
     use crate::machine::MachineAbstractionError;
     match err {
         MachineParseError::Resolution(MachineAbstractionError::UnknownCap { cap_urn }) => {

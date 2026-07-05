@@ -1337,7 +1337,6 @@ mod tests {
             cap_urn,
             source_node_ids: vec![0, 1], // pdf first, enc=utf-8 second
             target_node_id: 2,
-            is_loop: false,
         }];
 
         let strand = resolve_pre_interned(nodes, &wirings, &registry, 0).unwrap();
@@ -1378,14 +1377,12 @@ mod tests {
                 cap_urn: CapUrn::from_string(urn_a).unwrap(),
                 source_node_ids: vec![0],
                 target_node_id: 1,
-                is_loop: false,
             },
             PreInternedWiring {
                 token_id: "tok-3".to_string(),
                 cap_urn: CapUrn::from_string(urn_b).unwrap(),
                 source_node_ids: vec![1],
                 target_node_id: 0,
-                is_loop: false,
             },
         ];
 

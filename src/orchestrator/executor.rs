@@ -1625,7 +1625,7 @@ impl ExecutionContext {
 ///
 /// Group `g_next` chains onto `g_prev` when its ONLY input edge consumes
 /// `g_prev`'s output node, no other group consumes that node, and `g_next`
-/// takes no extra args from node_values. Chained groups stream frames from
+/// takes no extra args from cap_arguments. Chained groups stream frames from
 /// cap to cap live (downstream consumes upstream chunks before END exists),
 /// with credit flowing per hop. Fan-in group heads may start a segment; a
 /// fan-out or extra-args group ends one.
@@ -1636,7 +1636,7 @@ impl ExecutionContext {
 fn detect_pipeline_segments(
     groups: &[EdgeGroup],
     group_order: &[usize],
-    node_values: &HashMap<String, HashMap<String, serde_json::Value>>,
+    cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
 ) -> Vec<Vec<usize>> {
     // consumers[node] = number of groups reading it
     let mut consumers: HashMap<&str, usize> = HashMap::new();
@@ -1650,7 +1650,7 @@ fn detect_pipeline_segments(
         next.edges.len() == 1
             && next.edges[0].from == prev.to
             && consumers.get(prev.to.as_str()).copied().unwrap_or(0) == 1
-            && !node_values.contains_key(&next.to)
+            && !cap_arguments.contains_key(&next.to)
     };
 
     let mut segments: Vec<Vec<usize>> = Vec::new();
@@ -2188,7 +2188,10 @@ pub async fn execute_dag(
     fabric_registry: Arc<FabricRegistry>,
     progress_fn: Option<&CapProgressFn>,
     log_fn: &PipelineLogFn,
-    node_values: &HashMap<String, HashMap<String, serde_json::Value>>,
+    // Extra argument streams per node: node id → [(arg media URN, raw bytes)]. These
+    // are the already-resolved arg-stream bytes (the single format shared with the
+    // engine's `execute_dag_impl` and `execute_plan`) — not JSON, no serialization here.
+    cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
 ) -> Result<HashMap<String, NodeData>, ExecutionError> {
     // 1. Initialize cartridge manager and discover/download all needed cartridges
     let mut cartridge_manager = CartridgeManager::new(
@@ -2293,7 +2296,7 @@ pub async fn execute_dag(
     // chained caps stream frames live (downstream consumes upstream chunks
     // before END exists) with credit flowing per hop; fan-out / fan-in /
     // extra-args boundaries fall back to the materializing path.
-    let segments = detect_pipeline_segments(&groups, &group_order, node_values);
+    let segments = detect_pipeline_segments(&groups, &group_order, cap_arguments);
     let mut position = 0usize; // index into group_order for boundary math
     for segment in &segments {
         // Per-group progress subdivision for every group in this segment.
@@ -2312,28 +2315,11 @@ pub async fn execute_dag(
             execute_segment_pipelined(&mut ctx, &groups, segment, &group_pfns, log_fn).await?;
         } else {
             let idx = segment[0];
-            // Resolve extra args from node_values for this group's target node.
-            // Only explicitly provided values are sent — default values are the
+            // Extra arg streams for this group's target node — already-resolved bytes.
+            // Only explicitly provided args are sent; default values are the
             // cartridge's responsibility per the cap contract.
-            let extra_args: Vec<(String, Vec<u8>)> = match node_values.get(&groups[idx].to) {
-                Some(args) => {
-                    let mut resolved = Vec::with_capacity(args.len());
-                    for (media_urn, value) in args {
-                        let bytes = match value {
-                            serde_json::Value::String(s) => s.as_bytes().to_vec(),
-                            other => serde_json::to_vec(other).map_err(|e| {
-                                ExecutionError::HostError(format!(
-                                    "Failed to serialize node_values value for arg '{}' on node '{}': {}",
-                                    media_urn, groups[idx].to, e
-                                ))
-                            })?,
-                        };
-                        resolved.push((media_urn.clone(), bytes));
-                    }
-                    resolved
-                }
-                None => Vec::new(),
-            };
+            let extra_args: Vec<(String, Vec<u8>)> =
+                cap_arguments.get(&groups[idx].to).cloned().unwrap_or_default();
 
             ctx.execute_fanin(&groups[idx].edges, &extra_args, group_pfns[0].as_ref(), log_fn)
                 .await?;
@@ -2386,7 +2372,7 @@ mod tests {
     // TEST7078: Pipeline segment detection — linear chains pipeline; fan-out, fan-in heads, and extra-args groups break segments so those edges still materialize correctly.
     #[test]
     fn test7078_pipeline_segment_detection() {
-        let no_values: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+        let no_values: HashMap<String, Vec<(String, Vec<u8>)>> = HashMap::new();
 
         // Linear chain a → b → c → d: one 3-group segment.
         let edges = vec![
@@ -2435,8 +2421,8 @@ mod tests {
         let edges = vec![edge("a", "b", "cap:s1"), edge("b", "c", "cap:s2")];
         let groups = build_edge_groups(&edges);
         let order = topological_sort_groups(&groups).unwrap();
-        let mut values = HashMap::new();
-        values.insert("c".to_string(), HashMap::new());
+        let mut values: HashMap<String, Vec<(String, Vec<u8>)>> = HashMap::new();
+        values.insert("c".to_string(), vec![("media:arg".to_string(), b"v".to_vec())]);
         let segments = detect_pipeline_segments(&groups, &order, &values);
         assert!(
             segments.iter().all(|s| s.len() == 1),

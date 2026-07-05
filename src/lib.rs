@@ -166,12 +166,10 @@ pub use planner::{
     ArgumentResolutionContext,
     ArgumentSource,
     BodyOutcome,
-    CapExecutor,
     CapFileMetadata,
     // Collection input
     CapInputCollection,
     CapInputFile,
-    CapSettingsProvider,
     CapShapeInfo,
     CardinalityCompatibility,
     CardinalityPattern,
@@ -184,8 +182,6 @@ pub use planner::{
     // Live capfab (unified path finding)
     LiveCapFab,
     LiveMachinePlanEdge,
-    // Executor
-    MachineExecutor,
     MachineNode,
     // Execution plan
     MachinePlan,
@@ -224,13 +220,25 @@ pub use machine::{
 pub use orchestrator::{
     assemble_cbor_array,
     assemble_cbor_sequence,
+    build_plans_from_notation,
     // Stream I/O — shared between orchestrator executor and machfab engine
     collect_terminal_output,
     decode_terminal_output,
     execute_dag,
+    // Plan execution — the single ForEach/Collect-aware executor, shared by the
+    // reference/CLI runtime and the engine.
+    execute_plan,
     map_progress,
     parse_machine_to_cap_dag,
     plan_to_resolved_graph,
+    BodyOutcomeFn,
+    DevBinRuntime,
+    EngineRuntime,
+    OutputItem,
+    PipelineItemFn,
+    PipelineResult,
+    SegmentOutput,
+    WriterResult,
     send_one_stream,
     split_cbor_array,
     split_cbor_sequence,

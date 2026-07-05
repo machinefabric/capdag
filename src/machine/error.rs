@@ -68,6 +68,33 @@ pub enum MachineAbstractionError {
     /// title for every edge.
     #[error("cap URN '{cap_urn}' has no cached definition — cannot emit a display title for render payload")]
     UncachedCap { cap_urn: String },
+
+    /// A cap could not be applied to the runtime input media flowing into it while
+    /// realizing a strand — the declared input/output specs are incompatible with the
+    /// concrete upstream media. Realization cannot invent a valid data type, so it
+    /// fails hard rather than guessing.
+    #[error("strand {strand_index}: cap '{cap_urn}' cannot be applied to runtime input '{runtime_input}': {reason}")]
+    RuntimeMediaInference {
+        strand_index: usize,
+        cap_urn: String,
+        runtime_input: String,
+        reason: String,
+    },
+
+    /// A cap edge carries more than one incoming data source. A cap is a process with
+    /// exactly one stdin (main data) input; every other argument is streamed from
+    /// node values. Two data sources have nowhere to go.
+    #[error("strand {strand_index}: cap '{cap_urn}' has {source_count} incoming data sources; a cap has exactly one stdin input")]
+    MultipleDataSources {
+        strand_index: usize,
+        cap_urn: String,
+        source_count: usize,
+    },
+
+    /// A strand's edges do not form a single connected data-flow chain reachable from
+    /// its input anchor (an unreachable edge, or a fan-in the one-stdin model forbids).
+    #[error("strand {strand_index}: edges do not form a single connected data-flow chain")]
+    DisconnectedStrand { strand_index: usize },
 }
 
 /// Errors raised during lexical / grammatical parsing of machine

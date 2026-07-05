@@ -1,12 +1,14 @@
 //! Cap Plan Builder
 //!
 //! Utility for building cap execution plans. This module provides:
-//! - Plan construction from pre-computed paths (via `build_plan_from_path`)
+//! - Branching plan construction from a resolved `MachineStrand` DAG (via
+//!   [`MachinePlanBuilder::build_plan_from_machine_strand`]) — the single, fan-out-aware
+//!   plan-construction path
 //! - Argument analysis for slot presentation
 //!
-//! NOTE: Path finding has been moved to `LiveCapFab`. Use `LiveCapFab` for
-//! `get_reachable_targets()` and `find_paths_to_exact_target()`, then pass the
-//! resulting `Strand` to `build_plan_from_path()` here.
+//! NOTE: Path finding lives in `LiveCapFab` (`get_reachable_targets()`,
+//! `find_paths_to_exact_target()`); anchor-realize the resulting `Strand` into a
+//! `Machine` and pass its `MachineStrand` to `build_plan_from_machine_strand`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -75,394 +77,262 @@ impl MachinePlanBuilder {
         false
     }
 
-    /// Build a plan from a pre-defined path.
-    /// Looks up cap definitions to find file-path argument names by media URN type.
+    /// Build a branching [`MachinePlan`] directly from a resolved [`MachineStrand`]
+    /// (a DAG), preserving fan-out — one source feeding several caps.
     ///
-    /// Takes a `Strand` from LiveCapFab which uses typed URNs.
-    /// Handles both capability steps and cardinality transition steps (ForEach/Collect).
+    /// This is the single, DAG-aware plan-construction path the whole system runs on:
+    /// notation → `MachineStrand` → this → `MachinePlan`.
     ///
-    /// ForEach/Collect pairs define iteration boundaries:
-    /// - ForEach marks the start of iteration over a list
-    /// - Caps between ForEach and Collect form the iteration body
-    /// - Collect marks the end, gathering results back into a list
-    pub async fn build_plan_from_path(
+    /// # Model
+    ///
+    /// - **One producer per data node**, so an edge is emittable once its single stdin
+    ///   source has been produced. Fan-out is a node with several outgoing edges — each
+    ///   consumer reads the same producer independently.
+    /// - **Runtime media flows per data node**, not along a single spine: each cap
+    ///   instantiates its runtime output from its source node's runtime media
+    ///   (`apply_to_runtime_input_media`).
+    /// - **ForEach is cardinality-derived** (`edge.is_loop`, set by `resolve.rs` from
+    ///   `Cap::needs_foreach`). `is_loop` marks only the *entry* — a sequence node
+    ///   feeding a scalar-input cap. Subsequent scalar caps whose source is produced
+    ///   inside that ForEach region carry `is_loop=false` and extend the same body.
+    ///   No `Collect` is synthesized — every ForEach is unclosed (per-item output).
+    /// - **One `Output` per terminal anchor** — a fan-out strand has several.
+    ///
+    /// Nested ForEach (a sequence produced *inside* a body re-mapped by a further
+    /// scalar cap) is rejected hard — the executor does not support it.
+    pub async fn build_plan_from_machine_strand(
         &self,
         name: &str,
-        path: &Strand,
+        strand: &crate::machine::graph::MachineStrand,
         input_cardinality: InputCardinality,
     ) -> PlannerResult<MachinePlan> {
-        use super::live_cap_fab::StrandStepType;
+        use crate::machine::graph::NodeId;
 
         let mut plan = MachinePlan::new(name);
+        let caps = self
+            .fabric_registry
+            .get_cached_caps()
+            .await
+            .map_err(|e| PlannerError::FabricRegistryError(format!("Failed to get caps: {e}")))?;
 
-        let caps =
-            self.fabric_registry.get_cached_caps().await.map_err(|e| {
-                PlannerError::FabricRegistryError(format!("Failed to get caps: {}", e))
+        // Per data-node state, keyed by strand NodeId.
+        let mut node_runtime: HashMap<NodeId, MediaUrn> = HashMap::new();
+        let mut producer: HashMap<NodeId, String> = HashMap::new();
+        // ForEach region a data node's data lives inside (unclosed ForEach → membership
+        // propagates to every descendant until the terminal). None = top level.
+        let mut node_region: HashMap<NodeId, String> = HashMap::new();
+
+        // Deferred ForEach nodes: fe_id → (input_producer_node, body_entry_cap, token).
+        // body_exit is tracked separately as later caps extend the region.
+        struct PendingForEach {
+            input_producer: String,
+            body_entry: String,
+            token_id: String,
+        }
+        let mut pending_foreach: HashMap<String, PendingForEach> = HashMap::new();
+        let mut region_exit: HashMap<String, String> = HashMap::new();
+
+        let input_anchors: Vec<NodeId> = strand.input_anchor_ids().to_vec();
+        for &anchor in &input_anchors {
+            let media = strand.node_urn(anchor).clone();
+            let slot_id = format!("input_slot_{anchor}");
+            plan.add_node(MachineNode::input_slot(
+                &slot_id,
+                "input",
+                &media.to_string(),
+                input_cardinality,
+            ));
+            node_runtime.insert(anchor, media);
+            producer.insert(anchor, slot_id);
+        }
+
+        let edges = strand.edges();
+        for edge in edges {
+            if edge.assignment.len() != 1 {
+                return Err(PlannerError::InvalidPath(format!(
+                    "strand '{name}': cap '{}' has {} incoming data bindings — a cap has \
+                     exactly one stdin",
+                    edge.cap_urn,
+                    edge.assignment.len()
+                )));
+            }
+        }
+
+        // Emit edges in data-flow order: an edge is ready once its source has a producer.
+        let mut emitted = vec![false; edges.len()];
+        let mut remaining = edges.len();
+        while remaining > 0 {
+            let next = edges
+                .iter()
+                .enumerate()
+                .position(|(i, e)| !emitted[i] && producer.contains_key(&e.assignment[0].source));
+            let Some(i) = next else {
+                return Err(PlannerError::InvalidPath(format!(
+                    "strand '{name}' has cap edges unreachable from its input anchor(s) \
+                     (disconnected component or cycle)"
+                )));
+            };
+            let edge = &edges[i];
+            let src = edge.assignment[0].source;
+            let tgt = edge.target;
+            let cap_urn_str = edge.cap_urn.to_string();
+            let cap = caps
+                .iter()
+                .find(|c| c.urn.to_string() == cap_urn_str)
+                .ok_or_else(|| {
+                    PlannerError::NotFound(format!("cap '{cap_urn_str}' not in registry cache"))
+                })?;
+            let in_media = node_runtime.get(&src).cloned().ok_or_else(|| {
+                PlannerError::Internal(format!("no runtime media at source node {src}"))
             })?;
+            let prev_node_id = producer.get(&src).cloned().expect("producer set with runtime");
+            let src_is_input_anchor = input_anchors.contains(&src);
+            let src_region = node_region.get(&src).cloned();
+            let cap_node_id = format!("cap_{i}");
 
-        // Build a map from cap_urn string to (file-path arg name, stdin-chainable)
-        // Only for Cap steps (not cardinality transitions)
-        let file_path_info: HashMap<String, (Option<String>, bool)> = path
-            .steps
-            .iter()
-            .filter_map(|step| {
-                if let Some(cap_urn) = step.cap_urn() {
-                    let cap_urn_str = cap_urn.to_string();
-                    let cap = caps.iter().find(|c| c.urn.to_string() == cap_urn_str);
-                    let arg_name = cap.and_then(|c| Self::find_file_path_arg(c));
-                    let chainable = cap
-                        .map(|c| Self::is_file_path_stdin_chainable(c))
-                        .unwrap_or(false);
-                    Some((cap_urn_str, (arg_name, chainable)))
+            // A ForEach wraps this cap when the edge maps per-item (`is_loop`, from
+            // notation cardinality) OR when N>1 runtime inputs make the strand input a
+            // sequence feeding a scalar-input entry cap (multi-file execution — the
+            // machine is scalar→scalar but iterates once per file).
+            let (cap_input_is_seq, _) = cap.sequence_shape();
+            let needs_foreach = edge.is_loop
+                || (src_is_input_anchor
+                    && matches!(input_cardinality, InputCardinality::Sequence)
+                    && !cap_input_is_seq);
+
+            // Nested ForEach — a sequence produced inside a body being re-mapped — is
+            // out of scope; fail hard rather than silently mis-execute.
+            if needs_foreach && src_region.is_some() {
+                return Err(PlannerError::InvalidPath(format!(
+                    "strand '{name}': cap '{cap_urn_str}' would nest a ForEach inside the \
+                     ForEach body of node {src} — nested ForEach is not supported"
+                )));
+            }
+
+            // Bindings — same rules as the linear builder.
+            let mut bindings = ArgumentBindings::new();
+            let in_spec = cap.urn.in_spec();
+            let out_spec = cap.urn.out_spec();
+            if let Some(arg_name) = Self::find_file_path_arg(cap) {
+                let chainable = Self::is_file_path_stdin_chainable(cap);
+                if src_is_input_anchor || !chainable {
+                    bindings.add_file_path(&arg_name);
                 } else {
-                    None
-                }
-            })
-            .collect();
-
-        let source_media_urn_str = path.source_media_urn.to_string();
-        let target_media_urn_str = path.target_media_urn.to_string();
-
-        let input_slot_id = "input_slot";
-        plan.add_node(MachineNode::input_slot(
-            input_slot_id,
-            "input",
-            &source_media_urn_str,
-            input_cardinality,
-        ));
-
-        // First pass: identify ForEach/Collect ranges to determine body boundaries
-        // A ForEach at index i with Collect at index j means steps [i+1, j-1] are the body
-        let _foreach_collect_ranges = Self::find_foreach_collect_ranges(&path.steps);
-
-        let mut prev_node_id = input_slot_id.to_string();
-        // Track how many cap steps we've seen (outside of ForEach bodies) for determining first cap
-        let mut cap_step_count = 0;
-        // Track which ForEach body we're inside (if any)
-        let mut inside_foreach_body: Option<(usize, String)> = None; // (foreach_step_index, foreach_node_id)
-        let mut body_entry: Option<String> = None;
-        let mut body_exit: Option<String> = None;
-
-        for (i, step) in path.steps.iter().enumerate() {
-            let node_id = format!("step_{}", i);
-
-            match &step.step_type {
-                StrandStepType::Cap { cap_urn, .. } => {
-                    let cap_urn_str = cap_urn.to_string();
-                    let mut bindings = ArgumentBindings::new();
-
-                    let cap = caps.iter().find(|c| c.urn.to_string() == cap_urn_str);
-
-                    let in_spec = cap.map(|c| c.urn.in_spec()).unwrap_or_default();
-                    let out_spec = cap.map(|c| c.urn.out_spec()).unwrap_or_default();
-
-                    // Inside a ForEach body, file paths come from the iteration item, not the original input
-                    let is_inside_body = inside_foreach_body.is_some();
-
-                    if let Some((Some(arg_name), stdin_chainable)) =
-                        file_path_info.get(&cap_urn_str)
-                    {
-                        if cap_step_count == 0 && !is_inside_body {
-                            bindings.add_file_path(arg_name);
-                        } else if *stdin_chainable {
-                            bindings.add(
-                                arg_name.to_string(),
-                                ArgumentBinding::PreviousOutput {
-                                    node_id: prev_node_id.clone(),
-                                    output_field: None,
-                                },
-                            );
-                        } else {
-                            bindings.add_file_path(arg_name);
-                        }
-                    }
-
-                    // Add Slot bindings for all non-I/O arguments
-                    if let Some(cap) = cap {
-                        for arg in cap.get_args() {
-                            if arg.media_urn == in_spec || arg.media_urn == out_spec {
-                                continue;
-                            }
-
-                            let is_file_path_type = MediaUrn::from_string(&arg.media_urn)
-                                .map(|urn| urn.is_file_path())
-                                .unwrap_or(false);
-                            if is_file_path_type {
-                                continue;
-                            }
-
-                            if bindings.bindings.contains_key(&arg.media_urn) {
-                                continue;
-                            }
-
-                            bindings.add(
-                                arg.media_urn.clone(),
-                                ArgumentBinding::Slot {
-                                    name: arg.media_urn.clone(),
-                                    schema: None,
-                                },
-                            );
-                        }
-                    }
-
-                    let node = MachineNode::cap_with_bindings_token(
-                        &node_id,
-                        &cap_urn_str,
-                        bindings,
-                        step.token_id.clone(),
+                    bindings.add(
+                        arg_name.clone(),
+                        ArgumentBinding::PreviousOutput {
+                            node_id: prev_node_id.clone(),
+                            output_field: None,
+                        },
                     );
-                    plan.add_node(node);
-                    plan.add_edge(MachinePlanEdge::direct(&prev_node_id, &node_id));
-
-                    // Track body entry/exit for ForEach
-                    if is_inside_body {
-                        if body_entry.is_none() {
-                            body_entry = Some(node_id.clone());
-                        }
-                        body_exit = Some(node_id.clone());
-                    } else {
-                        cap_step_count += 1;
-                    }
                 }
-
-                StrandStepType::ForEach { .. } => {
-                    // If we're already inside a ForEach body, finalize the outer ForEach first.
-                    // This handles nested ForEach: e.g., disbind → ForEach → make_multiple_decisions → ForEach
-                    // where the body cap produces a list and the path walks through a second ForEach
-                    // to reach the scalar target.
-                    if let Some((outer_foreach_idx, outer_foreach_node_id)) =
-                        inside_foreach_body.take()
-                    {
-                        let has_outer_body_entry = body_entry.is_some();
-                        let outer_entry = body_entry.take().unwrap_or_else(|| prev_node_id.clone());
-                        let outer_exit = body_exit.take().unwrap_or_else(|| prev_node_id.clone());
-
-                        let outer_foreach_input = if outer_foreach_idx == 0 {
-                            input_slot_id.to_string()
-                        } else {
-                            format!("step_{}", outer_foreach_idx - 1)
-                        };
-
-                        if !has_outer_body_entry {
-                            return Err(PlannerError::InvalidPath(format!(
-                                "Nested ForEach at step[{}] but outer ForEach at step[{}] ('{}') has no body caps.",
-                                i, outer_foreach_idx, outer_foreach_node_id
-                            )));
-                        }
-
-                        if outer_foreach_input == outer_entry {
-                            return Err(PlannerError::InvalidPath(format!(
-                                "Outer ForEach at step[{}] ('{}') would create a cycle: \
-                                 foreach_input='{}' == body_entry='{}'.",
-                                outer_foreach_idx,
-                                outer_foreach_node_id,
-                                outer_foreach_input,
-                                outer_entry
-                            )));
-                        }
-
-                        // Create the outer ForEach node, preserving the ForEach step's
-                        // identity so its aggregate progress maps to the client graph.
-                        let foreach_node = MachineNode::for_each_token(
-                            &outer_foreach_node_id,
-                            &outer_foreach_input,
-                            &outer_entry,
-                            &outer_exit,
-                            path.steps[outer_foreach_idx].token_id.clone(),
-                        );
-                        plan.add_node(foreach_node);
-                        plan.add_edge(MachinePlanEdge::direct(
-                            &outer_foreach_input,
-                            &outer_foreach_node_id,
-                        ));
-                        plan.add_edge(MachinePlanEdge::iteration(
-                            &outer_foreach_node_id,
-                            &outer_entry,
-                        ));
-
-                        // The outer ForEach is now finalized. prev_node_id stays as body exit.
-                        prev_node_id = outer_exit;
-                    }
-
-                    inside_foreach_body = Some((i, node_id.clone()));
-                    body_entry = None;
-                    body_exit = None;
-                    // Don't increment prev_node_id - the body's first cap will connect to the prev node
+            }
+            for arg in cap.get_args() {
+                if arg.media_urn == in_spec || arg.media_urn == out_spec {
                     continue;
                 }
-
-                StrandStepType::Collect { media_def, .. } => {
-                    if let Some((foreach_idx, foreach_node_id)) = inside_foreach_body.take() {
-                        // Collect after ForEach: close the iteration body
-                        let entry = body_entry.take().unwrap_or_else(|| prev_node_id.clone());
-                        let exit = body_exit.take().unwrap_or_else(|| prev_node_id.clone());
-
-                        // Find the node that feeds into the ForEach (the one before the ForEach step)
-                        let foreach_input = if foreach_idx == 0 {
-                            input_slot_id.to_string()
-                        } else {
-                            format!("step_{}", foreach_idx - 1)
-                        };
-
-                        // Create the ForEach node now that we know the body boundaries,
-                        // preserving the ForEach step's identity.
-                        let foreach_node = MachineNode::for_each_token(
-                            &foreach_node_id,
-                            &foreach_input,
-                            &entry,
-                            &exit,
-                            path.steps[foreach_idx].token_id.clone(),
-                        );
-                        plan.add_node(foreach_node);
-                        plan.add_edge(MachinePlanEdge::direct(&foreach_input, &foreach_node_id));
-
-                        // Create iteration edge from ForEach to body entry
-                        plan.add_edge(MachinePlanEdge::iteration(&foreach_node_id, &entry));
-
-                        // Create the Collect node
-                        let collect_node = MachineNode::collect(&node_id, vec![exit.clone()]);
-                        plan.add_node(collect_node);
-                        // Collection edge from body exit to Collect
-                        plan.add_edge(MachinePlanEdge::collection(&exit, &node_id));
-                    } else {
-                        // Standalone Collect: scalar → list-of-one (pass-through).
-                        // No ForEach body — this is a simple cardinality transition.
-                        // At execution time the data flows unchanged, only the type
-                        // annotation changes from scalar to list.
-                        let mut collect_node =
-                            MachineNode::collect(&node_id, vec![prev_node_id.clone()]);
-                        // Set output_media_urn so plan_converter can register it
-                        collect_node.node_type = ExecutionNodeType::Collect {
-                            input_nodes: vec![prev_node_id.clone()],
-                            output_media_urn: Some(media_def.to_string()),
-                        };
-                        collect_node.description =
-                            Some("Collect: scalar to list-of-one".to_string());
-                        plan.add_node(collect_node);
-                        plan.add_edge(MachinePlanEdge::direct(&prev_node_id, &node_id));
-                    }
+                let is_fp = MediaUrn::from_string(&arg.media_urn)
+                    .map(|u| u.is_file_path())
+                    .unwrap_or(false);
+                if is_fp {
+                    continue;
                 }
-            }
-
-            prev_node_id = node_id;
-        }
-
-        // Handle unclosed ForEach - this is valid when the output is per-iteration
-        // (e.g., PDF -> pages -> process each -> multiple output files)
-        if let Some((foreach_idx, foreach_node_id)) = inside_foreach_body.take() {
-            let has_body_entry = body_entry.is_some();
-            let has_body_exit = body_exit.is_some();
-            let entry = body_entry.take().unwrap_or_else(|| prev_node_id.clone());
-            let exit = body_exit.take().unwrap_or_else(|| prev_node_id.clone());
-
-            // Find the node that feeds into the ForEach (the one before the ForEach step)
-            let foreach_input = if foreach_idx == 0 {
-                input_slot_id.to_string()
-            } else {
-                format!("step_{}", foreach_idx - 1)
-            };
-
-            // If the ForEach body has no Cap nodes, this is a terminal unwrap:
-            // the path walked through a ForEach edge to reach the scalar target type,
-            // but there's nothing to execute per-item. This happens when a prior ForEach
-            // body produces a list and the path traverses a second ForEach to the item type.
-            // E.g., path: disbind → ForEach(1) → make_multiple_decisions → ForEach(2)
-            // ForEach(1) is the real iteration; ForEach(2) just says "the body output is a list,
-            // target is the item." We skip it — the executor handles body list output via
-            // the unclosed ForEach mechanism.
-            if !has_body_entry {
-                // Don't create a ForEach node. prev_node_id stays as is.
-                // The plan's output will connect to the node before this ForEach.
-            } else {
-                // Validate: ForEach input must differ from body entry to avoid cycles
-                if foreach_input == entry {
-                    return Err(PlannerError::InvalidPath(format!(
-                        "ForEach at step[{}] ('{}') would create a cycle: \
-                         foreach_input='{}' == body_entry='{}'. \
-                         The cap that produces the list cannot also be the ForEach body.",
-                        foreach_idx, foreach_node_id, foreach_input, entry
-                    )));
+                if bindings.bindings.contains_key(&arg.media_urn) {
+                    continue;
                 }
-
-                // Create the ForEach node, preserving the ForEach step's identity.
-                let foreach_node = MachineNode::for_each_token(
-                    &foreach_node_id,
-                    &foreach_input,
-                    &entry,
-                    &exit,
-                    path.steps[foreach_idx].token_id.clone(),
+                bindings.add(
+                    arg.media_urn.clone(),
+                    ArgumentBinding::Slot {
+                        name: arg.media_urn.clone(),
+                        schema: None,
+                    },
                 );
-                plan.add_node(foreach_node);
-                plan.add_edge(MachinePlanEdge::direct(&foreach_input, &foreach_node_id));
-
-                // Create iteration edge from ForEach to body entry
-                plan.add_edge(MachinePlanEdge::iteration(&foreach_node_id, &entry));
-
-                // Output connects to the body exit (each iteration produces output)
-                prev_node_id = exit;
             }
+
+            plan.add_node(MachineNode::cap_with_bindings_token(
+                &cap_node_id,
+                &cap_urn_str,
+                bindings,
+                edge.token_id.clone(),
+            ));
+
+            if needs_foreach {
+                // ForEach entry — the cap becomes a body under a (deferred) ForEach node.
+                let fe_id = format!("foreach_{i}");
+                pending_foreach.insert(
+                    fe_id.clone(),
+                    PendingForEach {
+                        input_producer: prev_node_id.clone(),
+                        body_entry: cap_node_id.clone(),
+                        token_id: edge.token_id.clone(),
+                    },
+                );
+                region_exit.insert(fe_id.clone(), cap_node_id.clone());
+                node_region.insert(tgt, fe_id);
+            } else if let Some(region) = src_region {
+                // Scalar cap extending an existing ForEach body — chain onto the producer
+                // and extend the region's exit.
+                plan.add_edge(MachinePlanEdge::direct(&prev_node_id, &cap_node_id));
+                region_exit.insert(region.clone(), cap_node_id.clone());
+                node_region.insert(tgt, region);
+            } else {
+                // Top-level scalar cap.
+                plan.add_edge(MachinePlanEdge::direct(&prev_node_id, &cap_node_id));
+            }
+
+            let out_media = edge.cap_urn.apply_to_runtime_input_media(&in_media).map_err(|e| {
+                PlannerError::InvalidPath(format!(
+                    "runtime media inference for '{cap_urn_str}' on '{in_media}': {e}"
+                ))
+            })?;
+            node_runtime.insert(tgt, out_media);
+            producer.insert(tgt, cap_node_id);
+            emitted[i] = true;
+            remaining -= 1;
         }
 
-        let output_id = "output";
-        plan.add_node(MachineNode::output(output_id, "result", &prev_node_id));
-        plan.add_edge(MachinePlanEdge::direct(&prev_node_id, output_id));
+        // Materialize the deferred ForEach nodes now that body extents are known.
+        for (fe_id, pf) in &pending_foreach {
+            let body_exit = region_exit
+                .get(fe_id)
+                .cloned()
+                .unwrap_or_else(|| pf.body_entry.clone());
+            plan.add_node(MachineNode::for_each_token(
+                fe_id,
+                &pf.input_producer,
+                &pf.body_entry,
+                &body_exit,
+                pf.token_id.clone(),
+            ));
+            plan.add_edge(MachinePlanEdge::direct(&pf.input_producer, fe_id));
+            plan.add_edge(MachinePlanEdge::iteration(fe_id, &pf.body_entry));
+        }
 
-        plan.metadata = Some(HashMap::from([
-            ("source_media_urn".to_string(), json!(source_media_urn_str)),
-            ("target_media_urn".to_string(), json!(target_media_urn_str)),
-        ]));
+        // One Output per terminal anchor.
+        for &anchor in strand.output_anchor_ids() {
+            let src_node = producer.get(&anchor).ok_or_else(|| {
+                PlannerError::Internal(format!("terminal node {anchor} has no producer"))
+            })?;
+            let out_id = format!("output_{anchor}");
+            plan.add_node(MachineNode::output(&out_id, "result", src_node));
+            plan.add_edge(MachinePlanEdge::direct(src_node, &out_id));
+        }
 
-        // Validate the plan is a DAG (no cycles) before returning.
-        // This catches structural bugs in plan construction that would
-        // cause find_first_foreach() to fail (it relies on topological_order).
+        if let Some(&first_input) = input_anchors.first() {
+            let source_media = strand.node_urn(first_input).to_string();
+            plan.metadata = Some(HashMap::from([(
+                "source_media_urn".to_string(),
+                json!(source_media),
+            )]));
+        }
+
         plan.validate()?;
-        if let Err(e) = plan.topological_order() {
-            // Log full plan structure for diagnostics
-            tracing::error!(
-                "build_plan_from_path produced a cyclic plan: {}. \
-                 Nodes: {:?}, Edges: {:?}",
-                e,
-                plan.nodes.keys().collect::<Vec<_>>(),
-                plan.edges
-                    .iter()
-                    .map(|e| format!("{}→{} ({:?})", e.from_node, e.to_node, e.edge_type))
-                    .collect::<Vec<_>>()
-            );
-            return Err(PlannerError::InvalidPath(format!(
-                "Plan construction produced a cycle (not a DAG): {}. \
-                 This is a bug in the plan builder.",
-                e
-            )));
-        }
-
+        plan.topological_order().map_err(|e| {
+            PlannerError::InvalidPath(format!(
+                "build_plan_from_machine_strand produced a cyclic plan: {e}"
+            ))
+        })?;
         Ok(plan)
-    }
-
-    /// Find ForEach/Collect ranges in a path.
-    /// Returns pairs of (foreach_index, collect_index).
-    fn find_foreach_collect_ranges(
-        steps: &[super::live_cap_fab::StrandStep],
-    ) -> Vec<(usize, usize)> {
-        use super::live_cap_fab::StrandStepType;
-
-        let mut ranges = Vec::new();
-        let mut foreach_stack: Vec<usize> = Vec::new();
-
-        for (i, step) in steps.iter().enumerate() {
-            match &step.step_type {
-                StrandStepType::ForEach { .. } => {
-                    foreach_stack.push(i);
-                }
-                StrandStepType::Collect { .. } => {
-                    if let Some(foreach_idx) = foreach_stack.pop() {
-                        ranges.push((foreach_idx, i));
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        ranges
     }
 }
 

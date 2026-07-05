@@ -3,8 +3,12 @@
 //! A unified CLI for executing and validating machine notation pipelines.
 
 use capdag::machine::parse_machine_with_node_names;
-use capdag::orchestrator::{execute_dag, parse_machine_to_cap_dag, NodeData};
-use capdag::{CapProgressFn, CartridgeChannel, FabricRegistry, PipelineLogFn, StreamMeta};
+use capdag::orchestrator::{
+    build_plans_from_notation, execute_plan, parse_machine_to_cap_dag, DevBinRuntime, EngineRuntime,
+};
+use capdag::{
+    CapProgressFn, CartridgeChannel, ExecutionNodeType, FabricRegistry, PipelineLogFn, StreamMeta,
+};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -316,10 +320,9 @@ async fn main() {
         }
     };
 
-    // Create the unified FabricRegistry. Holds cap definitions and
-    // media defs together; consumed by both `parse_machine_to_cap_dag`
-    // (for resolution) and `execute_dag` (for runtime cap lookup and
-    // adapter dispatch).
+    // Create the unified FabricRegistry. Holds cap definitions and media defs
+    // together; consumed by `build_plans_from_notation` (for resolution) and the
+    // runtime (for cap lookup and adapter dispatch during execution).
     let registry = match FabricRegistry::new().await {
         Ok(reg) => Arc::new(reg),
         Err(e) => {
@@ -328,47 +331,65 @@ async fn main() {
         }
     };
 
-    // Parse and validate machine notation
-    let graph = match parse_machine_to_cap_dag(&notation, registry.as_ref()).await {
-        Ok(g) => g,
+    // --mermaid: render the resolved DAG as a diagram and exit. This is a flat
+    // visualization (parse_machine_to_cap_dag), not an execution path — execution
+    // runs through the ForEach/Collect-aware planner below.
+    if mermaid_mode {
+        match parse_machine_to_cap_dag(&notation, registry.as_ref()).await {
+            Ok(graph) => {
+                println!("{}", graph.to_mermaid());
+                process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Validation failed: {}", e);
+                process::exit(1);
+            }
+        }
+    }
+
+    // Build execution plans through the single ForEach/Collect-aware front-end — the
+    // same planner path the engine runs. One plan per connected strand.
+    let plans = match build_plans_from_notation(&notation, registry.clone()).await {
+        Ok(p) => p,
         Err(e) => {
             eprintln!("Validation failed: {}", e);
             process::exit(1);
         }
     };
 
-    // --mermaid: output diagram and exit
-    if mermaid_mode {
-        println!("{}", graph.to_mermaid());
-        process::exit(0);
-    }
-
-    // --gen-values: output a values JSON template and exit.
-    // For each cap step in the graph, find non-stdin args (the ones
-    // that can't be wired via data-flow edges) and emit them keyed
-    // by target node name → arg media URN → default value.
+    // --gen-values: emit a values JSON template and exit. For each cap step, list the
+    // non-stdin args (the ones no data-flow edge can supply — model-spec, budgets, …)
+    // keyed by plan node id → arg media URN → default. These keys are exactly what
+    // `--values` feeds back into the executor as extra-arg streams.
     if gen_values_mode {
         let mut template: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-        let mut seen_targets: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-        for edge in &graph.edges {
-            if !seen_targets.insert(edge.to.clone()) {
-                continue;
-            }
-            let mut node_args = serde_json::Map::new();
-            for arg in &edge.cap.args {
-                let has_stdin = arg
-                    .sources
-                    .iter()
-                    .any(|s| matches!(s, capdag::cap::definition::ArgSource::Stdin { .. }));
-                if has_stdin {
+        for plan in &plans {
+            for (node_id, node) in &plan.nodes {
+                let Some(cap_urn) = node.cap_urn() else {
                     continue;
+                };
+                let cap = match registry.get_cap(cap_urn).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Error resolving cap '{}': {}", cap_urn, e);
+                        process::exit(1);
+                    }
+                };
+                let mut node_args = serde_json::Map::new();
+                for arg in cap.get_args() {
+                    let has_stdin = arg
+                        .sources
+                        .iter()
+                        .any(|s| matches!(s, capdag::cap::definition::ArgSource::Stdin { .. }));
+                    if has_stdin {
+                        continue;
+                    }
+                    let value = arg.default_value.clone().unwrap_or(serde_json::Value::Null);
+                    node_args.insert(arg.media_urn.clone(), value);
                 }
-                let value = arg.default_value.clone().unwrap_or(serde_json::Value::Null);
-                node_args.insert(arg.media_urn.clone(), value);
-            }
-            if !node_args.is_empty() {
-                template.insert(edge.to.clone(), serde_json::Value::Object(node_args));
+                if !node_args.is_empty() {
+                    template.insert(node_id.clone(), serde_json::Value::Object(node_args));
+                }
             }
         }
         println!(
@@ -401,20 +422,14 @@ async fn main() {
     // Sort files for consistent ordering
     all_files.sort();
 
-    // For now, use the first input node for all files
-    let input_node = &input_nodes[0];
-
     eprintln!("=== capdag: Machine Notation Execution ===\n");
     eprintln!("Machine file: {}", machine_file);
-    eprintln!("Input node: {}", input_node);
+    eprintln!("Input node(s): {}", input_nodes.join(", "));
+    eprintln!("Strands (plans): {}", plans.len());
     eprintln!("Input files: {}", all_files.len());
     for f in &all_files {
         eprintln!("  - {}", f.display());
     }
-
-    eprintln!("Parsing and validating machine notation...");
-    eprintln!("  Nodes: {}", graph.nodes.len());
-    eprintln!("  Edges: {}", graph.edges.len());
 
     // Set up cartridge directory
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -454,7 +469,30 @@ async fn main() {
             HashMap::new()
         };
 
-    eprintln!("\n=== Executing DAG ===\n");
+    // The executor speaks `cap_arguments` (raw arg-stream bytes) — its single argument
+    // format. Serialize the JSON values file: a string arg is its own UTF-8 bytes,
+    // anything else is its JSON encoding.
+    let cap_arguments: HashMap<String, Vec<(String, Vec<u8>)>> = node_values
+        .iter()
+        .map(|(node, args)| {
+            let pairs = args
+                .iter()
+                .map(|(media, value)| {
+                    let bytes = match value {
+                        serde_json::Value::String(s) => s.as_bytes().to_vec(),
+                        other => serde_json::to_vec(other).unwrap_or_else(|e| {
+                            eprintln!("Error serializing value for arg '{}': {}", media, e);
+                            process::exit(1);
+                        }),
+                    };
+                    (media.clone(), bytes)
+                })
+                .collect();
+            (node.clone(), pairs)
+        })
+        .collect();
+
+    eprintln!("\n=== Executing ===\n");
     if !dev_binaries.is_empty() {
         eprintln!("Dev mode: {} local binaries", dev_binaries.len());
         for bin in &dev_binaries {
@@ -465,6 +503,53 @@ async fn main() {
         eprintln!("Values: {} node(s) configured", node_values.len());
     }
 
+    // The reference runtime: hosts cartridges by spawning them per segment via
+    // execute_dag, keeps output in memory, and fails hard on any ForEach body
+    // failure. execute_plan drives the ForEach/Collect decomposition on top of it.
+    let runtime: Arc<dyn EngineRuntime> = Arc::new(DevBinRuntime {
+        cartridge_dir: cartridge_dir.clone(),
+        registry_url: registry_url.clone(),
+        channel: BUILD_CHANNEL,
+        fabric_manifest_version: capdag::FABRIC_MANIFEST_VERSION,
+        dev_binaries: dev_binaries.clone(),
+        bundled_providers_dir: bundled_providers_dir.clone(),
+        fabric_registry: registry.clone(),
+    });
+
+    let progress: CapProgressFn = Arc::new(|p: f32, cap_urn: &str, msg: &str| {
+        eprintln!("  [{:5.1}%] {} {}", p * 100.0, cap_urn, msg);
+    });
+    let log_fn: PipelineLogFn = Arc::new(
+        |cap_urn: &str,
+         level: &str,
+         message: &str,
+         meta: Option<StreamMeta>,
+         body_index: Option<usize>| {
+            let meta_suffix = match meta.as_ref().and_then(|meta| meta.get("progress")) {
+                Some(ciborium::Value::Float(progress)) => {
+                    format!(" [meta progress={:.1}%]", progress * 100.0)
+                }
+                Some(ciborium::Value::Integer(progress)) => {
+                    let progress: i128 = (*progress).into();
+                    format!(" [meta progress={}]", progress)
+                }
+                _ => meta
+                    .as_ref()
+                    .map(|meta| format!(" [meta {:?}]", meta))
+                    .unwrap_or_default(),
+            };
+            match body_index {
+                Some(index) => {
+                    eprintln!(
+                        "  [log:{} body={}]{} {} {}",
+                        level, index, meta_suffix, cap_urn, message
+                    )
+                }
+                None => eprintln!("  [log:{}]{} {} {}", level, meta_suffix, cap_urn, message),
+            }
+        },
+    );
+
     // Process each file
     let mut success_count = 0;
     let mut error_count = 0;
@@ -473,96 +558,116 @@ async fn main() {
         eprintln!("--- Processing: {} ---", file.display());
         eprintln!("Run: {}", notation);
 
-        let mut initial_inputs = HashMap::new();
-        initial_inputs.insert(input_node.clone(), NodeData::FilePath(file.clone()));
-        // The CLI feeds a single file into a single input node — by
-        // construction a scalar blob. The orchestrator requires every
-        // entry in `initial_inputs` to have a matching sequence flag;
-        // we mark this one explicitly as `false` rather than leaning
-        // on a default (defaults hide wiring mismatches).
-        let mut initial_is_sequence = HashMap::new();
-        initial_is_sequence.insert(input_node.clone(), false);
-
-        let progress: CapProgressFn = Arc::new(|p: f32, cap_urn: &str, msg: &str| {
-            eprintln!("  [{:5.1}%] {} {}", p * 100.0, cap_urn, msg);
-        });
-        let log_fn: PipelineLogFn = Arc::new(
-            |cap_urn: &str,
-             level: &str,
-             message: &str,
-             meta: Option<StreamMeta>,
-             body_index: Option<usize>| {
-                let meta_suffix = match meta.as_ref().and_then(|meta| meta.get("progress")) {
-                    Some(ciborium::Value::Float(progress)) => {
-                        format!(" [meta progress={:.1}%]", progress * 100.0)
-                    }
-                    Some(ciborium::Value::Integer(progress)) => {
-                        let progress: i128 = (*progress).into();
-                        format!(" [meta progress={}]", progress)
-                    }
-                    _ => meta
-                        .as_ref()
-                        .map(|meta| format!(" [meta {:?}]", meta))
-                        .unwrap_or_default(),
-                };
-                match body_index {
-                    Some(index) => {
-                        eprintln!(
-                            "  [log:{} body={}]{} {} {}",
-                            level, index, meta_suffix, cap_urn, message
-                        )
-                    }
-                    None => eprintln!("  [log:{}]{} {} {}", level, meta_suffix, cap_urn, message),
-                }
-            },
-        );
-
-        match execute_dag(
-            &graph,
-            cartridge_dir.clone(),
-            registry_url.clone(),
-            BUILD_CHANNEL,
-            capdag::FABRIC_MANIFEST_VERSION,
-            initial_inputs,
-            initial_is_sequence,
-            dev_binaries.clone(),
-            bundled_providers_dir.clone(),
-            registry.clone(),
-            Some(&progress),
-            &log_fn,
-            &node_values,
-        )
-        .await
-        {
-            Ok(outputs) => {
-                eprintln!("Results:");
-                for (node, data) in outputs {
-                    match data {
-                        NodeData::Bytes(ref b) => eprintln!("  {}: {} bytes", node, b.len()),
-                        NodeData::Text(ref t) => {
-                            let preview = if t.len() > 80 { &t[..80] } else { t };
-                            eprintln!("  {}: {}", node, preview.replace('\n', " "));
-                        }
-                        NodeData::FilePath(ref p) => eprintln!("  {}: {}", node, p.display()),
-                    }
-                }
-                success_count += 1;
-            }
+        // The CLI feeds a single file as a scalar blob into each plan's single input
+        // slot. A ForEach inside the strand is driven by an intermediate cap's
+        // sequence output, never by this input.
+        let file_bytes = match fs::read(file) {
+            Ok(b) => b,
             Err(e) => {
-                eprintln!("{}", e);
+                eprintln!("Error reading input file '{}': {}", file.display(), e);
                 error_count += 1;
+                continue;
             }
+        };
+
+        // Each connected strand is its own plan; run them all against this file.
+        let mut file_failed = false;
+        for (idx, plan) in plans.iter().enumerate() {
+            // The plan's single input slot receives the file. A strand with more than
+            // one input anchor cannot be driven by one CLI file — fail hard rather than
+            // guess which input gets the data.
+            let input_slots: Vec<&String> = plan
+                .nodes
+                .iter()
+                .filter(|(_, n)| matches!(n.node_type, ExecutionNodeType::InputSlot { .. }))
+                .map(|(id, _)| id)
+                .collect();
+            let input_slot_id = match input_slots.as_slice() {
+                [single] => (*single).clone(),
+                other => {
+                    eprintln!(
+                        "strand {idx} has {} input anchors — a single CLI file drives a \
+                         single-input machine only (inputs: {:?})",
+                        other.len(),
+                        other
+                    );
+                    file_failed = true;
+                    continue;
+                }
+            };
+            let mut initial_inputs: HashMap<String, Vec<u8>> = HashMap::new();
+            initial_inputs.insert(input_slot_id.clone(), file_bytes.clone());
+            // The executor requires every input node to carry an explicit sequence
+            // flag — a default would hide a wiring mismatch. This one is scalar.
+            let mut initial_is_sequence: HashMap<String, bool> = HashMap::new();
+            initial_is_sequence.insert(input_slot_id, false);
+
+            match execute_plan(
+                plan,
+                runtime.clone(),
+                initial_inputs,
+                initial_is_sequence,
+                &cap_arguments,
+                Some(&progress),
+                None,
+                Some(&log_fn),
+                None,
+                None,
+            )
+            .await
+            {
+                Ok(result) => {
+                    let strand_label = if plans.len() > 1 {
+                        format!(" [strand {}]", idx)
+                    } else {
+                        String::new()
+                    };
+                    // A fan-out machine has several terminals (one per Output node).
+                    for terminal in &result.terminals {
+                        eprintln!(
+                            "Result{} [{}]: media={} sequence={} items={}",
+                            strand_label,
+                            terminal.output_node_id,
+                            terminal.media_urn,
+                            terminal.is_sequence,
+                            terminal.items.len()
+                        );
+                        for item in &terminal.items {
+                            let preview_len = item.data.len().min(80);
+                            match std::str::from_utf8(&item.data[..preview_len]) {
+                                Ok(text) => eprintln!(
+                                    "  [{}] {} bytes: {}",
+                                    item.index,
+                                    item.data.len(),
+                                    text.replace('\n', " ")
+                                ),
+                                Err(_) => eprintln!(
+                                    "  [{}] {} bytes (binary)",
+                                    item.index,
+                                    item.data.len()
+                                ),
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{}", e);
+                    file_failed = true;
+                }
+            }
+        }
+
+        if file_failed {
+            error_count += 1;
+        } else {
+            success_count += 1;
         }
     }
 
     eprintln!("=== Summary ===");
     eprintln!("Processed: {}", all_files.len());
     eprintln!("Success: {}", success_count);
-    if error_count > 0 {
-        eprintln!("Errors: {}", error_count);
-    } else {
-        eprintln!("Errors: {}", error_count);
-    }
+    eprintln!("Errors: {}", error_count);
 
     if error_count > 0 {
         process::exit(1);

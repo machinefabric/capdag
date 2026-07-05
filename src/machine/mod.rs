@@ -32,6 +32,7 @@ pub mod error;
 pub mod graph;
 pub mod notation_ast;
 pub mod parser;
+pub mod realize;
 pub mod resolve;
 pub mod serializer;
 
@@ -53,4 +54,5 @@ pub use parser::{
     parse_machine, parse_machine_async, parse_machine_with_node_names,
     parse_machine_with_node_names_async, StrandNodeNames,
 };
+pub use realize::realize_strand;
 pub use serializer::NotationFormat;

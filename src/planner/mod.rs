@@ -5,7 +5,10 @@
 //! - **Argument binding** and resolution for cap execution
 //! - **Execution plan** structures (DAG of caps)
 //! - **Plan builder** — path finding and plan construction
-//! - **Plan executor** — generic execution engine with pluggable cap backends
+//!
+//! Plans are executed by the single ForEach/Collect-aware
+//! [`execute_plan`](crate::orchestrator::execute_plan) in the orchestrator — there is
+//! no planner-local executor.
 //!
 //! ## Shape Dimensions
 //!
@@ -23,9 +26,9 @@ use thiserror::Error;
 pub mod argument_binding;
 pub mod cardinality;
 pub mod collection_input;
-pub mod executor;
 pub mod live_cap_fab;
 pub mod plan;
+pub mod plan_analysis;
 pub mod plan_builder;
 
 // Re-exports - Shape types (cardinality + structure)
@@ -49,7 +52,10 @@ pub use cardinality::{
     StructureCompatibility,
 };
 pub use collection_input::{CapInputCollection, CollectionFile};
-pub use executor::MachineExecutor;
+pub use plan_analysis::{
+    derive_collected_media_urn, derive_foreach_media_urns, derive_output_media_urn,
+    derive_output_producing_cap_urn, find_collect_for_foreach, resolve_plan_output,
+};
 pub use live_cap_fab::{
     LiveCapFab, LiveMachinePlanEdge, LiveMachinePlanEdgeType, PathFindingEvent,
     ReachableTargetInfo, Strand, StrandStep, StrandStepType,
@@ -84,49 +90,3 @@ pub enum PlannerError {
 }
 
 pub type PlannerResult<T> = Result<T, PlannerError>;
-
-// =============================================================================
-// CapExecutor Trait
-// =============================================================================
-
-/// Abstracts cap invocation so different backends can be plugged in.
-///
-/// - **machfab** implements via `CapService.execute_cap()` through the relay
-/// - **macino** implements by spawning cartridge binaries
-#[async_trait::async_trait]
-pub trait CapExecutor: Send + Sync {
-    /// Execute a cap and return the raw output bytes.
-    async fn execute_cap(
-        &self,
-        cap_urn: &str,
-        arguments: &[crate::CapArgumentValue],
-        preferred_cap: Option<&str>,
-    ) -> PlannerResult<Vec<u8>>;
-
-    /// Check if a cap is available (has a provider).
-    async fn has_cap(&self, cap_urn: &str) -> bool;
-
-    /// Get the cap definition from the registry.
-    async fn get_cap(&self, cap_urn: &str) -> PlannerResult<crate::Cap>;
-}
-
-// =============================================================================
-// CapSettingsProvider Trait
-// =============================================================================
-
-/// Provides overridden default values for cap arguments.
-///
-/// The planner resolves arg defaults from cap definitions first,
-/// then checks the settings provider for overrides.
-///
-/// - **machfab** implements via DB adapter (`cap_setting_repo.find_by_cap_urn()`)
-/// - **macino** implements via NDJSON file reader
-#[async_trait::async_trait]
-pub trait CapSettingsProvider: Send + Sync {
-    /// Get overridden default values for a cap's arguments.
-    /// Keys are media URNs (argument identifiers), values are JSON values.
-    async fn get_settings(
-        &self,
-        cap_urn: &str,
-    ) -> PlannerResult<std::collections::HashMap<String, serde_json::Value>>;
-}
