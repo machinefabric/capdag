@@ -607,25 +607,32 @@ pub async fn execute_plan(
     for (nid, items) in trunk_data {
         node_data.insert(nid, items);
     }
-    let trunk_saved: Vec<String> =
-        trunk_writers.values().flatten().flat_map(|w| w.saved_paths.clone()).collect();
-    let trunk_bytes: usize = trunk_writers.values().flatten().map(|w| w.total_bytes).sum();
+    // Record a trunk BodyOutcome ONLY for the linear/no-ForEach case, where the trunk
+    // is the whole pipeline (one outcome, like a linear run). When ForEach regions
+    // exist, `body_outcomes` must be the per-item bodies only — the trunk caps surface
+    // as their own run-graph nodes, so a trunk outcome would render as a phantom extra
+    // media item (an empty "Item 1") in the ForEach group.
+    if regions.is_empty() {
+        let trunk_saved: Vec<String> =
+            trunk_writers.values().flatten().flat_map(|w| w.saved_paths.clone()).collect();
+        let trunk_bytes: usize = trunk_writers.values().flatten().map(|w| w.total_bytes).sum();
+        body_outcomes.push(BodyOutcome {
+            body_index: 0,
+            success: true,
+            cap_urns: trunk_cap_urns,
+            failed_cap: None,
+            error: None,
+            title: None,
+            saved_paths: trunk_saved,
+            total_bytes: trunk_bytes,
+            duration_ms: trunk_ms,
+            item_preview_text: None,
+            item_byte_count: 0,
+        });
+    }
     for (sink, ws) in trunk_writers {
         node_writers.entry(sink).or_default().extend(ws);
     }
-    body_outcomes.push(BodyOutcome {
-        body_index: 0,
-        success: true,
-        cap_urns: trunk_cap_urns,
-        failed_cap: None,
-        error: None,
-        title: None,
-        saved_paths: trunk_saved,
-        total_bytes: trunk_bytes,
-        duration_ms: trunk_ms,
-        item_preview_text: None,
-        item_byte_count: 0,
-    });
 
     // ── ForEach regions ──
     let region_band = 1.0 - trunk_weight;
