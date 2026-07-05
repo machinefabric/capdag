@@ -147,25 +147,18 @@ impl MachinePlanBuilder {
         }
 
         let edges = strand.edges();
-        for edge in edges {
-            if edge.assignment.len() != 1 {
-                return Err(PlannerError::InvalidPath(format!(
-                    "strand '{name}': cap '{}' has {} incoming data bindings — a cap has \
-                     exactly one stdin",
-                    edge.cap_urn,
-                    edge.assignment.len()
-                )));
-            }
-        }
 
-        // Emit edges in data-flow order: an edge is ready once its source has a producer.
+        // Emit edges in data-flow order: an edge is ready once EVERY one of its sources
+        // (the main input and any convergence inputs) has a producer.
         let mut emitted = vec![false; edges.len()];
         let mut remaining = edges.len();
         while remaining > 0 {
-            let next = edges
-                .iter()
-                .enumerate()
-                .position(|(i, e)| !emitted[i] && producer.contains_key(&e.assignment[0].source));
+            let next = edges.iter().enumerate().position(|(i, e)| {
+                !emitted[i]
+                    && e.assignment
+                        .iter()
+                        .all(|b| producer.contains_key(&b.source))
+            });
             let Some(i) = next else {
                 return Err(PlannerError::InvalidPath(format!(
                     "strand '{name}' has cap edges unreachable from its input anchor(s) \
@@ -173,7 +166,6 @@ impl MachinePlanBuilder {
                 )));
             };
             let edge = &edges[i];
-            let src = edge.assignment[0].source;
             let tgt = edge.target;
             let cap_urn_str = edge.cap_urn.to_string();
             let cap = caps
@@ -182,13 +174,59 @@ impl MachinePlanBuilder {
                 .ok_or_else(|| {
                     PlannerError::NotFound(format!("cap '{cap_urn_str}' not in registry cache"))
                 })?;
+
+            // The MAIN input is the binding feeding the cap's stdin argument — it threads
+            // the runtime media and drives ForEach/region placement. Every other binding
+            // is a convergence input (another cap's output routed into a named non-main
+            // arg), emitted as an `Arg` edge below. Identified by tagged-URN equivalence.
+            let in_spec_urn = MediaUrn::from_string(cap.urn.in_spec()).map_err(|e| {
+                PlannerError::InvalidPath(format!(
+                    "cap '{cap_urn_str}' in= URN '{}' invalid: {e}",
+                    cap.urn.in_spec()
+                ))
+            })?;
+            let stdin_arg = cap
+                .args
+                .iter()
+                .find(|a| a.is_main_input(&in_spec_urn))
+                .ok_or_else(|| {
+                    PlannerError::InvalidPath(format!(
+                        "cap '{cap_urn_str}' declares no main-input arg (none whose declared \
+                         URN or stdin source is its in=)"
+                    ))
+                })?;
+            let stdin_arg_urn = MediaUrn::from_string(&stdin_arg.media_urn).map_err(|e| {
+                PlannerError::InvalidPath(format!(
+                    "cap '{cap_urn_str}' stdin arg URN '{}' invalid: {e}",
+                    stdin_arg.media_urn
+                ))
+            })?;
+            let primary = edge
+                .assignment
+                .iter()
+                .find(|b| {
+                    b.cap_arg_media_urn
+                        .is_equivalent(&stdin_arg_urn)
+                        .unwrap_or(false)
+                })
+                .ok_or_else(|| {
+                    PlannerError::InvalidPath(format!(
+                        "strand '{name}': cap '{cap_urn_str}' has no source bound to its stdin arg"
+                    ))
+                })?;
+            let src = primary.source;
             let in_media = node_runtime.get(&src).cloned().ok_or_else(|| {
                 PlannerError::Internal(format!("no runtime media at source node {src}"))
             })?;
             let prev_node_id = producer.get(&src).cloned().expect("producer set with runtime");
             let src_is_input_anchor = input_anchors.contains(&src);
             let src_region = node_region.get(&src).cloned();
-            let cap_node_id = format!("cap_{i}");
+            // The cap node's id IS the strand step's stable identity (StrandStep.token_id,
+            // a UUID minted at parse and threaded through resolved_strand → proto →
+            // run graph). Using it as the node id makes it the single execution key: the
+            // wizard binds argument values by this same token_id, so delivery is keyed by
+            // identity, never by a positional index that shifts when the plan changes.
+            let cap_node_id = edge.token_id.clone();
 
             // A ForEach wraps this cap when the edge maps per-item (`is_loop`, from
             // notation cardinality) OR when N>1 runtime inputs make the strand input a
@@ -231,10 +269,24 @@ impl MachinePlanBuilder {
                 if arg.media_urn == in_spec || arg.media_urn == out_spec {
                     continue;
                 }
-                let is_fp = MediaUrn::from_string(&arg.media_urn)
-                    .map(|u| u.is_file_path())
-                    .unwrap_or(false);
-                if is_fp {
+                let arg_urn = MediaUrn::from_string(&arg.media_urn).map_err(|e| {
+                    PlannerError::InvalidPath(format!(
+                        "cap '{cap_urn_str}' arg URN '{}' invalid: {e}",
+                        arg.media_urn
+                    ))
+                })?;
+                if arg_urn.is_file_path() {
+                    continue;
+                }
+                // Convergence-fed args are delivered by an `Arg` producer edge (below),
+                // never requested from the user — so they are not slot bindings.
+                let is_convergence_fed = edge.assignment.iter().any(|b| {
+                    !b.cap_arg_media_urn
+                        .is_equivalent(&stdin_arg_urn)
+                        .unwrap_or(false)
+                        && b.cap_arg_media_urn.is_equivalent(&arg_urn).unwrap_or(false)
+                });
+                if is_convergence_fed {
                     continue;
                 }
                 if bindings.bindings.contains_key(&arg.media_urn) {
@@ -278,6 +330,45 @@ impl MachinePlanBuilder {
             } else {
                 // Top-level scalar cap.
                 plan.add_edge(MachinePlanEdge::direct(&prev_node_id, &cap_node_id));
+            }
+
+            // Convergence edges: each non-main binding wires its producer's output into
+            // the named non-main arg of this cap. The producer is already emitted
+            // (emittability requires every source produced); the runtime streams it as
+            // this cap's arg, keyed by the arg URN.
+            for b in &edge.assignment {
+                if b.cap_arg_media_urn
+                    .is_equivalent(&stdin_arg_urn)
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
+                // The stream URN the cartridge demuxes this arg by is the arg's STDIN
+                // URN — which may differ from its slot media URN (the binding's
+                // identity). Look up the arg by its slot URN, then take its stdin URN.
+                let arg_def = cap
+                    .args
+                    .iter()
+                    .find(|a| {
+                        MediaUrn::from_string(&a.media_urn)
+                            .map(|u| u.is_equivalent(&b.cap_arg_media_urn).unwrap_or(false))
+                            .unwrap_or(false)
+                    })
+                    .ok_or_else(|| {
+                        PlannerError::InvalidPath(format!(
+                            "cap '{cap_urn_str}': convergence arg '{}' is not in the cap definition",
+                            b.cap_arg_media_urn
+                        ))
+                    })?;
+                // The stream URN the cartridge demuxes this arg by: its stdin source
+                // URN if it declares one, else its declared URN (a producer-fed arg
+                // need not use stdin).
+                let stream_urn = arg_def.stream_urn().to_string();
+                let producer_node = producer
+                    .get(&b.source)
+                    .cloned()
+                    .expect("emittable: every source has a producer");
+                plan.add_edge(MachinePlanEdge::arg(&producer_node, &cap_node_id, &stream_urn));
             }
 
             let out_media = edge.cap_urn.apply_to_runtime_input_media(&in_media).map_err(|e| {

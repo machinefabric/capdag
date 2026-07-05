@@ -117,6 +117,38 @@ pub struct CapArg {
 }
 
 impl CapArg {
+    /// The media URN the runtime demuxes this arg's input stream by: its `Stdin`
+    /// source URN if it declares one, otherwise its declared slot media URN. A cap
+    /// need not declare any `Stdin` source at all — a producer-fed arg may be
+    /// delivered by its declared URN — so this never assumes a stdin source exists.
+    pub fn stream_urn(&self) -> &str {
+        self.sources
+            .iter()
+            .find_map(|s| match s {
+                ArgSource::Stdin { stdin } => Some(stdin.as_str()),
+                _ => None,
+            })
+            .unwrap_or(&self.media_urn)
+    }
+
+    /// Whether this arg is the cap's MAIN input relative to `in_spec` (the cap URN's
+    /// `in=` value): it declares a `Stdin` source whose URN is `in=`. The main input
+    /// is always the value piped in on stdin (like a Unix command's stdin), so the
+    /// main arg always declares a `Stdin` source carrying `in=`. Its DECLARED slot URN
+    /// may differ from that stdin URN (e.g. a `file-path` slot whose piped content is a
+    /// `pdf-stream`) — the stdin URN, not the slot URN, is `in=`. The main input may
+    /// ALSO be delivered by position/cli-flag, but stdin is the defining route.
+    /// Compared by tagged-URN equivalence, never as strings.
+    pub fn is_main_input(&self, in_spec: &crate::urn::media_urn::MediaUrn) -> bool {
+        use crate::urn::media_urn::MediaUrn;
+        self.sources.iter().any(|s| match s {
+            ArgSource::Stdin { stdin } => MediaUrn::from_string(stdin)
+                .map(|u| u.is_equivalent(in_spec).unwrap_or(false))
+                .unwrap_or(false),
+            _ => false,
+        })
+    }
+
     /// Create a new cap argument
     pub fn new(media_urn: impl Into<String>, required: bool, sources: Vec<ArgSource>) -> Self {
         Self {

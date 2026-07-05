@@ -51,13 +51,15 @@ pub use cbor_util::{
 };
 
 pub use executor::{
-    execute_dag, map_progress, CapProgressFn, CapStepProgressFn, CartridgeManager, EdgeGroup,
-    ExecutionContext, ExecutionError, NodeData, ProgressMapper,
+    execute_dag, map_progress, run_dag_on_context, CapProgressFn, CapStepProgressFn,
+    CartridgeManager, DagOutput, EdgeGroup, ExecutionContext, ExecutionError, NodeData,
+    ProgressMapper,
 };
 
 pub use stream_io::{
     collect_terminal_output, decode_terminal_output, send_one_stream, unwrap_cbor_value,
-    ActivityTimer, CreditGrantFn, CreditPlumbing, IncrementalWriter, PipelineLogFn,
+    ActivityTimer, CreditGrantFn, CreditPlumbing, FlowObserver, IncrementalWriter, PipelineLogFn,
+    SegmentWriterFactory,
     PipelineProgressTracker, StreamIoError, TerminalItem, TerminalMeta, TerminalOutput,
     PIPELINE_STALL_TIMEOUT_SECS,
 };

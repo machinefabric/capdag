@@ -238,6 +238,28 @@ pub trait IncrementalWriter: Send {
 
     /// Called on STREAM_END. Flushes buffered state.
     async fn on_stream_end(&mut self) -> Result<(), StreamIoError>;
+
+    /// Consume the writer and return its persisted result (saved paths, byte counts,
+    /// cardinality, per-item/stream meta). Called once, after the terminal, by whoever
+    /// owns the writer. A multi-sink segment run creates one writer per persisted sink
+    /// via a [`SegmentWriterFactory`] and finalises each here.
+    fn finish(self: Box<Self>) -> super::execute_plan::WriterResult;
+}
+
+/// Creates a fresh [`IncrementalWriter`] for a persisted terminal sink. The segment
+/// executor calls it once per persisted sink, passing the sink's node id and, inside a
+/// ForEach body, the item index. The engine plugs in a factory bound to the run's
+/// artifact directory; the reference/in-memory path supplies none.
+pub type SegmentWriterFactory =
+    dyn Fn(&str, Option<usize>) -> Box<dyn IncrementalWriter> + Send + Sync;
+
+/// Observes the correlation between a cap invocation's request id and its
+/// strand-step identity, at the one point both are known (invocation setup).
+/// The engine implements this to feed the run's live protocol/flow snapshots
+/// (L8); the reference CLI path passes `None` (no observation).
+pub trait FlowObserver: Send + Sync {
+    /// Record that request `rid` belongs to strand step `token_id`.
+    fn record(&self, rid: &crate::bifaci::frame::MessageId, token_id: &str);
 }
 
 /// Send a single input stream (STREAM_START → CHUNKs → STREAM_END) to a cartridge.

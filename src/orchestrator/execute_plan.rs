@@ -119,18 +119,11 @@ pub type PipelineItemFn = Arc<dyn Fn(&OutputItem, usize) + Send + Sync>;
 pub type BodyOutcomeFn = Arc<dyn Fn(&[BodyOutcome]) + Send + Sync>;
 
 /// Output of running one resolved (ForEach-free) segment through an [`EngineRuntime`].
-pub struct SegmentOutput {
-    /// Node id → its output items (one entry for scalar, N for a sequence).
-    pub node_data: HashMap<String, Vec<Vec<u8>>>,
-    /// Whether the terminal node's output is a sequence (`None` when not determinable
-    /// — e.g. an empty graph).
-    pub is_sequence: Option<bool>,
-    /// Any persisted writer results, one per persisted sink (empty when the runtime
-    /// does not persist).
-    pub writer_results: Vec<WriterResult>,
-    /// Per-item terminal metadata (e.g. titles), for provenance into ForEach bodies.
-    pub terminal_meta: TerminalMeta,
-}
+///
+/// A segment is now an arbitrary ForEach-free DAG (fan-out and convergence included),
+/// so its output is the multi-sink [`DagOutput`] the shared executor produces: every
+/// node's items, each node's cardinality, and per-persisted-sink writer results.
+pub use crate::orchestrator::executor::DagOutput as SegmentOutput;
 
 // =============================================================================
 // EngineRuntime — the pluggable cartridge-execution backend
@@ -143,14 +136,15 @@ pub struct SegmentOutput {
 /// independent and live in [`execute_plan`].
 #[async_trait]
 pub trait EngineRuntime: Send + Sync {
-    /// Run one resolved segment. `execute_plan` only ever passes a **linear**
-    /// (ForEach-free, fan-out-free) chain with a single sink — fan-out is decomposed
-    /// upstream — so both backends handle identical input.
+    /// Run one resolved segment — an arbitrary ForEach-free DAG (fan-out and
+    /// convergence included). The shared executor decomposes it into pipelined chains,
+    /// materialising producers at every non-linear junction, so both backends handle
+    /// identical input.
     ///
     /// - `item_index`: `Some(i)` when this is the body of ForEach iteration `i`.
-    /// - `is_terminal`: whether this segment's sink produces plan terminal output.
-    ///   A persisting runtime writes the terminal sink to disk and returns a
-    ///   `writer_results` entry; intermediate segments are kept in memory.
+    /// - `persist_sinks`: the sink node ids whose output is plan terminal. A persisting
+    ///   runtime writes each to disk (one writer per sink) and returns its
+    ///   `writer_results`; every other node is kept in memory.
     async fn run_segment(
         &self,
         graph: &ResolvedGraph,
@@ -162,7 +156,7 @@ pub trait EngineRuntime: Send + Sync {
         log_fn: Option<&PipelineLogFn>,
         item_index: Option<usize>,
         stall_tracker: Option<Arc<PipelineProgressTracker>>,
-        is_terminal: bool,
+        persist_sinks: &HashSet<String>,
     ) -> Result<SegmentOutput, ExecutionError>;
 
     /// The fabric registry, for plan→resolved-graph conversion.
@@ -293,8 +287,13 @@ fn build_trunk_subplan(plan: &MachinePlan, region_nodes: &HashSet<String>) -> Ma
         }
     }
     for edge in &plan.edges {
-        if matches!(edge.edge_type, crate::planner::EdgeType::Direct)
-            && trunk_ids.contains(&edge.from_node)
+        // Data-flow edges among trunk nodes: the main input (`Direct`) and any
+        // convergence input (`Arg`). Convergence must survive into the subgraph the
+        // executor runs.
+        if matches!(
+            edge.edge_type,
+            crate::planner::EdgeType::Direct | crate::planner::EdgeType::Arg { .. }
+        ) && trunk_ids.contains(&edge.from_node)
             && trunk_ids.contains(&edge.to_node)
         {
             trunk.add_edge(edge.clone());
@@ -323,8 +322,12 @@ fn build_body_subplan(plan: &MachinePlan, region: &Region) -> MachinePlan {
     }
     body.add_edge(MachinePlanEdge::direct(&region.body_input_id, &region.body_entry));
     for edge in &plan.edges {
-        if matches!(edge.edge_type, crate::planner::EdgeType::Direct)
-            && body_set.contains(edge.from_node.as_str())
+        // Data-flow edges among body nodes: the main input (`Direct`) and any in-body
+        // convergence input (`Arg`).
+        if matches!(
+            edge.edge_type,
+            crate::planner::EdgeType::Direct | crate::planner::EdgeType::Arg { .. }
+        ) && body_set.contains(edge.from_node.as_str())
             && body_set.contains(edge.to_node.as_str())
         {
             body.add_edge(edge.clone());
@@ -334,84 +337,20 @@ fn build_body_subplan(plan: &MachinePlan, region: &Region) -> MachinePlan {
 }
 
 // =============================================================================
-// Fork-free linear-chain execution
+// Sub-plan execution
 // =============================================================================
 
-/// A maximal linear chain of caps in a fork-free subgraph, fed from `input_node`'s
-/// materialized data. `run_segment` only ever sees one of these — always linear — so
-/// both runtimes (streaming engine, per-segment reference) behave identically.
-struct Chain {
-    /// The materialized producer feeding the chain head's stdin (input slot or a
-    /// fan-out cap whose output was materialized).
-    input_node: String,
-    /// Cap node ids in chain order; `caps.last()` is the sink.
-    caps: Vec<String>,
-}
-
-/// Decompose a fork-free MachinePlan (input slots + caps + `Direct` edges) into maximal
-/// linear chains: a chain breaks at a fan-out (a producer feeding >1 cap) and at
-/// materialized inputs. Every cap belongs to exactly one chain.
-fn linear_chains(subplan: &MachinePlan) -> Result<Vec<Chain>, ExecutionError> {
-    let mut consumers: HashMap<String, Vec<String>> = HashMap::new();
-    let mut source_of: HashMap<String, String> = HashMap::new();
-    for edge in &subplan.edges {
-        if matches!(edge.edge_type, crate::planner::EdgeType::Direct) {
-            consumers.entry(edge.from_node.clone()).or_default().push(edge.to_node.clone());
-            if let Some(prev) = source_of.insert(edge.to_node.clone(), edge.from_node.clone()) {
-                return Err(ExecutionError::HostError(format!(
-                    "fork-free node '{}' has two stdin sources ('{}', '{}') — a cap has one stdin",
-                    edge.to_node, prev, edge.from_node
-                )));
-            }
-        }
-    }
-    let out_deg = |n: &str| consumers.get(n).map_or(0, |v| v.len());
-    let node_is_cap = |n: &str| {
-        matches!(subplan.nodes.get(n).map(|x| &x.node_type), Some(ExecutionNodeType::Cap { .. }))
-    };
-
-    let order = subplan
-        .topological_order()
-        .map_err(|e| ExecutionError::HostError(format!("fork-free subgraph is cyclic: {e}")))?;
-
-    let mut assigned: HashSet<String> = HashSet::new();
-    let mut chains = Vec::new();
-    for node in order {
-        if !node.is_cap() || assigned.contains(&node.id) {
-            continue;
-        }
-        let src = source_of.get(&node.id).ok_or_else(|| {
-            ExecutionError::HostError(format!("cap '{}' has no stdin source in subgraph", node.id))
-        })?;
-        // A cap heads a chain unless its source is a cap feeding ONLY it.
-        if node_is_cap(src) && out_deg(src) == 1 {
-            continue; // continuation — folded into its source's chain
-        }
-        let mut caps = vec![node.id.clone()];
-        assigned.insert(node.id.clone());
-        let mut tail = node.id.clone();
-        while out_deg(&tail) == 1 {
-            let next = consumers[&tail][0].clone();
-            if !node_is_cap(&next) {
-                break;
-            }
-            caps.push(next.clone());
-            assigned.insert(next.clone());
-            tail = next;
-        }
-        chains.push(Chain { input_node: src.clone(), caps });
-    }
-    Ok(chains)
-}
-
-/// Run a fork-free `MachinePlan` by executing each linear chain through `run_segment`
-/// (linear-only), materializing every producer's output. `roots` supplies the
-/// materialized bytes + sequence flag for each input slot; `persist_sinks` names the
-/// cap nodes whose output is a plan terminal (persisted when the runtime persists).
-///
-/// Returns (`node_data` per producer, writer results keyed by sink node, cap URNs run).
+/// Run one ForEach-free `MachinePlan` (the trunk, or a ForEach body) as a single DAG
+/// through the engine runtime. The sub-plan may fan out and converge freely; the
+/// shared executor (`run_dag_on_context`, inside `run_segment`) decomposes it into
+/// pipelined chains, materialising producers at every non-linear junction — so the old
+/// per-chain decomposition is gone and convergence (`Arg`) edges survive to execution.
+/// `roots` supplies each input slot's materialised bytes + sequence flag (keyed by the
+/// slot node id); `persist_sinks` names the cap nodes whose output is a plan terminal.
+/// Returns the runtime's multi-sink [`SegmentOutput`]. Progress `p` is mapped into
+/// `[base, base + weight]`.
 #[allow(clippy::too_many_arguments)]
-async fn run_forkfree(
+async fn run_subplan(
     runtime: &Arc<dyn EngineRuntime>,
     registry: &Arc<FabricRegistry>,
     subplan: &MachinePlan,
@@ -425,104 +364,38 @@ async fn run_forkfree(
     stall_tracker: Option<Arc<PipelineProgressTracker>>,
     progress_base: f32,
     progress_weight: f32,
-) -> Result<
-    (HashMap<String, Vec<Vec<u8>>>, HashMap<String, Vec<WriterResult>>, Vec<String>),
-    ExecutionError,
-> {
-    let chains = linear_chains(subplan)?;
-    let mut node_data: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
-    let mut node_seq: HashMap<String, bool> = HashMap::new();
-    for (id, (bytes, is_seq)) in roots {
-        node_data.insert(id.clone(), vec![bytes]);
-        node_seq.insert(id, is_seq);
+) -> Result<SegmentOutput, ExecutionError> {
+    let graph = to_graph(subplan, registry).await?;
+
+    let mut inputs: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut is_seq: HashMap<String, bool> = HashMap::new();
+    for (id, (bytes, seq)) in roots {
+        inputs.insert(id.clone(), bytes);
+        is_seq.insert(id, seq);
     }
-    let mut writers: HashMap<String, Vec<WriterResult>> = HashMap::new();
-    let mut cap_urns_run: Vec<String> = Vec::new();
 
-    let n = chains.len().max(1) as f32;
-    for (ci, chain) in chains.iter().enumerate() {
-        let src_items = node_data.get(&chain.input_node).ok_or_else(|| {
-            ExecutionError::HostError(format!(
-                "chain input '{}' has no materialized data (have: {:?})",
-                chain.input_node,
-                node_data.keys().collect::<Vec<_>>()
-            ))
-        })?;
-        let src_seq = node_seq.get(&chain.input_node).copied().unwrap_or(false);
-        let input_bytes = if src_seq {
-            crate::orchestrator::cbor_util::assemble_cbor_sequence(src_items)
-                .map_err(|e| ExecutionError::HostError(format!("assemble chain input: {e}")))?
-        } else {
-            src_items.first().cloned().unwrap_or_default()
-        };
-        let input_media = terminal_media(subplan, registry, &chain.input_node).await?;
+    // Scale the segment's own [0,1] progress into this sub-plan's slice of the run.
+    let seg_pfn: Option<CapProgressFn> = progress_fn.map(|parent| {
+        let parent = parent.clone();
+        Arc::new(move |p: f32, cap_urn: &str, msg: &str| {
+            parent(progress_base + progress_weight * p, cap_urn, msg);
+        }) as CapProgressFn
+    });
 
-        let chain_input_id = format!("__chain_in_{ci}");
-        let mut cplan = MachinePlan::new(&format!("{} [chain {ci}]", subplan.name));
-        cplan.add_node(MachineNode::input_slot(
-            &chain_input_id,
-            "chain_input",
-            &input_media,
-            if src_seq { InputCardinality::Sequence } else { InputCardinality::Single },
-        ));
-        for cid in &chain.caps {
-            if let Some(node) = subplan.nodes.get(cid) {
-                cplan.add_node(node.clone());
-            }
-        }
-        cplan.add_edge(MachinePlanEdge::direct(&chain_input_id, &chain.caps[0]));
-        for w in chain.caps.windows(2) {
-            cplan.add_edge(MachinePlanEdge::direct(&w[0], &w[1]));
-        }
-        let cgraph = to_graph(&cplan, registry).await?;
-        for e in &cgraph.edges {
-            cap_urns_run.push(e.cap_urn.clone());
-        }
-
-        let sink = chain.caps.last().expect("chain is non-empty");
-        let is_terminal = persist_sinks.contains(sink);
-
-        let mut inputs = HashMap::new();
-        inputs.insert(chain_input_id.clone(), input_bytes);
-        let mut is_seq_map = HashMap::new();
-        is_seq_map.insert(chain_input_id, src_seq);
-
-        let cpfn: Option<CapProgressFn> = progress_fn.map(|parent| {
-            let parent = parent.clone();
-            let base = progress_base + progress_weight * (ci as f32 / n);
-            let weight = progress_weight / n;
-            Arc::new(move |p: f32, cap_urn: &str, msg: &str| {
-                parent(base + weight * p, cap_urn, msg);
-            }) as CapProgressFn
-        });
-
-        let seg = runtime
-            .run_segment(
-                &cgraph,
-                inputs,
-                is_seq_map,
-                cap_arguments,
-                cpfn.as_ref(),
-                step_progress_fn,
-                log_fn,
-                item_index,
-                stall_tracker.clone(),
-                is_terminal,
-            )
-            .await?;
-
-        for nid in seg.node_data.keys().cloned().collect::<Vec<_>>() {
-            let seq = producer_is_sequence(subplan, registry, &nid).await;
-            node_seq.insert(nid, seq);
-        }
-        for (nid, items) in seg.node_data {
-            node_data.insert(nid, items);
-        }
-        for wr in seg.writer_results {
-            writers.entry(sink.clone()).or_default().push(wr);
-        }
-    }
-    Ok((node_data, writers, cap_urns_run))
+    runtime
+        .run_segment(
+            &graph,
+            inputs,
+            is_seq,
+            cap_arguments,
+            seg_pfn.as_ref(),
+            step_progress_fn,
+            log_fn,
+            item_index,
+            stall_tracker,
+            persist_sinks,
+        )
+        .await
 }
 
 // =============================================================================
@@ -587,7 +460,7 @@ pub async fn execute_plan(
     // Trunk gets the first slice of the progress band; regions share the rest.
     let trunk_weight = if regions.is_empty() { 1.0 } else { 0.15 };
     let trunk_start = Instant::now();
-    let (trunk_data, trunk_writers, trunk_cap_urns) = run_forkfree(
+    let trunk_seg = run_subplan(
         &runtime,
         &registry,
         &trunk,
@@ -604,7 +477,17 @@ pub async fn execute_plan(
     )
     .await?;
     let trunk_ms = trunk_start.elapsed().as_millis() as u64;
-    for (nid, items) in trunk_data {
+    let trunk_writers = trunk_seg.writer_results;
+    // Cap URNs run in the trunk, for the trunk BodyOutcome (linear/no-ForEach case).
+    let trunk_cap_urns: Vec<String> = trunk
+        .nodes
+        .values()
+        .filter_map(|n| match &n.node_type {
+            ExecutionNodeType::Cap { cap_urn, .. } => Some(cap_urn.clone()),
+            _ => None,
+        })
+        .collect();
+    for (nid, items) in trunk_seg.node_data {
         node_data.insert(nid, items);
     }
     // Record a trunk BodyOutcome ONLY for the linear/no-ForEach case, where the trunk
@@ -821,7 +704,7 @@ async fn run_region_bodies(
             let mut roots: HashMap<String, (Vec<u8>, bool)> = HashMap::new();
             roots.insert(body_input_id, (raw_item_bytes, false));
             // The item's local progress is [0,1]; item_pfn aggregates it across items.
-            let res = run_forkfree(
+            let res = run_subplan(
                 &runtime,
                 &registry,
                 &body_subplan,
@@ -839,9 +722,7 @@ async fn run_region_bodies(
             .await;
             let ms = started.elapsed().as_millis() as u64;
             let _ = match res {
-                Ok((node_data, writers, _cap_urns)) => {
-                    done_tx.send(Ok((i, node_data, writers, ms)))
-                }
+                Ok(seg) => done_tx.send(Ok((i, seg.node_data, seg.writer_results, ms))),
                 Err(e) => done_tx.send(Err((i, e, ms))),
             };
         });

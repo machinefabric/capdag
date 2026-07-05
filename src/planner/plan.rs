@@ -334,8 +334,12 @@ impl MachineNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeType {
-    /// Direct data flow
+    /// Direct data flow into the target cap's MAIN (stdin) input.
     Direct,
+    /// Data flow into a specific NON-main argument of the target cap, identified by
+    /// that argument's media URN. This is convergence: another cap's output routed
+    /// into a named arg. The runtime delivers it as its own stream, keyed by `arg_urn`.
+    Arg { arg_urn: String },
     /// Extract field from JSON output
     JsonField { field: String },
     /// Extract via JSONPath
@@ -389,6 +393,18 @@ impl MachinePlanEdge {
             from_node: from.to_string(),
             to_node: to.to_string(),
             edge_type: EdgeType::Collection,
+        }
+    }
+
+    /// Create a convergence edge feeding a specific non-main argument (by its media
+    /// URN) of the target cap.
+    pub fn arg(from: &str, to: &str, arg_urn: &str) -> Self {
+        Self {
+            from_node: from.to_string(),
+            to_node: to.to_string(),
+            edge_type: EdgeType::Arg {
+                arg_urn: arg_urn.to_string(),
+            },
         }
     }
 

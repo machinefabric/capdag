@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::cap::definition::{ArgSource, Cap, CapArg, CapOutput};
 use crate::cap::registry::FabricRegistry;
-use crate::planner::{Strand, StrandStep, StrandStepType};
+use crate::planner::{ArgSourceRef, CapInput, Strand, StrandStep, StrandStepType};
 use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::MediaUrn;
 
@@ -132,10 +132,38 @@ pub(crate) fn cap_step(cap_urn_str: &str, title: &str, from: &str, to: &str) -> 
             specificity: 0,
             input_is_sequence: false,
             output_is_sequence: false,
+            // Single main input fed by the strand input. Chained fixtures wire the
+            // predecessor via `chain_cap_steps` (below).
+            inputs: vec![CapInput {
+                arg_urn: media(from),
+                source: ArgSourceRef::StrandInput,
+            }],
         },
         media(from),
         media(to),
     )
+}
+
+/// Wire a sequence of steps into a linear chain: each cap step after the first takes
+/// its single main input from the immediately preceding cap step's output (ForEach/
+/// Collect steps are passed over — they are cardinality transitions, not producers).
+/// Under the explicit-inputs model a chained fixture must name its predecessor rather
+/// than rely on position, so fixtures that build linear strands wrap their step vec in
+/// this before constructing the `Strand`.
+pub(crate) fn chain_cap_steps(mut steps: Vec<StrandStep>) -> Vec<StrandStep> {
+    let mut prev_cap_token: Option<String> = None;
+    for step in &mut steps {
+        let token = step.token_id.clone();
+        if let StrandStepType::Cap { inputs, .. } = &mut step.step_type {
+            if let (Some(prev), Some(first)) = (&prev_cap_token, inputs.first_mut()) {
+                first.source = ArgSourceRef::Step {
+                    token_id: prev.clone(),
+                };
+            }
+            prev_cap_token = Some(token);
+        }
+    }
+    steps
 }
 
 /// Build a `ForEach` strand step.
@@ -164,6 +192,10 @@ pub(crate) fn collect_step(media_urn: &str) -> StrandStep {
 /// are taken from the first step's `from_spec` and the last
 /// step's `to_spec`.
 pub(crate) fn strand_from_steps(steps: Vec<StrandStep>, description: &str) -> Strand {
+    // Fixtures list steps positionally; under the explicit-inputs model each cap names
+    // its producer, so wire them into the linear chain these fixtures intend (a
+    // straight pipeline: each cap's main input is the previous cap's output).
+    let steps = chain_cap_steps(steps);
     let total_steps = steps.len() as i32;
     let cap_step_count = steps.iter().filter(|s| s.is_cap()).count() as i32;
     let source_media_urn = steps.first().expect("non-empty").from_spec.clone();

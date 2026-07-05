@@ -1039,7 +1039,7 @@ pub fn validate_cap_args(cap: &Cap) -> Result<(), ValidationError> {
         return Err(ValidationError::InvalidCapSchema {
             cap_urn,
             issue: format!(
-                "RULE11: Cap has in='{}' but no args declare a stdin source — at least one arg must accept stdin to receive the declared input",
+                "RULE11: Cap has in='{}' but no args declare a stdin source — the main input is the value piped in on stdin, so at least one arg must accept stdin",
                 cap.urn.in_spec()
             ),
         });

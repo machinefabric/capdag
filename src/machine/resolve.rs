@@ -50,7 +50,7 @@
 use std::collections::HashMap;
 
 use crate::cap::registry::FabricRegistry;
-use crate::planner::{Strand, StrandStepType};
+use crate::planner::{ArgSourceRef, Strand, StrandStepType};
 use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::MediaUrn;
 
@@ -117,38 +117,49 @@ pub fn resolve_strand(
     let mut nodes: Vec<MediaUrn> = Vec::new();
     let mut pre_interned: Vec<PreInternedWiring> = Vec::new();
 
-    // The NodeId of the most recently produced output
-    // position. The NEXT cap step's source will try to
-    // reuse this if the URNs are comparable.
-    let mut prev_target: Option<NodeId> = None;
+    // Producer of each node, by producing step's stable `token_id` → its output
+    // `NodeId`. Explicit input sources (`CapInput::source`) resolve against this — no
+    // positional predecessor assumption, so fan-out and convergence both wire
+    // correctly.
+    let mut producer_node: HashMap<String, NodeId> = HashMap::new();
+    // The single shared strand input anchor node, allocated on first `StrandInput`
+    // reference and refined to the most specific consuming `from_spec`.
+    let mut strand_input_node: Option<NodeId> = None;
 
     for step in &strand.steps {
         match &step.step_type {
-            StrandStepType::Cap { cap_urn, .. } => {
-                // Source: reuse prev_target if comparable
-                // to this step's from_spec, otherwise
-                // allocate a new root position.
-                let source_id = match prev_target {
-                    Some(pt)
-                        if nodes[pt as usize]
-                            .is_comparable(&step.from_spec)
-                            .unwrap_or(false) =>
-                    {
-                        // Same data position. If from_spec
-                        // is more specific, refine the node.
-                        if step.from_spec.specificity() > nodes[pt as usize].specificity() {
-                            nodes[pt as usize] = step.from_spec.clone();
+            StrandStepType::Cap {
+                cap_urn, inputs, ..
+            } => {
+                // Resolve every declared input to its producer's `NodeId`. The primary
+                // (stdin) input's runtime media is `from_spec`; it is the only input
+                // that may be fed by the strand input anchor (`realize` guarantees a
+                // non-primary source is always a produced node).
+                let mut source_node_ids: Vec<NodeId> = Vec::with_capacity(inputs.len());
+                for input in inputs {
+                    let source_id = match &input.source {
+                        ArgSourceRef::StrandInput => match strand_input_node {
+                            Some(id) => {
+                                if step.from_spec.specificity() > nodes[id as usize].specificity() {
+                                    nodes[id as usize] = step.from_spec.clone();
+                                }
+                                id
+                            }
+                            None => {
+                                let id = nodes.len() as NodeId;
+                                nodes.push(step.from_spec.clone());
+                                strand_input_node = Some(id);
+                                id
+                            }
+                        },
+                        ArgSourceRef::Step { token_id } => {
+                            *producer_node.get(token_id).ok_or(
+                                MachineAbstractionError::DisconnectedStrand { strand_index },
+                            )?
                         }
-                        pt
-                    }
-                    _ => {
-                        // No comparable predecessor — new
-                        // root position.
-                        let id = nodes.len() as NodeId;
-                        nodes.push(step.from_spec.clone());
-                        id
-                    }
-                };
+                    };
+                    source_node_ids.push(source_id);
+                }
 
                 // Target: always a fresh position.
                 let target_id = nodes.len() as NodeId;
@@ -157,23 +168,16 @@ pub fn resolve_strand(
                 pre_interned.push(PreInternedWiring {
                     token_id: step.token_id.clone(),
                     cap_urn: cap_urn.clone(),
-                    source_node_ids: vec![source_id],
+                    source_node_ids,
                     target_node_id: target_id,
                 });
 
-                // This target becomes the boundary for the
-                // next cap step's source.
-                prev_target = Some(target_id);
+                producer_node.insert(step.token_id.clone(), target_id);
             }
-            StrandStepType::ForEach { .. } => {
-                // prev_target passes through ForEach unchanged — the data position is
-                // the same, only the cardinality changes. Whether the following cap
-                // maps per-item is derived from cardinality in `resolve_pre_interned`.
-            }
-            StrandStepType::Collect { .. } => {
-                // Elided — cardinality transitions are
-                // implicit in the resolved data flow.
-                // prev_target passes through unchanged.
+            StrandStepType::ForEach { .. } | StrandStepType::Collect { .. } => {
+                // Cardinality transitions are elided — caps name their producers
+                // directly, and `is_loop` is derived from cardinality in
+                // `resolve_pre_interned`, so these steps carry no wiring here.
             }
         }
     }
@@ -285,25 +289,23 @@ pub fn resolve_pre_interned(
         // `cap.args`) and `stdin_arg_slot_urns` (the
         // corresponding slot identities the bindings will
         // record).
+        // Wiring sources are matched against EVERY arg by its stream URN (its Stdin
+        // source URN if it declares one, else its declared URN — a cap may have no
+        // stdin at all). ALL args are producer-feedable: a producer is anything that
+        // supplies a value (a prior cap's output, config, a literal, …), so every arg
+        // is a candidate. The Hungarian matcher assigns each source to the arg it
+        // conforms to; args no source matches take their value from config/defaults;
+        // genuine ambiguity is a hard failure (in `match_sources_to_args`). `stdin_*`
+        // names are historical — these are the per-arg stream and slot URNs.
         let mut stdin_arg_urns: Vec<MediaUrn> = Vec::new();
         let mut stdin_arg_slot_urns: Vec<MediaUrn> = Vec::new();
         for arg in &cap.args {
-            // Find the FIRST Stdin source on this arg (an
-            // arg that lists multiple delivery routes still
-            // has at most one stdin URN — the protocol gives
-            // each arg a single stream).
-            let stdin_urn_str = arg.sources.iter().find_map(|s| match s {
-                crate::cap::definition::ArgSource::Stdin { stdin } => Some(stdin.clone()),
-                _ => None,
-            });
-            if let Some(stdin_str) = stdin_urn_str {
-                let stdin_urn = MediaUrn::from_string(&stdin_str)
-                    .expect("cap registry invariant: every Stdin source URN is a valid MediaUrn");
-                let slot_urn = MediaUrn::from_string(&arg.media_urn)
-                    .expect("cap registry invariant: every cap arg media_urn is a valid MediaUrn");
-                stdin_arg_urns.push(stdin_urn);
-                stdin_arg_slot_urns.push(slot_urn);
-            }
+            let stream_urn = MediaUrn::from_string(arg.stream_urn())
+                .expect("cap registry invariant: every arg stream URN is a valid MediaUrn");
+            let slot_urn = MediaUrn::from_string(&arg.media_urn)
+                .expect("cap registry invariant: every cap arg media_urn is a valid MediaUrn");
+            stdin_arg_urns.push(stream_urn);
+            stdin_arg_slot_urns.push(slot_urn);
         }
 
         // Pull the source URNs out of the nodes table for

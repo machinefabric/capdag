@@ -225,6 +225,10 @@ pub use orchestrator::{
     collect_terminal_output,
     decode_terminal_output,
     execute_dag,
+    run_dag_on_context,
+    DagOutput,
+    FlowObserver,
+    SegmentWriterFactory,
     // Plan execution — the single ForEach/Collect-aware executor, shared by the
     // reference/CLI runtime and the engine.
     execute_plan,

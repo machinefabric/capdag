@@ -81,19 +81,42 @@ pub enum MachineAbstractionError {
         reason: String,
     },
 
-    /// A cap edge carries more than one incoming data source. A cap is a process with
-    /// exactly one stdin (main data) input; every other argument is streamed from
-    /// node values. Two data sources have nowhere to go.
-    #[error("strand {strand_index}: cap '{cap_urn}' has {source_count} incoming data sources; a cap has exactly one stdin input")]
-    MultipleDataSources {
+    /// A cap does not declare its input: no argument declares a `Stdin` source whose
+    /// URN is the cap's `in=`. The main input is the value piped in on stdin, so the
+    /// main arg always declares a stdin source carrying `in=` (its declared slot URN
+    /// may differ — e.g. a file-path slot whose piped content is `in=`). A cap without
+    /// such an arg cannot receive its input to thread the strand's runtime media.
+    #[error("strand {strand_index}: cap '{cap_urn}' does not declare its input (no argument declares a stdin source whose URN is its in=)")]
+    CapDoesNotDeclareInput {
         strand_index: usize,
         cap_urn: String,
-        source_count: usize,
     },
 
-    /// A strand's edges do not form a single connected data-flow chain reachable from
-    /// its input anchor (an unreachable edge, or a fan-in the one-stdin model forbids).
-    #[error("strand {strand_index}: edges do not form a single connected data-flow chain")]
+    /// The resolver's source-to-arg assignment for a cap edge has no binding feeding
+    /// the cap's stdin argument. The primary (main-input) source is missing — the
+    /// wiring cannot be realized into a data-flow step.
+    #[error("strand {strand_index}: cap '{cap_urn}' has no wiring source bound to its stdin argument '{stdin_arg}'")]
+    NoStdinBinding {
+        strand_index: usize,
+        cap_urn: String,
+        stdin_arg: String,
+    },
+
+    /// A non-primary (convergence) wiring source is NOT another cap's output. Only a
+    /// cap output may be wired into a non-main argument; a raw input feeding a
+    /// non-main argument is an argument VALUE (default / setting / config / user
+    /// input), delivered through the argument value channel, never wired. Exposed
+    /// hard rather than silently mis-routed.
+    #[error("strand {strand_index}: cap '{cap_urn}' arg '{arg_urn}' is wired from a source that is not a cap output; wire only cap outputs into non-main args, deliver everything else as an argument value")]
+    NonProducerSecondaryArg {
+        strand_index: usize,
+        cap_urn: String,
+        arg_urn: String,
+    },
+
+    /// A strand's edges do not form a data-flow graph whose every source is reachable
+    /// (an unreachable edge, or a source whose producer never becomes available).
+    #[error("strand {strand_index}: edges do not form a connected data-flow graph")]
     DisconnectedStrand { strand_index: usize },
 }
 

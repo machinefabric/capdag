@@ -4,8 +4,8 @@
 //! an in-process direct-dispatch execution model. That stack is gone: cap
 //! invocation now goes through the bifaci relay (`RelaySwitch::execute_cap`)
 //! for out-of-process cartridges and through in-process `FrameHandler`
-//! implementations (e.g. `GenerativeTextProvider`) for engine-built providers.
-//! The remaining types below are the argument/return shape both paths share.
+//! implementations for any engine-built providers. The remaining types below
+//! are the argument/return shape both paths share.
 
 use crate::bifaci::frame::{Frame, MessageId};
 use anyhow::Result;

@@ -29,7 +29,7 @@
 //!   orchestrator harness has exactly one slave hop, which every test here
 //!   exercises implicitly; the multi-hop XID-rewrite assertion needs the
 //!   interop matrix's host↔relay↔host topology.
-//! - TEST7058 (cancel releases a credit-blocked sender): `execute_fanin`
+//! - TEST7058 (cancel releases a credit-blocked sender): `run_dag_on_context`
 //!   does not expose the request id mid-run, so a test cannot inject Cancel
 //!   at a deterministic mid-transfer point at this layer. Covered at the
 //!   substrate by TEST7016/TEST7018 (gate close releases waiters); the
@@ -438,19 +438,16 @@ async fn test7054_slow_consumer_throttles_input_send() {
          complete within 120s — input-direction credit grants are not \
          reaching the engine's send gate (L14)",
     )
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
-    let output = outputs.get("output").expect("No output node");
-    match output {
-        NodeData::Bytes(b) => {
-            let report = String::from_utf8(b.clone()).expect("Invalid UTF-8 report");
-            assert_eq!(
-                report, "count=100;bytes=102400",
-                "slow consumer must observe every item of the >window input exactly once"
-            );
-        }
-        other => panic!("Expected Bytes output, got {:?}", other),
-    }
+    // Scalar terminal: the slow-consume cap emits a single report item.
+    let output = outputs.get("output").expect("No output node").concat();
+    let report = String::from_utf8(output).expect("Invalid UTF-8 report");
+    assert_eq!(
+        report, "count=100;bytes=102400",
+        "slow consumer must observe every item of the >window input exactly once"
+    );
 
     // Terminal metadata on END (L3/L5): the handler's finish() message must
     // arrive end-to-end as the final progress event.
@@ -522,23 +519,21 @@ async fn test7056_bidirectional_echo_no_deadlock() {
          concurrently with feeding its input (L15), or credit is not flowing \
          in both directions (L14)",
     )
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
-    let output = outputs.get("output").expect("No output node");
-    match output {
-        NodeData::Bytes(b) => {
-            assert_eq!(
-                b.len(),
-                concat.len(),
-                "echoed payload length must equal the input length"
-            );
-            assert_eq!(
-                b, &concat,
-                "echoed payload must be byte-identical to the input, in order"
-            );
-        }
-        other => panic!("Expected Bytes output, got {:?}", other),
-    }
+    // Sequence terminal: the echo cap re-emits each input item; the decoded
+    // items concatenate back to the original payload.
+    let output = outputs.get("output").expect("No output node").concat();
+    assert_eq!(
+        output.len(),
+        concat.len(),
+        "echoed payload length must equal the input length"
+    );
+    assert_eq!(
+        output, concat,
+        "echoed payload must be byte-identical to the input, in order"
+    );
 
     // The echo handler logs on its first item — proof it consumed
     // incrementally rather than buffering to completion.
@@ -583,17 +578,36 @@ async fn test7059_terminal_end_releases_credit_and_leaks_no_state() {
     ctx.set_node_data("input".to_string(), seq);
 
     let (log_fn, _events) = capturing_log_fn();
-    tokio::time::timeout(
+    // `run_dag_on_context` is the ONE shared segment executor (the old
+    // `execute_fanin` is gone). It borrows the context — so the switch stays
+    // live for the post-run leak assertions — and returns the decoded outputs
+    // keyed by node rather than storing them back into the context.
+    let outputs = tokio::time::timeout(
         Duration::from_secs(120),
-        ctx.execute_fanin(&graph.edges, &[], None, &log_fn),
+        capdag::run_dag_on_context(
+            &mut ctx,
+            &graph,
+            &HashMap::new(),
+            None,
+            None,
+            Some(&log_fn),
+            None,
+            None,
+            None,
+            &std::collections::HashSet::new(),
+            120,
+            None,
+        ),
     )
     .await
     .expect("TEST7059 DEADLOCK: echo run did not complete within 120s")
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
     // The run itself must have been correct — a leak test over a broken run
-    // proves nothing.
-    let output = ctx.get_node_data("output").expect("No output node");
+    // proves nothing. The sequence terminal's decoded items concatenate back
+    // to the original payload.
+    let output = outputs.get("output").expect("No output node").concat();
     assert_eq!(
         output.as_slice(),
         concat.as_slice(),
@@ -701,9 +715,24 @@ async fn test7061_negotiated_initial_credit_is_min_of_proposals() {
     ctx.set_node_is_sequence("input".to_string(), false);
     ctx.set_node_data("input".to_string(), b"48".to_vec());
     let (log_fn, _events) = capturing_log_fn();
-    tokio::time::timeout(
+    // Shared segment executor; borrows the context so `ctx` remains usable for
+    // the Part-2 master attachment and limits renegotiation below.
+    let outputs = tokio::time::timeout(
         Duration::from_secs(120),
-        ctx.execute_fanin(&graph.edges, &[], None, &log_fn),
+        capdag::run_dag_on_context(
+            &mut ctx,
+            &graph,
+            &HashMap::new(),
+            None,
+            None,
+            Some(&log_fn),
+            None,
+            None,
+            None,
+            &std::collections::HashSet::new(),
+            120,
+            None,
+        ),
     )
     .await
     .expect(
@@ -711,8 +740,9 @@ async fn test7061_negotiated_initial_credit_is_min_of_proposals() {
          the engine's consumption grants are not replenishing the \
          cartridge's output window (L10)",
     )
-    .expect("Execution failed");
-    let output = ctx.get_node_data("output").expect("No output node");
+    .expect("Execution failed")
+    .node_data;
+    let output = outputs.get("output").expect("No output node").concat();
     assert_eq!(
         output.as_slice(),
         expected_stream_output(48).as_slice(),
@@ -840,21 +870,17 @@ async fn test7076_pipelined_chain_downstream_consumes_before_upstream_finishes()
         "TEST7076 DEADLOCK: pipelined 2-cap chain did not complete within \
          120s — per-hop credit forwarding is stalled (L9/L10/L11)",
     )
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
     // Correctness first: the full 48-chunk payload survived the pipelined
     // hop byte-for-byte.
-    let output = outputs.get("output").expect("No output node");
-    match output {
-        NodeData::Bytes(b) => {
-            assert_eq!(
-                b.as_slice(),
-                expected_stream_output(48).as_slice(),
-                "pipelined chain output must equal the producer's full payload"
-            );
-        }
-        other => panic!("Expected Bytes output, got {:?}", other),
-    }
+    let output = outputs.get("output").expect("No output node").concat();
+    assert_eq!(
+        output.as_slice(),
+        expected_stream_output(48).as_slice(),
+        "pipelined chain output must equal the producer's full payload"
+    );
 
     // The pipelined intermediate node must NOT be materialized in the
     // result map — that is the whole point of pipelining.

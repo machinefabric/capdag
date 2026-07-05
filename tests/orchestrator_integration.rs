@@ -102,6 +102,50 @@ fn build_testcartridge_cap(urn_str: &str) -> Cap {
     }
 }
 
+/// Build the two-input `test-combine` cap def (matches testcartridge): a MAIN input on
+/// stdin (`node2` = `in=`) plus a distinct-URN, NON-stdin second arg (`node3`) fed by a
+/// producer. Exercises convergence — two producers routed into one cap by distinct arg
+/// URNs. Note RULE3 holds: only the main arg declares a stdin source.
+fn build_combine_cap() -> Cap {
+    let cap_urn = CapUrn::from_string(
+        r#"cap:in="media:enc=utf-8;node2";test-combine;out="media:enc=utf-8;combined""#,
+    )
+    .expect("Invalid combine URN");
+    Cap {
+        urn: cap_urn,
+        version: 1,
+        title: "Test Combine".to_string(),
+        cap_description: None,
+        documentation: None,
+        metadata: HashMap::new(),
+        command: "testcartridge".to_string(),
+        args: vec![
+            CapArg::new(
+                "media:enc=utf-8;file-path",
+                true,
+                vec![ArgSource::Stdin {
+                    stdin: "media:enc=utf-8;node2".to_string(),
+                }],
+            ),
+            CapArg::new(
+                "media:enc=utf-8;node3",
+                true,
+                vec![ArgSource::CliFlag {
+                    cli_flag: "--second-input".to_string(),
+                }],
+            ),
+        ],
+        output: Some(CapOutput::new(
+            "media:enc=utf-8;combined".to_string(),
+            "combined output".to_string(),
+        )),
+        metadata_json: None,
+        registered_by: None,
+        supported_model_types: Vec::new(),
+        default_model_spec: None,
+    }
+}
+
 // =============================================================================
 // Test Helpers
 // =============================================================================
@@ -286,6 +330,21 @@ fn all_scalar(inputs: &HashMap<String, NodeData>) -> HashMap<String, bool> {
     inputs.keys().map(|k| (k.clone(), false)).collect()
 }
 
+/// `execute_dag` returns each node's output as a `Vec<Vec<u8>>` of decoded items:
+/// input/intermediate nodes carry their raw bytes as a single item, and a scalar
+/// terminal decodes to exactly one item. This helper asserts the single-item
+/// (scalar) shape and returns its raw bytes — the successor to the old
+/// `NodeData::Bytes(b)` match arm.
+fn scalar_bytes(items: &[Vec<u8>]) -> Vec<u8> {
+    assert_eq!(
+        items.len(),
+        1,
+        "expected a scalar node (exactly 1 item), got {} items",
+        items.len()
+    );
+    items[0].clone()
+}
+
 /// Create an `Arc<FabricRegistry>` with all testcartridge caps.
 /// Used by both `parse_machine_to_cap_dag` (which needs the
 /// resolver's `args` lists) and `execute_dag` (which looks up
@@ -329,6 +388,7 @@ fn create_test_fabric_registry() -> Arc<FabricRegistry> {
         build_testcartridge_cap(
             r#"cap:in="media:enc=utf-8;node1";identity;out="media:enc=utf-8;node1""#,
         ),
+        build_combine_cap(),
     ];
     registry.add_caps_to_cache(caps);
     Arc::new(registry)
@@ -403,16 +463,12 @@ async fn test889_execute_single_edge_dag() {
 
     assert!(result.is_ok(), "Execution failed: {:?}", result.err());
 
-    let outputs = result.unwrap();
+    let outputs = result.unwrap().node_data;
     let output_data = outputs.get("output").expect("No output node");
 
-    match output_data {
-        NodeData::Bytes(b) => {
-            let output_str = String::from_utf8(b.clone()).expect("Invalid UTF-8");
-            assert_eq!(output_str, "[PREPEND]TEST");
-        }
-        _ => panic!("Expected Bytes output, got {:?}", output_data),
-    }
+    let b = scalar_bytes(output_data);
+    let output_str = String::from_utf8(b).expect("Invalid UTF-8");
+    assert_eq!(output_str, "[PREPEND]TEST");
 }
 
 // TEST888: Execute two-edge chain (test-edge1 -> test-edge2)
@@ -453,18 +509,15 @@ async fn test888_execute_edge1_to_edge2_chain() {
         &std::collections::HashMap::new(),
     )
     .await
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
     let final_output = outputs.get("C").expect("No final output");
 
-    match final_output {
-        NodeData::Bytes(b) => {
-            let output_str = String::from_utf8(b.clone()).expect("Invalid UTF-8");
-            // edge1: [PREPEND]CHAIN, edge2: [PREPEND]CHAIN[APPEND]
-            assert_eq!(output_str, "[PREPEND]CHAIN[APPEND]");
-        }
-        _ => panic!("Expected Bytes output"),
-    }
+    let b = scalar_bytes(final_output);
+    let output_str = String::from_utf8(b).expect("Invalid UTF-8");
+    // edge1: [PREPEND]CHAIN, edge2: [PREPEND]CHAIN[APPEND]
+    assert_eq!(output_str, "[PREPEND]CHAIN[APPEND]");
 }
 
 // TEST887: Execute with file-path input
@@ -506,17 +559,14 @@ async fn test887_execute_with_file_input() {
         &std::collections::HashMap::new(),
     )
     .await
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
     let output = outputs.get("output").expect("No output");
 
-    match output {
-        NodeData::Bytes(b) => {
-            let output_str = String::from_utf8(b.clone()).expect("Invalid UTF-8");
-            assert_eq!(output_str, "[PREPEND]FILE_CONTENT");
-        }
-        _ => panic!("Expected Bytes output"),
-    }
+    let b = scalar_bytes(output);
+    let output_str = String::from_utf8(b).expect("Invalid UTF-8");
+    assert_eq!(output_str, "[PREPEND]FILE_CONTENT");
 }
 
 // TEST952: Execute large payload (test-large cap)
@@ -555,37 +605,40 @@ async fn test952_execute_large_payload() {
         &std::collections::HashMap::new(),
     )
     .await
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
     let output = outputs.get("output").expect("No output");
 
-    match output {
-        NodeData::Bytes(b) => {
-            // Default size is 1MB
-            assert_eq!(b.len(), 1_048_576);
-            // Verify pattern: repeating 0-255
-            for (i, &byte) in b.iter().enumerate() {
-                assert_eq!(byte, (i % 256) as u8, "Pattern mismatch at byte {}", i);
-            }
-        }
-        _ => panic!("Expected Bytes output"),
+    let b = scalar_bytes(output);
+    // Default size is 1MB
+    assert_eq!(b.len(), 1_048_576);
+    // Verify pattern: repeating 0-255
+    for (i, &byte) in b.iter().enumerate() {
+        assert_eq!(byte, (i % 256) as u8, "Pattern mismatch at byte {}", i);
     }
 }
 
-// TEST951: Multi-input DAG (fan-in pattern)
+// TEST953: Convergence — two producers routed into ONE cap via DISTINCT arg URNs.
+//
+// `A -edge1-> B(node2)`; `B -edge2-> D(node3)`; then `(B, D) -combine-> E`. `B` fans
+// out (feeds both edge2 and combine). `combine` has a MAIN input on stdin (node2 = B)
+// plus a distinct-URN second arg (node3 = D). This is the legal convergence the old
+// two-stdin test951 was not: the resolver matches B→the main arg and D→the node3 arg,
+// the plan/parser emit B as the main-input edge and D as a node3 `Arg` edge, and the
+// cartridge `require_stream`s both by their distinct URNs. E must carry BOTH.
 #[tokio::test]
-async fn test951_fan_in_pattern() {
+async fn test953_convergence_two_producers_distinct_arg_urns() {
     let registry = create_test_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
-    // Two parallel paths that merge
     let route = r#"
 [test_edge1 cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"]
 [test_edge2 cap:in="media:enc=utf-8;node2";test-edge2;out="media:enc=utf-8;node3"]
+[test_combine cap:in="media:enc=utf-8;node2";test-combine;out="media:enc=utf-8;combined"]
 [A -> test_edge1 -> B]
-[C -> test_edge1 -> D]
-[B -> test_edge2 -> E]
-[D -> test_edge2 -> E]
+[B -> test_edge2 -> D]
+[(B, D) -> test_combine -> E]
 "#;
 
     let graph = parse_machine_to_cap_dag(route, &*registry)
@@ -593,10 +646,9 @@ async fn test951_fan_in_pattern() {
         .expect("Parse failed");
 
     let mut initial_inputs = HashMap::new();
-    initial_inputs.insert("A".to_string(), NodeData::Text("PATH1".to_string()));
-    initial_inputs.insert("C".to_string(), NodeData::Text("PATH2".to_string()));
-
+    initial_inputs.insert("A".to_string(), NodeData::Text("hello".to_string()));
     let initial_is_sequence = all_scalar(&initial_inputs);
+
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
@@ -606,27 +658,24 @@ async fn test951_fan_in_pattern() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        None, // no bundled providers in these unit fixtures
+        None,
         create_test_fabric_registry(),
         None,
         &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
     )
     .await
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
-    // Both paths should reach E (one will overwrite the other)
-    assert!(outputs.contains_key("E"));
-
-    // Verify intermediate nodes
-    let b_output = outputs.get("B").expect("No B output");
-    match b_output {
-        NodeData::Bytes(b) => {
-            let s = String::from_utf8(b.clone()).unwrap();
-            assert_eq!(s, "[PREPEND]PATH1");
-        }
-        _ => panic!("Expected Bytes"),
-    }
+    // B = edge1(hello) = "[PREPEND]hello"; D = edge2(B) = "[PREPEND]hello[APPEND]";
+    // E = combine(B main, D arg) = "B|D". If convergence mis-routed (e.g. D not
+    // delivered on its node3 URN), combine's require_stream(node3) would fail and
+    // execution would error — so a passing assertion here proves both inputs arrived
+    // by their distinct URNs.
+    let e = scalar_bytes(outputs.get("E").expect("No E output"));
+    let e_str = String::from_utf8(e).expect("Invalid UTF-8");
+    assert_eq!(e_str, "[PREPEND]hello|[PREPEND]hello[APPEND]");
 }
 
 // TEST950: Validate that cycles are rejected
@@ -769,21 +818,18 @@ async fn test946_four_machine() {
         &std::collections::HashMap::new(),
     )
     .await
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
     let final_output = outputs.get("E").expect("No final output");
 
-    match final_output {
-        NodeData::Bytes(b) => {
-            let output_str = String::from_utf8(b.clone()).expect("Invalid UTF-8");
-            // edge1: [PREPEND]hello
-            // edge2: [PREPEND]hello[APPEND]
-            // edge7 (uppercase): [PREPEND]HELLO[APPEND]
-            // edge8 (reverse): ]DNEPPA[OLLEH]DNEPERP[
-            assert_eq!(output_str, "]DNEPPA[OLLEH]DNEPERP[");
-        }
-        _ => panic!("Expected Bytes output"),
-    }
+    let b = scalar_bytes(final_output);
+    let output_str = String::from_utf8(b).expect("Invalid UTF-8");
+    // edge1: [PREPEND]hello
+    // edge2: [PREPEND]hello[APPEND]
+    // edge7 (uppercase): [PREPEND]HELLO[APPEND]
+    // edge8 (reverse): ]DNEPPA[OLLEH]DNEPERP[
+    assert_eq!(output_str, "]DNEPPA[OLLEH]DNEPERP[");
 }
 
 // TEST945: 5-machine: edge1 -> edge2 -> edge7 -> edge8 -> edge9
@@ -831,19 +877,16 @@ async fn test945_five_machine() {
         &std::collections::HashMap::new(),
     )
     .await
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
     let final_output = outputs.get("F").expect("No final output");
 
-    match final_output {
-        NodeData::Bytes(b) => {
-            let output_str = String::from_utf8(b.clone()).expect("Invalid UTF-8");
-            // Previous 4 caps: ]DNEPPA[OLLEH]DNEPERP[
-            // edge9 (wrap): <<]DNEPPA[OLLEH]DNEPERP[>>
-            assert_eq!(output_str, "<<]DNEPPA[OLLEH]DNEPERP[>>");
-        }
-        _ => panic!("Expected Bytes output"),
-    }
+    let b = scalar_bytes(final_output);
+    let output_str = String::from_utf8(b).expect("Invalid UTF-8");
+    // Previous 4 caps: ]DNEPPA[OLLEH]DNEPERP[
+    // edge9 (wrap): <<]DNEPPA[OLLEH]DNEPERP[>>
+    assert_eq!(output_str, "<<]DNEPPA[OLLEH]DNEPERP[>>");
 }
 
 // TEST944: 6-machine: edge1 -> edge2 -> edge7 -> edge8 -> edge9 -> edge10
@@ -893,19 +936,16 @@ async fn test944_six_machine() {
         &std::collections::HashMap::new(),
     )
     .await
-    .expect("Execution failed");
+    .expect("Execution failed")
+    .node_data;
 
     let final_output = outputs.get("G").expect("No final output");
 
-    match final_output {
-        NodeData::Bytes(b) => {
-            let output_str = String::from_utf8(b.clone()).expect("Invalid UTF-8");
-            // Previous 5 caps: <<]DNEPPA[OLLEH]DNEPERP[>>
-            // edge10 (unwrap+lowercase): ]dneppa[olleh]dneperp[
-            assert_eq!(output_str, "]dneppa[olleh]dneperp[");
-        }
-        _ => panic!("Expected Bytes output"),
-    }
+    let b = scalar_bytes(final_output);
+    let output_str = String::from_utf8(b).expect("Invalid UTF-8");
+    // Previous 5 caps: <<]DNEPPA[OLLEH]DNEPERP[>>
+    // edge10 (unwrap+lowercase): ]dneppa[olleh]dneperp[
+    assert_eq!(output_str, "]dneppa[olleh]dneperp[");
 
     // v3 pipelining regime: this six-cap machine is one linear-chain segment,
     // so the intermediate nodes stream cap-to-cap and are deliberately NEVER

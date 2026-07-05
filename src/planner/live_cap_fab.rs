@@ -193,6 +193,37 @@ impl LiveMachinePlanEdge {
     }
 }
 
+/// The producer of one of a cap step's inputs.
+///
+/// A `Strand` is a DAG of steps: an input is fed either by the strand's own input
+/// (an input anchor) or by another cap step's output. There are no positional
+/// assumptions — every input names its producer explicitly, so fan-out (one producer
+/// feeding several caps' main inputs) and convergence (one cap fed by several
+/// producers) are both expressible.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ArgSourceRef {
+    /// Fed by the strand's input anchor — the strand's own input flows into this arg.
+    StrandInput,
+    /// Fed by another cap step's output, identified by that step's stable `token_id`.
+    Step { token_id: String },
+}
+
+/// One input to a cap step: the cap argument it feeds (by the argument's slot media
+/// URN) and the producer of that input.
+///
+/// A cap step lists ALL of its data-flow inputs — the primary (stdin/main) input and
+/// every convergence input — with no positional ordering assumptions. The PRIMARY
+/// input is the one whose `arg_urn` is the cap's stdin argument URN; it threads the
+/// step's `from_spec` runtime media. Arg URNs into one cap are all distinct (RULE1: a
+/// cap's args have unique media URNs), so `arg_urn` alone identifies the slot.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CapInput {
+    /// The cap argument's slot media URN this input feeds.
+    pub arg_urn: MediaUrn,
+    /// The producer of this input.
+    pub source: ArgSourceRef,
+}
+
 /// Type of step in a capability chain path.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum StrandStepType {
@@ -205,6 +236,10 @@ pub enum StrandStepType {
         input_is_sequence: bool,
         /// Whether the cap's output produces a sequence
         output_is_sequence: bool,
+        /// ALL of this cap's data-flow inputs — the primary (stdin) input plus any
+        /// convergence inputs — each naming its producer explicitly. The primary is
+        /// the input whose `arg_urn` is the cap's stdin argument URN.
+        inputs: Vec<CapInput>,
     },
     /// Fan-out: iterate over sequence items (is_sequence flips true → false).
     /// The media URN does not change — ForEach is a shape transition, not a type transition.
@@ -1167,6 +1202,22 @@ impl LiveCapFab {
             let next_visit_key = (edge.to_spec.clone(), next_is_seq);
 
             if !visited.contains(&next_visit_key) {
+                // A fabricated cap's single input is its MAIN (stdin) input, fed by the
+                // previous cap in the path being built, or by the strand input when
+                // this is the first cap. Path finding routes solely on main input→
+                // output (one main input, one output); non-main args are never routed
+                // by the planner — they are user-supplied (wizards / scenarios / CLI),
+                // and cap-output→non-main-arg convergence exists only in hand-written
+                // notation, populated by `realize`. So a fabricated step has exactly
+                // one input by construction.
+                let cap_primary_source = current_path
+                    .iter()
+                    .rev()
+                    .find(|s| s.is_cap())
+                    .map(|s| ArgSourceRef::Step {
+                        token_id: s.token_id().to_string(),
+                    })
+                    .unwrap_or(ArgSourceRef::StrandInput);
                 let step_type = match &edge.edge_type {
                     LiveMachinePlanEdgeType::Cap {
                         cap_urn,
@@ -1180,6 +1231,11 @@ impl LiveCapFab {
                         specificity: *specificity,
                         input_is_sequence: *input_is_sequence,
                         output_is_sequence: *output_is_sequence,
+                        inputs: vec![CapInput {
+                            arg_urn: MediaUrn::from_string(cap_urn.in_spec())
+                                .expect("cap URN in= is a valid media URN"),
+                            source: cap_primary_source,
+                        }],
                     },
                     LiveMachinePlanEdgeType::ForEach => StrandStepType::ForEach {
                         media_def: edge.from_spec.clone(),
@@ -2074,6 +2130,7 @@ mod tests {
                         specificity: 4,
                         input_is_sequence: false,
                         output_is_sequence: true,
+                        inputs: vec![CapInput { arg_urn: MediaUrn::from_string("media:ext=pdf").unwrap(), source: ArgSourceRef::StrandInput }],
                     },
                     MediaUrn::from_string("media:ext=pdf").unwrap(),
                     MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
@@ -2406,6 +2463,7 @@ mod tests {
                     specificity: 0,
                     input_is_sequence: false,
                     output_is_sequence: false,
+                    inputs: vec![CapInput { arg_urn: MediaUrn::from_string("media:ext=pdf").unwrap(), source: ArgSourceRef::StrandInput }],
                 },
                 MediaUrn::from_string("media:ext=pdf").unwrap(),
                 MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
@@ -2452,6 +2510,7 @@ mod tests {
                     specificity: 0,
                     input_is_sequence: false,
                     output_is_sequence: false,
+                    inputs: vec![CapInput { arg_urn: MediaUrn::from_string("media:ext=pdf").unwrap(), source: ArgSourceRef::StrandInput }],
                 },
                 MediaUrn::from_string("media:ext=pdf").unwrap(),
                 MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),

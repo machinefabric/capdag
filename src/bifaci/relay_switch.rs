@@ -639,18 +639,17 @@ pub struct RelaySwitch {
     /// Number of masters this engine intends to register at startup.
     /// `all_masters_ready` only returns true once `masters.len() >=
     /// expected_master_count` AND every connected master is ready —
-    /// this prevents a premature "ready" signal during boot when
-    /// only the internal master has finished registering and the
-    /// external-providers master is still spawning cartridges.
+    /// this prevents a premature "ready" signal during boot when the
+    /// external-providers master is still spawning cartridges (and, in
+    /// Website, before the XPC-service relay has connected).
     ///
-    /// Counts the cardinality slots the engine wires up at startup:
-    ///   - MAS edition (2 slots):
-    ///     * `MASTER_ID_INTERNAL` — engine's in-process providers
+    /// Counts the cardinality slots the engine wires up at startup. The
+    /// engine hosts no in-process providers, so there is no internal slot:
+    ///   - MAS edition (1 slot):
     ///     * `MASTER_ID_EXTERNAL` — engine-spawned external providers
     ///       (every cartridge ships embedded as an external provider
     ///       in MAS; there is no XPC-service slot)
-    ///   - Website edition (3 slots):
-    ///     * `MASTER_ID_INTERNAL`
+    ///   - Website edition (2 slots):
     ///     * `MASTER_ID_EXTERNAL`
     ///     * `MASTER_ID_XPC_SERVICE` — the host XPC service
     ///       managing installed cartridges
@@ -1512,11 +1511,10 @@ impl RelaySwitch {
     /// the dispatch table grows under the engine over time.
     ///
     /// Editions differ only in the expected master count (see
-    /// `set_expected_master_count`):
-    ///   - WEBSITE: 3 (engine internal-providers, engine
-    ///     external-providers, XPC service).
-    ///   - MAS: 2 (engine internal-providers, engine
-    ///     external-providers — no XPC service).
+    /// `set_expected_master_count`). The engine hosts no in-process
+    /// providers, so there is no internal-providers slot:
+    ///   - WEBSITE: 2 (engine external-providers, XPC service).
+    ///   - MAS: 1 (engine external-providers — no XPC service).
     ///
     /// The host app polls this (via
     /// `SendHeartbeatResponse.cartridges_ready`) to flip its own

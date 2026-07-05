@@ -57,8 +57,8 @@ pub use plan_analysis::{
     derive_output_producing_cap_urn, find_collect_for_foreach, resolve_plan_output,
 };
 pub use live_cap_fab::{
-    LiveCapFab, LiveMachinePlanEdge, LiveMachinePlanEdgeType, PathFindingEvent,
-    ReachableTargetInfo, Strand, StrandStep, StrandStepType,
+    ArgSourceRef, CapInput, LiveCapFab, LiveMachinePlanEdge, LiveMachinePlanEdgeType,
+    PathFindingEvent, ReachableTargetInfo, Strand, StrandStep, StrandStepType,
 };
 pub use plan::{
     BodyOutcome, EdgeType, ExecutionNodeType, MachineNode, MachinePlan, MachinePlanEdge,

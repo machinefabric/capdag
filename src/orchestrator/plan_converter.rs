@@ -156,7 +156,13 @@ pub async fn plan_to_resolved_graph(
         } = &to_node.node_type
         {
             let cap = lookup_cached(cap_urn)?;
-            let in_media = cap.urn.in_spec().to_string();
+            // The stream URN this edge carries: a convergence (`Arg`) edge feeds a
+            // specific non-main argument, so it carries that arg's URN; a `Direct` edge
+            // feeds the cap's main (stdin) input, carrying the cap's `in=` URN.
+            let in_media = match &edge.edge_type {
+                crate::planner::EdgeType::Arg { arg_urn } => arg_urn.clone(),
+                _ => cap.urn.in_spec().to_string(),
+            };
             let out_media = cap.urn.out_spec().to_string();
 
             // If the source is a standalone Collect node, resolve through to the

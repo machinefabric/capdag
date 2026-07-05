@@ -18,7 +18,7 @@
 //!                                                             ←→ Cartridge C
 //! ```
 
-use super::stream_io::{PipelineLogFn, StreamIoError};
+use super::stream_io::{PipelineLogFn, PipelineProgressTracker, TerminalMeta};
 use super::types::{ResolvedEdge, ResolvedGraph};
 use crate::{
     handshake, Cap, CapManifest, CapUrn, CartridgeHostRuntime, CartridgeRepo, FabricRegistry,
@@ -28,9 +28,7 @@ use crate::{
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 use thiserror::Error;
 
 /// Detect the current platform in the format used by the registry (e.g., "darwin-arm64").
@@ -55,10 +53,17 @@ const DEFAULT_ACTIVITY_TIMEOUT_SECS: u64 = 120;
 
 /// Cap metadata key for per-cap activity timeout override.
 const ACTIVITY_TIMEOUT_METADATA_KEY: &str = "activity_timeout_secs";
+
+/// How long the segment executor polls for a cap to become dispatchable before
+/// failing hard. Cap registration is asynchronous — a freshly attached cartridge
+/// host's RelayNotify (carrying its real cap_groups) lands some time after
+/// `add_master` returns. On a long-lived switch (the engine) the cap is already
+/// registered and the first probe succeeds, so this bound only ever elapses for a
+/// genuinely unprovided cap.
+const CAP_DISPATCH_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 use crate::bifaci::local_socket::UnixStream;
 use tokio::io::{BufReader, BufWriter};
 use tokio::process::Command;
-use tokio::sync::mpsc;
 
 /// Callback for reporting per-cap progress.
 /// Parameters: (progress 0.0–1.0, cap URN string, human-readable message)
@@ -1324,824 +1329,929 @@ impl ExecutionContext {
     pub fn shutdown(self) -> HashMap<String, Vec<u8>> {
         self.into_node_data()
     }
-
-    /// Execute an edge group as a single cap invocation with one or more input streams.
-    ///
-    /// All edges in the group share the same `(to, cap_urn)`. Each edge contributes
-    /// one input stream using its `from` node's data and its own `in_media` URN.
-    /// The cap handler receives all streams and decides when/how to process them.
-    ///
-    /// Additional arguments can be provided via `extra_args` - these are sent as
-    /// additional input streams with the specified media_urn. This is used for
-    /// slot values, cap settings, etc. that don't flow through edges.
-    ///
-    /// Protocol:
-    ///   REQ(cap_urn)
-    ///   STREAM_START(stream_id_1, in_media_1) + CHUNK... + STREAM_END(stream_id_1)
-    ///   STREAM_START(stream_id_2, in_media_2) + CHUNK... + STREAM_END(stream_id_2)
-    ///   ...
-    ///   END
-    ///   → collect response chunks → decode CBOR → store at `to` node
-    pub async fn execute_fanin(
-        &mut self,
-        edges: &[ResolvedEdge],
-        extra_args: &[(String, Vec<u8>)],
-        progress_fn: Option<&CapProgressFn>,
-        log_fn: &PipelineLogFn,
-    ) -> Result<(), ExecutionError> {
-        assert!(
-            !edges.is_empty(),
-            "execute_fanin requires at least one edge"
-        );
-
-        let cap_urn = &edges[0].cap_urn;
-        let to = &edges[0].to;
-
-        let activity_timeout_secs = edges[0]
-            .cap
-            .metadata
-            .get(ACTIVITY_TIMEOUT_METADATA_KEY)
-            .and_then(|v| v.parse::<u64>().ok())
-            .filter(|&v| v > 0)
-            .unwrap_or(DEFAULT_ACTIVITY_TIMEOUT_SECS);
-
-        let total_streams = edges.len() + extra_args.len();
-
-        // Collect all input data upfront — fail fast if any source is missing
-        let mut inputs: Vec<(&[u8], &str, bool)> = Vec::new();
-        for edge in edges {
-            let data =
-                self.node_data
-                    .get(&edge.from)
-                    .ok_or_else(|| ExecutionError::NoIncomingData {
-                        node: edge.from.clone(),
-                    })?;
-            // Strict lookup: every node in `node_data` MUST also
-            // have an entry in `node_is_sequence`. Initial inputs
-            // get theirs from `execute_dag`'s init loop;
-            // intermediate caps get theirs from the output-write
-            // branches above (both `true` and `false` cases now
-            // insert explicitly). A miss here is a wiring bug.
-            let is_seq = *self.node_is_sequence.get(&edge.from).ok_or_else(|| {
-                ExecutionError::HostError(format!(
-                    "execute_fanin: node '{}' has data but no \
-                     sequence flag — initial inputs must declare \
-                     scalar/sequence in `initial_is_sequence`, and \
-                     intermediate caps must set the flag when they \
-                     write their output node.",
-                    edge.from,
-                ))
-            })?;
-            inputs.push((data.as_slice(), edge.in_media.as_str(), is_seq));
-        }
-        // Wait until a master advertises a cap that's dispatchable
-        // for this request. Master setup is async — the RelayNotify
-        // carrying the cartridges' real cap_groups arrives some
-        // time after `add_master` returns. Polling until the cap is
-        // visible is the synchronization point that lets the
-        // orchestrator's execute_cap route correctly. Bound the wait
-        // by the activity timeout (per-edge default ~120s) so
-        // genuinely missing caps surface as a typed error rather
-        // than hanging.
-        let dispatch_timeout = std::time::Duration::from_secs(15);
-        if self
-            .switch
-            .wait_for_cap(cap_urn, dispatch_timeout)
-            .await
-            .is_none()
-        {
-            return Err(ExecutionError::HostError(format!(
-                "execute_cap: No master advertised a cap dispatchable for {} \
-                 within 15s — RelayNotify never arrived, identity probe failed, \
-                 or no provider handles this cap",
-                cap_urn
-            )));
-        }
-        // Open ONE cap invocation for all inputs
-        let (request_id, rx) = self
-            .switch
-            .execute_cap(cap_urn, vec![], "application/cbor")
-            .await
-            .map_err(|e| ExecutionError::HostError(format!("execute_cap: {}", e)))?;
-
-        // Credit plumbing (L9–L15): our input streams are flow-controlled by
-        // the cartridge's consumption (grants arrive as CREDIT frames on the
-        // response channel and are routed into `credit_router`), and we grant
-        // for the response chunks we consume so the cartridge's output window
-        // replenishes.
-        let initial_credit = self.switch.limits().await.initial_credit;
-        let credit_router = crate::bifaci::credit::CreditRouter::new();
-        let grant_switch = self.switch.clone();
-        let grant_rid = request_id.clone();
-        let grant: super::stream_io::CreditGrantFn = Arc::new(move |stream_id, n| {
-            let switch = grant_switch.clone();
-            let rid = grant_rid.clone();
-            tokio::spawn(async move {
-                let frame = Frame::credit(
-                    rid,
-                    stream_id,
-                    n,
-                    crate::bifaci::frame::CreditDirection::Response,
-                );
-                if let Err(e) = switch.send_to_master(frame, None).await {
-                    // The request already terminated — the producer no longer
-                    // needs the grant. Observable, not fatal.
-                    tracing::debug!("[executor] credit grant not deliverable: {}", e);
-                }
-            });
-        });
-        let plumbing = super::stream_io::CreditPlumbing {
-            router: credit_router.clone(),
-            grant,
-            batch: (initial_credit / 2).max(1),
-        };
-
-        // Input feeding runs CONCURRENTLY with response collection (L15):
-        // a handler that starts emitting output while input is still flowing
-        // would otherwise fill its output window, stop granting input credit,
-        // and deadlock a sequential send-then-collect loop.
-        let send_task = {
-            let owned_inputs: Vec<(Vec<u8>, String, bool)> = inputs
-                .iter()
-                .map(|(data, media, is_seq)| (data.to_vec(), media.to_string(), *is_seq))
-                .collect();
-            let owned_extra: Vec<(String, Vec<u8>)> = extra_args.to_vec();
-            let send_switch = self.switch.clone();
-            let send_rid = request_id.clone();
-            let send_router = credit_router.clone();
-            let max_chunk = self.max_chunk;
-            tokio::spawn(async move {
-                for (data, in_media, is_seq) in &owned_inputs {
-                    super::stream_io::send_one_stream(
-                        &send_switch,
-                        &send_rid,
-                        in_media,
-                        data,
-                        None,
-                        *is_seq,
-                        max_chunk,
-                        Some((&send_router, initial_credit)),
-                    )
-                    .await?;
-                }
-                // Extra args are always scalar
-                for (media_urn, data) in &owned_extra {
-                    super::stream_io::send_one_stream(
-                        &send_switch,
-                        &send_rid,
-                        media_urn,
-                        data,
-                        None,
-                        false,
-                        max_chunk,
-                        Some((&send_router, initial_credit)),
-                    )
-                    .await?;
-                }
-
-                // END — no more input streams
-                let end_frame = Frame::end(send_rid.clone(), None);
-                send_switch
-                    .send_to_master(end_frame, None)
-                    .await
-                    .map_err(|e| StreamIoError::Transport(format!("END: {}", e)))?;
-                Ok::<(), StreamIoError>(())
-            })
-        };
-        // Spawn a pump task that drains `read_from_masters_timeout` so peer
-        // requests get routed while we wait for this cap's terminal frames.
-        // Without the pump, cartridge→cartridge peer calls deadlock. The
-        // pump exits via the stop flag — never via `abort()`, which can
-        // drop frames mid-route.
-        let pump_stop = Arc::new(AtomicBool::new(false));
-        let pump_stop_flag = pump_stop.clone();
-        let pump_switch = self.switch.clone();
-        let pump_handle = tokio::spawn(async move {
-            loop {
-                if pump_stop_flag.load(Ordering::Relaxed) {
-                    break;
-                }
-                match pump_switch
-                    .read_from_masters_timeout(Duration::from_millis(200))
-                    .await
-                {
-                    Ok(Some(_frame)) => {
-                        // Routed internally by handle_master_frame — nothing to do.
-                    }
-                    Ok(None) => {
-                        // Timeout — loop again (also checks stop flag).
-                    }
-                    Err(e) => {
-                        // Per-frame relay errors aren't fatal to the pump.
-                        // Log and continue so other requests keep routing.
-                        tracing::warn!("[executor pump] relay error (continuing): {}", e);
-                    }
-                }
-            }
-        });
-
-        // Delegate the terminal-collect loop to the shared `stream_io`
-        // implementation used by the machfab engine. This is the single
-        // source of truth for frame decoding, activity timeouts, progress
-        // callbacks, and END/ERR handling.
-        let collect_result = super::stream_io::collect_terminal_output(
-            rx,
-            progress_fn,
-            cap_urn,
-            Some(log_fn),
-            None,
-            None,
-            None,
-            activity_timeout_secs,
-            Some(&plumbing),
-        )
-        .await;
-
-        // Terminal: release any credit-blocked sender (L13) BEFORE joining the
-        // send task — a producer stalled on credit must observe termination,
-        // not hang. Then stop the pump.
-        credit_router.close_request(&request_id, "terminal");
-        pump_stop.store(true, Ordering::Relaxed);
-        let _ = pump_handle.await;
-
-        let send_result = send_task
-            .await
-            .map_err(|e| ExecutionError::HostError(format!("input send task panicked: {}", e)));
-
-        let (response_chunks, is_sequence, _terminal_meta) =
-            collect_result.map_err(|e| match e {
-                StreamIoError::Terminal { cap_urn, details } => {
-                    ExecutionError::CartridgeExecutionFailed { cap_urn, details }
-                }
-                other => ExecutionError::HostError(format!("{}", other)),
-            })?;
-
-        // Collection succeeded — an input-feed failure now means the request
-        // completed without its full input, which is NOT success. Surface it.
-        send_result?
-            .map_err(|e| ExecutionError::HostError(format!("input send failed: {}", e)))?;
-
-        // Decode response using shared stream I/O (matches machfab engine behavior).
-        // Unwraps CBOR transport wrappers so node_data always contains raw bytes.
-        let decoded_items = super::stream_io::decode_terminal_output(&response_chunks, is_sequence)
-            .map_err(|e| ExecutionError::HostError(format!("{}", e)))?;
-
-        if is_sequence == Some(true) {
-            // Re-encode as CBOR sequence for storage: each unwrapped item
-            // becomes a CBOR Bytes value so the sequence remains self-delimiting.
-            let mut cbor_seq = Vec::new();
-            for item in &decoded_items {
-                let cbor_value = ciborium::Value::Bytes(item.clone());
-                ciborium::into_writer(&cbor_value, &mut cbor_seq).map_err(|e| {
-                    ExecutionError::HostError(format!("CBOR re-encode sequence item: {}", e))
-                })?;
-            }
-            self.node_data.insert(to.clone(), cbor_seq);
-            self.node_is_sequence.insert(to.clone(), true);
-        } else {
-            // Scalar: decoded_items has one entry with concatenated raw bytes
-            let output_bytes = decoded_items.into_iter().next().unwrap_or_default();
-            self.node_data.insert(to.clone(), output_bytes);
-            // Explicit false flag matches the strict invariant the
-            // dispatch path requires (see send-stream loop above).
-            // The previous code relied on absent-key-defaults-to-false,
-            // which forced every consumer to do permissive lookups
-            // and made the contract ambiguous.
-            self.node_is_sequence.insert(to.clone(), false);
-        }
-        Ok(())
-    }
 }
 
 // =============================================================================
 // DAG Executor
 // =============================================================================
 
-// =============================================================================
-// Pipelined execution — linear-chain segments (L16)
-// =============================================================================
-
-/// Detect maximal pipelined segments in topological group order.
+/// Run one resolved DAG (a single ForEach-free linear chain, possibly with a
+/// fan-in head) on an already-built [`ExecutionContext`]. This is THE segment
+/// executor, shared by the reference [`execute_dag`] (dev-bin cartridges) and
+/// the engine's `EngineHostRuntime::run_segment` (relay-switch cartridges).
 ///
-/// Group `g_next` chains onto `g_prev` when its ONLY input edge consumes
-/// `g_prev`'s output node, no other group consumes that node, and `g_next`
-/// takes no extra args from cap_arguments. Chained groups stream frames from
-/// cap to cap live (downstream consumes upstream chunks before END exists),
-/// with credit flowing per hop. Fan-in group heads may start a segment; a
-/// fan-out or extra-args group ends one.
+/// All cap invocations open up front; frames stream cap→cap live (downstream
+/// consumes upstream chunks before END exists) with credit flowing per hop
+/// (L9–L15); the terminal cap's output is collected — to disk via `writer` when
+/// present, else accumulated and CBOR-decoded in memory. `observer` correlates
+/// each invocation's request id to its strand step for the run's flow snapshots
+/// (the reference path passes `None`).
 ///
-/// Regime note: a pipelined intermediate node's data is never materialized
-/// into the result map — the whole point is that it never exists in engine
-/// memory as a whole.
-fn detect_pipeline_segments(
-    groups: &[EdgeGroup],
-    group_order: &[usize],
-    cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
-) -> Vec<Vec<usize>> {
-    // consumers[node] = number of groups reading it
-    let mut consumers: HashMap<&str, usize> = HashMap::new();
-    for g in groups {
-        for e in &g.edges {
-            *consumers.entry(e.from.as_str()).or_insert(0) += 1;
-        }
-    }
-
-    let chains = |prev: &EdgeGroup, next: &EdgeGroup| -> bool {
-        next.edges.len() == 1
-            && next.edges[0].from == prev.to
-            && consumers.get(prev.to.as_str()).copied().unwrap_or(0) == 1
-            && !cap_arguments.contains_key(&next.to)
-    };
-
-    let mut segments: Vec<Vec<usize>> = Vec::new();
-    for &idx in group_order {
-        match segments.last_mut() {
-            Some(seg) if chains(&groups[*seg.last().unwrap()], &groups[idx]) => {
-                seg.push(idx);
-            }
-            _ => segments.push(vec![idx]),
-        }
-    }
-    segments
-}
-
-/// Forward one cap's response frames live into the next cap's input (the
-/// reference port of machfab's `forward_frames`). Runs until the upstream
-/// END/ERR. Credit flows both ways: chunks forwarded downstream acquire from
-/// `router_next` gates (replenished by the downstream cap's grants), and
-/// consumed upstream chunks are granted back to the upstream cap (L10/L14).
+/// Returns `(node_data, terminal_is_sequence, writer_result, terminal_meta)`.
+/// `node_data` holds each input node's raw bytes as a single-element vec and the
+/// terminal node's CBOR-transport-stripped items (empty when a writer persisted
+/// them to disk).
 #[allow(clippy::too_many_arguments)]
-async fn forward_frames(
-    switch: Arc<RelaySwitch>,
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<Frame>,
-    rid_up: MessageId,
-    rid_down: MessageId,
-    router_up: crate::bifaci::credit::CreditRouter,
-    router_down: crate::bifaci::credit::CreditRouter,
-    initial_credit: u64,
-    cap_urn: String,
-    progress_fn: Option<CapProgressFn>,
-    log_fn: PipelineLogFn,
-) -> Result<(), ExecutionError> {
-    use crate::bifaci::credit::CreditGate;
+pub async fn run_dag_on_context(
+    ctx: &mut ExecutionContext,
+    graph: &ResolvedGraph,
+    cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
+    progress_fn: Option<&CapProgressFn>,
+    step_progress_fn: Option<&CapStepProgressFn>,
+    log_fn: Option<&PipelineLogFn>,
+    body_index: Option<usize>,
+    stall_tracker: Option<Arc<PipelineProgressTracker>>,
+    writer_factory: Option<&super::stream_io::SegmentWriterFactory>,
+    persist_sinks: &HashSet<String>,
+    activity_timeout_secs: u64,
+    observer: Option<&dyn super::stream_io::FlowObserver>,
+) -> Result<DagOutput, ExecutionError> {
+    let groups = build_edge_groups(&graph.edges);
+    let group_order = topological_sort_groups(&groups)?;
+    let n_groups = group_order.len();
 
-    // upstream stream_id → (downstream stream_id, downstream gate,
-    // upstream chunks consumed since last grant)
-    let mut streams: HashMap<String, (String, Arc<CreditGate>, u64)> = HashMap::new();
-    let grant_batch = (initial_credit / 2).max(1);
+    // Seed the outputs with every already-materialised node (the initial inputs).
+    let mut node_data: HashMap<String, Vec<Vec<u8>>> = ctx
+        .node_data()
+        .iter()
+        .map(|(k, v)| (k.clone(), vec![v.clone()]))
+        .collect();
+    let mut node_is_sequence: HashMap<String, bool> = ctx.node_is_sequence().clone();
+    let mut writer_results: HashMap<String, Vec<super::execute_plan::WriterResult>> = HashMap::new();
+    let mut terminal_meta: HashMap<String, TerminalMeta> = HashMap::new();
 
-    let send = |mut frame: Frame| {
-        let switch = Arc::clone(&switch);
-        async move {
-            frame.routing_id = None;
-            frame.seq = 0;
-            switch
-                .send_to_master(frame, None)
-                .await
-                .map_err(|e| ExecutionError::HostError(format!("pipelined forward: {}", e)))
-        }
-    };
-
-    loop {
-        let next = match rx.try_recv() {
-            Ok(f) => Some(f),
-            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => None,
-            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-                // About to block: flush pending upstream grants (L10
-                // deadlock-freedom rule) — the upstream cap's send window may
-                // be smaller than our batch threshold.
-                for (up_id, (_, _, consumed)) in streams.iter_mut() {
-                    if *consumed > 0 {
-                        let n = *consumed;
-                        *consumed = 0;
-                        let credit = Frame::credit(
-                            rid_up.clone(),
-                            Some(up_id.clone()),
-                            n,
-                            crate::bifaci::frame::CreditDirection::Response,
-                        );
-                        send(credit).await?;
-                    }
-                }
-                rx.recv().await
-            }
-        };
-        let Some(frame) = next else { break };
-        match frame.frame_type {
-            FrameType::StreamStart => {
-                let Some(up_id) = frame.stream_id.clone() else {
-                    return Err(ExecutionError::HostError(
-                        "pipelined forward: STREAM_START missing stream_id".to_string(),
-                    ));
-                };
-                let down_id = uuid::Uuid::new_v4().to_string();
-                let gate = Arc::new(CreditGate::new(initial_credit));
-                router_down.register(rid_down.clone(), Some(down_id.clone()), Arc::clone(&gate));
-                streams.insert(up_id, (down_id.clone(), gate, 0));
-
-                let mut fwd = frame.clone();
-                fwd.id = rid_down.clone();
-                fwd.stream_id = Some(down_id);
-                send(fwd).await?;
-            }
-            FrameType::Chunk => {
-                let Some(up_id) = frame.stream_id.clone() else {
-                    return Err(ExecutionError::HostError(
-                        "pipelined forward: CHUNK missing stream_id".to_string(),
-                    ));
-                };
-                let has_window = {
-                    let Some((_, gate, _)) = streams.get(&up_id) else {
-                        return Err(ExecutionError::HostError(format!(
-                            "pipelined forward: CHUNK for unknown stream {}",
-                            up_id
-                        )));
-                    };
-                    gate.try_acquire(1)
-                        .map_err(|e| ExecutionError::HostError(e.to_string()))?
-                };
-                if !has_window {
-                    // Flush-before-block applies to EVERY blocking point (L10
-                    // corollary): the downstream acquire is about to wait, and
-                    // the upstream producer may be stalled on exactly the
-                    // sub-batch grants we are holding. Flush them all, then
-                    // wait for downstream window.
-                    for (flush_id, (_, _, consumed)) in streams.iter_mut() {
-                        if *consumed > 0 {
-                            let n = *consumed;
-                            *consumed = 0;
-                            let credit = Frame::credit(
-                                rid_up.clone(),
-                                Some(flush_id.clone()),
-                                n,
-                                crate::bifaci::frame::CreditDirection::Response,
-                            );
-                            send(credit).await?;
-                        }
-                    }
-                    let Some((_, gate, _)) = streams.get(&up_id) else {
-                        unreachable!("stream entry checked above");
-                    };
-                    // Downstream flow control (L9): wait for the downstream
-                    // cap's window before forwarding.
-                    gate.acquire(1)
-                        .await
-                        .map_err(|e| ExecutionError::HostError(e.to_string()))?;
-                }
-                let Some((down_id, _, consumed)) = streams.get_mut(&up_id) else {
-                    unreachable!("stream entry checked above");
-                };
-
-                let mut fwd = frame.clone();
-                fwd.id = rid_down.clone();
-                fwd.stream_id = Some(down_id.clone());
-                send(fwd).await?;
-
-                // Upstream replenishment (L10), batched.
-                *consumed += 1;
-                if *consumed >= grant_batch {
-                    let n = *consumed;
-                    *consumed = 0;
-                    let credit = Frame::credit(
-                            rid_up.clone(),
-                            Some(up_id.clone()),
-                            n,
-                            crate::bifaci::frame::CreditDirection::Response,
-                        );
-                    send(credit).await?;
-                }
-            }
-            FrameType::StreamEnd => {
-                let Some(up_id) = frame.stream_id.clone() else {
-                    return Err(ExecutionError::HostError(
-                        "pipelined forward: STREAM_END missing stream_id".to_string(),
-                    ));
-                };
-                if let Some((down_id, _, _)) = streams.get(&up_id) {
-                    let mut fwd = frame.clone();
-                    fwd.id = rid_down.clone();
-                    fwd.stream_id = Some(down_id.clone());
-                    send(fwd).await?;
-                }
-            }
-            FrameType::Log => {
-                let level = frame.log_level().unwrap_or("info");
-                if let Some(p) = frame.log_progress() {
-                    let msg = frame.log_message().unwrap_or("");
-                    if let Some(pfn) = &progress_fn {
-                        pfn(p, &cap_urn, msg);
-                    }
-                    log_fn(&cap_urn, "progress", msg, frame.meta.clone(), None);
-                } else if let Some(msg) = frame.log_message() {
-                    log_fn(&cap_urn, level, msg, frame.meta.clone(), None);
-                }
-            }
-            FrameType::Credit => {
-                // The upstream cap crediting OUR sends into it.
-                router_up.grant(&frame);
-            }
-            FrameType::End => {
-                if frame.exit_code() != Some(0) {
-                    return Err(ExecutionError::CartridgeExecutionFailed {
-                        cap_urn: cap_urn.clone(),
-                        details: format!(
-                            "END without success in pipelined chain: exit_code={:?}",
-                            frame.exit_code()
-                        ),
-                    });
-                }
-                // Terminal metadata is the final progress event (L5).
-                let final_progress = frame.final_progress().unwrap_or(1.0) as f32;
-                if let Some(pfn) = &progress_fn {
-                    pfn(final_progress, &cap_urn, frame.final_message().unwrap_or(""));
-                }
-                // Propagate completion downstream: no more input streams.
-                let end = Frame::end(rid_down.clone(), None);
-                send(end).await?;
-                return Ok(());
-            }
-            FrameType::Err => {
-                let msg = frame
-                    .error_message()
-                    .unwrap_or("Unknown cartridge error")
-                    .to_string();
-                return Err(ExecutionError::CartridgeExecutionFailed {
-                    cap_urn: cap_urn.clone(),
-                    details: msg,
-                });
-            }
-            _ => {}
-        }
+    if n_groups == 0 {
+        return Ok(DagOutput {
+            node_data,
+            node_is_sequence,
+            writer_results,
+            terminal_meta,
+        });
     }
-    Err(ExecutionError::CartridgeExecutionFailed {
-        cap_urn,
-        details: "pipelined forward: response channel closed without END".to_string(),
+
+    // Decompose the topologically-ordered cap groups into maximal LINEAR chains.
+    // A group is a linear continuation of a single producer that feeds ONLY it;
+    // every other group heads a chain. Fan-out (a producer feeding >1 group) and
+    // fan-in (a group whose stdin/args come from >1 producer group) both break
+    // chains, so every non-linear junction is resolved by materialising the
+    // producer's output into node_data and feeding the downstream chain head from
+    // it. A single linear machine yields exactly one chain and collapses to the
+    // pipelined path below unchanged. Persisted terminal sinks each get their own
+    // writer from the factory (fan-out ⇒ several); intermediate sinks stay in memory.
+    let chains = decompose_group_chains(&groups, &group_order);
+    let n_chains = chains.len();
+
+    for (ci, chain_idxs) in chains.iter().enumerate() {
+        let chain_groups: Vec<EdgeGroup> =
+            chain_idxs.iter().map(|&gi| groups[gi].clone()).collect();
+        let sink = chain_groups
+            .last()
+            .expect("a chain has at least one group")
+            .to
+            .clone();
+
+        // This sink persists to disk iff it is a plan terminal AND a writer factory
+        // was supplied (the engine persists; the reference/in-memory path does not).
+        // The writer is owned here, handed by borrow to the collect step, and
+        // finalised into a per-sink `WriterResult` after.
+        let mut writer: Option<Box<dyn super::stream_io::IncrementalWriter>> =
+            match writer_factory {
+                Some(f) if persist_sinks.contains(&sink) => Some(f(&sink, body_index)),
+                _ => None,
+            };
+        let has_writer = writer.is_some();
+
+        let progress_base = ci as f32 / n_chains as f32;
+        let progress_span = 1.0 / n_chains as f32;
+
+        let (items, is_seq, meta) = run_group_chain(
+            ctx,
+            &chain_groups,
+            cap_arguments,
+            progress_fn,
+            progress_base,
+            progress_span,
+            step_progress_fn,
+            log_fn,
+            body_index,
+            stall_tracker.clone(),
+            writer
+                .as_mut()
+                .map(|w| w.as_mut() as &mut dyn super::stream_io::IncrementalWriter),
+            activity_timeout_secs,
+            observer,
+        )
+        .await?;
+
+        if let Some(w) = writer {
+            writer_results.entry(sink.clone()).or_default().push(w.finish());
+        }
+
+        // Materialise this chain's sink so downstream chains' heads can read it (via
+        // send_group_input from node_data). When persisted to a writer there are no
+        // in-memory items and nothing downstream reads it. Sequences re-assemble to
+        // the CBOR sequence the next head will re-split.
+        if !has_writer {
+            let bytes = if is_seq {
+                crate::orchestrator::cbor_util::assemble_cbor_sequence(&items).map_err(|e| {
+                    ExecutionError::HostError(format!("materialise chain output '{sink}': {e}"))
+                })?
+            } else {
+                items.first().cloned().unwrap_or_default()
+            };
+            ctx.set_node_data(sink.clone(), bytes);
+            ctx.set_node_is_sequence(sink.clone(), is_seq);
+        }
+
+        node_is_sequence.insert(sink.clone(), is_seq);
+        terminal_meta.insert(sink.clone(), meta);
+        node_data.insert(sink, items);
+    }
+
+    Ok(DagOutput {
+        node_data,
+        node_is_sequence,
+        writer_results,
+        terminal_meta,
     })
 }
 
-/// Execute a pipelined linear-chain segment: all cap invocations open up
-/// front, per-edge forwarding tasks stream frames downstream live, the
-/// terminal cap's output is collected (or delivered incrementally by the
-/// caller via the terminal receiver). The downstream cap receives its first
-/// item before the upstream cap has emitted its last (TEST7076).
-async fn execute_segment_pipelined(
-    ctx: &mut ExecutionContext,
-    groups: &[EdgeGroup],
-    segment: &[usize],
-    group_pfns: &[Option<CapProgressFn>],
-    log_fn: &PipelineLogFn,
-) -> Result<(), ExecutionError> {
-    assert!(segment.len() >= 2, "pipelined segment needs >= 2 groups");
+/// Output of running a resolved DAG on a context: every node's decoded output items,
+/// each node's cardinality, and — for persisted terminal sinks — the writer results
+/// and per-sink terminal metadata. A fan-out DAG produces several sinks; each appears
+/// here.
+pub struct DagOutput {
+    /// Node id → decoded output items (one for a scalar, N for a sequence). Persisted
+    /// terminal sinks carry an empty vec (their data is on disk, in `writer_results`).
+    pub node_data: HashMap<String, Vec<Vec<u8>>>,
+    /// Node id → whether its output is a sequence.
+    pub node_is_sequence: HashMap<String, bool>,
+    /// Persisted terminal sink node id → its writer result(s).
+    pub writer_results: HashMap<String, Vec<super::execute_plan::WriterResult>>,
+    /// Terminal sink node id → its terminal metadata (titles, final progress, …).
+    pub terminal_meta: HashMap<String, TerminalMeta>,
+}
 
-    let initial_credit = ctx.switch.limits().await.initial_credit;
-    let head = &groups[segment[0]];
-    let tail = &groups[*segment.last().unwrap()];
+/// Decompose topologically-ordered cap groups into maximal linear chains (lists of
+/// indices into `groups`), mirroring `execute_plan::linear_chains` at the edge-group
+/// level. A group folds into its producer's chain iff it has exactly one producer
+/// group and that producer feeds ONLY it; otherwise it heads a new chain. Chains are
+/// returned in head-topological order, so every chain's head inputs are materialised
+/// by an earlier chain (a producer feeding a downstream chain head necessarily
+/// fans out, so it is that earlier chain's sink).
+fn decompose_group_chains(groups: &[EdgeGroup], group_order: &[usize]) -> Vec<Vec<usize>> {
+    let n = groups.len();
 
-    let activity_timeout_secs = tail
-        .edges[0]
-        .cap
-        .metadata
-        .get(ACTIVITY_TIMEOUT_METADATA_KEY)
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|&v| v > 0)
-        .unwrap_or(DEFAULT_ACTIVITY_TIMEOUT_SECS);
-
-    // Collect the head group's inputs (owned) before opening anything.
-    let mut head_inputs: Vec<(Vec<u8>, String, bool)> = Vec::new();
-    for edge in &head.edges {
-        let data = ctx
-            .node_data
-            .get(&edge.from)
-            .ok_or_else(|| ExecutionError::NoIncomingData {
-                node: edge.from.clone(),
-            })?;
-        let is_seq = *ctx.node_is_sequence.get(&edge.from).ok_or_else(|| {
-            ExecutionError::HostError(format!(
-                "pipelined segment: node '{}' has data but no sequence flag",
-                edge.from
-            ))
-        })?;
-        head_inputs.push((data.clone(), edge.in_media.clone(), is_seq));
+    // node → the group index that produces it (a group produces its `to` node).
+    let mut produced_by: HashMap<&str, usize> = HashMap::new();
+    for (i, g) in groups.iter().enumerate() {
+        produced_by.insert(g.to.as_str(), i);
     }
 
-    // Open every cap invocation in the segment up front.
-    let mut rids: Vec<MessageId> = Vec::new();
-    let mut rxs: Vec<tokio::sync::mpsc::UnboundedReceiver<Frame>> = Vec::new();
-    let mut routers: Vec<crate::bifaci::credit::CreditRouter> = Vec::new();
-    for &idx in segment {
-        let cap_urn = &groups[idx].cap_urn;
-        if ctx
-            .switch
-            .wait_for_cap(cap_urn, std::time::Duration::from_secs(15))
+    // input_sources[i] = distinct producer groups feeding group i's input edges.
+    // consumers[i] = groups that consume group i's output.
+    let mut input_sources: Vec<HashSet<usize>> = (0..n).map(|_| HashSet::new()).collect();
+    let mut consumers: Vec<HashSet<usize>> = (0..n).map(|_| HashSet::new()).collect();
+    for (i, g) in groups.iter().enumerate() {
+        for edge in &g.edges {
+            if let Some(&src) = produced_by.get(edge.from.as_str()) {
+                if src != i {
+                    input_sources[i].insert(src);
+                    consumers[src].insert(i);
+                }
+            }
+        }
+    }
+
+    // A group continues its producer's chain iff it has exactly one producer group
+    // and that producer feeds only this group.
+    let continues_producer = |i: usize| -> bool {
+        if input_sources[i].len() == 1 {
+            let src = *input_sources[i].iter().next().unwrap();
+            return consumers[src].len() == 1;
+        }
+        false
+    };
+
+    let mut assigned: HashSet<usize> = HashSet::new();
+    let mut chains: Vec<Vec<usize>> = Vec::new();
+    for &start in group_order {
+        if assigned.contains(&start) || continues_producer(start) {
+            continue;
+        }
+        let mut chain = vec![start];
+        assigned.insert(start);
+        let mut tail = start;
+        // Extend while the tail feeds exactly one consumer that is its linear
+        // continuation (its only producer is the tail).
+        while consumers[tail].len() == 1 {
+            let next = *consumers[tail].iter().next().unwrap();
+            if input_sources[next].len() == 1 && input_sources[next].contains(&tail) {
+                chain.push(next);
+                assigned.insert(next);
+                tail = next;
+            } else {
+                break;
+            }
+        }
+        chains.push(chain);
+    }
+    chains
+}
+
+/// Execute ONE linear chain of cap groups as a live pipeline: the head's inputs are
+/// read from `ctx`'s materialised node_data (a fan-in head sends N streams via
+/// [`send_group_input`]), intermediate edges stream cap-to-cap through
+/// [`forward_frames`] with per-hop credit, and the sink's output is collected.
+/// Returns the sink's decoded items (empty when a `writer` persisted them to disk),
+/// its cardinality, and terminal meta. Progress is scaled into
+/// `[progress_base, progress_base + progress_span]`.
+#[allow(clippy::too_many_arguments)]
+async fn run_group_chain(
+    ctx: &ExecutionContext,
+    chain: &[EdgeGroup],
+    cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
+    progress_fn: Option<&CapProgressFn>,
+    progress_base: f32,
+    progress_span: f32,
+    step_progress_fn: Option<&CapStepProgressFn>,
+    log_fn: Option<&PipelineLogFn>,
+    body_index: Option<usize>,
+    stall_tracker: Option<Arc<PipelineProgressTracker>>,
+    writer: Option<&mut dyn super::stream_io::IncrementalWriter>,
+    activity_timeout_secs: u64,
+    observer: Option<&dyn super::stream_io::FlowObserver>,
+) -> Result<(Vec<Vec<u8>>, bool, TerminalMeta), ExecutionError> {
+    use tokio::sync::mpsc;
+
+    // Whether the terminal is being persisted to disk by the caller's writer. The
+    // writer itself is a borrow we hand to the collect step; the caller owns it
+    // and finalizes it after we return.
+    let has_writer = writer.is_some();
+
+    let n = chain.len();
+    let ordered_groups: Vec<&EdgeGroup> = chain.iter().collect();
+
+    // Per-group progress base within this chain, scaled into the chain's span.
+    let group_base = |i: usize| progress_base + progress_span * (i as f32 / n as f32);
+    let group_weight = progress_span / n as f32;
+
+    let switch = ctx.switch().clone();
+    let max_chunk = ctx.max_chunk();
+    let initial_credit = switch.limits().await.initial_credit;
+
+    // ── Step 1: Set up all cap invocations ──
+    // Each execute_cap sends REQ and returns (rid, response_rx). Each invocation
+    // gets a CreditRouter: inbound CREDIT frames on its response channel route to
+    // the gates registered by whoever feeds that cap (L14).
+    let mut invocations: Vec<(MessageId, mpsc::UnboundedReceiver<Frame>, String)> =
+        Vec::with_capacity(n);
+    let mut credit_routers: Vec<crate::bifaci::credit::CreditRouter> = Vec::with_capacity(n);
+    for group in &ordered_groups {
+        let cap_urn = &group.cap_urn;
+        // Cap registration is async: a freshly attached cartridge host's
+        // RelayNotify (its real cap_groups) arrives some time after `add_master`
+        // returns. Poll until some master advertises a cap this request CONFORMS
+        // to (`find_master_for_cap` matches by tagged-URN dispatchability, never
+        // string equality) — the synchronization point that lets dispatch route
+        // correctly. On the engine's long-lived switch the cap is already present
+        // and this returns on the first probe; bounded so a genuinely unprovided
+        // cap surfaces as a typed error rather than hanging on execute_cap.
+        if switch
+            .wait_for_cap(cap_urn, CAP_DISPATCH_READY_TIMEOUT)
             .await
             .is_none()
         {
             return Err(ExecutionError::HostError(format!(
-                "pipelined segment: no master advertises {} within 15s",
-                cap_urn
+                "execute_cap '{}': no master advertised a cap dispatchable for \
+                 this request within {}s — RelayNotify never arrived, the \
+                 identity probe failed, or no provider conforms to this cap",
+                cap_urn,
+                CAP_DISPATCH_READY_TIMEOUT.as_secs(),
             )));
         }
-        let (rid, rx) = ctx
-            .switch
+        let (rid, rx) = switch
             .execute_cap(cap_urn, vec![], "application/cbor")
             .await
-            .map_err(|e| ExecutionError::HostError(format!("execute_cap: {}", e)))?;
-        rids.push(rid);
-        rxs.push(rx);
-        routers.push(crate::bifaci::credit::CreditRouter::new());
+            .map_err(|e| ExecutionError::HostError(format!("execute_cap '{}': {}", cap_urn, e)))?;
+        // Correlate this invocation to its strand step for the run's live flow
+        // snapshots (L8): the only point where both ids exist.
+        if let Some(obs) = observer {
+            obs.record(&rid, &group.token_id);
+        }
+        invocations.push((rid, rx, cap_urn.clone()));
+        credit_routers.push(crate::bifaci::credit::CreditRouter::new());
     }
 
-    // Background pump so peer calls keep routing during the whole segment.
-    let pump_stop = Arc::new(AtomicBool::new(false));
+    // ── Step 2: Spawn pump task ──
+    // Reads from switch.read_from_masters_timeout to route peer requests. Without
+    // this, cartridge→cartridge peer calls would deadlock. The pump must exit via
+    // the stop flag — never via abort() (aborting can drop a frame mid-route).
+    let pump_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let pump_stop_flag = pump_stop.clone();
-    let pump_switch = ctx.switch.clone();
+    let pump_switch = switch.clone();
     let pump_handle = tokio::spawn(async move {
         loop {
-            if pump_stop_flag.load(Ordering::Relaxed) {
+            if pump_stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                 break;
             }
             match pump_switch
-                .read_from_masters_timeout(Duration::from_millis(200))
+                .read_from_masters_timeout(std::time::Duration::from_millis(200))
                 .await
             {
-                Ok(_) => {}
+                Ok(Some(_frame)) => {}
+                Ok(None) => {}
                 Err(e) => {
-                    tracing::warn!("[pipelined pump] relay error (continuing): {}", e);
+                    tracing::warn!("[pipeline pump] relay error (continuing): {}", e);
                 }
             }
         }
     });
 
-    // Feed the head group's inputs (concurrent with everything else, L15).
+    // ── Step 3: Feed first group's input CONCURRENTLY (L15) ──
     let send_task = {
-        let switch = ctx.switch.clone();
-        let rid = rids[0].clone();
-        let router = routers[0].clone();
-        let max_chunk = ctx.max_chunk;
+        let switch = switch.clone();
+        let first_rid = invocations[0].0.clone();
+        let first_group = (*ordered_groups[0]).clone();
+        let cap_arguments = cap_arguments.clone();
+        let node_data = ctx.node_data().clone();
+        let node_meta = ctx.node_meta().clone();
+        let node_is_sequence = ctx.node_is_sequence().clone();
+        let router = credit_routers[0].clone();
         tokio::spawn(async move {
-            for (data, in_media, is_seq) in &head_inputs {
-                super::stream_io::send_one_stream(
-                    &switch,
-                    &rid,
-                    in_media,
-                    data,
-                    None,
-                    *is_seq,
-                    max_chunk,
-                    Some((&router, initial_credit)),
-                )
-                .await?;
-            }
-            let end = Frame::end(rid.clone(), None);
-            switch
-                .send_to_master(end, None)
-                .await
-                .map_err(|e| StreamIoError::Transport(format!("END: {}", e)))?;
-            Ok::<(), StreamIoError>(())
+            send_group_input(
+                &switch,
+                &first_rid,
+                &first_group,
+                &cap_arguments,
+                &node_data,
+                &node_meta,
+                &node_is_sequence,
+                max_chunk,
+                Some((&router, initial_credit)),
+            )
+            .await
         })
     };
 
-    // Spawn one forwarder per intermediate edge.
-    let mut forwarders: Vec<tokio::task::JoinHandle<Result<(), ExecutionError>>> = Vec::new();
-    let mut rx_iter = rxs.into_iter();
-    let mut current_rx = rx_iter.next().expect("segment has >= 1 rx");
-    for i in 0..segment.len() - 1 {
-        let next_rx = rx_iter.next().expect("segment rx count");
-        let handle = tokio::spawn(forward_frames(
-            ctx.switch.clone(),
-            current_rx,
-            rids[i].clone(),
-            rids[i + 1].clone(),
-            routers[i].clone(),
-            routers[i + 1].clone(),
-            initial_credit,
-            groups[segment[i]].cap_urn.clone(),
-            group_pfns[i].clone(),
-            log_fn.clone(),
-        ));
-        forwarders.push(handle);
-        current_rx = next_rx;
+    // ── Step 4: Spawn forwarding tasks for intermediate groups ──
+    let mut forwarding_handles: Vec<tokio::task::JoinHandle<Result<(), ExecutionError>>> =
+        Vec::new();
+    for i in 0..(n - 1) {
+        let next_rid = invocations[i + 1].0.clone();
+        let next_group = ordered_groups[i + 1];
+        let prev_cap_urn = invocations[i].2.clone();
+
+        let (dummy_tx, dummy_rx) = mpsc::unbounded_channel();
+        let taken_rx = std::mem::replace(&mut invocations[i].1, dummy_rx);
+        drop(dummy_tx);
+
+        let fwd_switch = switch.clone();
+        let extra_args: Vec<(String, Vec<u8>)> =
+            cap_arguments.get(&next_group.to).cloned().unwrap_or_default();
+
+        let group_token_id = ordered_groups[i].token_id.clone();
+        let pfn: Option<CapProgressFn> = progress_fn.map(|parent| {
+            let base = group_base(i);
+            let weight = group_weight;
+            let mapper = ProgressMapper::new(parent, base, weight);
+            let mapper = match step_progress_fn {
+                Some(sink) => mapper.with_step_sink(sink, &group_token_id),
+                None => mapper,
+            };
+            mapper.as_cap_progress_fn()
+        });
+        let fwd_max_chunk = max_chunk;
+        let fwd_log_fn = log_fn.cloned();
+        let fwd_body_index = body_index;
+        let fwd_stall_tracker = stall_tracker.clone();
+        let prev_rid = invocations[i].0.clone();
+        let router_up = credit_routers[i].clone();
+        let router_down = credit_routers[i + 1].clone();
+
+        forwarding_handles.push(tokio::spawn(async move {
+            forward_frames(
+                taken_rx,
+                &fwd_switch,
+                prev_rid,
+                next_rid,
+                router_up,
+                router_down,
+                initial_credit,
+                &extra_args,
+                fwd_max_chunk,
+                pfn.as_ref(),
+                &prev_cap_urn,
+                fwd_log_fn.as_ref(),
+                fwd_body_index,
+                fwd_stall_tracker,
+                activity_timeout_secs,
+            )
+            .await
+        }));
     }
 
-    // Terminal collect with credit plumbing on the last hop.
+    // ── Step 5: Collect last group's output ──
+    let last_idx = n - 1;
+    let last_cap_urn_owned = invocations[last_idx].2.clone();
+    let last_cap_urn = last_cap_urn_owned.as_str();
+    let last_rid = invocations[last_idx].0.clone();
+    let (dummy_tx2, dummy_rx2) = mpsc::unbounded_channel();
+    let taken_last_rx = std::mem::replace(&mut invocations[last_idx].1, dummy_rx2);
+    drop(dummy_tx2);
+
+    let last_group_token_id = ordered_groups[last_idx].token_id.clone();
+    let last_pfn: Option<CapProgressFn> = progress_fn.map(|parent| {
+        let base = group_base(last_idx);
+        let weight = group_weight;
+        let mapper = ProgressMapper::new(parent, base, weight);
+        let mapper = match step_progress_fn {
+            Some(sink) => mapper.with_step_sink(sink, &last_group_token_id),
+            None => mapper,
+        };
+        mapper.as_cap_progress_fn()
+    });
+
+    // Terminal credit plumbing: grant the last cap's output as we consume it, and
+    // route its inbound CREDIT frames to the gates feeding it (L10/L14).
     let terminal_plumbing = {
-        let grant_switch = ctx.switch.clone();
-        let grant_rid = rids.last().unwrap().clone();
+        let grant_switch = switch.clone();
+        let grant_rid = last_rid.clone();
         let grant: super::stream_io::CreditGrantFn = Arc::new(move |stream_id, n| {
             let switch = grant_switch.clone();
             let rid = grant_rid.clone();
             tokio::spawn(async move {
-                let frame = Frame::credit(
-                    rid,
-                    stream_id,
-                    n,
-                    crate::bifaci::frame::CreditDirection::Response,
-                );
+                let frame =
+                    Frame::credit(rid, stream_id, n, crate::bifaci::frame::CreditDirection::Response);
                 if let Err(e) = switch.send_to_master(frame, None).await {
-                    tracing::debug!("[pipelined] terminal grant not deliverable: {}", e);
+                    tracing::debug!("[pipeline] terminal grant not deliverable: {}", e);
                 }
             });
         });
         super::stream_io::CreditPlumbing {
-            router: routers.last().unwrap().clone(),
+            router: credit_routers[last_idx].clone(),
             grant,
             batch: (initial_credit / 2).max(1),
         }
     };
 
     let collect_result = super::stream_io::collect_terminal_output(
-        current_rx,
-        group_pfns.last().and_then(|p| p.as_ref()),
-        &tail.cap_urn,
-        Some(log_fn),
-        None,
-        None,
-        None,
+        taken_last_rx,
+        last_pfn.as_ref(),
+        last_cap_urn,
+        log_fn,
+        body_index,
+        stall_tracker.as_ref(),
+        writer,
         activity_timeout_secs,
         Some(&terminal_plumbing),
     )
-    .await;
+    .await
+    .map_err(|e| ExecutionError::HostError(e.to_string()));
 
-    // Terminal: release all credit waiters across the segment (L13), stop the
-    // pump, then join the feeder and forwarders.
-    for (rid, router) in rids.iter().zip(routers.iter()) {
+    // ── Step 6: Terminal — release credit waiters (L13), stop pump, join ──
+    for ((rid, _, _), router) in invocations.iter().zip(credit_routers.iter()) {
         router.close_request(rid, "terminal");
     }
-    pump_stop.store(true, Ordering::Relaxed);
+    pump_stop.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = pump_handle.await;
 
     let mut first_error: Option<ExecutionError> = None;
     match send_task.await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
-            first_error
-                .get_or_insert(ExecutionError::HostError(format!("input send failed: {}", e)));
+            first_error.get_or_insert(e);
         }
         Err(e) => {
             first_error.get_or_insert(ExecutionError::HostError(format!(
-                "input send task panicked: {}",
+                "Input send task panicked: {}",
                 e
             )));
         }
     }
-    for handle in forwarders {
+    for (i, handle) in forwarding_handles.into_iter().enumerate() {
         match handle.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                first_error.get_or_insert(e);
+                first_error.get_or_insert(ExecutionError::HostError(format!(
+                    "Forwarding task {} failed: {}",
+                    i, e
+                )));
             }
             Err(e) => {
                 first_error.get_or_insert(ExecutionError::HostError(format!(
-                    "forwarder panicked: {}",
-                    e
+                    "Forwarding task {} panicked: {}",
+                    i, e
                 )));
             }
         }
     }
 
-    match collect_result {
-        Ok((response_chunks, is_sequence, _terminal_meta)) => {
+    let (output_bytes, is_sequence, terminal_meta) = match collect_result {
+        Ok(ok) => {
             if let Some(err) = first_error {
-                // The chain broke upstream — the terminal result is not
-                // trustworthy even if an END arrived. Cancel and fail.
-                for rid in &rids {
-                    ctx.switch.cancel_request(rid, false).await;
+                // The chain broke upstream — a terminal END is not trustworthy.
+                // Cancel the chain and fail hard.
+                for (rid, _, _) in &invocations {
+                    switch.cancel_request(rid, false).await;
                 }
                 return Err(err);
             }
-            let decoded_items =
-                super::stream_io::decode_terminal_output(&response_chunks, is_sequence)
-                    .map_err(|e| ExecutionError::HostError(format!("{}", e)))?;
-            let to = tail.to.clone();
-            if is_sequence == Some(true) {
-                let mut cbor_seq = Vec::new();
-                for item in &decoded_items {
-                    let cbor_value = ciborium::Value::Bytes(item.clone());
-                    ciborium::into_writer(&cbor_value, &mut cbor_seq).map_err(|e| {
-                        ExecutionError::HostError(format!("CBOR re-encode sequence item: {}", e))
-                    })?;
-                }
-                ctx.node_data.insert(to.clone(), cbor_seq);
-                ctx.node_is_sequence.insert(to, true);
-            } else {
-                let output_bytes = decoded_items.into_iter().next().unwrap_or_default();
-                ctx.node_data.insert(to.clone(), output_bytes);
-                ctx.node_is_sequence.insert(to, false);
-            }
-            Ok(())
+            ok
         }
         Err(e) => {
-            // Cancel the whole chain so no cap keeps producing into a dead
-            // segment (L17).
-            for rid in &rids {
-                ctx.switch.cancel_request(rid, false).await;
+            for (rid, _, _) in &invocations {
+                switch.cancel_request(rid, false).await;
             }
-            Err(first_error.unwrap_or(match e {
-                StreamIoError::Terminal { cap_urn, details } => {
-                    ExecutionError::CartridgeExecutionFailed { cap_urn, details }
+            return Err(first_error.unwrap_or(e));
+        }
+    };
+
+    if let Some(pfn) = &progress_fn {
+        pfn(progress_base + progress_span, last_cap_urn, "Completed");
+    }
+
+    // ── Step 7: Decode this chain's sink output ──
+    let terminal_is_sequence = is_sequence.unwrap_or(false);
+
+    // Writer present ⇒ data is on disk, no in-memory items. Writer absent ⇒
+    // decode the accumulated bytes (CBOR transport stripped).
+    let decoded_items = if has_writer {
+        vec![]
+    } else {
+        super::stream_io::decode_terminal_output(&output_bytes, is_sequence)
+            .map_err(|e| ExecutionError::HostError(e.to_string()))?
+    };
+
+    Ok((decoded_items, terminal_is_sequence, terminal_meta))
+}
+
+/// Send a group's input frames from `node_data`: one named STREAM per edge
+/// (fan-in head sends N streams into the one cap), plus any extra cap-argument
+/// streams, then END. Provenance meta on the source node is forwarded on
+/// STREAM_START. Every source node MUST carry a sequence flag — a missing flag
+/// is a wiring bug and fails hard.
+#[allow(clippy::too_many_arguments)]
+async fn send_group_input(
+    switch: &Arc<RelaySwitch>,
+    rid: &MessageId,
+    group: &EdgeGroup,
+    cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
+    node_data: &HashMap<String, Vec<u8>>,
+    node_meta: &HashMap<String, crate::StreamMeta>,
+    node_is_sequence: &HashMap<String, bool>,
+    max_chunk: usize,
+    credit: Option<(&crate::bifaci::credit::CreditRouter, u64)>,
+) -> Result<(), ExecutionError> {
+    let mut inputs: Vec<(&[u8], &str, Option<&crate::StreamMeta>, bool)> = Vec::new();
+    for edge in &group.edges {
+        let data = node_data.get(&edge.from).ok_or_else(|| {
+            ExecutionError::HostError(format!(
+                "Missing input data at node '{}' for cap '{}'",
+                edge.from, edge.cap_urn
+            ))
+        })?;
+        let meta = node_meta.get(&edge.from);
+        let is_seq = *node_is_sequence.get(&edge.from).ok_or_else(|| {
+            ExecutionError::HostError(format!(
+                "Missing sequence flag at node '{}' for cap '{}'. Either the input \
+                 map was constructed without a flag for this node, or an intermediate \
+                 cap completed without setting its sequence flag — both are bugs.",
+                edge.from, edge.cap_urn,
+            ))
+        })?;
+        inputs.push((data.as_slice(), edge.in_media.as_str(), meta, is_seq));
+    }
+
+    let extra_args = cap_arguments.get(&group.to).map(|v| v.as_slice()).unwrap_or(&[]);
+
+    // Every input stream into one cap must carry a DISTINCT arg URN — the cartridge
+    // demuxes incoming streams by URN, so two streams sharing a URN (e.g. two mains,
+    // the illegal "two stdins" case) collide. Compare by tagged-URN equivalence, never
+    // strings; fail hard on a collision (a malformed graph), never silently double-send.
+    {
+        let mut seen_urns: Vec<crate::MediaUrn> = Vec::new();
+        let all_urns = inputs
+            .iter()
+            .map(|(_, u, _, _)| *u)
+            .chain(extra_args.iter().map(|(u, _)| u.as_str()));
+        for urn_str in all_urns {
+            let urn = crate::MediaUrn::from_string(urn_str).map_err(|e| {
+                ExecutionError::HostError(format!(
+                    "input arg URN '{urn_str}' for cap '{}' is not a valid media URN: {e}",
+                    group.cap_urn
+                ))
+            })?;
+            if seen_urns
+                .iter()
+                .any(|s| s.is_equivalent(&urn).unwrap_or(false))
+            {
+                return Err(ExecutionError::HostError(format!(
+                    "cap '{}' receives two input streams with the same arg URN '{urn_str}'; \
+                     each input must carry a distinct arg URN — a cap has one main input, \
+                     and convergence args have distinct URNs",
+                    group.cap_urn
+                )));
+            }
+            seen_urns.push(urn);
+        }
+    }
+
+    for (data, in_media, meta, is_seq) in &inputs {
+        super::stream_io::send_one_stream(
+            switch,
+            rid,
+            in_media,
+            data,
+            (*meta).cloned(),
+            *is_seq,
+            max_chunk,
+            credit,
+        )
+        .await
+        .map_err(|e| ExecutionError::HostError(e.to_string()))?;
+    }
+    for (media_urn, data) in extra_args {
+        super::stream_io::send_one_stream(switch, rid, media_urn, data, None, false, max_chunk, credit)
+            .await
+            .map_err(|e| ExecutionError::HostError(e.to_string()))?;
+    }
+
+    let end_frame = Frame::end(rid.clone(), None);
+    switch
+        .send_to_master(end_frame, None)
+        .await
+        .map_err(|e| ExecutionError::HostError(format!("END: {}", e)))?;
+
+    Ok(())
+}
+
+/// Forward one cap's response frames live into the next cap's input, re-stamping
+/// request/stream ids for wire fidelity. Credit flows both ways per hop (L10/L14):
+/// forwarded chunks acquire from the downstream cap's window; consumed upstream
+/// chunks are granted back. On the upstream END, the next group's extra-arg
+/// streams are sent, then END. LOG frames drive progress/log callbacks. Activity
+/// silence surfaces as a one-shot warning — never an abort (long caps are legit;
+/// cancellation is the user's explicit path).
+#[allow(clippy::too_many_arguments)]
+async fn forward_frames(
+    mut prev_rx: tokio::sync::mpsc::UnboundedReceiver<Frame>,
+    switch: &Arc<RelaySwitch>,
+    prev_rid: MessageId,
+    next_rid: MessageId,
+    router_up: crate::bifaci::credit::CreditRouter,
+    router_down: crate::bifaci::credit::CreditRouter,
+    initial_credit: u64,
+    extra_args: &[(String, Vec<u8>)],
+    max_chunk: usize,
+    progress_fn: Option<&CapProgressFn>,
+    prev_cap_urn: &str,
+    log_fn: Option<&PipelineLogFn>,
+    body_index: Option<usize>,
+    stall_tracker: Option<Arc<PipelineProgressTracker>>,
+    activity_timeout_secs: u64,
+) -> Result<(), ExecutionError> {
+    use crate::bifaci::credit::CreditGate;
+    use crate::bifaci::frame::CreditDirection;
+    use std::time::Duration;
+
+    let mut stream_id_map: HashMap<String, (String, Arc<CreditGate>, u64)> = HashMap::new();
+    let grant_batch = (initial_credit / 2).max(1);
+    let mut timer = super::stream_io::ActivityTimer::new(activity_timeout_secs);
+    let mut activity_warning_logged = false;
+
+    loop {
+        let frame = tokio::time::timeout(Duration::from_millis(500), prev_rx.recv()).await;
+
+        match frame {
+            Ok(Some(frame)) => {
+                if let Some(ref tracker) = stall_tracker {
+                    tracker.touch();
                 }
-                other => ExecutionError::HostError(format!("{}", other)),
-            }))
+                activity_warning_logged = false;
+                match frame.frame_type {
+                    FrameType::StreamStart => {
+                        timer.touch();
+                        let prev_sid = frame.stream_id.clone().unwrap_or_default();
+                        let new_sid = uuid::Uuid::new_v4().to_string();
+                        let gate = Arc::new(CreditGate::new(initial_credit));
+                        router_down.register(next_rid.clone(), Some(new_sid.clone()), Arc::clone(&gate));
+                        stream_id_map.insert(prev_sid, (new_sid.clone(), gate, 0));
+
+                        let mut new_frame = frame.clone();
+                        new_frame.id = next_rid.clone();
+                        new_frame.routing_id = None;
+                        new_frame.seq = 0;
+                        new_frame.stream_id = Some(new_sid);
+                        switch.send_to_master(new_frame, None).await.map_err(|e| {
+                            ExecutionError::HostError(format!("forward STREAM_START: {}", e))
+                        })?;
+                    }
+                    FrameType::Chunk => {
+                        timer.touch();
+                        let prev_sid = frame.stream_id.clone().unwrap_or_default();
+                        let has_window = {
+                            let (_, gate, _) = stream_id_map.get(&prev_sid).ok_or_else(|| {
+                                ExecutionError::HostError(format!(
+                                    "forward CHUNK: unknown stream_id '{}'",
+                                    prev_sid
+                                ))
+                            })?;
+                            gate.try_acquire(1).map_err(|e| {
+                                ExecutionError::HostError(format!("forward CHUNK credit: {}", e))
+                            })?
+                        };
+                        if !has_window {
+                            // Flush-before-block (L10 corollary): the downstream
+                            // acquire is about to wait, and the upstream producer
+                            // may be stalled on exactly the sub-batch grants we hold.
+                            for (flush_sid, (_, _, consumed)) in stream_id_map.iter_mut() {
+                                if *consumed > 0 {
+                                    let n = *consumed;
+                                    *consumed = 0;
+                                    let credit = Frame::credit(
+                                        prev_rid.clone(),
+                                        Some(flush_sid.clone()),
+                                        n,
+                                        CreditDirection::Response,
+                                    );
+                                    switch.send_to_master(credit, None).await.map_err(|e| {
+                                        ExecutionError::HostError(format!("flush upstream CREDIT: {}", e))
+                                    })?;
+                                }
+                            }
+                            let (_, gate, _) = stream_id_map.get(&prev_sid).ok_or_else(|| {
+                                ExecutionError::HostError(format!(
+                                    "forward CHUNK: unknown stream_id '{}'",
+                                    prev_sid
+                                ))
+                            })?;
+                            gate.acquire(1).await.map_err(|e| {
+                                ExecutionError::HostError(format!("forward CHUNK credit: {}", e))
+                            })?;
+                        }
+                        let (new_sid, _, consumed) =
+                            stream_id_map.get_mut(&prev_sid).ok_or_else(|| {
+                                ExecutionError::HostError(format!(
+                                    "forward CHUNK: unknown stream_id '{}'",
+                                    prev_sid
+                                ))
+                            })?;
+
+                        let mut new_frame = frame.clone();
+                        new_frame.id = next_rid.clone();
+                        new_frame.routing_id = None;
+                        new_frame.seq = 0;
+                        new_frame.stream_id = Some(new_sid.clone());
+                        switch.send_to_master(new_frame, None).await.map_err(|e| {
+                            ExecutionError::HostError(format!("forward CHUNK: {}", e))
+                        })?;
+
+                        *consumed += 1;
+                        if *consumed >= grant_batch {
+                            let n = *consumed;
+                            *consumed = 0;
+                            let credit = Frame::credit(
+                                prev_rid.clone(),
+                                Some(prev_sid.clone()),
+                                n,
+                                CreditDirection::Response,
+                            );
+                            switch.send_to_master(credit, None).await.map_err(|e| {
+                                ExecutionError::HostError(format!("forward upstream CREDIT: {}", e))
+                            })?;
+                        }
+                    }
+                    FrameType::StreamEnd => {
+                        timer.touch();
+                        let prev_sid = frame.stream_id.as_deref().unwrap_or("");
+                        let (new_sid, _, _) = stream_id_map
+                            .get(prev_sid)
+                            .ok_or_else(|| {
+                                ExecutionError::HostError(format!(
+                                    "forward STREAM_END: unknown stream_id '{}'",
+                                    prev_sid
+                                ))
+                            })?
+                            .clone();
+
+                        let mut new_frame = frame.clone();
+                        new_frame.id = next_rid.clone();
+                        new_frame.routing_id = None;
+                        new_frame.seq = 0;
+                        new_frame.stream_id = Some(new_sid);
+                        switch.send_to_master(new_frame, None).await.map_err(|e| {
+                            ExecutionError::HostError(format!("forward STREAM_END: {}", e))
+                        })?;
+                    }
+                    FrameType::Credit => {
+                        router_up.grant(&frame);
+                    }
+                    FrameType::End => {
+                        if frame.exit_code() != Some(0) {
+                            return Err(ExecutionError::HostError(format!(
+                                "Cap '{}' END without success: exit_code={:?}",
+                                prev_cap_urn,
+                                frame.exit_code()
+                            )));
+                        }
+                        let final_progress = frame.final_progress().unwrap_or(1.0) as f32;
+                        if let Some(pfn) = &progress_fn {
+                            pfn(final_progress, prev_cap_urn, frame.final_message().unwrap_or(""));
+                        }
+                        for (media_urn, data) in extra_args {
+                            super::stream_io::send_one_stream(
+                                switch,
+                                &next_rid,
+                                media_urn,
+                                data,
+                                None,
+                                false,
+                                max_chunk,
+                                Some((&router_down, initial_credit)),
+                            )
+                            .await
+                            .map_err(|e| ExecutionError::HostError(e.to_string()))?;
+                        }
+                        let end_frame = Frame::end(next_rid.clone(), None);
+                        switch.send_to_master(end_frame, None).await.map_err(|e| {
+                            ExecutionError::HostError(format!("forward END: {}", e))
+                        })?;
+                        return Ok(());
+                    }
+                    FrameType::Log => {
+                        let level = frame.log_level().unwrap_or("info");
+                        timer.handle_log_level(level);
+
+                        if let Some(p) = frame.log_progress() {
+                            let msg = frame.log_message().unwrap_or("");
+                            if let Some(pfn) = &progress_fn {
+                                pfn(p, prev_cap_urn, msg);
+                            }
+                            if let Some(lfn) = &log_fn {
+                                lfn(prev_cap_urn, "progress", msg, frame.meta.clone(), body_index);
+                            }
+                        } else if let Some(msg) = frame.log_message() {
+                            if let Some(lfn) = &log_fn {
+                                lfn(prev_cap_urn, level, msg, frame.meta.clone(), body_index);
+                            }
+                        }
+                    }
+                    FrameType::Err => {
+                        let msg = frame
+                            .error_message()
+                            .unwrap_or("Unknown cartridge error")
+                            .to_string();
+                        if let Some(lfn) = &log_fn {
+                            lfn(prev_cap_urn, "error", &msg, None, body_index);
+                        }
+                        return Err(ExecutionError::HostError(format!(
+                            "Cap '{}' failed: {}",
+                            prev_cap_urn, msg
+                        )));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(None) => {
+                let msg = format!("Cap '{}' response channel closed without END", prev_cap_urn);
+                if let Some(lfn) = &log_fn {
+                    lfn(prev_cap_urn, "error", &msg, None, body_index);
+                }
+                return Err(ExecutionError::HostError(msg));
+            }
+            Err(_timeout) => {
+                for (prev_sid, (_, _, consumed)) in stream_id_map.iter_mut() {
+                    if *consumed > 0 {
+                        let n = *consumed;
+                        *consumed = 0;
+                        let credit = Frame::credit(
+                            prev_rid.clone(),
+                            Some(prev_sid.clone()),
+                            n,
+                            CreditDirection::Response,
+                        );
+                        switch.send_to_master(credit, None).await.map_err(|e| {
+                            ExecutionError::HostError(format!("flush upstream CREDIT: {}", e))
+                        })?;
+                    }
+                }
+                if timer.is_expired() && !activity_warning_logged {
+                    let msg = format!(
+                        "Cap '{}' has had no activity for {}s — continuing to wait. Use Cancel to abort.",
+                        prev_cap_urn, activity_timeout_secs
+                    );
+                    if let Some(lfn) = &log_fn {
+                        lfn(prev_cap_urn, "warn", &msg, None, body_index);
+                    }
+                    tracing::warn!(
+                        cap_urn = %prev_cap_urn,
+                        "[cap] No activity for {}s; continuing to wait for completion or cancel",
+                        activity_timeout_secs
+                    );
+                    activity_warning_logged = true;
+                }
+            }
         }
     }
 }
@@ -2190,9 +2300,9 @@ pub async fn execute_dag(
     log_fn: &PipelineLogFn,
     // Extra argument streams per node: node id → [(arg media URN, raw bytes)]. These
     // are the already-resolved arg-stream bytes (the single format shared with the
-    // engine's `execute_dag_impl` and `execute_plan`) — not JSON, no serialization here.
+    // engine's `run_segment` and `execute_plan`) — not JSON, no serialization here.
     cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
-) -> Result<HashMap<String, NodeData>, ExecutionError> {
+) -> Result<DagOutput, ExecutionError> {
     // 1. Initialize cartridge manager and discover/download all needed cartridges
     let mut cartridge_manager = CartridgeManager::new(
         cartridge_dir,
@@ -2277,76 +2387,41 @@ pub async fn execute_dag(
         let bytes = data.into_bytes().await?;
         ctx.set_node_data(node, bytes);
     }
-    // 4. Group edges by (to, cap_urn) to detect fan-in, then sort groups topologically.
-    //    Fan-in groups are executed as ONE cap invocation with multiple input streams —
-    //    the handler decides how to handle each stream as it arrives.
-    let groups = build_edge_groups(&graph.edges);
-    let group_order = topological_sort_groups(&groups)
-        .map_err(|e| ExecutionError::HostError(format!("Topological sort failed: {}", e)))?;
-    let n_groups = group_order.len();
+    // Run the single shared segment executor. The reference path has no config
+    // service, so the activity timeout comes from the terminal cap's metadata
+    // (the same key the engine reads), defaulting when absent. No disk writer and
+    // no flow observer — those are engine concerns the reference path does not
+    // carry.
+    let activity_timeout_secs = graph
+        .edges
+        .first()
+        .and_then(|e| e.cap.metadata.get(ACTIVITY_TIMEOUT_METADATA_KEY))
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&v| v > 0)
+        .unwrap_or(DEFAULT_ACTIVITY_TIMEOUT_SECS);
 
-    // Pre-compute group boundaries for deterministic progress subdivision
-    let group_boundaries: Vec<f32> = if n_groups > 0 {
-        (0..=n_groups).map(|i| i as f32 / n_groups as f32).collect()
-    } else {
-        vec![0.0]
-    };
+    // Reference/in-memory path: no writer factory (nothing persists to disk) and no
+    // persisted sinks, so every terminal is returned as in-memory items. No flow
+    // observer — that is an engine concern.
+    let out = run_dag_on_context(
+        &mut ctx,
+        graph,
+        cap_arguments,
+        progress_fn,
+        None,
+        Some(log_fn),
+        None,
+        None,
+        None,
+        &HashSet::new(),
+        activity_timeout_secs,
+        None,
+    )
+    .await;
 
-    // Execute in topological order, pipelining linear-chain segments:
-    // chained caps stream frames live (downstream consumes upstream chunks
-    // before END exists) with credit flowing per hop; fan-out / fan-in /
-    // extra-args boundaries fall back to the materializing path.
-    let segments = detect_pipeline_segments(&groups, &group_order, cap_arguments);
-    let mut position = 0usize; // index into group_order for boundary math
-    for segment in &segments {
-        // Per-group progress subdivision for every group in this segment.
-        let group_pfns: Vec<Option<CapProgressFn>> = (0..segment.len())
-            .map(|offset| {
-                let i = position + offset;
-                progress_fn.map(|parent| {
-                    let base = group_boundaries[i];
-                    let weight = group_boundaries[i + 1] - base;
-                    ProgressMapper::new(parent, base, weight).as_cap_progress_fn()
-                })
-            })
-            .collect();
-
-        if segment.len() >= 2 {
-            execute_segment_pipelined(&mut ctx, &groups, segment, &group_pfns, log_fn).await?;
-        } else {
-            let idx = segment[0];
-            // Extra arg streams for this group's target node — already-resolved bytes.
-            // Only explicitly provided args are sent; default values are the
-            // cartridge's responsibility per the cap contract.
-            let extra_args: Vec<(String, Vec<u8>)> =
-                cap_arguments.get(&groups[idx].to).cloned().unwrap_or_default();
-
-            ctx.execute_fanin(&groups[idx].edges, &extra_args, group_pfns[0].as_ref(), log_fn)
-                .await?;
-        }
-
-        position += segment.len();
-
-        // Report segment completion at its end boundary.
-        if let Some(pfn) = &progress_fn {
-            pfn(
-                group_boundaries[position],
-                &groups[*segment.last().unwrap()].edges[0].cap_urn,
-                "Completed",
-            );
-        }
-    }
-
-    // Explicitly shut down infrastructure
-    let node_data = ctx.shutdown();
-
-    // Convert back to NodeData for the public API
-    let result: HashMap<String, NodeData> = node_data
-        .into_iter()
-        .map(|(k, v)| (k, NodeData::Bytes(v)))
-        .collect();
-
-    Ok(result)
+    // Tear down the per-run cartridge hosts regardless of outcome.
+    let _ = ctx.shutdown();
+    out
 }
 
 #[cfg(test)]
@@ -2367,68 +2442,6 @@ mod tests {
             in_media: "media:".to_string(),
             out_media: "media:".to_string(),
         }
-    }
-
-    // TEST7078: Pipeline segment detection — linear chains pipeline; fan-out, fan-in heads, and extra-args groups break segments so those edges still materialize correctly.
-    #[test]
-    fn test7078_pipeline_segment_detection() {
-        let no_values: HashMap<String, Vec<(String, Vec<u8>)>> = HashMap::new();
-
-        // Linear chain a → b → c → d: one 3-group segment.
-        let edges = vec![
-            edge("a", "b", "cap:s1"),
-            edge("b", "c", "cap:s2"),
-            edge("c", "d", "cap:s3"),
-        ];
-        let groups = build_edge_groups(&edges);
-        let order = topological_sort_groups(&groups).unwrap();
-        let segments = detect_pipeline_segments(&groups, &order, &no_values);
-        assert_eq!(segments.len(), 1, "a linear chain is one segment");
-        assert_eq!(segments[0].len(), 3);
-
-        // Fan-out: b feeds BOTH c and d — b's output is multiply consumed, so
-        // nothing downstream of b may pipeline off it (both consumers need
-        // the materialized data).
-        let edges = vec![
-            edge("a", "b", "cap:s1"),
-            edge("b", "c", "cap:s2"),
-            edge("b", "d", "cap:s3"),
-        ];
-        let groups = build_edge_groups(&edges);
-        let order = topological_sort_groups(&groups).unwrap();
-        let segments = detect_pipeline_segments(&groups, &order, &no_values);
-        assert!(
-            segments.iter().all(|s| s.len() == 1),
-            "fan-out must break all segments: {:?}",
-            segments
-        );
-
-        // Fan-in group (two edges into d): may HEAD a segment but never be a
-        // downstream member.
-        let edges = vec![
-            edge("a", "c", "cap:s1"),
-            edge("b", "c", "cap:s1"),
-            edge("c", "d", "cap:s2"),
-        ];
-        let groups = build_edge_groups(&edges);
-        let order = topological_sort_groups(&groups).unwrap();
-        let segments = detect_pipeline_segments(&groups, &order, &no_values);
-        // fan-in group (→c) is a segment head; c→d chains onto it.
-        assert_eq!(segments.len(), 1, "{:?}", segments);
-        assert_eq!(segments[0].len(), 2);
-
-        // Extra args on a downstream node break the chain there.
-        let edges = vec![edge("a", "b", "cap:s1"), edge("b", "c", "cap:s2")];
-        let groups = build_edge_groups(&edges);
-        let order = topological_sort_groups(&groups).unwrap();
-        let mut values: HashMap<String, Vec<(String, Vec<u8>)>> = HashMap::new();
-        values.insert("c".to_string(), vec![("media:arg".to_string(), b"v".to_vec())]);
-        let segments = detect_pipeline_segments(&groups, &order, &values);
-        assert!(
-            segments.iter().all(|s| s.len() == 1),
-            "extra-args group must not join a segment: {:?}",
-            segments
-        );
     }
 
 

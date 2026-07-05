@@ -125,16 +125,6 @@ pub async fn parse_machine_to_cap_dag(
 
             let target_name = lookup_node_name(&id_to_name, edge.target)?;
 
-            // The cap's in= spec is the stream label for input data
-            // on the wire. This matches how plan_to_resolved_graph
-            // sets in_media, and ensures find_stream (which uses
-            // is_equivalent) in the cartridge handler matches the
-            // label against the cap arg's expected media URN.
-            let cap_in_media = edge
-                .cap_urn
-                .in_media_urn()
-                .map_err(|e| ParseOrchestrationError::MediaUrnParseError(format!("{:?}", e)))?;
-
             for binding in &edge.assignment {
                 let source_name = lookup_node_name(&id_to_name, binding.source)?;
                 let source_node_urn = strand.node_urn(binding.source).clone();
@@ -167,6 +157,23 @@ pub async fn parse_machine_to_cap_dag(
                     node_media.insert(target_name.clone(), cap_out_media.clone());
                 }
 
+                // The stream URN THIS binding's edge carries is the fed arg's stream
+                // URN (its stdin source URN if it declares one, else its declared URN),
+                // NOT the cap's in= — a convergence wiring feeds several distinct args,
+                // and each edge must carry the URN the cartridge demuxes that arg by.
+                // The resolver built this binding from one of the cap's args (matched by
+                // the arg's slot URN, `cap_arg_media_urn`), so the lookup is total.
+                let arg_stream_urn = cap
+                    .args
+                    .iter()
+                    .find(|a| {
+                        MediaUrn::from_string(&a.media_urn)
+                            .map(|u| u.is_equivalent(&binding.cap_arg_media_urn).unwrap_or(false))
+                            .unwrap_or(false)
+                    })
+                    .map(|a| a.stream_urn().to_string())
+                    .expect("resolver built this binding from one of the cap's args");
+
                 resolved_edges.push(ResolvedEdge {
                     // This orchestration path parses notation directly (no resolved
                     // strand), so there is no upstream StrandStep identity to carry —
@@ -176,7 +183,7 @@ pub async fn parse_machine_to_cap_dag(
                     to: target_name.clone(),
                     cap_urn: cap_urn_str.clone(),
                     cap: cap.clone(),
-                    in_media: cap_in_media.to_string(),
+                    in_media: arg_stream_urn,
                     out_media: cap_out_media.to_string(),
                 });
             }
