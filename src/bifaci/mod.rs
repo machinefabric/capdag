@@ -16,6 +16,7 @@ pub mod in_process_host;
 pub mod io;
 pub mod local_socket;
 pub mod manifest;
+pub mod protocol_trace;
 pub mod relay;
 pub mod relay_switch;
 pub mod request_state;

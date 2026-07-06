@@ -155,6 +155,7 @@ pub use bifaci::relay_switch::{
     RelaySwitchError, RelaySwitchProtocolStats,
 };
 pub use bifaci::host_runtime::HostProtocolStats;
+pub use bifaci::protocol_trace::{ProtocolTraceError, ProtocolTraceSink};
 
 // Planner — planning, discovery, and execution for machines
 pub use planner::{

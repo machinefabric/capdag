@@ -203,6 +203,7 @@ fn print_usage(program: &str) {
            --gen-values             Output a values JSON template for the machine and exit\n\
            --dev-bins <binary> ...  Use local cartridge binaries\n\
            --values <file.json>     Argument values per node\n\
+           --trace <file.trace>     Write a per-segment bifaci protocol trace (JSONL)\n\
            --help                   Show this help\n\n\
          Input paths can be:\n\
            - Single file:   /path/to/file.pdf\n\
@@ -257,6 +258,7 @@ async fn main() {
     let mut mermaid_mode = false;
     let mut gen_values_mode = false;
     let mut values_file: Option<String> = None;
+    let mut trace_file: Option<String> = None;
     let mut arg_idx = 1;
 
     // Parse flags
@@ -281,6 +283,15 @@ async fn main() {
                     process::exit(1);
                 }
                 values_file = Some(args[arg_idx].clone());
+                arg_idx += 1;
+            }
+            "--trace" => {
+                arg_idx += 1;
+                if arg_idx >= args.len() {
+                    eprintln!("--trace requires a file path");
+                    process::exit(1);
+                }
+                trace_file = Some(args[arg_idx].clone());
                 arg_idx += 1;
             }
             "--dev-bins" => {
@@ -503,6 +514,23 @@ async fn main() {
         eprintln!("Values: {} node(s) configured", node_values.len());
     }
 
+    // --trace: open the per-segment protocol-trace sink up front. A trace the
+    // user asked for that cannot be opened is a hard error — fail before running
+    // rather than discover it segment by segment.
+    let trace_sink: Option<Arc<capdag::ProtocolTraceSink>> = match &trace_file {
+        Some(path) => match capdag::ProtocolTraceSink::open(path).await {
+            Ok(sink) => {
+                eprintln!("Protocol trace: {}", path);
+                Some(sink)
+            }
+            Err(e) => {
+                eprintln!("Error opening protocol trace file '{}': {}", path, e);
+                process::exit(1);
+            }
+        },
+        None => None,
+    };
+
     // The reference runtime: hosts cartridges by spawning them per segment via
     // execute_dag, keeps output in memory, and fails hard on any ForEach body
     // failure. execute_plan drives the ForEach/Collect decomposition on top of it.
@@ -514,6 +542,7 @@ async fn main() {
         dev_binaries: dev_binaries.clone(),
         bundled_providers_dir: bundled_providers_dir.clone(),
         fabric_registry: registry.clone(),
+        trace_sink,
     });
 
     let progress: CapProgressFn = Arc::new(|p: f32, cap_urn: &str, msg: &str| {

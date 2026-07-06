@@ -458,6 +458,7 @@ async fn test889_execute_single_edge_dag() {
         None,
         &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
+        None,
     )
     .await;
 
@@ -507,6 +508,7 @@ async fn test888_execute_edge1_to_edge2_chain() {
         None,
         &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
+        None,
     )
     .await
     .expect("Execution failed")
@@ -557,6 +559,7 @@ async fn test887_execute_with_file_input() {
         None,
         &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
+        None,
     )
     .await
     .expect("Execution failed")
@@ -603,6 +606,7 @@ async fn test952_execute_large_payload() {
         None,
         &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
+        None,
     )
     .await
     .expect("Execution failed")
@@ -663,6 +667,7 @@ async fn test953_convergence_two_producers_distinct_arg_urns() {
         None,
         &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
+        None,
     )
     .await
     .expect("Execution failed")
@@ -816,6 +821,7 @@ async fn test946_four_machine() {
         None,
         &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
+        None,
     )
     .await
     .expect("Execution failed")
@@ -875,6 +881,7 @@ async fn test945_five_machine() {
         None,
         &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
+        None,
     )
     .await
     .expect("Execution failed")
@@ -934,6 +941,7 @@ async fn test944_six_machine() {
         None,
         &test_pipeline_log_fn(),
         &std::collections::HashMap::new(),
+        None,
     )
     .await
     .expect("Execution failed")

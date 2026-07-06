@@ -2331,6 +2331,12 @@ pub async fn execute_dag(
     // are the already-resolved arg-stream bytes (the single format shared with the
     // engine's `run_segment` and `execute_plan`) — not JSON, no serialization here.
     cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
+    // Optional per-segment protocol trace. When present, the switch is sampled
+    // LIVE during the segment (a 250ms task) AND snapshotted once at teardown, so
+    // both a normal segment's transitions and a HANGING segment's stall point are
+    // captured. Owned `Arc` so the sampler task can hold its own reference. `None`
+    // on every path that does not trace.
+    trace_sink: Option<Arc<crate::bifaci::protocol_trace::ProtocolTraceSink>>,
 ) -> Result<DagOutput, ExecutionError> {
     // 1. Initialize cartridge manager and discover/download all needed cartridges
     let mut cartridge_manager = CartridgeManager::new(
@@ -2429,6 +2435,46 @@ pub async fn execute_dag(
         .filter(|&v| v > 0)
         .unwrap_or(DEFAULT_ACTIVITY_TIMEOUT_SECS);
 
+    // Protocol trace label: the segment's terminal cap URN (its output anchor).
+    // Computed once, shared by the live sampler and the final snapshot.
+    let trace_label = trace_sink.as_ref().map(|_| {
+        graph
+            .edges
+            .last()
+            .map(|e| e.cap_urn.clone())
+            .unwrap_or_else(|| "empty-graph".to_string())
+    });
+
+    // Live protocol sampler: while the segment runs, sample the switch's L8
+    // snapshot every 250ms and append it (deduped) so a segment that HANGS still
+    // leaves a line at the stall point — the last line before the harness kills
+    // it shows the stalled active request with its per-stream credit/flow
+    // counters. A live sample's write failure is logged and swallowed: a mid-run
+    // trace hiccup must never abort execution (only the final snapshot is
+    // fail-hard). Aborted the moment the segment returns.
+    let trace_sampler = match (&trace_sink, &trace_label) {
+        (Some(sink), Some(label)) => {
+            let switch = ctx.switch().clone();
+            let sink = sink.clone();
+            let label = label.clone();
+            Some(tokio::spawn(async move {
+                let mut ticker =
+                    tokio::time::interval(std::time::Duration::from_millis(250));
+                loop {
+                    ticker.tick().await;
+                    let stats = switch.protocol_stats().await;
+                    if let Err(e) = sink.record_deduped(&stats, &label).await {
+                        tracing::debug!(
+                            error = %e, segment = %label,
+                            "protocol trace live sample failed (continuing)"
+                        );
+                    }
+                }
+            }))
+        }
+        _ => None,
+    };
+
     // Reference/in-memory path: no writer factory (nothing persists to disk) and no
     // persisted sinks, so every terminal is returned as in-memory items. No flow
     // observer — that is an engine concern.
@@ -2447,6 +2493,45 @@ pub async fn execute_dag(
         None,
     )
     .await;
+
+    // The segment is done — stop the live sampler before the final snapshot so
+    // they cannot race on the same file. Awaiting the aborted handle yields a
+    // cancellation `JoinError`, which is expected and ignored.
+    if let Some(handle) = trace_sampler {
+        handle.abort();
+        let _ = handle.await;
+    }
+
+    // Final end-of-segment snapshot: capture the switch's L8 snapshot once more
+    // before teardown, on BOTH the success and failure paths, so the terminal
+    // state is on disk even if the last transition happened between live samples.
+    // Routed through `record_deduped` so it does not duplicate the last sample.
+    // Unlike the live path, this one is fail-hard: the user asked for a trace, so
+    // a final line that cannot be written is surfaced.
+    if let (Some(sink), Some(label)) = (&trace_sink, &trace_label) {
+        let stats = ctx.switch().protocol_stats().await;
+        if let Err(e) = sink.record_deduped(&stats, label).await {
+            match &out {
+                // Success path: the user asked for a trace and it could not be
+                // written — surface it hard rather than silently dropping the line.
+                Ok(_) => {
+                    let _ = ctx.shutdown();
+                    return Err(ExecutionError::HostError(format!(
+                        "protocol trace write failed for segment '{label}': {e}"
+                    )));
+                }
+                // Failure path: the segment already failed loudly; that error is
+                // the primary signal and stays the return value, but the trace
+                // failure is not swallowed — it is logged.
+                Err(_) => {
+                    tracing::error!(
+                        error = %e, segment = %label,
+                        "protocol trace write failed on the segment error path"
+                    );
+                }
+            }
+        }
+    }
 
     // Tear down the per-run cartridge hosts regardless of outcome.
     let _ = ctx.shutdown();

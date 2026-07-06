@@ -430,6 +430,7 @@ async fn test7054_slow_consumer_throttles_input_send() {
             None,
             &log_fn,
             &HashMap::new(),
+            None,
         ),
     )
     .await
@@ -510,6 +511,7 @@ async fn test7056_bidirectional_echo_no_deadlock() {
             None,
             &log_fn,
             &HashMap::new(),
+            None,
         ),
     )
     .await
@@ -863,6 +865,7 @@ async fn test7076_pipelined_chain_downstream_consumes_before_upstream_finishes()
             None,
             &log_fn,
             &HashMap::new(),
+            None,
         ),
     )
     .await

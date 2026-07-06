@@ -14,6 +14,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::bifaci::cartridge_repo::CartridgeChannel;
+use crate::bifaci::protocol_trace::ProtocolTraceSink;
 use crate::cap::registry::FabricRegistry;
 use crate::orchestrator::execute_plan::{EngineRuntime, SegmentOutput};
 use crate::orchestrator::executor::execute_dag;
@@ -30,6 +31,11 @@ pub struct DevBinRuntime {
     pub dev_binaries: Vec<PathBuf>,
     pub bundled_providers_dir: Option<PathBuf>,
     pub fabric_registry: Arc<FabricRegistry>,
+    /// Optional per-segment protocol trace. When set, every segment run through
+    /// [`execute_dag`] appends its switch's L8 snapshot as one JSONL line
+    /// (`{ ts, segment, stats }`) — the CLI's `--trace` and the scenario
+    /// harness's `CAPDAG_SCENARIO_TRACE` wire this. `None` disables tracing.
+    pub trace_sink: Option<Arc<ProtocolTraceSink>>,
 }
 
 #[async_trait]
@@ -76,6 +82,11 @@ impl EngineRuntime for DevBinRuntime {
             progress_fn,
             log,
             cap_arguments,
+            // execute_dag samples the segment's protocol snapshot live (250ms) and
+            // records a final snapshot on both the Ok and Err paths, so a
+            // stalled/failed segment still leaves a trace line. Owned Arc so the
+            // sampler task can hold its own reference.
+            self.trace_sink.clone(),
         )
         .await
     }
