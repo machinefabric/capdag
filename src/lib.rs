@@ -247,6 +247,7 @@ pub use orchestrator::{
     split_cbor_array,
     split_cbor_sequence,
     unwrap_cbor_value,
+    wrap_raw_items_as_cbor_sequence,
     ActivityTimer,
     CreditGrantFn,
     CreditPlumbing,

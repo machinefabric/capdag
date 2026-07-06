@@ -1452,10 +1452,16 @@ pub async fn run_dag_on_context(
         // in-memory items and nothing downstream reads it. Sequences re-assemble to
         // the CBOR sequence the next head will re-split.
         if !has_writer {
+            // Sequence node_data is an RFC 8742 CBOR sequence of self-delimiting
+            // values; `items` are the raw, unwrapped item bytes from
+            // `decode_terminal_output`, so each must be re-encoded as a `CBOR::Bytes`
+            // value here (scalar node_data stays raw — `send_one_stream` wraps it at
+            // send). Dropping this re-encode is what broke sequence chains: raw PNG /
+            // JSON bytes are not themselves CBOR.
             let bytes = if is_seq {
-                crate::orchestrator::cbor_util::assemble_cbor_sequence(&items).map_err(|e| {
-                    ExecutionError::HostError(format!("materialise chain output '{sink}': {e}"))
-                })?
+                crate::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(&items).map_err(
+                    |e| ExecutionError::HostError(format!("materialise chain output '{sink}': {e}")),
+                )?
             } else {
                 items.first().cloned().unwrap_or_default()
             };

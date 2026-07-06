@@ -135,6 +135,33 @@ pub fn assemble_cbor_sequence(items: &[Vec<u8>]) -> Result<Vec<u8>, CborUtilErro
     Ok(result)
 }
 
+/// Wrap raw (unwrapped) item bytes into an RFC 8742 CBOR sequence.
+///
+/// Each raw item — the bytes yielded by `decode_terminal_output` /
+/// `unwrap_cbor_value` (PNG frames, JSON records, …) — is re-encoded as a single
+/// self-delimiting `CBOR::Bytes` value, and the values are concatenated. This is
+/// the storage form a *sequence* node's `node_data` must take so that a downstream
+/// cap's input (`send_one_stream`, which splits the sequence and forwards each
+/// item's CBOR bytes *without* re-wrapping) and `split_cbor_sequence` both see
+/// well-formed self-delimiting values.
+///
+/// Contrast [`assemble_cbor_sequence`], which requires each item to ALREADY be a
+/// complete CBOR value (it validates rather than wraps) — the form used when the
+/// caller has itself CBOR-encoded each item (e.g. machfab's file-item interpreter).
+///
+/// # Errors
+/// - `SerializeError` if an item cannot be CBOR-serialized (practically never for
+///   a byte string).
+pub fn wrap_raw_items_as_cbor_sequence(items: &[Vec<u8>]) -> Result<Vec<u8>, CborUtilError> {
+    let mut result = Vec::new();
+    for item in items {
+        let value = ciborium::Value::Bytes(item.clone());
+        ciborium::ser::into_writer(&value, &mut result)
+            .map_err(|e| CborUtilError::SerializeError(e.to_string()))?;
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -512,5 +539,67 @@ mod tests {
         assert_eq!(items.len(), 1);
         let d0: ciborium::Value = ciborium::de::from_reader(items[0].as_slice()).unwrap();
         assert_eq!(d0, ciborium::Value::Bytes(b"solo".to_vec()));
+    }
+
+    // TEST976: wrap_raw_items_as_cbor_sequence wraps RAW (non-CBOR) item bytes —
+    // e.g. PNG frames — into a valid, self-delimiting CBOR sequence that
+    // split_cbor_sequence round-trips back to the exact raw items.
+    //
+    // Regression guard for commit 99df51c4 ("full dag"), which materialised
+    // sequence node_data with assemble_cbor_sequence(&items) on the *raw*
+    // (unwrapped) items from decode_terminal_output. Raw binary is not itself
+    // CBOR, so that path failed with "Item 0: Syntax(_)" (observed as the video
+    // extract-frames chain failure). This test asserts the wrap path succeeds
+    // AND that the assemble path genuinely rejects the same raw bytes — so the
+    // two functions are not interchangeable and the fix is load-bearing.
+    #[test]
+    fn test976_wrap_raw_items_roundtrips_and_assemble_rejects_them() {
+        // Raw items that are NOT valid CBOR on their own: a PNG magic header
+        // (0x89 'P' 'N' 'G' … decodes as CBOR array(9) then chokes) and a raw
+        // JSON record.
+        let png_magic: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x01];
+        let json_record: Vec<u8> = br#"{"name":"alpha"}"#.to_vec();
+        let raw_items = vec![png_magic.clone(), json_record.clone()];
+
+        // assemble_cbor_sequence must REJECT raw items (this is the bug the
+        // regression introduced — proving the two helpers are distinct).
+        let assemble = assemble_cbor_sequence(&raw_items);
+        assert!(
+            matches!(assemble, Err(CborUtilError::DeserializeError(_))),
+            "assemble_cbor_sequence must reject raw non-CBOR items, got {:?}",
+            assemble
+        );
+
+        // wrap_raw_items_as_cbor_sequence must SUCCEED and produce a valid
+        // RFC 8742 sequence of self-delimiting CBOR Bytes values.
+        let seq = wrap_raw_items_as_cbor_sequence(&raw_items).unwrap();
+
+        // Split it back the way a downstream cap head (send_one_stream) would,
+        // then unwrap each CBOR Bytes value → must equal the original raw items.
+        let split = split_cbor_sequence(&seq).unwrap();
+        assert_eq!(split.len(), 2, "must round-trip to 2 items");
+        let recovered: Vec<Vec<u8>> = split
+            .iter()
+            .map(|item| {
+                let v: ciborium::Value = ciborium::de::from_reader(item.as_slice()).unwrap();
+                match v {
+                    ciborium::Value::Bytes(b) => b,
+                    other => panic!("expected CBOR Bytes wrapper, got {:?}", other),
+                }
+            })
+            .collect();
+        assert_eq!(
+            recovered,
+            vec![png_magic, json_record],
+            "wrap→split→unwrap must recover the exact raw item bytes"
+        );
+    }
+
+    // TEST977: empty item list wraps to empty bytes (mirrors the scalar/empty
+    // sink case where a chain produced no items).
+    #[test]
+    fn test977_wrap_raw_items_empty() {
+        let seq = wrap_raw_items_as_cbor_sequence(&[]).unwrap();
+        assert!(seq.is_empty(), "empty item list must wrap to empty bytes");
     }
 }

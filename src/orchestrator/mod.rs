@@ -47,7 +47,7 @@ pub use plan_converter::plan_to_resolved_graph;
 
 pub use cbor_util::{
     assemble_cbor_array, assemble_cbor_sequence, split_cbor_array, split_cbor_sequence,
-    CborUtilError,
+    wrap_raw_items_as_cbor_sequence, CborUtilError,
 };
 
 pub use executor::{

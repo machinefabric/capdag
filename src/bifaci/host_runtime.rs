@@ -2404,15 +2404,34 @@ impl CartridgeHostRuntime {
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take();
 
-        // DEBUG: Forward cartridge stderr to host stderr in real-time
+        // Forward cartridge stderr to the host tracing output, line by line. A
+        // cartridge that dies ("Master died — Connection closed unexpectedly")
+        // prints its panic / abort message on stderr; draining and discarding
+        // those lines (as this did) hides every cartridge-side crash and leaves
+        // only the relay's after-the-fact "master died" with no cause. Emitted at
+        // debug on this module's target, which the scenario harness's default
+        // filter (`capdag::bifaci::host_runtime=debug`) captures into the saved
+        // test log so cartridge crashes are diagnosable from the log alone.
         if let Some(cartridge_stderr) = stderr {
             let cartridge_path = cartridge.path.clone();
             tokio::spawn(async move {
                 use tokio::io::AsyncBufReadExt;
                 let mut reader = tokio::io::BufReader::new(cartridge_stderr);
                 let mut line = String::new();
-                while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                loop {
                     line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) | Err(_) => break, // EOF or read error: cartridge closed stderr
+                        Ok(_) => {
+                            let text = line.trim_end();
+                            if !text.is_empty() {
+                                tracing::debug!(
+                                    cartridge = %cartridge_path.display(),
+                                    "[cartridge stderr] {text}"
+                                );
+                            }
+                        }
+                    }
                 }
             });
         }
