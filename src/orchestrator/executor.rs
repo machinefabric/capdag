@@ -2063,9 +2063,25 @@ async fn forward_frames(
                                     prev_sid
                                 ))
                             })?;
-                            gate.try_acquire(1).map_err(|e| {
-                                ExecutionError::HostError(format!("forward CHUNK credit: {}", e))
-                            })?
+                            match gate.try_acquire(1) {
+                                Ok(w) => w,
+                                // A closed downstream gate means the consumer's
+                                // request terminated (Step 6 `close_request`) or was
+                                // cancelled. By the credit contract the sender must
+                                // stop; the cap's real outcome is carried by its own
+                                // END/ERR (collected separately), so stopping here is
+                                // success, not a forwarding failure. Turning it into an
+                                // ExecutionError is what broke fan-in/fan-out chains
+                                // (a cap that ends before draining its input closes the
+                                // gate while the upstream is still forwarding).
+                                Err(closed) => {
+                                    tracing::debug!(
+                                        "[pipeline] forwarding stops early: downstream credit gate closed ({})",
+                                        closed.reason
+                                    );
+                                    return Ok(());
+                                }
+                            }
                         };
                         if !has_window {
                             // Flush-before-block (L10 corollary): the downstream
@@ -2092,9 +2108,16 @@ async fn forward_frames(
                                     prev_sid
                                 ))
                             })?;
-                            gate.acquire(1).await.map_err(|e| {
-                                ExecutionError::HostError(format!("forward CHUNK credit: {}", e))
-                            })?;
+                            if let Err(closed) = gate.acquire(1).await {
+                                // Downstream consumer terminated while we waited for
+                                // credit — stop forwarding gracefully (see the
+                                // try_acquire arm above for the rationale).
+                                tracing::debug!(
+                                    "[pipeline] forwarding stops early: downstream credit gate closed ({})",
+                                    closed.reason
+                                );
+                                return Ok(());
+                            }
                         }
                         let (new_sid, _, consumed) =
                             stream_id_map.get_mut(&prev_sid).ok_or_else(|| {

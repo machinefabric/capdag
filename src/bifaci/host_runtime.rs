@@ -2206,6 +2206,20 @@ impl CartridgeHostRuntime {
         if let Some((error_code, error_message)) = err_info {
             self.cartridges[cartridge_idx].last_death_message = Some(error_message.clone());
 
+            // Surface the death (with the OS exit status / signal captured above)
+            // in the host log. Previously this only travelled as ERR frames to
+            // pending callers, so a cartridge dying with e.g. "killed by signal
+            // 11" left no trace in the saved logs — only the relay's bare "master
+            // died". A silent signal-kill (SIGSEGV/SIGKILL) vs a clean non-zero
+            // exit is the first thing needed to diagnose a crashing cartridge.
+            tracing::error!(
+                target: "host_runtime",
+                cartridge = %self.cartridges[cartridge_idx].path.display(),
+                code = error_code,
+                "{}",
+                error_message
+            );
+
             for (rid, next_seq) in &failed_outgoing {
                 let mut err_frame = Frame::err(rid.clone(), error_code, &error_message);
                 err_frame.seq = *next_seq;
