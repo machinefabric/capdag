@@ -340,6 +340,25 @@ impl InputGrantEmitter {
         }
     }
 
+    /// Build a second emitter over the SAME window/sender for the demux's
+    /// fragment crediting on sequence streams, with `batch = 1` so every
+    /// grant flushes immediately. Immediate flushing is load-bearing: the
+    /// demux only runs when frames arrive, so a batched (held) grant while
+    /// the producer is stalled on exactly that credit would deadlock the
+    /// stream mid-item (L10 has no other flush point inside the demux).
+    fn fragment_sibling(&self) -> InputGrantEmitter {
+        InputGrantEmitter {
+            sender: Arc::clone(&self.sender),
+            rid: self.rid.clone(),
+            xid: self.xid.clone(),
+            stream_id: self.stream_id.clone(),
+            direction: self.direction,
+            batch: 1,
+            consumed_since_grant: 0,
+            window: Arc::clone(&self.window),
+        }
+    }
+
     /// Emit any pending (sub-batch) grant immediately.
     ///
     /// Deadlock-freedom rule (L10): a receiver MUST flush pending grants
@@ -2797,6 +2816,51 @@ impl FilePathContext {
     }
 }
 
+/// Reassembly state for one sequence-mode input stream (`is_sequence = true`
+/// on STREAM_START). Sequence producers (`emit_list_item`) CBOR-encode each
+/// item once and split the encoded bytes across CHUNK frames at `max_chunk`
+/// boundaries — a frame payload is a raw RFC 8742 fragment, NOT a
+/// self-contained CBOR value. The demux must therefore buffer fragments and
+/// decode at item granularity; decoding per frame fails with a CBOR
+/// UnexpectedEof on any item larger than `max_chunk` (the bug class that
+/// broke cap→cap forwarding of rendered page images).
+struct SeqReassembly {
+    /// Raw fragment bytes of the item currently being received.
+    buf: Vec<u8>,
+    /// Per-item metadata — carried on the item's FIRST fragment frame only
+    /// (the `emit_list_item` contract), held until the item completes.
+    item_meta: Option<StreamMeta>,
+    /// Immediate-flush grant emitter for fragment continuation frames.
+    /// Credit is frame-granular on the wire but the handler consumes (and
+    /// grants) per ITEM; every fragment after an item's first frame is
+    /// credited back here on arrival, so an item spanning more frames than
+    /// the credit window can still finish arriving. `None` in uncredited
+    /// contexts.
+    fragment_grants: Option<InputGrantEmitter>,
+}
+
+/// Try to decode one self-delimiting CBOR item from the front of `buf`.
+///
+/// - `Ok(Some((value, consumed)))` — one complete item; `consumed` bytes used.
+/// - `Ok(None)` — `buf` holds only a prefix of an item; wait for more frames.
+///   (CBOR definite-length encoding is prefix-free, so a truncated item can
+///   never mis-decode as a complete one.)
+/// - `Err` — the bytes are not valid CBOR at all.
+fn try_decode_sequence_item(
+    buf: &[u8],
+) -> Result<Option<(ciborium::Value, usize)>, StreamError> {
+    let mut cursor = std::io::Cursor::new(buf);
+    match ciborium::from_reader::<ciborium::Value, _>(&mut cursor) {
+        Ok(value) => Ok(Some((value, cursor.position() as usize))),
+        Err(ciborium::de::Error::Io(e))
+            if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(StreamError::Decode(e.to_string())),
+    }
+}
+
 /// Demux for multi-stream mode (handler input).
 /// Spawns a background tokio task that reads raw Frame channel and splits into
 /// per-stream InputStream channels. Handles file-path interception.
@@ -2827,6 +2891,10 @@ fn demux_multi_stream(
         // control frames flowing regardless of data pressure.
         let mut stream_windows: HashMap<String, Arc<std::sync::atomic::AtomicI64>> =
             HashMap::new();
+        // Sequence-mode streams: stream_id → item reassembly state (see
+        // `SeqReassembly` — frame payloads are RFC 8742 fragments, decoded
+        // at item granularity).
+        let mut seq_reassembly: HashMap<String, SeqReassembly> = HashMap::new();
 
         for frame in raw_rx {
             match frame.frame_type {
@@ -2868,6 +2936,18 @@ fn demux_multi_stream(
                                 window,
                             }
                         });
+                        if frame.is_sequence.unwrap_or(false) {
+                            seq_reassembly.insert(
+                                stream_id.clone(),
+                                SeqReassembly {
+                                    buf: Vec::new(),
+                                    item_meta: None,
+                                    fragment_grants: grants
+                                        .as_ref()
+                                        .map(|g| g.fragment_sibling()),
+                                },
+                            );
+                        }
                         let input_stream = InputStream {
                             media_urn,
                             stream_meta: frame.meta,
@@ -2934,12 +3014,52 @@ fn demux_multi_stream(
                                 continue;
                             }
                             let chunk_meta = frame.meta;
-                            match ciborium::from_reader::<ciborium::Value, _>(&payload[..]) {
-                                Ok(value) => {
-                                    let _ = tx.send(Ok((value, chunk_meta)));
+                            if let Some(seq) = seq_reassembly.get_mut(&stream_id) {
+                                // Sequence stream: the payload is a raw RFC 8742
+                                // fragment. Buffer it and deliver at ITEM
+                                // granularity (see `SeqReassembly`).
+                                if seq.buf.is_empty() {
+                                    // First fragment of a new item carries the
+                                    // per-item metadata (emit_list_item contract).
+                                    seq.item_meta = chunk_meta;
+                                } else if let Some(g) = seq.fragment_grants.as_mut() {
+                                    // Continuation fragment: credit it back
+                                    // immediately — the handler grants one frame
+                                    // per consumed ITEM, so without this an item
+                                    // spanning more frames than the credit window
+                                    // could never finish arriving.
+                                    g.consumed();
                                 }
-                                Err(e) => {
-                                    let _ = tx.send(Err(StreamError::Decode(e.to_string())));
+                                seq.buf.extend_from_slice(&payload);
+                                loop {
+                                    match try_decode_sequence_item(&seq.buf) {
+                                        Ok(Some((value, consumed))) => {
+                                            seq.buf.drain(..consumed);
+                                            let meta = seq.item_meta.take();
+                                            let _ = tx.send(Ok((value, meta)));
+                                            if seq.buf.is_empty() {
+                                                break;
+                                            }
+                                        }
+                                        Ok(None) => break, // prefix — need more frames
+                                        Err(e) => {
+                                            let _ = tx.send(Err(e));
+                                            seq.buf.clear();
+                                            break;
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Scalar stream: every frame payload is a
+                                // self-contained CBOR value (`write` wraps each
+                                // piece as its own Value::Bytes).
+                                match ciborium::from_reader::<ciborium::Value, _>(&payload[..]) {
+                                    Ok(value) => {
+                                        let _ = tx.send(Ok((value, chunk_meta)));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(Err(StreamError::Decode(e.to_string())));
+                                    }
                                 }
                             }
                         }
@@ -3122,6 +3242,19 @@ fn demux_multi_stream(
                             }
                         }
                     } else {
+                        // Sequence stream ending mid-item is a truncation —
+                        // surface it, never silently drop the partial item.
+                        if let Some(seq) = seq_reassembly.remove(&stream_id) {
+                            if !seq.buf.is_empty() {
+                                if let Some(tx) = stream_channels.get(&stream_id) {
+                                    let _ = tx.send(Err(StreamError::Decode(format!(
+                                        "sequence stream ended mid-item: {} trailing bytes \
+                                         do not form a complete CBOR item",
+                                        seq.buf.len()
+                                    ))));
+                                }
+                            }
+                        }
                         // Regular stream ended — close per-stream channel
                         stream_channels.remove(&stream_id);
                     }
@@ -3175,11 +3308,26 @@ fn demux_single_stream(
 ) -> PeerResponse {
     let (item_tx, item_rx) = tokio::sync::mpsc::unbounded_channel();
 
+    // Fragment crediting for sequence-mode responses (same scheme as
+    // `demux_multi_stream`): the caller grants one frame per consumed ITEM,
+    // so continuation fragments are credited back on arrival here.
+    let mut fragment_grants = grants.as_ref().map(|g| g.fragment_sibling());
+
     tokio::spawn(async move {
+        // Sequence reassembly for the single response stream (None until a
+        // STREAM_START with is_sequence=true arrives). Sequence frame
+        // payloads are RFC 8742 fragments — decode at item granularity.
+        let mut seq: Option<SeqReassembly> = None;
         while let Some(frame) = raw_rx.recv().await {
             match frame.frame_type {
                 FrameType::StreamStart => {
-                    // Structural frame — no item to deliver
+                    if frame.is_sequence.unwrap_or(false) {
+                        seq = Some(SeqReassembly {
+                            buf: Vec::new(),
+                            item_meta: None,
+                            fragment_grants: fragment_grants.take(),
+                        });
+                    }
                 }
                 FrameType::Chunk => {
                     if let Some(payload) = frame.payload {
@@ -3208,15 +3356,45 @@ fn demux_single_stream(
                             continue;
                         }
                         let chunk_meta = frame.meta;
-                        match ciborium::from_reader::<ciborium::Value, _>(&payload[..]) {
-                            Ok(value) => {
-                                let _ = item_tx.send(PeerResponseItem::Data(Ok(value), chunk_meta));
+                        if let Some(seq) = seq.as_mut() {
+                            if seq.buf.is_empty() {
+                                seq.item_meta = chunk_meta;
+                            } else if let Some(g) = seq.fragment_grants.as_mut() {
+                                g.consumed();
                             }
-                            Err(e) => {
-                                let _ = item_tx.send(PeerResponseItem::Data(
-                                    Err(StreamError::Decode(e.to_string())),
-                                    None,
-                                ));
+                            seq.buf.extend_from_slice(&payload);
+                            loop {
+                                match try_decode_sequence_item(&seq.buf) {
+                                    Ok(Some((value, consumed))) => {
+                                        seq.buf.drain(..consumed);
+                                        let meta = seq.item_meta.take();
+                                        let _ =
+                                            item_tx.send(PeerResponseItem::Data(Ok(value), meta));
+                                        if seq.buf.is_empty() {
+                                            break;
+                                        }
+                                    }
+                                    Ok(None) => break, // prefix — need more frames
+                                    Err(e) => {
+                                        let _ =
+                                            item_tx.send(PeerResponseItem::Data(Err(e), None));
+                                        seq.buf.clear();
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            match ciborium::from_reader::<ciborium::Value, _>(&payload[..]) {
+                                Ok(value) => {
+                                    let _ =
+                                        item_tx.send(PeerResponseItem::Data(Ok(value), chunk_meta));
+                                }
+                                Err(e) => {
+                                    let _ = item_tx.send(PeerResponseItem::Data(
+                                        Err(StreamError::Decode(e.to_string())),
+                                        None,
+                                    ));
+                                }
                             }
                         }
                     }
@@ -3225,6 +3403,18 @@ fn demux_single_stream(
                     let _ = item_tx.send(PeerResponseItem::Log(frame));
                 }
                 FrameType::StreamEnd | FrameType::End => {
+                    if let Some(seq) = seq.take() {
+                        if !seq.buf.is_empty() {
+                            let _ = item_tx.send(PeerResponseItem::Data(
+                                Err(StreamError::Decode(format!(
+                                    "sequence stream ended mid-item: {} trailing bytes \
+                                     do not form a complete CBOR item",
+                                    seq.buf.len()
+                                ))),
+                                None,
+                            ));
+                        }
+                    }
                     break;
                 }
                 FrameType::Err => {
@@ -4081,18 +4271,24 @@ impl CartridgeRuntime {
     ) -> Result<Vec<u8>, RuntimeError> {
         let mut arguments: Vec<CapArgumentValue> = Vec::new();
 
-        // Check for stdin data if cap accepts stdin
-        // Non-blocking check - if no data ready immediately, returns None
-        let stdin_data = if cap.accepts_stdin() {
-            self.read_stdin_if_available()?
-        } else {
-            None
+        // Piped stdin is read lazily, at most once, and only when an arg
+        // whose earlier sources (cli_flag, position) yielded nothing reaches
+        // its Stdin source. Args fully satisfied from the command line never
+        // touch stdin, so a cap invoked with explicit args can't hang on an
+        // inherited never-closing stdin. See `read_piped_stdin` for why the
+        // read itself blocks to EOF.
+        let mut stdin_cache: Option<Option<Vec<u8>>> = None;
+        let mut stdin_provider = || -> Result<Option<Vec<u8>>, RuntimeError> {
+            if stdin_cache.is_none() {
+                stdin_cache = Some(Self::read_piped_stdin()?);
+            }
+            Ok(stdin_cache.as_ref().unwrap().clone())
         };
 
         // Process each cap argument
         for arg_def in cap.get_args() {
             let (value, came_from_stdin) =
-                self.extract_arg_value(&arg_def, cli_args, stdin_data.as_deref())?;
+                self.extract_arg_value(&arg_def, cli_args, &mut stdin_provider)?;
 
             if let Some(val) = value {
                 // Determine media_urn: if value came from stdin source, use stdin's media_urn
@@ -4125,7 +4321,7 @@ impl CartridgeRuntime {
 
         // If no arguments are defined but stdin data exists, use it as raw payload
         if cap.get_args().is_empty() {
-            if let Some(data) = stdin_data {
+            if let Some(data) = stdin_provider()? {
                 return Ok(data);
             }
             // No args and no stdin - return empty payload
@@ -4169,10 +4365,15 @@ impl CartridgeRuntime {
         &self,
         arg_def: &CapArg,
         cli_args: &[String],
-        stdin_data: Option<&[u8]>,
+        stdin: &mut dyn FnMut() -> Result<Option<Vec<u8>>, RuntimeError>,
     ) -> Result<(Option<Vec<u8>>, bool), RuntimeError> {
         // Try each source in order, returning RAW values (file paths, flags, etc.)
         // File-path auto-conversion happens later in extract_effective_payload()
+        //
+        // `stdin` is a lazy provider so stdin is only consumed when an arg
+        // actually reaches its Stdin source — and sources still take
+        // precedence over the arg's default value (piped data must beat a
+        // declared default).
         for source in &arg_def.sources {
             match source {
                 ArgSource::CliFlag { cli_flag } => {
@@ -4188,8 +4389,8 @@ impl CartridgeRuntime {
                     }
                 }
                 ArgSource::Stdin { .. } => {
-                    if let Some(data) = stdin_data {
-                        return Ok((Some(data.to_vec()), true)); // true = came from stdin
+                    if let Some(data) = stdin()? {
+                        return Ok((Some(data), true)); // true = came from stdin
                     }
                 }
             }
@@ -4289,9 +4490,21 @@ impl CartridgeRuntime {
         positional
     }
 
-    /// Read stdin if data is available (non-blocking check).
-    /// Returns None immediately if stdin is a terminal or no data is ready.
-    fn read_stdin_if_available(&self) -> Result<Option<Vec<u8>>, RuntimeError> {
+    /// Read piped stdin to EOF, blocking until the writer closes its end.
+    /// Returns None when stdin is a terminal (interactive — nothing piped)
+    /// or delivers zero bytes.
+    ///
+    /// This deliberately BLOCKS: stdin being non-terminal means the invoker
+    /// piped or redirected input, and the only correct interpretation is to
+    /// wait for the sender to finish — standard POSIX tool semantics (the
+    /// Windows arm always behaved this way). The previous Unix-only
+    /// 0-timeout `poll()` peek raced the writer: a spawner that had not yet
+    /// written looked identical to "no input at all", so stdin-sourced
+    /// required args intermittently went missing under load. Callers keep
+    /// stdin consumption LAZY instead — it is only consulted when an arg's
+    /// earlier sources yielded nothing — so caps fully satisfied from the
+    /// command line never touch stdin and cannot block on it.
+    fn read_piped_stdin() -> Result<Option<Vec<u8>>, RuntimeError> {
         use std::io::IsTerminal;
 
         let stdin = io::stdin();
@@ -4301,57 +4514,12 @@ impl CartridgeRuntime {
             return Ok(None);
         }
 
-        // Non-blocking check: use poll() to see if data is ready (Unix only for now)
-        #[cfg(unix)]
-        {
-            use std::os::fd::AsRawFd;
-            use std::time::Duration;
-            let fd = stdin.as_raw_fd();
-
-            // Create pollfd structure for stdin
-            let mut pollfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-
-            // Poll with 0 timeout = non-blocking check
-            let poll_result = unsafe { libc::poll(&mut pollfd as *mut libc::pollfd, 1, 0) };
-
-            if poll_result < 0 {
-                return Err(RuntimeError::Io(io::Error::last_os_error()));
-            }
-
-            // No data ready - return None immediately without blocking
-            if poll_result == 0 || (pollfd.revents & libc::POLLIN) == 0 {
-                return Ok(None);
-            }
-
-            // Data is ready - read it
-            let mut data = Vec::new();
-            stdin.lock().read_to_end(&mut data)?;
-
-            if data.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(data))
-            }
-        }
-
-        #[cfg(windows)]
-        {
-            let mut data = Vec::new();
-            stdin.lock().read_to_end(&mut data)?;
-            if data.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(data))
-            }
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        {
+        let mut data = Vec::new();
+        stdin.lock().read_to_end(&mut data)?;
+        if data.is_empty() {
             Ok(None)
+        } else {
+            Ok(Some(data))
         }
     }
 
@@ -5395,6 +5563,213 @@ mod tests {
         assert!(stream.recv().await.is_none(), "stream closes after STREAM_END");
     }
 
+    // TEST1300: A sequence item CBOR-encoded once and split across multiple CHUNK frames (the emit_list_item framing) reassembles into exactly one delivered item carrying the first fragment's per-item metadata.
+    #[tokio::test]
+    async fn test1300_sequence_item_fragments_reassemble_into_one_item() {
+        let rid = MessageId::new_uuid();
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+
+        // One large item, encoded once, then fragmented — exactly what
+        // emit_list_item does for an item bigger than max_chunk. Per-frame
+        // decoding of any fragment fails with a CBOR UnexpectedEof, which is
+        // how cap→cap forwarding of rendered page images broke.
+        let item_bytes: Vec<u8> = (0..600_000u32).map(|i| (i % 251) as u8).collect();
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&ciborium::Value::Bytes(item_bytes.clone()), &mut encoded)
+            .unwrap();
+        assert!(
+            encoded.len() > DEFAULT_MAX_CHUNK,
+            "item must span multiple fragments"
+        );
+
+        raw_tx
+            .send(Frame::stream_start(
+                rid.clone(),
+                "s1".to_string(),
+                "media:ext=png;image".to_string(),
+                Some(true),
+            ))
+            .unwrap();
+
+        let mut item_meta = StreamMeta::new();
+        item_meta.insert("title".to_string(), ciborium::Value::Text("page 1".into()));
+        let fragment_size = DEFAULT_MAX_CHUNK;
+        let mut n_frames = 0u64;
+        for (i, fragment) in encoded.chunks(fragment_size).enumerate() {
+            let payload = fragment.to_vec();
+            let checksum = Frame::compute_checksum(&payload);
+            let mut frame =
+                Frame::chunk(rid.clone(), "s1".to_string(), i as u64, payload, i as u64, checksum);
+            // emit_list_item puts per-item meta on the FIRST fragment only.
+            if i == 0 {
+                frame.meta = Some(item_meta.clone());
+            }
+            raw_tx.send(frame).unwrap();
+            n_frames += 1;
+        }
+        // A second, single-fragment item follows — reassembly must realign
+        // on the item boundary, not swallow it into the first.
+        let mut second = Vec::new();
+        ciborium::into_writer(&ciborium::Value::Bytes(vec![7, 7, 7]), &mut second).unwrap();
+        let checksum = Frame::compute_checksum(&second);
+        raw_tx
+            .send(Frame::chunk(
+                rid.clone(),
+                "s1".to_string(),
+                n_frames,
+                second,
+                n_frames,
+                checksum,
+            ))
+            .unwrap();
+        n_frames += 1;
+        raw_tx
+            .send(Frame::stream_end(rid.clone(), "s1".to_string(), n_frames))
+            .unwrap();
+        raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, None);
+        let mut stream = package.recv().await.unwrap().unwrap();
+
+        let (v0, m0) = stream.recv().await.unwrap().unwrap();
+        assert_eq!(
+            v0,
+            ciborium::Value::Bytes(item_bytes),
+            "fragments must reassemble into the original item"
+        );
+        assert_eq!(m0, Some(item_meta), "first fragment's meta rides the item");
+
+        let (v1, m1) = stream.recv().await.unwrap().unwrap();
+        assert_eq!(v1, ciborium::Value::Bytes(vec![7, 7, 7]));
+        assert_eq!(m1, None);
+
+        assert!(stream.recv().await.is_none(), "exactly two items");
+    }
+
+    // TEST1301: A sequence stream that ENDs mid-item (trailing fragment bytes that never complete a CBOR item) surfaces a hard decode error instead of silently dropping the partial item.
+    #[tokio::test]
+    async fn test1301_sequence_stream_truncated_mid_item_fails_hard() {
+        let rid = MessageId::new_uuid();
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+
+        let mut encoded = Vec::new();
+        ciborium::into_writer(
+            &ciborium::Value::Bytes(vec![42u8; 4096]),
+            &mut encoded,
+        )
+        .unwrap();
+        // Send only a strict prefix of the item, then STREAM_END.
+        let payload = encoded[..encoded.len() / 2].to_vec();
+        let checksum = Frame::compute_checksum(&payload);
+
+        raw_tx
+            .send(Frame::stream_start(
+                rid.clone(),
+                "s1".to_string(),
+                "media:ext=png;image".to_string(),
+                Some(true),
+            ))
+            .unwrap();
+        raw_tx
+            .send(Frame::chunk(rid.clone(), "s1".to_string(), 0, payload, 0, checksum))
+            .unwrap();
+        raw_tx
+            .send(Frame::stream_end(rid.clone(), "s1".to_string(), 1))
+            .unwrap();
+        raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, None);
+        let mut stream = package.recv().await.unwrap().unwrap();
+        let err = stream
+            .recv()
+            .await
+            .expect("truncation must surface, not close silently")
+            .expect_err("a partial item is an error");
+        assert!(
+            err.to_string().contains("mid-item"),
+            "expected truncation error, got: {}",
+            err
+        );
+    }
+
+    // TEST1302: Continuation fragments of a multi-frame sequence item are credited back by the demux on arrival — the handler grants one frame per consumed item, so without fragment grants an item spanning more frames than the credit window could never finish arriving.
+    #[tokio::test]
+    async fn test1302_sequence_fragment_frames_are_credited_on_arrival() {
+        let (grant_tx, mut grant_rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
+        let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
+            tx: grant_tx,
+            drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
+        });
+        let rid = MessageId::new_uuid();
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+
+        // One item spanning 4 fragments against a credit window of 2: only
+        // demux-side fragment grants keep the producer's window open.
+        let item_bytes = vec![9u8; 4 * 1024];
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&ciborium::Value::Bytes(item_bytes.clone()), &mut encoded)
+            .unwrap();
+        let fragment_size = encoded.len().div_ceil(4);
+
+        raw_tx
+            .send(Frame::stream_start(
+                rid.clone(),
+                "s1".to_string(),
+                "media:ext=png;image".to_string(),
+                Some(true),
+            ))
+            .unwrap();
+        let mut n_fragments = 0u64;
+        for (i, fragment) in encoded.chunks(fragment_size).enumerate() {
+            let payload = fragment.to_vec();
+            let checksum = Frame::compute_checksum(&payload);
+            raw_tx
+                .send(Frame::chunk(rid.clone(), "s1".to_string(), i as u64, payload, i as u64, checksum))
+                .unwrap();
+            n_fragments += 1;
+        }
+        assert_eq!(n_fragments, 4);
+        raw_tx
+            .send(Frame::stream_end(rid.clone(), "s1".to_string(), n_fragments))
+            .unwrap();
+        raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(
+            raw_rx,
+            None,
+            Some(InputCreditContext {
+                sender,
+                rid: rid.clone(),
+                xid: None,
+                initial_credit: 2,
+            }),
+        );
+        let mut stream = package.recv().await.unwrap().unwrap();
+        let (v0, _) = stream.recv().await.unwrap().unwrap();
+        assert_eq!(v0, ciborium::Value::Bytes(item_bytes));
+        assert!(stream.recv().await.is_none());
+        drop(stream);
+
+        // Continuation fragments (all but the item's first frame) must have
+        // been credited by the demux as they arrived: 3 immediate one-frame
+        // grants. The item's own frame is granted by handler consumption.
+        let mut demux_granted = 0u64;
+        while let Ok(frame) = grant_rx.try_recv() {
+            if frame.frame_type == FrameType::Credit {
+                demux_granted += frame.credit_count().unwrap_or(0);
+            }
+        }
+        assert!(
+            demux_granted >= n_fragments - 1,
+            "expected at least {} fragment credits, saw {}",
+            n_fragments - 1,
+            demux_granted
+        );
+    }
+
     // TEST7073: Buffering collectors refuse unbounded streams with a hard error instead of buffering without bound.
     #[tokio::test]
     async fn test7073_collect_refuses_unbounded_streams() {
@@ -6007,7 +6382,7 @@ mod tests {
     ) -> Vec<Vec<u8>> {
         // Extract raw argument value
         let (raw_value, _) = runtime
-            .extract_arg_value(&cap.args[0], cli_args, None)
+            .extract_arg_value(&cap.args[0], cli_args, &mut || Ok(None))
             .unwrap();
 
         // Build CBOR payload
@@ -6066,7 +6441,7 @@ mod tests {
     ) -> Vec<u8> {
         // Extract raw argument value
         let (raw_value, _) = runtime
-            .extract_arg_value(&cap.args[0], cli_args, None)
+            .extract_arg_value(&cap.args[0], cli_args, &mut || Ok(None))
             .unwrap();
 
         // Build CBOR payload
@@ -6956,7 +7331,7 @@ mod tests {
         let cli_args = vec![test_file.to_string_lossy().to_string()];
         let cap = runtime.manifest.as_ref().unwrap().all_caps()[0].clone();
         let result = runtime
-            .extract_arg_value(&cap.args[0], &cli_args, None)
+            .extract_arg_value(&cap.args[0], &cli_args, &mut || Ok(None))
             .unwrap();
 
         // Should get file PATH as string, not file CONTENTS
@@ -7087,7 +7462,7 @@ mod tests {
 
         // Build CBOR payload and try conversion - should fail on file read
         let (raw_value, _) = runtime
-            .extract_arg_value(&cap.args[0], &cli_args, None)
+            .extract_arg_value(&cap.args[0], &cli_args, &mut || Ok(None))
             .unwrap();
         let arg = ciborium::Value::Map(vec![
             (
@@ -7152,7 +7527,7 @@ mod tests {
         let cap = runtime.manifest.as_ref().unwrap().all_caps()[0].clone();
 
         let (result, _) = runtime
-            .extract_arg_value(&cap.args[0], &cli_args, Some(stdin_data))
+            .extract_arg_value(&cap.args[0], &cli_args, &mut || Ok(Some(stdin_data.to_vec())))
             .unwrap();
         let result = result.unwrap();
 
@@ -7226,7 +7601,7 @@ mod tests {
         let cli_args = vec!["mlx-community/Llama-3.2-3B-Instruct-4bit".to_string()];
         let cap = runtime.manifest.as_ref().unwrap().all_caps()[0].clone();
         let (result, _) = runtime
-            .extract_arg_value(&cap.args[0], &cli_args, None)
+            .extract_arg_value(&cap.args[0], &cli_args, &mut || Ok(None))
             .unwrap();
         let result = result.unwrap();
 
@@ -7262,7 +7637,7 @@ mod tests {
 
         // Build CBOR payload and try conversion - should fail on file read
         let (raw_value, _) = runtime
-            .extract_arg_value(&cap.args[0], &cli_args, None)
+            .extract_arg_value(&cap.args[0], &cli_args, &mut || Ok(None))
             .unwrap();
         let arg = ciborium::Value::Map(vec![
             (
@@ -7322,7 +7697,7 @@ mod tests {
 
         // Build CBOR payload and try conversion - should fail on file read
         let (raw_value, _) = runtime
-            .extract_arg_value(&cap.args[0], &cli_args, None)
+            .extract_arg_value(&cap.args[0], &cli_args, &mut || Ok(None))
             .unwrap();
         let arg = ciborium::Value::Map(vec![
             (
@@ -7699,7 +8074,7 @@ mod tests {
 
         // Build full CBOR payload and attempt file-path conversion
         let (raw_value, _) = runtime
-            .extract_arg_value(&cap.args[0], &cli_args, None)
+            .extract_arg_value(&cap.args[0], &cli_args, &mut || Ok(None))
             .unwrap();
         let arg = ciborium::Value::Map(vec![
             (
@@ -7829,7 +8204,7 @@ mod tests {
 
         // Build CBOR payload and try conversion - should fail when glob matches nothing
         let (raw_value, _) = runtime
-            .extract_arg_value(&cap.args[0], &cli_args, None)
+            .extract_arg_value(&cap.args[0], &cli_args, &mut || Ok(None))
             .unwrap();
         let arg = ciborium::Value::Map(vec![
             (

@@ -1708,6 +1708,33 @@ async fn run_group_chain(
         let next_group = ordered_groups[i + 1];
         let prev_cap_urn = invocations[i].2.clone();
 
+        // The downstream cap demuxes input streams by arg URN equivalence
+        // (spec 13.2) — every stream the orchestrator sends is labeled with
+        // the edge's declared input media URN (`send_group_input` does this
+        // for chain heads). The pipelined hop must do the same: find the
+        // edge this forwarding serves so STREAM_START can be relabeled from
+        // the producer's (richer) output URN to the declared arg URN.
+        let prev_to = &ordered_groups[i].to;
+        let mut feeding_edges = next_group.edges.iter().filter(|e| &e.from == prev_to);
+        let next_in_media = match (feeding_edges.next(), feeding_edges.next()) {
+            (Some(edge), None) => edge.in_media.clone(),
+            (Some(a), Some(b)) => {
+                return Err(ExecutionError::HostError(format!(
+                    "pipelined forward: node '{}' feeds cap '{}' through multiple \
+                     edges (args '{}' and '{}') — a single forwarded stream cannot \
+                     be split into two args",
+                    prev_to, next_group.cap_urn, a.in_media, b.in_media
+                )));
+            }
+            (None, _) => {
+                return Err(ExecutionError::HostError(format!(
+                    "pipelined forward: chain wiring bug — group for cap '{}' has \
+                     no edge from its producer node '{}'",
+                    next_group.cap_urn, prev_to
+                )));
+            }
+        };
+
         let (dummy_tx, dummy_rx) = mpsc::unbounded_channel();
         let taken_rx = std::mem::replace(&mut invocations[i].1, dummy_rx);
         drop(dummy_tx);
@@ -1748,6 +1775,7 @@ async fn run_group_chain(
                 fwd_max_chunk,
                 pfn.as_ref(),
                 &prev_cap_urn,
+                &next_in_media,
                 fwd_log_fn.as_ref(),
                 fwd_body_index,
                 fwd_stall_tracker,
@@ -1993,7 +2021,12 @@ async fn send_group_input(
 }
 
 /// Forward one cap's response frames live into the next cap's input, re-stamping
-/// request/stream ids for wire fidelity. Credit flows both ways per hop (L10/L14):
+/// request/stream ids for wire fidelity. STREAM_START is relabeled from the
+/// producer's output URN to `next_in_media` — the downstream edge's declared
+/// input arg URN — because the consumer demuxes args by URN equivalence
+/// (spec 13.2); the plan proved the producer's output conforms, and that
+/// conformance is re-asserted here (a non-conforming stream is a wiring bug,
+/// failed hard). Credit flows both ways per hop (L10/L14):
 /// forwarded chunks acquire from the downstream cap's window; consumed upstream
 /// chunks are granted back. On the upstream END, the next group's extra-arg
 /// streams are sent, then END. LOG frames drive progress/log callbacks. Activity
@@ -2012,6 +2045,7 @@ async fn forward_frames(
     max_chunk: usize,
     progress_fn: Option<&CapProgressFn>,
     prev_cap_urn: &str,
+    next_in_media: &str,
     log_fn: Option<&PipelineLogFn>,
     body_index: Option<usize>,
     stall_tracker: Option<Arc<PipelineProgressTracker>>,
@@ -2020,6 +2054,13 @@ async fn forward_frames(
     use crate::bifaci::credit::CreditGate;
     use crate::bifaci::frame::CreditDirection;
     use std::time::Duration;
+
+    let target_arg_urn = crate::MediaUrn::from_string(next_in_media).map_err(|e| {
+        ExecutionError::HostError(format!(
+            "pipelined forward: downstream arg URN '{}' is not a valid media URN: {}",
+            next_in_media, e
+        ))
+    })?;
 
     let mut stream_id_map: HashMap<String, (String, Arc<CreditGate>, u64)> = HashMap::new();
     let grant_batch = (initial_credit / 2).max(1);
@@ -2044,11 +2085,36 @@ async fn forward_frames(
                         router_down.register(next_rid.clone(), Some(new_sid.clone()), Arc::clone(&gate));
                         stream_id_map.insert(prev_sid, (new_sid.clone(), gate, 0));
 
+                        // Relabel to the downstream edge's declared arg URN: the
+                        // consumer matches input streams by arg-URN equivalence
+                        // (spec 13.2), and the producer's output URN is a
+                        // refinement the plan already proved conforms. Re-assert
+                        // that conformance — a violation is a wiring/type bug
+                        // that must surface here, not as a missing-arg error
+                        // inside the cartridge.
+                        let produced_urn_str = frame.media_urn.as_deref().unwrap_or_default();
+                        let produced_urn =
+                            crate::MediaUrn::from_string(produced_urn_str).map_err(|e| {
+                                ExecutionError::HostError(format!(
+                                    "pipelined forward: cap '{}' emitted a stream with \
+                                     invalid media URN '{}': {}",
+                                    prev_cap_urn, produced_urn_str, e
+                                ))
+                            })?;
+                        if !produced_urn.conforms_to(&target_arg_urn).unwrap_or(false) {
+                            return Err(ExecutionError::HostError(format!(
+                                "pipelined forward: cap '{}' output stream URN '{}' does \
+                                 not conform to the downstream declared arg URN '{}'",
+                                prev_cap_urn, produced_urn_str, next_in_media
+                            )));
+                        }
+
                         let mut new_frame = frame.clone();
                         new_frame.id = next_rid.clone();
                         new_frame.routing_id = None;
                         new_frame.seq = 0;
                         new_frame.stream_id = Some(new_sid);
+                        new_frame.media_urn = Some(next_in_media.to_string());
                         switch.send_to_master(new_frame, None).await.map_err(|e| {
                             ExecutionError::HostError(format!("forward STREAM_START: {}", e))
                         })?;
