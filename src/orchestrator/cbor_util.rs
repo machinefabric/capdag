@@ -595,10 +595,10 @@ mod tests {
         );
     }
 
-    // TEST977: empty item list wraps to empty bytes (mirrors the scalar/empty
+    // TEST1317: empty item list wraps to empty bytes (mirrors the scalar/empty
     // sink case where a chain produced no items).
     #[test]
-    fn test977_wrap_raw_items_empty() {
+    fn test1317_wrap_raw_items_empty() {
         let seq = wrap_raw_items_as_cbor_sequence(&[]).unwrap();
         assert!(seq.is_empty(), "empty item list must wrap to empty bytes");
     }

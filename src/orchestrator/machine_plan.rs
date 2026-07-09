@@ -142,9 +142,9 @@ mod tests {
         }
     }
 
-    // TEST1270: A linear machine (no sequence output) lowers to a ForEach-free plan.
+    // TEST1303: A linear machine (no sequence output) lowers to a ForEach-free plan.
     #[tokio::test]
-    async fn test1270_linear_machine_no_foreach() {
+    async fn test1303_linear_machine_no_foreach() {
         let reg = registry(vec![
             cap(r#"cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt""#, false),
             cap(r#"cap:in="media:enc=utf-8;ext=txt";summarize;out="media:enc=utf-8;summary""#, false),
@@ -172,11 +172,11 @@ mod tests {
         );
     }
 
-    // TEST1271: A sequence-output cap feeding a scalar-input cap lowers to a ForEach
+    // TEST1304: A sequence-output cap feeding a scalar-input cap lowers to a ForEach
     // whose body is the consumer cap — the render→map→consume shape the flat executor
     // could not express. Asserted structurally (no reliance on generated node ids).
     #[tokio::test]
-    async fn test1271_sequence_into_scalar_wraps_foreach() {
+    async fn test1304_sequence_into_scalar_wraps_foreach() {
         let reg = registry(vec![
             cap(r#"cap:in="media:ext=pdf";render-page-image;out="media:ext=png;image""#, true),
             cap(r#"cap:in="media:ext=png;image";convert-image;out="media:ext=jpeg;image""#, false),
@@ -200,9 +200,9 @@ mod tests {
         );
     }
 
-    // TEST1272: A disconnected multi-strand machine yields one plan per strand.
+    // TEST1305: A disconnected multi-strand machine yields one plan per strand.
     #[tokio::test]
-    async fn test1272_multi_strand_yields_one_plan_each() {
+    async fn test1305_multi_strand_yields_one_plan_each() {
         let reg = registry(vec![
             cap(r#"cap:in="media:ext=pdf";render-page-image;out="media:ext=png;image""#, true),
             cap(r#"cap:in="media:ext=png;image";convert-image;out="media:ext=jpeg;image""#, false),
@@ -222,12 +222,12 @@ mod tests {
         }
     }
 
-    // TEST1273: A cap wired with two incoming data sources is a hard error — there is
+    // TEST1306: A cap wired with two incoming data sources is a hard error — there is
     // no second stdin. (Constructed via a synthetic two-source edge is impossible in
     // notation under one-stdin, so we assert the resolver/one-stdin path rejects the
     // multi-binding case rather than silently mis-routing.)
     #[tokio::test]
-    async fn test1273_two_data_sources_is_hard_error() {
+    async fn test1306_two_data_sources_is_hard_error() {
         // `merge` declares a single stdin; feeding it two sources cannot resolve to
         // one stdin, so notation resolution rejects it before we even build a plan.
         let reg = registry(vec![

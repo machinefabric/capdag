@@ -8,21 +8,21 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
 
 | Mirror | Numbered tests |
 |---|---|
-| rust | 1229 |
+| rust | 1220 |
 | go | 1156 |
 | py | 1109 |
 | js | 352 |
-| objc | 867 |
+| objc | 878 |
 
 ## Summary
 
-- Distinct numbered tests across all mirrors: **1659**
-- Shared (in ≥2 mirrors): **1112**
-- Solo (in exactly 1 mirror): **547**
-  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **517**
-  - …already in the 8000+ impl-specific range (correctly placed): **30**
-- Shared numbers with a parity gap (missing from ≥1 mirror): **965**
-- Shared numbers with divergent descriptions: **166**
+- Distinct numbered tests across all mirrors: **1669**
+- Shared (in ≥2 mirrors): **1120**
+- Solo (in exactly 1 mirror): **549**
+  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **521**
+  - …already in the 8000+ impl-specific range (correctly placed): **28**
+- Shared numbers with a parity gap (missing from ≥1 mirror): **973**
+- Shared numbers with divergent descriptions: **174**
 - Within-mirror duplicate numbers: **11**
 
 ---
@@ -50,11 +50,11 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test85 | rust | `test0085_page_text_only_matches_textable_catch_all` | / The actual upstream prompt URN (PDF page text) does not conform / to any specific cap-arg pattern — it falls through to the / textable catch-all, where it correctly lands as the prompt body. | tests/cap_arg_stream_dispatch.rs:202 |
 | test86 | rust | `test0086_system_prompt_must_be_matched_before_textable_catch_all` | / The system-prompt URN must be matched BEFORE the textable / catch-all; otherwise the prompt body would be the system / prompt's content and the actual upstream text would be / discarded. This test pins the conformance both ways: system / prompt conforms to textable (so the catch-all WOULD swallow it), / AND system prompt conforms to its own marker (so the dedicated / branch matches when it runs first). | tests/cap_arg_stream_dispatch.rs:220 |
 | test87 | rust | `test0087_model_spec_does_not_conform_to_any_numeric_parameter` | / The model-spec URN is rich but has its own dedicated branch / because the handler knows the canonical full URN. Verify it / doesn't accidentally conform to any of the parameter patterns / (which would route the model-spec content into a numeric slot). | tests/cap_arg_stream_dispatch.rs:237 |
-| test121 | rust | `test0121_step_title_query_filters_paths_server_side` | TEST0121: Step title query filters paths server side | src/planner/live_cap_fab.rs:2666 |
-| test122 | rust | `test0122_step_title_query_constrains_streaming_progress_counts` | TEST0122: Step title query constrains streaming progress counts | src/planner/live_cap_fab.rs:2708 |
+| test121 | rust | `test0121_step_title_query_filters_paths_server_side` | TEST0121: Step title query filters paths server side | src/planner/live_cap_fab.rs:2717 |
+| test122 | rust | `test0122_step_title_query_constrains_streaming_progress_counts` | TEST0122: Step title query constrains streaming progress counts | src/planner/live_cap_fab.rs:2759 |
 | test123 | go | `Test0123_CapExists` | TEST0123: Cap exists | cap/registry_test.go:116 |
 | test124 | go | `Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError` | Test0124_ParseHeadersWithNoWiringsReturnsNoEdgesError verifies the ErrNoEdges case. | machine/machine_test.go:485 |
-| test130 | rust | `test0130_registry_cache_revision_rebuilds_live_cap_fab_without_capability_change` | TEST0130: A cartridge can advertise a cap before the registry cache has finished hydrating that cap's canonical definition. LiveCapFab must retry the already-advertised aggregate capability set when the registry cache later warms; otherwise the cap remains absent from machine selection until an unrelated cartridge reconnect occurs. | src/bifaci/relay_switch.rs:3729 |
+| test130 | rust | `test0130_registry_cache_revision_rebuilds_live_cap_fab_without_capability_change` | TEST0130: A cartridge can advertise a cap before the registry cache has finished hydrating that cap's canonical definition. LiveCapFab must retry the already-advertised aggregate capability set when the registry cache later warms; otherwise the cap remains absent from machine selection until an unrelated cartridge reconnect occurs. | src/bifaci/relay_switch.rs:3738 |
 | test183 | go | `Test0183_IntegrationMediaUrnResolution` | Test0183_IntegrationMediaUrnResolution verifies media URN resolution | bifaci/integration_test.go:163 |
 | test209 | go | `Test0209_IntegrationMediaDefConstruction` | Test0209_IntegrationMediaDefConstruction verifies media.MediaDef construction | bifaci/integration_test.go:214 |
 | test265 | go | `Test0265_CartridgeErrorResponse` | Mirror-specific coverage: Test cartridge ERR frame is received by host as error | bifaci/integration_test.go:504 |
@@ -68,27 +68,27 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test370 | objc | `test0370_MediaDefDocumentationPropagatesThroughResolve` | Documentation propagates from a mediaDefs definition through CSResolveMediaUrn into the resolved CSMediaDef. Mirrors TEST924 on the Rust side and testJS_mediaDefDocumentationPropagatesThroughResolve on the JS side. | Tests/CapDAGTests/CSCapTests.m:996 |
 | test371 | objc | `test0371_CapVersionZeroRoundTrip` | TEST0371: Cap version zero round trip | Tests/CapDAGTests/CSCapTests.m:1035 |
 | test372 | objc | `test0372_CapVersionNonZeroRoundTrip` | TEST0372: Cap version non zero round trip | Tests/CapDAGTests/CSCapTests.m:1068 |
-| test394 | rust | `test394_peer_invoke_roundtrip` | TEST394: Test peer invoke round-trip (testcartridge calls itself) Disabled: LocalCartridgeRouter feature not implemented - uses non-existent modules | tests/orchestrator_integration.rs:935 |
-| test480 | objc | `test480_discardHandlerConsumesInput` | TEST480: parse_caps_from_manifest rejects manifest without CAP_IDENTITY | Tests/BifaciTests/StandardCapsTests.swift:178 |
-| test552 | rust | `test552_is_csv_recognizes_ext_csv_and_bare_marker` | TEST552: is_csv recognizes the CANONICAL published CSV media, which spells the format as the `ext=csv` extension tag — not a bare `csv` marker. Every datacartridge convert-format/collect-records cap declares its CSV media as `media:fmt=csv;list;record` (see MEDIA_CSV), so an is_csv() that only checked the bare marker returned false for real CSV media, collapsing it to a text list and breaking list<->csv conversion with "Unsupported conversion: TextableList -> TextableList". This test pins both accepted spellings and would FAIL against the old marker-only implementation. | src/urn/media_urn.rs:928 |
+| test394 | rust | `test394_peer_invoke_roundtrip` | TEST394: Test peer invoke round-trip (testcartridge calls itself) Disabled: LocalCartridgeRouter feature not implemented - uses non-existent modules | tests/orchestrator_integration.rs:983 |
+| test480 | objc | `test480_discardHandlerConsumesInput` | TEST480: parse_caps_from_manifest rejects manifest without CAP_IDENTITY | Tests/BifaciTests/StandardCapsTests.swift:218 |
+| test552 | rust | `test552_is_csv_recognizes_ext_csv_and_bare_marker` | TEST552: is_csv recognizes the CANONICAL published CSV media, which spells the format as the `ext=csv` extension tag — not a bare `csv` marker. Every datacartridge convert-format/collect-records cap declares its CSV media as `media:fmt=csv;list;record` (see MEDIA_CSV), so an is_csv() that only checked the bare marker returned false for real CSV media, collapsing it to a text list and breaking list<->csv conversion with "Unsupported conversion: TextableList -> TextableList". This test pins both accepted spellings and would FAIL against the old marker-only implementation. | src/urn/media_urn.rs:934 |
 | test651 | rust | `test651_wildcard_013_generic_forms_rejected` | TEST651: All bare/default top-to-top forms are rejected | src/urn/cap_urn.rs:2715 |
-| test887 | rust | `test887_execute_with_file_input` | TEST887: Execute with file-path input | tests/orchestrator_integration.rs:472 |
-| test888 | rust | `test888_execute_edge1_to_edge2_chain` | TEST888: Execute two-edge chain (test-edge1 -> test-edge2) | tests/orchestrator_integration.rs:420 |
-| test889 | rust | `test889_execute_single_edge_dag` | TEST889: Execute single-edge DAG (test-edge1) | tests/orchestrator_integration.rs:367 |
-| test905 | rust | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:5275 |
-| test916 | rust | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:2696 |
+| test887 | rust | `test887_execute_with_file_input` | TEST887: Execute with file-path input | tests/orchestrator_integration.rs:527 |
+| test888 | rust | `test888_execute_edge1_to_edge2_chain` | TEST888: Execute two-edge chain (test-edge1 -> test-edge2) | tests/orchestrator_integration.rs:477 |
+| test889 | rust | `test889_execute_single_edge_dag` | TEST889: Execute single-edge DAG (test-edge1) | tests/orchestrator_integration.rs:427 |
+| test905 | rust | `test905_send_to_master_build_request_frames_roundtrip` | TEST905: send_to_master + build_request_frames through RelaySwitch → RelaySlave → InProcessCartridgeHost roundtrip | src/bifaci/relay_switch.rs:5284 |
+| test916 | rust | `test916_foreach_item_subdivision` | TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths). | src/orchestrator/executor.rs:2924 |
 | test938 | py | `test_938_different_caps_different_hashes` | TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape). | tests/test_registry.py:213 |
-| test943 | rust | `test943_same_media_different_names_is_not_a_cycle` | TEST943: Two nodes with the same media type but different names are two distinct graph positions — NOT a loop. The identity cap has `in = out` by type, so its upstream and downstream node carry the same media URN; this must not collapse them into a self-loop. Node identity comes from the user-written name, not the media URN. | tests/orchestrator_integration.rs:660 |
-| test951 | rust | `test951_fan_in_pattern` | TEST951: Multi-input DAG (fan-in pattern) | tests/orchestrator_integration.rs:577 |
-| test952 | rust | `test952_execute_large_payload` | TEST952: Execute large payload (test-large cap) | tests/orchestrator_integration.rs:524 |
-| test989 | rust | `test989_set_observer_none_clears_previous` | / Pins the observer-clearing contract: a setObserver(None) / after a previous registration must drop the strong ref so a / subsequent lifecycle moment doesn't fire into a torn-down / bridge. Matches the Swift `setObserver(nil)` test. | src/bifaci/host_runtime.rs:3276 |
-| test990 | rust | `test990_observer_is_optional` | / Pins the optional-observer contract: a brand-new runtime with / no observer attached must close cleanly on an empty cartridge / list. A regression here would mean the observer-firing path / became non-optional and broke every call site that doesn't / register an observer (engine in-process runtime, in-process / host tests, integration tests). | src/bifaci/host_runtime.rs:3264 |
-| test1110 | rust | `test1110_strand_round_trips_through_serde_without_losing_step_types` | TEST1110: Strand serializes to JSON and deserializes back preserving all step types | src/planner/live_cap_fab.rs:2072 |
-| test1121 | rust | `test1121_cbor_array_file_paths_in_cbor_mode` | TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support) | src/bifaci/cartridge_runtime.rs:8522 |
-| test1125 | rust | `test1125_map_progress_basic_mapping` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | src/orchestrator/executor.rs:2451 |
-| test1134 | rust | `test1134_all_abstraction_error_variants_are_machine_abstraction_error` | TEST1134: All MachineAbstractionError variants are of type MachineAbstractionError and are convertible to MachineParseError::Resolution. This pins the error hierarchy so a refactor that accidentally changes the type relationship is caught immediately. | src/machine/error.rs:163 |
-| test1137 | rust | `test1137_two_strand_machine_serializes_to_notation_containing_both_ops` | TEST1137: A machine built from two independent strands serializes to a non-empty notation string that contains both op tags. Checks that multi-strand serialization doesn't lose or merge strands. | src/machine/serializer.rs:774 |
-| test1138 | rust | `test1138_assignment_bindings_are_sorted_by_cap_arg_media_urn` | TEST1138: EdgeAssignmentBinding list is sorted by cap_arg_media_urn for canonical form. A two-source cap whose args are added in reverse-alphabetical order must still produce bindings sorted alphabetically by cap_arg_media_urn, enabling canonical comparison regardless of creation order. | src/machine/resolve.rs:1279 |
+| test943 | rust | `test943_same_media_different_names_is_not_a_cycle` | TEST943: Two nodes with the same media type but different names are two distinct graph positions — NOT a loop. The identity cap has `in = out` by type, so its upstream and downstream node carry the same media URN; this must not collapse them into a self-loop. Node identity comes from the user-written name, not the media URN. | tests/orchestrator_integration.rs:714 |
+| test952 | rust | `test952_execute_large_payload` | TEST952: Execute large payload (test-large cap) | tests/orchestrator_integration.rs:577 |
+| test976 | rust | `test976_wrap_raw_items_roundtrips_and_assemble_rejects_them` | TEST976: wrap_raw_items_as_cbor_sequence wraps RAW (non-CBOR) item bytes — e.g. PNG frames — into a valid, self-delimiting CBOR sequence that split_cbor_sequence round-trips back to the exact raw items. Regression guard for commit 99df51c4 ("full dag"), which materialised sequence node_data with assemble_cbor_sequence(&items) on the *raw* (unwrapped) items from decode_terminal_output. Raw binary is not itself CBOR, so that path failed with "Item 0: Syntax(_)" (observed as the video extract-frames chain failure). This test asserts the wrap path succeeds AND that the assemble path genuinely rejects the same raw bytes — so the two functions are not interchangeable and the fix is load-bearing. | src/orchestrator/cbor_util.rs:556 |
+| test989 | rust | `test989_set_observer_none_clears_previous` | / Pins the observer-clearing contract: a setObserver(None) / after a previous registration must drop the strong ref so a / subsequent lifecycle moment doesn't fire into a torn-down / bridge. Matches the Swift `setObserver(nil)` test. | src/bifaci/host_runtime.rs:3309 |
+| test990 | rust | `test990_observer_is_optional` | / Pins the optional-observer contract: a brand-new runtime with / no observer attached must close cleanly on an empty cartridge / list. A regression here would mean the observer-firing path / became non-optional and broke every call site that doesn't / register an observer (engine in-process runtime, in-process / host tests, integration tests). | src/bifaci/host_runtime.rs:3297 |
+| test1110 | rust | `test1110_strand_round_trips_through_serde_without_losing_step_types` | TEST1110: Strand serializes to JSON and deserializes back preserving all step types | src/planner/live_cap_fab.rs:2120 |
+| test1121 | rust | `test1121_cbor_array_file_paths_in_cbor_mode` | TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support) | src/bifaci/cartridge_runtime.rs:8897 |
+| test1125 | rust | `test1125_map_progress_basic_mapping` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | src/orchestrator/executor.rs:2679 |
+| test1134 | rust | `test1134_all_abstraction_error_variants_are_machine_abstraction_error` | TEST1134: All MachineAbstractionError variants are of type MachineAbstractionError and are convertible to MachineParseError::Resolution. This pins the error hierarchy so a refactor that accidentally changes the type relationship is caught immediately. | src/machine/error.rs:213 |
+| test1137 | rust | `test1137_two_strand_machine_serializes_to_notation_containing_both_ops` | TEST1137: A machine built from two independent strands serializes to a non-empty notation string that contains both op tags. Checks that multi-strand serialization doesn't lose or merge strands. | src/machine/serializer.rs:768 |
+| test1138 | rust | `test1138_assignment_bindings_are_sorted_by_cap_arg_media_urn` | TEST1138: EdgeAssignmentBinding list is sorted by cap_arg_media_urn for canonical form. A two-source cap whose args are added in reverse-alphabetical order must still produce bindings sorted alphabetically by cap_arg_media_urn, enabling canonical comparison regardless of creation order. | src/machine/resolve.rs:1318 |
 | test1139 | rust | `test1139_resolve_inputs_confirmed_delegates_to_detect_file_confirmed` | TEST1139: resolve_inputs_confirmed delegates to detect_file_confirmed and returns the resolved URN for each file. A mock invoker returning a single URN must propagate through to the ResolvedInputSet. | src/input_resolver/resolver.rs:772 |
 | test1235 | py | `test_1235_disc_1_plain_text_eliminates_model_specs` | TEST1235: Plain text without model-spec syntax eliminates model-spec TXT candidates. | tests/test_input_resolver.py:421 |
 | test1243 | rust | `test1243_roundtrip_serialize_deserialize` | TEST1243: Cartridge JSON round-trips through serde without losing required fields. | src/bifaci/cartridge_json.rs:508 |
@@ -98,17 +98,26 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test1247 | rust | `test1247_read_from_dir_succeeds_with_valid_cartridge` | TEST1247: Valid cartridge directories load successfully and resolve their entry point. | src/bifaci/cartridge_json.rs:769 |
 | test1248 | rust | `test1248_hash_cartridge_directory_is_deterministic` | TEST1248: Cartridge directory hashes stay stable across metadata changes and change on content edits. | src/bifaci/cartridge_json.rs:949 |
 | test1249 | rust | `test1249_hash_single_binary_matches_flat_layout` | TEST1249: A flat single-binary cartridge directory still produces a SHA-256 content hash. | src/bifaci/cartridge_json.rs:976 |
-| test1250 | rust | `test1250_process_handle_snapshot_empty_initially` | TEST1250: Process snapshots start empty before any cartridges are attached or spawned. | src/bifaci/host_runtime.rs:5411 |
-| test1251 | rust | `test1251_process_handle_snapshot_excludes_attached_cartridges` | TEST1251: Attached cartridges without child PIDs are excluded from process snapshots. | src/bifaci/host_runtime.rs:5423 |
-| test1252 | rust | `test1252_process_handle_is_clone_and_send` | TEST1252: Cartridge process handles remain usable after clone-and-send across tasks. | src/bifaci/host_runtime.rs:5455 |
-| test1253 | rust | `test1253_process_handle_kill_unknown_pid_is_noop` | TEST1253: Killing an unknown PID is accepted as an asynchronous no-op command. | src/bifaci/host_runtime.rs:5471 |
-| test1254 | rust | `test1254_oom_kill_sends_err_with_oom_killed_code` | TEST1254: OOM shutdowns emit OOM_KILLED ERR frames for in-flight requests. | src/bifaci/host_runtime.rs:5488 |
-| test1255 | rust | `test1255_app_exit_suppresses_err_frames` | TEST1255: App-exit shutdowns suppress ERR frames and close cleanly without noise. | src/bifaci/host_runtime.rs:5615 |
-| test1270 | rust | `test1270_get_own_memory_mb_returns_values` | TEST1270: Runtime memory inspection returns non-negative resident and virtual memory values. | src/bifaci/cartridge_runtime.rs:9954 |
-| test1274 | rust | `test1274_adapter_selection_cap_builder` | TEST1274: adapter_selection_cap() builds a valid Cap with correct args and output | src/standard/caps.rs:1335 |
+| test1250 | rust | `test1250_process_handle_snapshot_empty_initially` | TEST1250: Process snapshots start empty before any cartridges are attached or spawned. | src/bifaci/host_runtime.rs:5444 |
+| test1251 | rust | `test1251_process_handle_snapshot_excludes_attached_cartridges` | TEST1251: Attached cartridges without child PIDs are excluded from process snapshots. | src/bifaci/host_runtime.rs:5456 |
+| test1252 | rust | `test1252_process_handle_is_clone_and_send` | TEST1252: Cartridge process handles remain usable after clone-and-send across tasks. | src/bifaci/host_runtime.rs:5488 |
+| test1253 | rust | `test1253_process_handle_kill_unknown_pid_is_noop` | TEST1253: Killing an unknown PID is accepted as an asynchronous no-op command. | src/bifaci/host_runtime.rs:5504 |
+| test1254 | rust | `test1254_oom_kill_sends_err_with_oom_killed_code` | TEST1254: OOM shutdowns emit OOM_KILLED ERR frames for in-flight requests. | src/bifaci/host_runtime.rs:5521 |
+| test1255 | rust | `test1255_app_exit_suppresses_err_frames` | TEST1255: App-exit shutdowns suppress ERR frames and close cleanly without noise. | src/bifaci/host_runtime.rs:5648 |
+| test1274 | rust | `test1274_adapter_selection_cap_builder` | TEST1274: adapter_selection_cap() builds a valid Cap with correct args and output | src/standard/caps.rs:1424 |
+| test1303 | rust | `test1303_linear_machine_no_foreach` | TEST1303: A linear machine (no sequence output) lowers to a ForEach-free plan. | src/orchestrator/machine_plan.rs:147 |
+| test1304 | rust | `test1304_sequence_into_scalar_wraps_foreach` | TEST1304: A sequence-output cap feeding a scalar-input cap lowers to a ForEach whose body is the consumer cap — the render→map→consume shape the flat executor could not express. Asserted structurally (no reliance on generated node ids). | src/orchestrator/machine_plan.rs:179 |
+| test1305 | rust | `test1305_multi_strand_yields_one_plan_each` | TEST1305: A disconnected multi-strand machine yields one plan per strand. | src/orchestrator/machine_plan.rs:205 |
+| test1306 | rust | `test1306_two_data_sources_is_hard_error` | TEST1306: A cap wired with two incoming data sources is a hard error — there is no second stdin. (Constructed via a synthetic two-source edge is impossible in notation under one-stdin, so we assert the resolver/one-stdin path rejects the multi-binding case rather than silently mis-routing.) | src/orchestrator/machine_plan.rs:230 |
 | test1309 | py | `test_1309_parse_machine_single_wiring_one_strand` | TEST1309: Parsing a single-cap machine notation produces one strand with one edge. | tests/test_machine.py:365 |
 | test1310 | py | `test_1310_strand_equivalence_rejects_mismatched_node_urns` | TEST1310: Two strands differing only in one node's media URN are not equivalent (Python-specific coverage). | tests/test_machine.py:474 |
 | test1311 | py | `test_1311_machine_from_string_delegates_to_parse_machine` | TEST1311: Machine.from_string is an alias for parse_machine — both produce equivalent results (Python-specific coverage). | tests/test_machine.py:535 |
+| test1312 | rust | `test1312_record_appends_one_json_line_per_snapshot` | TEST1312: Two snapshots recorded to a temp file produce exactly two JSONL lines, each carrying ts + segment + a round-tripped stats object (requests/drops). | src/bifaci/protocol_trace.rs:262 |
+| test1313 | rust | `test1313_record_deduped_writes_only_on_change` | TEST1313: Dedup: recording identical protocol state twice writes ONE line; a real change (a bumped counter, a moved stream byte) writes another. This is what keeps a stalled engine's repeated live samples from spamming the trace. | src/bifaci/protocol_trace.rs:295 |
+| test1314 | rust | `test1314_fingerprint_ignores_advancing_clocks` | TEST1314: `age_ms`/`idle_ms` are the same transition, while a flow-counter change is a new one. If dedup keyed on the whole serialized stats, these clocks would defeat it and every sample would write. | src/bifaci/protocol_trace.rs:322 |
+| test1315 | rust | `test1315_record_to_unwritable_path_is_a_hard_error` | TEST1315: Requested diagnostics fail HARD, never silently: a write to an unwritable sink returns Err. `/dev/full` opens fine but every write is ENOSPC — the Linux-standard way to exercise a write failure deterministically. | src/bifaci/protocol_trace.rs:344 |
+| test1316 | rust | `test1316_convergence_two_producers_distinct_arg_urns` | TEST1316: Convergence — two producers routed into ONE cap via DISTINCT arg URNs. `A -edge1-> B(node2)`; `B -edge2-> D(node3)`; then `(B, D) -combine-> E`. `B` fans out (feeds both edge2 and combine). `combine` has a MAIN input on stdin (node2 = B) plus a distinct-URN second arg (node3 = D). This is the legal convergence the old two-stdin test951 was not: the resolver matches B→the main arg and D→the node3 arg, the plan/parser emit B as the main-input edge and D as a node3 `Arg` edge, and the cartridge `require_stream`s both by their distinct URNs. E must carry BOTH. | tests/orchestrator_integration.rs:635 |
+| test1317 | rust | `test1317_wrap_raw_items_empty` | TEST1317: empty item list wraps to empty bytes (mirrors the scalar/empty sink case where a chain produced no items). | src/orchestrator/cbor_util.rs:601 |
 | test1400 | objc | `test1400_missingOutSpecDefaultsToWildcard` | TEST1400: Missing 'out' defaults to media: wildcard (mirror-local variant of TEST002 covering the out-side case) | Tests/CapDAGTests/CSCapUrnTests.m:183 |
 | test1401 | objc | `test1401_directionWildcardMatches` | TEST1401: Wildcard in/out specs accept any concrete value (mirror-local variant of TEST003's wildcard branch) | Tests/CapDAGTests/CSCapUrnTests.m:240 |
 | test1402 | objc | `test1402_invalidCharacters` | TEST1402: Invalid characters (e.g. '@') in tag keys are rejected by the parser (mirror-local variant of TEST003) | Tests/CapDAGTests/CSCapUrnTests.m:160 |
@@ -153,14 +162,14 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test1711 | objc | `test1711_attachmentErrorJSONRoundTripsForEveryKind` | / TEST1711: A `CartridgeAttachmentError` round-trips through / `JSONEncoder` → bytes → `JSONDecoder` unchanged for every / kind. RelayNotify's wire payload is JSON; if any variant / fails to deserialize, the engine's aggregate parse fails / and ALL cartridges from that host disappear from the / inventory — including the healthy ones. This test / covers each variant individually so a single-variant / regression doesn't hide behind a passing healthy-case. | Tests/BifaciTests/CartridgeAttachmentErrorKindWireTests.swift:60 |
 | test1712 | objc | `test1712_decodesWireFormatJSONIntoExpectedVariants` | / TEST1712: An on-the-wire JSON payload using the snake_case / raw values decodes into the right Swift variant. This is / the engine → Swift path: the engine emits / `{"kind":"bad_installation",...}` and the Swift side must / resolve it to `.badInstallation`. Asserts the lookup table / the decoder synthesises for `String`-backed enums actually / covers the new variants. | Tests/BifaciTests/CartridgeAttachmentErrorKindWireTests.swift:92 |
 | test1713 | objc | `test1713_unknownWireKindFailsToDecode` | / TEST1713: An unknown wire kind FAILS to decode. The two / new variants are wire-additive — older Swift binaries that / don't know `bad_installation` or `disabled` will see those / strings and reject them, which is correct: silently / coercing an unknown variant to a fallback would hide the / version-skew bug. The fatalError sites in / CartridgeGRPCAdapter and InstalledCartridgesStore rely on / this — they expect decode to throw / produce a known / variant, never silently pick a default. | Tests/BifaciTests/CartridgeAttachmentErrorKindWireTests.swift:130 |
-| test1720 | rust | `test1720_kind_serde_renames_match_proto_snake_case` | / TEST1720: Every variant serializes to the snake_case / string the proto and the Swift / Go / Python ports use. / Adding a new variant requires an entry here AND a matching / CARTRIDGE_ATTACHMENT_ERROR_FOO entry in cartridge.proto; / the test fails with a clear "expected X for Y" message / when the two sides drift. | src/bifaci/relay_switch.rs:6241 |
-| test1721 | rust | `test1721_kind_decodes_wire_format_into_expected_variants` | / TEST1721: Wire-format JSON deserializes into the right / variant. This is the engine-receives-from-XPC path: the / machfab-mac side emits `{"kind":"bad_installation",...}` / and the engine must resolve it to `BadInstallation`. / Asserts every variant explicitly so a single-variant typo / in the rename map can't hide behind a passing healthy-case. | src/bifaci/relay_switch.rs:6297 |
-| test1722 | rust | `test1722_unknown_kind_fails_to_decode` | / TEST1722: An unknown wire kind FAILS to decode rather than / silently coercing to a default variant. Older capdag binaries / that don't know `bad_installation` or `disabled` will see / those strings on the wire from a newer Swift side; rejecting / the unknown variant is the correct behaviour because silently / coercing it would hide the version-skew bug. The engine's / per-master JSON parse failure path is what surfaces this to / the operator (the master's manifest fails to parse and the / master is held unhealthy until the version is patched). | src/bifaci/relay_switch.rs:6472 |
-| test1730 | rust | `test1730_lifecycle_serde_renames_match_proto_snake_case` | / TEST1730: Every `CartridgeLifecycle` variant serializes to / its proto snake_case name byte-for-byte. Adding a variant / requires an entry here AND a `CARTRIDGE_LIFECYCLE_FOO` / constant in `cartridge.proto`. Cross-language drift on this / enum makes lifecycle states silently invisible to one side / of the wire. | src/bifaci/relay_switch.rs:6351 |
-| test1731 | rust | `test1731_lifecycle_default_is_discovered` | / TEST1731: `CartridgeLifecycle` defaults to `Discovered` / (the safe sentinel) — never `Operational`. Pins the / safe-default rule the doc explicitly calls out: a / freshly-constructed record without an explicit lifecycle / MUST NOT silently expose an un-inspected cartridge for / dispatch. | src/bifaci/relay_switch.rs:6377 |
-| test1732 | rust | `test1732_installed_cartridge_record_lifecycle_defaults_when_missing` | / TEST1732: An `InstalledCartridgeRecord` deserialized from a / JSON payload that omits the `lifecycle` field defaults to / `Discovered` — never `Operational`. The wire-shape contract / covered by the safe-default rule. | src/bifaci/relay_switch.rs:6391 |
-| test1733 | rust | `test1733_registry_url_scheme_validator` | / TEST1733: `validate_registry_url_scheme` accepts https / unconditionally, rejects non-https in production builds, / and accepts non-https in dev mode. Pins the deepest layer / of the HTTPS rule. | src/bifaci/relay_switch.rs:6418 |
-| test1848 | js | `test1848_capVersionNonZeroOnWire` | TEST1848: Cap with version=N round-trips with `version: N` on wire | capdag.test.js:6320 |
+| test1720 | rust | `test1720_kind_serde_renames_match_proto_snake_case` | / TEST1720: Every variant serializes to the snake_case / string the proto and the Swift / Go / Python ports use. / Adding a new variant requires an entry here AND a matching / CARTRIDGE_ATTACHMENT_ERROR_FOO entry in cartridge.proto; / the test fails with a clear "expected X for Y" message / when the two sides drift. | src/bifaci/relay_switch.rs:6250 |
+| test1721 | rust | `test1721_kind_decodes_wire_format_into_expected_variants` | / TEST1721: Wire-format JSON deserializes into the right / variant. This is the engine-receives-from-XPC path: the / machfab-mac side emits `{"kind":"bad_installation",...}` / and the engine must resolve it to `BadInstallation`. / Asserts every variant explicitly so a single-variant typo / in the rename map can't hide behind a passing healthy-case. | src/bifaci/relay_switch.rs:6306 |
+| test1722 | rust | `test1722_unknown_kind_fails_to_decode` | / TEST1722: An unknown wire kind FAILS to decode rather than / silently coercing to a default variant. Older capdag binaries / that don't know `bad_installation` or `disabled` will see / those strings on the wire from a newer Swift side; rejecting / the unknown variant is the correct behaviour because silently / coercing it would hide the version-skew bug. The engine's / per-master JSON parse failure path is what surfaces this to / the operator (the master's manifest fails to parse and the / master is held unhealthy until the version is patched). | src/bifaci/relay_switch.rs:6481 |
+| test1730 | rust | `test1730_lifecycle_serde_renames_match_proto_snake_case` | / TEST1730: Every `CartridgeLifecycle` variant serializes to / its proto snake_case name byte-for-byte. Adding a variant / requires an entry here AND a `CARTRIDGE_LIFECYCLE_FOO` / constant in `cartridge.proto`. Cross-language drift on this / enum makes lifecycle states silently invisible to one side / of the wire. | src/bifaci/relay_switch.rs:6360 |
+| test1731 | rust | `test1731_lifecycle_default_is_discovered` | / TEST1731: `CartridgeLifecycle` defaults to `Discovered` / (the safe sentinel) — never `Operational`. Pins the / safe-default rule the doc explicitly calls out: a / freshly-constructed record without an explicit lifecycle / MUST NOT silently expose an un-inspected cartridge for / dispatch. | src/bifaci/relay_switch.rs:6386 |
+| test1732 | rust | `test1732_installed_cartridge_record_lifecycle_defaults_when_missing` | / TEST1732: An `InstalledCartridgeRecord` deserialized from a / JSON payload that omits the `lifecycle` field defaults to / `Discovered` — never `Operational`. The wire-shape contract / covered by the safe-default rule. | src/bifaci/relay_switch.rs:6400 |
+| test1733 | rust | `test1733_registry_url_scheme_validator` | / TEST1733: `validate_registry_url_scheme` accepts https / unconditionally, rejects non-https in production builds, / and accepts non-https in dev mode. Pins the deepest layer / of the HTTPS rule. | src/bifaci/relay_switch.rs:6427 |
+| test1848 | js | `test1848_capVersionNonZeroOnWire` | TEST1848: Cap with version=N round-trips with `version: N` on wire | capdag.test.js:6350 |
 | test6182 | go | `Test6182_InputValidator_WithSchemaValidation` | TEST6182: Input validator  with schema validation | cap/schema_validation_test.go:296 |
 | test6183 | go | `Test6183_OutputValidator_WithSchemaValidation` | TEST6183: Output validator  with schema validation | cap/schema_validation_test.go:356 |
 | test6184 | go | `Test6184_CapValidationCoordinator_EndToEnd` | TEST6184: Cap validation coordinator  end to end | cap/schema_validation_test.go:415 |
@@ -204,7 +213,7 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6240 | js | `test6240_JS_getExtensionMappings` | TEST0070: J s get extension mappings | capdag.test.js:1696 |
 | test6242 | js | `test6242_JS_resolveMediaUrnFromSpecs` | TEST0073: J s resolve media urn from specs | capdag.test.js:1707 |
 | test6243 | objc | `test6243_b_streamStartIsSequenceRoundtrip` | TEST389b: STREAM_START with isSequence roundtrips correctly | Tests/BifaciTests/FrameTests.swift:1092 |
-| test6244 | objc | `test6244_manifestEnsureIdentityIdempotent` | Mirror-specific coverage: Manifest.ensureIdentity() adds if missing, idempotent if present | Tests/BifaciTests/StandardCapsTests.swift:71 |
+| test6244 | objc | `test6244_manifestEnsureIdentityIdempotent` | Mirror-specific coverage: Manifest.ensureIdentity() adds if missing, idempotent if present | Tests/BifaciTests/StandardCapsTests.swift:111 |
 | test6245 | go | `Test6245_CapDescription` | TEST6245: Cap description | cap/definition_test.go:467 |
 | test6246 | js | `test6246_JS_capJSONSerialization` | TEST6246: J s cap j s o n serialization | capdag.test.js:1720 |
 | test6247 | objc | `test6247_parseFanInPattern` | Mirror-specific coverage: Parse fan-in pattern | Tests/BifaciTests/OrchestratorTests.swift:138 |
@@ -245,202 +254,202 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6292 | js | `test6292_Machine_fanInSecondaryAssignedByPriorWiring` | TEST0097: Machine fan in secondary assigned by prior wiring | capdag.test.js:3286 |
 | test6293 | objc | `test6293_e_outputStreamModeConflictThrows` | TEST542e: OutputStream mode conflict throws (start write, call emitListItem) | Tests/BifaciTests/StreamingAPITests.swift:470 |
 | test6294 | js | `test6294_Machine_fanInSecondaryUnassignedGetsWildcard` | TEST0098: Machine fan in secondary unassigned gets wildcard | capdag.test.js:3300 |
-| test6306 | js | `test6306_Machine_loopEdge` | TEST6306: Machine loop edge | capdag.test.js:3312 |
+| test6306 | js | `test6306_Machine_loopKeywordIsNotGrammar` | TEST6306: The retired LOOP keyword is no longer grammar. A wiring that still writes `LOOP <cap>` before the cap alias no longer parses — `LOOP` is now an ordinary alias, so `pages -> LOOP p2t -> texts` is two aliases in the cap position with no arrow between them, which is a syntax error. | capdag.test.js:3315 |
 | test6307 | objc | `test6307_PressureAndKill` | / Single test: allocate 90% of RAM with incompressible CSPRNG data, monitor / memory, detect pressure (kernel or threshold), kill cartridge, verify death. / The goal is to overload the system — force the kernel into real pressure. | testcartridge-host/Sources/TestcartridgeHost/main.swift:288 |
-| test6308 | js | `test6308_Machine_undefinedAliasFails` | TEST6308: Machine undefined alias fails | capdag.test.js:3322 |
+| test6308 | js | `test6308_Machine_undefinedAliasFails` | TEST6308: Machine undefined alias fails | capdag.test.js:3333 |
 | test6309 | objc | `test6309_BuilderBasicConstruction` | TEST6309: Builder basic construction | Tests/CapDAGTests/CSCapUrnBuilderTests.m:17 |
-| test6310 | js | `test6310_Machine_nodeAliasCollision` | TEST6310: Machine node alias collision | capdag.test.js:3330 |
+| test6310 | js | `test6310_Machine_nodeAliasCollision` | TEST6310: Machine node alias collision | capdag.test.js:3341 |
 | test6311 | objc | `test6311_BuilderFluentAPI` | TEST6311: Builder fluent a p i | Tests/CapDAGTests/CSCapUrnBuilderTests.m:34 |
-| test6312 | js | `test6312_Machine_conflictingMediaTypesFail` | TEST6312: Machine conflicting media types fail | capdag.test.js:3341 |
+| test6312 | js | `test6312_Machine_conflictingMediaTypesFail` | TEST6312: Machine conflicting media types fail | capdag.test.js:3352 |
 | test6313 | objc | `test6313_BuilderDirectionAccess` | TEST6313: Builder direction access | Tests/CapDAGTests/CSCapUrnBuilderTests.m:56 |
-| test6315 | js | `test6315_Machine_multilineFormat` | TEST6315: Machine multiline format | capdag.test.js:3354 |
+| test6315 | js | `test6315_Machine_multilineFormat` | TEST6315: Machine multiline format | capdag.test.js:3365 |
 | test6316 | objc | `test6316_BuilderCustomTags` | TEST6316: Builder custom tags | Tests/CapDAGTests/CSCapUrnBuilderTests.m:74 |
-| test6318 | js | `test6318_Machine_differentAliasesSameGraph` | TEST6318: Machine different aliases same graph | capdag.test.js:3365 |
+| test6318 | js | `test6318_Machine_differentAliasesSameGraph` | TEST6318: Machine different aliases same graph | capdag.test.js:3376 |
 | test6319 | objc | `test6319_BuilderTagOverrides` | TEST6319: Builder tag overrides | Tests/CapDAGTests/CSCapUrnBuilderTests.m:93 |
 | test6320 | go | `Test6320_CustomMediaUrnResolution` | TEST6320: Custom media urn resolution | cap/schema_validation_test.go:656 |
-| test6321 | js | `test6321_Machine_malformedInputFails` | TEST6321: Machine malformed input fails | capdag.test.js:3378 |
+| test6321 | js | `test6321_Machine_malformedInputFails` | TEST6321: Machine malformed input fails | capdag.test.js:3389 |
 | test6322 | objc | `test6322_BuilderMissingInSpecFails` | TEST6322: Builder missing in spec fails | Tests/CapDAGTests/CSCapUrnBuilderTests.m:111 |
-| test6323 | js | `test6323_Machine_unterminatedBracketFails` | TEST6323: Machine unterminated bracket fails | capdag.test.js:3386 |
+| test6323 | js | `test6323_Machine_unterminatedBracketFails` | TEST6323: Machine unterminated bracket fails | capdag.test.js:3397 |
 | test6324 | objc | `test6324_BuilderMissingOutSpecFails` | TEST6324: Builder missing out spec fails | Tests/CapDAGTests/CSCapUrnBuilderTests.m:125 |
 | test6325 | go | `Test6325_RegistryValidation` | TEST6325: Registry validation | cap/registry_test.go:57 |
 | test6326 | py | `test_6326_max_chunk_plus_one_splits_into_two_chunks` | TEST6326: Test payload of max_chunk + 1 bytes produces exactly two chunks | tests/test_cbor_io.py:795 |
-| test6327 | js | `test6327_Machine_lineBasedSimpleChain` | --- Machine parser line-based mode tests --- | capdag.test.js:3395 |
+| test6327 | js | `test6327_Machine_lineBasedSimpleChain` | --- Machine parser line-based mode tests --- | capdag.test.js:3406 |
 | test6328 | objc | `test6328_BuilderEmptyBuildFailsWithMissingInSpec` | TEST6328: Builder empty build fails with missing in spec | Tests/CapDAGTests/CSCapUrnBuilderTests.m:139 |
 | test6329 | go | `Test6329_CacheOperations` | TEST6329: Cache operations | cap/registry_test.go:72 |
-| test6331 | js | `test6331_Machine_lineBasedTwoStepChain` | TEST6331: Machine line based two step chain | capdag.test.js:3409 |
+| test6331 | js | `test6331_Machine_lineBasedTwoStepChain` | TEST6331: Machine line based two step chain | capdag.test.js:3420 |
 | test6332 | objc | `test6332_BuilderTagIgnoresInOut` | TEST6332: Builder tag ignores in out | Tests/CapDAGTests/CSCapUrnBuilderTests.m:149 |
 | test6333 | py | `test_6333_registry_add_caps_to_cache` | TEST6333: Test adding caps to the registry cache and retrieving them | tests/test_registry.py:320 |
-| test6334 | js | `test6334_Machine_lineBasedLoop` | TEST6334: Machine line based loop | capdag.test.js:3420 |
+| test6334 | js | `test6334_Machine_lineBasedLoopKeywordIsNotGrammar` | TEST6334: The retired LOOP keyword is not grammar in line-based mode either — `pages -> LOOP p2t -> texts` is a syntax error, same as the bracketed form. | capdag.test.js:3432 |
 | test6335 | objc | `test6335_BuilderMinimalValid` | TEST6335: Builder minimal valid | Tests/CapDAGTests/CSCapUrnBuilderTests.m:159 |
 | test6336 | py | `test_6336_registry_config_builder_pattern` | TEST6336: Test registry configuration builder sets registry and schema URLs | tests/test_registry.py:334 |
-| test6337 | js | `test6337_Machine_lineBasedFanIn` | TEST6337: Machine line based fan in | capdag.test.js:3430 |
+| test6337 | js | `test6337_Machine_lineBasedFanIn` | TEST6337: Machine line based fan in | capdag.test.js:3443 |
 | test6338 | objc | `test6338_BuilderComplex` | TEST6338: Builder complex | Tests/CapDAGTests/CSCapUrnBuilderTests.m:179 |
 | test6339 | go | `Test6339_CapUrn_JSONSerialization` | JSON serialization test (not numbered in Rust) | urn/cap_urn_test.go:1442 |
 | test6340 | py | `test_6340_normalize_urn_with_trailing_semicolon` | TEST6340: normalize_cap_urn strips trailing semicolons, producing the same canonical form with or without a trailing semicolon | tests/test_registry.py:345 |
-| test6341 | js | `test6341_Machine_mixedBracketedAndLineBased` | TEST6341: Machine mixed bracketed and line based | capdag.test.js:3444 |
+| test6341 | js | `test6341_Machine_mixedBracketedAndLineBased` | TEST6341: Machine mixed bracketed and line based | capdag.test.js:3457 |
 | test6342 | objc | `test6342_BuilderWildcards` | TEST6342: Builder wildcards | Tests/CapDAGTests/CSCapUrnBuilderTests.m:221 |
 | test6343 | go | `Test6343_ParseSimple` | Mirror-specific coverage: Test parsing simple media URN verifies correct structure with no version, subtype, or profile | urn/media_urn_test.go:14 |
 | test6344 | py | `test_6344_nested_object_schema_validation` | TEST6344: Schema validation with nested object schemas | tests/test_schema_validation.py:174 |
-| test6345 | js | `test6345_Machine_lineBasedEquivalentToBracketed` | TEST6345: Machine line based equivalent to bracketed | capdag.test.js:3453 |
+| test6345 | js | `test6345_Machine_lineBasedEquivalentToBracketed` | TEST6345: Machine line based equivalent to bracketed | capdag.test.js:3466 |
 | test6346 | objc | `test6346_BuilderStaticFactory` | TEST6346: Builder static factory | Tests/CapDAGTests/CSCapUrnBuilderTests.m:247 |
 | test6347 | go | `Test6347_ParseWithSubtype` | Mirror-specific coverage: Test parsing media URN with marker tags works correctly | urn/media_urn_test.go:22 |
 | test6348 | py | `test_6348_array_schema_validation` | TEST6348: Schema validation with array schemas including minItems and item constraints | tests/test_schema_validation.py:226 |
-| test6349 | js | `test6349_Machine_lineBasedFormatSerialization` | TEST6349: Machine line based format serialization | capdag.test.js:3466 |
+| test6349 | js | `test6349_Machine_lineBasedFormatSerialization` | TEST6349: Machine line based format serialization | capdag.test.js:3479 |
 | test6350 | objc | `test6350_BuilderMatchingWithBuiltCap` | TEST6350: Builder matching with built cap | Tests/CapDAGTests/CSCapUrnBuilderTests.m:257 |
 | test6351 | go | `Test6351_ParseWithProfile` | Mirror-specific coverage: Test parsing media URN with profile extracts profile URL correctly | urn/media_urn_test.go:32 |
 | test6352 | py | `test_6352_type_constraint_validation` | TEST6352: Schema validation with type constraints (integer, number, boolean) | tests/test_schema_validation.py:269 |
-| test6353 | js | `test6353_Machine_lineBasedAndBracketedParseSameGraph` | TEST6353: Machine line based and bracketed parse same graph | capdag.test.js:3488 |
+| test6353 | js | `test6353_Machine_lineBasedAndBracketedParseSameGraph` | TEST6353: Machine line based and bracketed parse same graph | capdag.test.js:3501 |
 | test6354 | objc | `test6354_BuilderDirectionMismatchNoMatch` | TEST6354: Builder direction mismatch no match | Tests/CapDAGTests/CSCapUrnBuilderTests.m:308 |
 | test6355 | go | `Test6355_Constructor` | Mirror-specific coverage: Test simple constructor creates media URN with type tag | urn/media_urn_test.go:203 |
 | test6356 | py | `test_6356_validate_multiple_arguments` | TEST6356: Schema validation with multiple arguments validates each independently | tests/test_schema_validation.py:303 |
-| test6357 | js | `test6357_Machine_edgeEquivalenceSameUrns` | --- Machine graph tests (mirrors graph.rs tests) --- | capdag.test.js:3514 |
+| test6357 | js | `test6357_Machine_edgeEquivalenceSameUrns` | --- Machine graph tests (mirrors graph.rs tests) --- | capdag.test.js:3527 |
 | test6358 | objc | `test6358_ArgumentValidationWithUnknownSpecFails` | Obj-C specific: unresolved spec ID fails hard during schema validation | Tests/CapDAGTests/CSSchemaValidationTests.m:141 |
 | test6359 | go | `Test6359_WithSubtypeConstructor` | Mirror-specific coverage: Test with_subtype constructor creates media URN with subtype | urn/media_urn_test.go:210 |
 | test6360 | py | `test_6360_output_validation_with_details` | TEST6360: Output validation surfaces schema violation details | tests/test_schema_validation.py:356 |
-| test6361 | js | `test6361_Machine_edgeEquivalenceDifferentCapUrns` | TEST6361: Machine edge equivalence different cap urns | capdag.test.js:3531 |
+| test6361 | js | `test6361_Machine_edgeEquivalenceDifferentCapUrns` | TEST6361: Machine edge equivalence different cap urns | capdag.test.js:3544 |
 | test6362 | objc | `test6362_NonStructuredArgumentSkipsSchemaValidation` | Obj-C specific: Non-structured argument skips schema validation | Tests/CapDAGTests/CSSchemaValidationTests.m:160 |
 | test6364 | py | `test_6364_input_validation_optional_arg` | TEST6364: Input validation succeeds when optional positional argument is omitted | tests/test_validation.py:87 |
-| test6365 | js | `test6365_Machine_edgeEquivalenceDifferentTargets` | TEST6365: Machine edge equivalence different targets | capdag.test.js:3548 |
+| test6365 | js | `test6365_Machine_edgeEquivalenceDifferentTargets` | TEST6365: Machine edge equivalence different targets | capdag.test.js:3561 |
 | test6366 | objc | `test6366_OutputWithEmbeddedSchemaValidationFailure` | TEST6366: Output with embedded schema validation failure | Tests/CapDAGTests/CSSchemaValidationTests.m:233 |
 | test6367 | go | `Test6367_CapManifestValidation` | TEST6367: Cap manifest validation | bifaci/manifest_test.go:255 |
 | test6368 | py | `test_6368_input_validation_too_many_args` | TEST6368: Input validation fails with TooManyArgumentsError when extra positional args supplied | tests/test_validation.py:100 |
-| test6369 | js | `test6369_Machine_edgeEquivalenceDifferentLoopFlag` | TEST6369: Machine edge equivalence different loop flag | capdag.test.js:3565 |
+| test6369 | js | `test6369_Machine_edgeEquivalenceDifferentLoopFlag` | TEST6369: Machine edge equivalence different loop flag | capdag.test.js:3578 |
 | test6370 | objc | `test6370_IntegrationWithInputValidation` | TEST6370: Integration with input validation | Tests/CapDAGTests/CSSchemaValidationTests.m:275 |
-| test6372 | js | `test6372_Machine_edgeEquivalenceSourceOrderIndependent` | TEST6372: Machine edge equivalence source order independent | capdag.test.js:3582 |
+| test6372 | js | `test6372_Machine_edgeEquivalenceSourceOrderIndependent` | TEST6372: Machine edge equivalence source order independent | capdag.test.js:3595 |
 | test6373 | objc | `test6373_IntegrationWithOutputValidation` | TEST6373: Integration with output validation | Tests/CapDAGTests/CSSchemaValidationTests.m:346 |
 | test6374 | go | `Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase` | Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase pins every variant's string value against its proto snake_case name. New variants must be added here AND in the Rust / Swift / proto sides. | bifaci/relay_switch_test.go:931 |
-| test6375 | js | `test6375_Machine_edgeEquivalenceDifferentSourceCount` | TEST6375: Machine edge equivalence different source count | capdag.test.js:3599 |
-| test6377 | js | `test6377_Machine_graphEquivalenceSameEdges` | TEST6377: Machine graph equivalence same edges | capdag.test.js:3616 |
+| test6375 | js | `test6375_Machine_edgeEquivalenceDifferentSourceCount` | TEST6375: Machine edge equivalence different source count | capdag.test.js:3612 |
+| test6377 | js | `test6377_Machine_graphEquivalenceSameEdges` | TEST6377: Machine graph equivalence same edges | capdag.test.js:3629 |
 | test6378 | objc | `test6378_SchemaValidationErrorDetails` | TEST6378: Schema validation error details | Tests/CapDAGTests/CSSchemaValidationTests.m:508 |
 | test6379 | go | `Test6379_CartridgeAttachmentErrorJSONRoundTrips` | Test6379_CartridgeAttachmentErrorJSONRoundTrips verifies a CartridgeAttachmentError marshals to JSON and unmarshals back without changing the kind for every variant. RelayNotify wire payload is JSON; a single-variant regression breaks the entire per-master parse. | bifaci/relay_switch_test.go:959 |
-| test6380 | js | `test6380_Machine_graphEquivalenceReorderedEdges` | TEST6380: Machine graph equivalence reordered edges | capdag.test.js:3632 |
+| test6380 | js | `test6380_Machine_graphEquivalenceReorderedEdges` | TEST6380: Machine graph equivalence reordered edges | capdag.test.js:3645 |
 | test6381 | objc | `test6381_BuiltinSpecIdsResolve` | TEST6381: Builtin spec ids resolve | Tests/CapDAGTests/CSSchemaValidationTests.m:555 |
-| test6383 | js | `test6383_Machine_graphNotEquivalentDifferentEdgeCount` | TEST6383: Machine graph not equivalent different edge count | capdag.test.js:3648 |
+| test6383 | js | `test6383_Machine_graphNotEquivalentDifferentEdgeCount` | TEST6383: Machine graph not equivalent different edge count | capdag.test.js:3661 |
 | test6384 | objc | `test6384_MediaDefsWithoutSchemaSkipsValidation` | TEST6384: Media defs without schema skips validation | Tests/CapDAGTests/CSSchemaValidationTests.m:610 |
-| test6386 | js | `test6386_Machine_graphNotEquivalentDifferentCap` | TEST6386: Machine graph not equivalent different cap | capdag.test.js:3663 |
+| test6386 | js | `test6386_Machine_graphNotEquivalentDifferentCap` | TEST6386: Machine graph not equivalent different cap | capdag.test.js:3676 |
 | test6387 | objc | `test6387_SchemaValidationPerformance` | TEST6387: Schema validation performance | Tests/CapDAGTests/CSSchemaValidationTests.m:637 |
-| test6389 | js | `test6389_Machine_graphEmpty` | TEST6389: Machine graph empty | capdag.test.js:3677 |
+| test6389 | js | `test6389_Machine_graphEmpty` | TEST6389: Machine graph empty | capdag.test.js:3690 |
 | test6390 | objc | `test6390_FullCapValidationWithMediaDefs` | TEST6390: Full cap validation with media defs | Tests/CapDAGTests/CSSchemaValidationTests.m:696 |
-| test6392 | js | `test6392_Machine_graphEmptyEquivalence` | TEST6392: Machine graph empty equivalence | capdag.test.js:3684 |
-| test6395 | js | `test6395_Machine_rootSourcesLinearChain` | TEST6395: Machine root sources linear chain | capdag.test.js:3691 |
-| test6397 | js | `test6397_Machine_leafTargetsLinearChain` | TEST6397: Machine leaf targets linear chain | capdag.test.js:3706 |
-| test6398 | js | `test6398_Machine_rootSourcesFanIn` | TEST6398: Machine root sources fan in | capdag.test.js:3721 |
+| test6392 | js | `test6392_Machine_graphEmptyEquivalence` | TEST6392: Machine graph empty equivalence | capdag.test.js:3697 |
+| test6395 | js | `test6395_Machine_rootSourcesLinearChain` | TEST6395: Machine root sources linear chain | capdag.test.js:3704 |
+| test6397 | js | `test6397_Machine_leafTargetsLinearChain` | TEST6397: Machine leaf targets linear chain | capdag.test.js:3719 |
+| test6398 | js | `test6398_Machine_rootSourcesFanIn` | TEST6398: Machine root sources fan in | capdag.test.js:3734 |
 | test6399 | objc | `test6399_glob_pattern_detection` | Mirror-specific: glob pattern detection is an objc-only helper used by the resolver internals. Rust uses globwalk; these checks exercise the BSD glob detection logic. | Tests/CapDAGTests/CSInputResolverTests.m:506 |
-| test6400 | js | `test6400_Machine_displayEdge` | TEST6400: Machine display edge | capdag.test.js:3734 |
+| test6400 | js | `test6400_Machine_displayEdge` | TEST6400: Machine display edge | capdag.test.js:3747 |
 | test6401 | objc | `test6401_resolved_input_set_total_size` | Mirror-specific: CSResolvedInputSet aggregates totalSize across files | Tests/CapDAGTests/CSInputResolverTests.m:515 |
-| test6402 | js | `test6402_Machine_displayGraph` | TEST6402: Machine display graph | capdag.test.js:3746 |
+| test6402 | js | `test6402_Machine_displayGraph` | TEST6402: Machine display graph | capdag.test.js:3759 |
 | test6403 | objc | `test6403_MetadataPropagationFromObjectDef` | TEST6403: Metadata propagation from object def | Tests/CapDAGTests/CSMediaDefTests.m:25 |
-| test6404 | js | `test6404_Machine_serializeSingleEdge` | --- Machine serializer tests (mirrors serializer.rs tests) --- | capdag.test.js:3759 |
+| test6404 | js | `test6404_Machine_serializeSingleEdge` | --- Machine serializer tests (mirrors serializer.rs tests) --- | capdag.test.js:3772 |
 | test6405 | objc | `test6405_MetadataNilByDefault` | TEST6405: Metadata nil by default | Tests/CapDAGTests/CSMediaDefTests.m:56 |
-| test6406 | js | `test6406_Machine_serializeTwoEdgeChain` | TEST6406: Machine serialize two edge chain | capdag.test.js:3775 |
-| test6408 | js | `test6408_Machine_serializeEmptyGraph` | TEST6408: Machine serialize empty graph | capdag.test.js:3789 |
-| test6410 | js | `test6410_Machine_roundtripSingleEdge` | TEST6410: Machine roundtrip single edge | capdag.test.js:3794 |
+| test6406 | js | `test6406_Machine_serializeTwoEdgeChain` | TEST6406: Machine serialize two edge chain | capdag.test.js:3788 |
+| test6408 | js | `test6408_Machine_serializeEmptyGraph` | TEST6408: Machine serialize empty graph | capdag.test.js:3802 |
+| test6410 | js | `test6410_Machine_roundtripSingleEdge` | TEST6410: Machine roundtrip single edge | capdag.test.js:3807 |
 | test6411 | objc | `test6411_capManifestWithAuthor` | TEST6411: Author field round-trips through CSCapManifest.withAuthor. | Tests/BifaciTests/ManifestTests.swift:49 |
 | test6412 | objc | `test6412_capManifestJsonRoundtrip` | TEST6412: JSON roundtrip preserves channel and cap_groups. | Tests/BifaciTests/ManifestTests.swift:63 |
-| test6413 | js | `test6413_Machine_roundtripTwoEdgeChain` | TEST6413: Machine roundtrip two edge chain | capdag.test.js:3808 |
-| test6415 | js | `test6415_Machine_roundtripFanOut` | TEST6415: Machine roundtrip fan out | capdag.test.js:3823 |
-| test6417 | js | `test6417_Machine_roundtripLoopEdge` | TEST6417: Machine roundtrip loop edge | capdag.test.js:3839 |
-| test6419 | js | `test6419_Machine_serializationIsDeterministic` | TEST6419: Machine serialization is deterministic | capdag.test.js:3853 |
-| test6421 | js | `test6421_Machine_reorderedEdgesProduceSameNotation` | TEST6421: Machine reordered edges produce same notation | capdag.test.js:3867 |
+| test6413 | js | `test6413_Machine_roundtripTwoEdgeChain` | TEST6413: Machine roundtrip two edge chain | capdag.test.js:3821 |
+| test6415 | js | `test6415_Machine_roundtripFanOut` | TEST6415: Machine roundtrip fan out | capdag.test.js:3836 |
+| test6417 | js | `test6417_Machine_loopEdgeSerializesWithoutLoopText` | TEST6417: A per-item map (`is_loop`) edge serializes WITHOUT any LOOP marker — `is_loop` is a derived cardinality property, not authored notation text. The pure-JS parse path has no cap definitions to re-derive cardinality, so the reparsed edge has `isLoop === false`; editors get the derived value from the engine, not from re-parsing. | capdag.test.js:3856 |
+| test6419 | js | `test6419_Machine_serializationIsDeterministic` | TEST6419: Machine serialization is deterministic | capdag.test.js:3878 |
+| test6421 | js | `test6421_Machine_reorderedEdgesProduceSameNotation` | TEST6421: Machine reordered edges produce same notation | capdag.test.js:3892 |
 | test6422 | objc | `test6422_componentMetadataAccessors` | TEST6422: CSCapManifest exposes name / version / channel / description / cap_groups via its accessors. The Obj-C bridge is schema-equivalent to the Swift `Manifest` struct. | Tests/BifaciTests/ManifestTests.swift:254 |
 | test6423 | go | `Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings` | Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings is the engine→Go-host (or Swift→Go-host) decode path: incoming JSON uses the snake_case wire format, and the Go side must resolve each string into the matching variant. CartridgeAttachmentErrorKind is just `type ... string`, so this test is also a check that the JSON unmarshaller doesn't normalise/lowercase/etc the bytes behind our backs. | bifaci/relay_switch_test.go:1007 |
 | test6424 | objc | `test6424_ResolveMediaUrnNotFound` | TEST6424: Resolve media urn not found | Tests/CapDAGTests/CSMediaDefTests.m:112 |
 | test6425 | objc | `test6425_ExtensionsPropagationFromObjectDef` | Extensions field tests | Tests/CapDAGTests/CSMediaDefTests.m:124 |
 | test6426 | objc | `test6426_ExtensionsEmptyWhenNotSet` | TEST6426: Extensions empty when not set | Tests/CapDAGTests/CSMediaDefTests.m:148 |
 | test6428 | go | `Test6428_IntegrationVersionlessCapCreation` | Test6428_IntegrationVersionlessCapCreation verifies caps can be created without version fields | bifaci/integration_test.go:47 |
-| test6429 | js | `test6429_Machine_multilineSerializeFormat` | TEST6429: Machine multiline serialize format | capdag.test.js:3884 |
+| test6429 | js | `test6429_Machine_multilineSerializeFormat` | TEST6429: Machine multiline serialize format | capdag.test.js:3909 |
 | test6431 | go | `Test6431_IntegrationCaseInsensitiveUrns` | Test6431_IntegrationCaseInsensitiveUrns verifies URNs are case-insensitive | bifaci/integration_test.go:75 |
-| test6432 | js | `test6432_Machine_aliasFromOpTag` | Aliases are pure-index `edge_<N>` regardless of the cap's tags; there is no privileged `op` tag to derive a friendlier name from. | capdag.test.js:3900 |
+| test6432 | js | `test6432_Machine_aliasFromOpTag` | Aliases are pure-index `edge_<N>` regardless of the cap's tags; there is no privileged `op` tag to derive a friendlier name from. | capdag.test.js:3925 |
 | test6433 | go | `Test6433_IntegrationCapValidation` | Test6433_IntegrationCapValidation verifies cap schema validation | bifaci/integration_test.go:119 |
-| test6434 | js | `test6434_Machine_aliasFallbackWithoutOpTag` | TEST6434: Machine alias fallback without op tag | capdag.test.js:3912 |
+| test6434 | js | `test6434_Machine_aliasFallbackWithoutOpTag` | TEST6434: Machine alias fallback without op tag | capdag.test.js:3937 |
 | test6435 | objc | `test6435_RegistryValidCapCheck` | Registry validator tests removed - not part of current API | Tests/CapDAGTests/CSFabricRegistryTests.m:138 |
-| test6436 | js | `test6436_Machine_duplicateOpTagsDisambiguated` | Pure-index aliases inherently disambiguate edges that share a marker tag. | capdag.test.js:3924 |
-| test6437 | js | `test6437_Machine_builderSingleEdge` | --- Machine builder tests --- | capdag.test.js:3946 |
-| test6438 | js | `test6438_Machine_builderWithLoop` | TEST6438: Machine builder with loop | capdag.test.js:3959 |
-| test6439 | js | `test6439_Machine_builderChaining` | TEST6439: Machine builder chaining | capdag.test.js:3972 |
-| test6440 | js | `test6440_Machine_builderEquivalentToParsed` | TEST6440: Machine builder equivalent to parsed | capdag.test.js:3981 |
+| test6436 | js | `test6436_Machine_duplicateOpTagsDisambiguated` | Pure-index aliases inherently disambiguate edges that share a marker tag. | capdag.test.js:3949 |
+| test6437 | js | `test6437_Machine_builderSingleEdge` | --- Machine builder tests --- | capdag.test.js:3971 |
+| test6438 | js | `test6438_Machine_builderWithLoop` | TEST6438: Machine builder with loop | capdag.test.js:3984 |
+| test6439 | js | `test6439_Machine_builderChaining` | TEST6439: Machine builder chaining | capdag.test.js:3997 |
+| test6440 | js | `test6440_Machine_builderEquivalentToParsed` | TEST6440: Machine builder equivalent to parsed | capdag.test.js:4006 |
 | test6441 | objc | `test6441_GetCapDefinitionReal` | TEST6441: Get cap definition real | Tests/CapDAGTests/CSFabricRegistryTests.m:269 |
-| test6442 | js | `test6442_Machine_builderRoundTrip` | TEST6442: Machine builder round trip | capdag.test.js:3994 |
+| test6442 | js | `test6442_Machine_builderRoundTrip` | TEST6442: Machine builder round trip | capdag.test.js:4019 |
 | test6443 | objc | `test6443_ValidateCapCanonical` | TEST6443: Validate cap canonical | Tests/CapDAGTests/CSFabricRegistryTests.m:290 |
-| test6444 | js | `test6444_Machine_capUrnIsEquivalent` | --- CapUrn.isEquivalent/isComparable tests --- | capdag.test.js:4006 |
+| test6444 | js | `test6444_Machine_capUrnIsEquivalent` | --- CapUrn.isEquivalent/isComparable tests --- | capdag.test.js:4031 |
 | test6445 | objc | `test6445_SourceWithData` | TEST6445: Source with data | Tests/CapDAGTests/CSStdinSourceTests.m:15 |
-| test6446 | js | `test6446_Machine_capUrnIsComparable` | TEST6446: Machine cap urn is comparable | capdag.test.js:4015 |
+| test6446 | js | `test6446_Machine_capUrnIsComparable` | TEST6446: Machine cap urn is comparable | capdag.test.js:4040 |
 | test6447 | objc | `test6447_SourceWithFileReference` | TEST6447: Source with file reference | Tests/CapDAGTests/CSStdinSourceTests.m:31 |
-| test6448 | js | `test6448_Machine_capUrnInMediaUrn` | TEST6448: Machine cap urn in media urn | capdag.test.js:4023 |
-| test6449 | js | `test6449_Machine_capUrnOutMediaUrn` | TEST6449: Machine cap urn out media urn | capdag.test.js:4031 |
-| test6450 | js | `test6450_Machine_mediaUrnIsEquivalent` | --- MediaUrn.isEquivalent/isComparable tests --- | capdag.test.js:4040 |
-| test6451 | js | `test6451_Machine_mediaUrnIsComparable` | TEST6451: Machine media urn is comparable | capdag.test.js:4049 |
-| test6452 | js | `test6452_Machine_parseMachineWithAST_headerLocation` | Phase 0A: Position tracking tests | capdag.test.js:4062 |
-| test6453 | js | `test6453_Machine_parseMachineWithAST_wiringLocation` | TEST6453: Machine parse machine with a s t wiring location | capdag.test.js:4079 |
-| test6454 | js | `test6454_Machine_parseMachineWithAST_multilinePositions` | TEST6454: Machine parse machine with a s t multiline positions | capdag.test.js:4094 |
-| test6455 | js | `test6455_Machine_parseMachineWithAST_fanInSourceLocations` | TEST6455: Machine parse machine with a s t fan in source locations | capdag.test.js:4104 |
-| test6456 | js | `test6456_Machine_parseMachineWithAST_aliasMap` | TEST6456: Machine parse machine with a s t alias map | capdag.test.js:4116 |
-| test6457 | js | `test6457_Machine_parseMachineWithAST_nodeMedia` | TEST6457: Machine parse machine with a s t node media | capdag.test.js:4135 |
-| test6458 | js | `test6458_Machine_errorLocation_parseError` | TEST6458: Machine error location parse error | capdag.test.js:4148 |
-| test6459 | js | `test6459_Machine_errorLocation_duplicateAlias` | TEST6459: Machine error location duplicate alias | capdag.test.js:4159 |
-| test6460 | js | `test6460_Machine_errorLocation_undefinedAlias` | TEST6460: Machine error location undefined alias | capdag.test.js:4174 |
+| test6448 | js | `test6448_Machine_capUrnInMediaUrn` | TEST6448: Machine cap urn in media urn | capdag.test.js:4048 |
+| test6449 | js | `test6449_Machine_capUrnOutMediaUrn` | TEST6449: Machine cap urn out media urn | capdag.test.js:4056 |
+| test6450 | js | `test6450_Machine_mediaUrnIsEquivalent` | --- MediaUrn.isEquivalent/isComparable tests --- | capdag.test.js:4065 |
+| test6451 | js | `test6451_Machine_mediaUrnIsComparable` | TEST6451: Machine media urn is comparable | capdag.test.js:4074 |
+| test6452 | js | `test6452_Machine_parseMachineWithAST_headerLocation` | Phase 0A: Position tracking tests | capdag.test.js:4087 |
+| test6453 | js | `test6453_Machine_parseMachineWithAST_wiringLocation` | TEST6453: Machine parse machine with a s t wiring location | capdag.test.js:4104 |
+| test6454 | js | `test6454_Machine_parseMachineWithAST_multilinePositions` | TEST6454: Machine parse machine with a s t multiline positions | capdag.test.js:4119 |
+| test6455 | js | `test6455_Machine_parseMachineWithAST_fanInSourceLocations` | TEST6455: Machine parse machine with a s t fan in source locations | capdag.test.js:4129 |
+| test6456 | js | `test6456_Machine_parseMachineWithAST_aliasMap` | TEST6456: Machine parse machine with a s t alias map | capdag.test.js:4141 |
+| test6457 | js | `test6457_Machine_parseMachineWithAST_nodeMedia` | TEST6457: Machine parse machine with a s t node media | capdag.test.js:4160 |
+| test6458 | js | `test6458_Machine_errorLocation_parseError` | TEST6458: Machine error location parse error | capdag.test.js:4173 |
+| test6459 | js | `test6459_Machine_errorLocation_duplicateAlias` | TEST6459: Machine error location duplicate alias | capdag.test.js:4184 |
+| test6460 | js | `test6460_Machine_errorLocation_undefinedAlias` | TEST6460: Machine error location undefined alias | capdag.test.js:4199 |
 | test6461 | objc | `test6461_DataSourceWithEmptyData` | TEST6461: Data source with empty data | Tests/CapDAGTests/CSStdinSourceTests.m:54 |
-| test6462 | js | `test6462_Machine_toMermaid_linearChain` | Phase 0C: Machine.toMermaid() tests | capdag.test.js:4188 |
-| test6463 | js | `test6463_Machine_toMermaid_loopEdge` | TEST6463: Machine to mermaid loop edge | capdag.test.js:4207 |
-| test6464 | js | `test6464_Machine_toMermaid_emptyGraph` | TEST6464: Machine to mermaid empty graph | capdag.test.js:4219 |
-| test6465 | js | `test6465_Machine_toMermaid_fanIn` | TEST6465: Machine to mermaid fan in | capdag.test.js:4226 |
-| test6466 | js | `test6466_Machine_toMermaid_fanOut` | TEST6466: Machine to mermaid fan out | capdag.test.js:4238 |
-| test6467 | js | `test6467_Machine_capRegistryEntry_construction` | Phase 0B: FabricRegistryClient tests | capdag.test.js:4258 |
-| test6468 | js | `test6468_Machine_mediaRegistryEntry_construction` | TEST6468: Machine media registry entry construction | capdag.test.js:4282 |
-| test6469 | js | `test6469_Machine_capRegistryClient_construction` | TEST6469: Machine cap registry client construction | capdag.test.js:4296 |
-| test6470 | js | `test6470_Machine_capRegistryEntry_defaults` | TEST6470: Machine cap registry entry defaults | capdag.test.js:4304 |
-| test6471 | js | `test6471_Renderer_cardinalityLabel_allFourCases` | TEST6471: Renderer cardinality label all four cases | capdag.test.js:4370 |
-| test6472 | js | `test6472_Renderer_cardinalityLabel_usesUnicodeArrow` | TEST6472: Renderer cardinality label uses unicode arrow | capdag.test.js:4378 |
-| test6473 | js | `test6473_Renderer_cardinalityFromCap_findsStdinArgNotFirstArg` | TEST6473: Renderer cardinality from cap finds stdin arg not first arg | capdag.test.js:4387 |
-| test6474 | js | `test6474_Renderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing` | TEST6474: Renderer cardinality from cap scalar defaults when fields missing | capdag.test.js:4412 |
-| test6475 | js | `test6475_Renderer_cardinalityFromCap_outputOnlySequence` | TEST6475: Renderer cardinality from cap output only sequence | capdag.test.js:4421 |
-| test6476 | js | `test6476_Renderer_cardinalityFromCap_rejectsStringIsSequence` | TEST6476: Renderer cardinality from cap rejects string is sequence | capdag.test.js:4433 |
+| test6462 | js | `test6462_Machine_toMermaid_linearChain` | Phase 0C: Machine.toMermaid() tests | capdag.test.js:4213 |
+| test6463 | js | `test6463_Machine_toMermaid_loopEdge` | TEST6463: Mermaid renders a per-item map (`is_loop`) edge with a dotted line — `is_loop` is a kept render property — but emits NO "LOOP" text, since that keyword is retired. The loop edge is built programmatically because the grammar no longer has any way to author one. | capdag.test.js:4235 |
+| test6464 | js | `test6464_Machine_toMermaid_emptyGraph` | TEST6464: Machine to mermaid empty graph | capdag.test.js:4249 |
+| test6465 | js | `test6465_Machine_toMermaid_fanIn` | TEST6465: Machine to mermaid fan in | capdag.test.js:4256 |
+| test6466 | js | `test6466_Machine_toMermaid_fanOut` | TEST6466: Machine to mermaid fan out | capdag.test.js:4268 |
+| test6467 | js | `test6467_Machine_capRegistryEntry_construction` | Phase 0B: FabricRegistryClient tests | capdag.test.js:4288 |
+| test6468 | js | `test6468_Machine_mediaRegistryEntry_construction` | TEST6468: Machine media registry entry construction | capdag.test.js:4312 |
+| test6469 | js | `test6469_Machine_capRegistryClient_construction` | TEST6469: Machine cap registry client construction | capdag.test.js:4326 |
+| test6470 | js | `test6470_Machine_capRegistryEntry_defaults` | TEST6470: Machine cap registry entry defaults | capdag.test.js:4334 |
+| test6471 | js | `test6471_Renderer_cardinalityLabel_allFourCases` | TEST6471: Renderer cardinality label all four cases | capdag.test.js:4400 |
+| test6472 | js | `test6472_Renderer_cardinalityLabel_usesUnicodeArrow` | TEST6472: Renderer cardinality label uses unicode arrow | capdag.test.js:4408 |
+| test6473 | js | `test6473_Renderer_cardinalityFromCap_findsStdinArgNotFirstArg` | TEST6473: Renderer cardinality from cap finds stdin arg not first arg | capdag.test.js:4417 |
+| test6474 | js | `test6474_Renderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing` | TEST6474: Renderer cardinality from cap scalar defaults when fields missing | capdag.test.js:4442 |
+| test6475 | js | `test6475_Renderer_cardinalityFromCap_outputOnlySequence` | TEST6475: Renderer cardinality from cap output only sequence | capdag.test.js:4451 |
+| test6476 | js | `test6476_Renderer_cardinalityFromCap_rejectsStringIsSequence` | TEST6476: Renderer cardinality from cap rejects string is sequence | capdag.test.js:4463 |
 | test6477 | objc | `test6477_DataSourceWithBinaryContent` | TEST6477: Data source with binary content | Tests/CapDAGTests/CSStdinSourceTests.m:65 |
-| test6478 | js | `test6478_Renderer_cardinalityFromCap_throwsOnNonObject` | TEST6478: Renderer cardinality from cap throws on non object | capdag.test.js:4447 |
-| test6479 | js | `test6479_Renderer_canonicalMediaUrn_normalizesTagOrder` | TEST6479: Renderer canonical media urn normalizes tag order | capdag.test.js:4467 |
-| test6480 | js | `test6480_Renderer_canonicalMediaUrn_preservesValueTags` | TEST6480: Renderer canonical media urn preserves value tags | capdag.test.js:4477 |
-| test6481 | js | `test6481_Renderer_canonicalMediaUrn_rejectsCapUrn` | TEST6481: Renderer canonical media urn rejects cap urn | capdag.test.js:4483 |
-| test6482 | js | `test6482_Renderer_mediaNodeLabel_rejectsUrnDerivedLabels` | TEST6482: Renderer media node label rejects urn derived labels | capdag.test.js:4496 |
-| test6483 | js | `test6483_Renderer_buildBrowseGraphData_rejectsMissingMediaTitles` | TEST6483: Renderer build browse graph data rejects missing media titles | capdag.test.js:4511 |
-| test6484 | js | `test6484_Renderer_validateStrandStep_rejectsUnknownVariant` | TEST6484: Renderer validate strand step rejects unknown variant | capdag.test.js:4569 |
+| test6478 | js | `test6478_Renderer_cardinalityFromCap_throwsOnNonObject` | TEST6478: Renderer cardinality from cap throws on non object | capdag.test.js:4477 |
+| test6479 | js | `test6479_Renderer_canonicalMediaUrn_normalizesTagOrder` | TEST6479: Renderer canonical media urn normalizes tag order | capdag.test.js:4497 |
+| test6480 | js | `test6480_Renderer_canonicalMediaUrn_preservesValueTags` | TEST6480: Renderer canonical media urn preserves value tags | capdag.test.js:4507 |
+| test6481 | js | `test6481_Renderer_canonicalMediaUrn_rejectsCapUrn` | TEST6481: Renderer canonical media urn rejects cap urn | capdag.test.js:4513 |
+| test6482 | js | `test6482_Renderer_mediaNodeLabel_rejectsUrnDerivedLabels` | TEST6482: Renderer media node label rejects urn derived labels | capdag.test.js:4526 |
+| test6483 | js | `test6483_Renderer_buildBrowseGraphData_rejectsMissingMediaTitles` | TEST6483: Renderer build browse graph data rejects missing media titles | capdag.test.js:4541 |
+| test6484 | js | `test6484_Renderer_validateStrandStep_rejectsUnknownVariant` | TEST6484: Renderer validate strand step rejects unknown variant | capdag.test.js:4599 |
 | test6485 | objc | `test6485_FileReferenceWithAllFields` | TEST6485: File reference with all fields | Tests/CapDAGTests/CSStdinSourceTests.m:79 |
-| test6486 | js | `test6486_Renderer_validateStrandStep_requiresBooleanIsSequence` | TEST6486: Renderer validate strand step requires boolean is sequence | capdag.test.js:4587 |
-| test6487 | js | `test6487_Renderer_classifyStrandCapSteps_capFlags` | TEST6487: Renderer classify strand cap steps cap flags | capdag.test.js:4610 |
-| test6488 | js | `test6488_Renderer_classifyStrandCapSteps_nestedForks` | TEST6488: Renderer classify strand cap steps nested forks | capdag.test.js:4632 |
-| test6489 | js | `test6489_Renderer_buildStrandGraphData_singleCapPlain` | TEST6489: Renderer build strand graph data single cap plain | capdag.test.js:4663 |
+| test6486 | js | `test6486_Renderer_validateStrandStep_requiresBooleanIsSequence` | TEST6486: Renderer validate strand step requires boolean is sequence | capdag.test.js:4617 |
+| test6487 | js | `test6487_Renderer_classifyStrandCapSteps_capFlags` | TEST6487: Renderer classify strand cap steps cap flags | capdag.test.js:4640 |
+| test6488 | js | `test6488_Renderer_classifyStrandCapSteps_nestedForks` | TEST6488: Renderer classify strand cap steps nested forks | capdag.test.js:4662 |
+| test6489 | js | `test6489_Renderer_buildStrandGraphData_singleCapPlain` | TEST6489: Renderer build strand graph data single cap plain | capdag.test.js:4693 |
 | test6490 | objc | `test6490_StandaloneCollectNode` | MARK: - Standalone Collect Node Tests | Tests/CapDAGTests/CSPlanDecompositionTests.m:63 |
-| test6491 | js | `test6491_Renderer_buildStrandGraphData_sequenceShowsCardinality` | TEST6491: Renderer build strand graph data sequence shows cardinality | capdag.test.js:4691 |
-| test6492 | js | `test6492_Renderer_buildStrandGraphData_foreachCollectSpan` | TEST6492: Renderer build strand graph data foreach collect span | capdag.test.js:4712 |
-| test6493 | js | `test6493_Renderer_buildStrandGraphData_standaloneCollect` | TEST6493: Renderer build strand graph data standalone collect | capdag.test.js:4764 |
-| test6494 | js | `test6494_Renderer_buildStrandGraphData_unclosedForEachBody` | TEST6494: Renderer build strand graph data unclosed for each body | capdag.test.js:4792 |
-| test6495 | js | `test6495_Renderer_buildStrandGraphData_nestedForEachThrows` | TEST6495: Renderer build strand graph data nested for each throws | capdag.test.js:4830 |
-| test6496 | js | `test6496_Renderer_collapseStrand_singleCapBodyKeepsCapOwnLabel` | TEST6496: Renderer collapse strand single cap body keeps cap own label | capdag.test.js:4859 |
-| test6497 | js | `test6497_Renderer_collapseStrand_unclosedForEachBodyCollapses` | TEST6497: Renderer collapse strand unclosed for each body collapses | capdag.test.js:4912 |
-| test6498 | js | `test6498_Renderer_collapseStrand_standaloneCollectCollapses` | TEST6498: Renderer collapse strand standalone collect collapses | capdag.test.js:4969 |
-| test6499 | js | `test6499_Renderer_collapseStrand_sequenceProducingCapBeforeForeach` | TEST6499: Renderer collapse strand sequence producing cap before foreach | capdag.test.js:5013 |
-| test6500 | js | `test6500_Renderer_collapseStrand_plainCapMergesTrailingOutput` | TEST6500: Renderer collapse strand plain cap merges trailing output | capdag.test.js:5078 |
-| test6501 | js | `test6501_Renderer_collapseStrand_plainCapDistinctTargetNoMerge` | TEST6501: Renderer collapse strand plain cap distinct target no merge | capdag.test.js:5115 |
-| test6502 | js | `test6502_Renderer_validateStrandPayload_missingSourceMediaUrn` | TEST6502: Renderer validate strand payload missing source media urn | capdag.test.js:5142 |
-| test6503 | js | `test6503_Renderer_validateBodyOutcome_rejectsNegativeIndex` | ---------------- run builder ---------------- | capdag.test.js:5155 |
-| test6504 | js | `test6504_Renderer_buildRunGraphData_pagesSuccessesAndFailures` | TEST6504: Renderer build run graph data pages successes and failures | capdag.test.js:5166 |
-| test6505 | js | `test6505_Renderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace` | TEST6505: Renderer build run graph data failure without failed cap renders full trace | capdag.test.js:5237 |
-| test6506 | js | `test6506_Renderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap` | TEST6506: Renderer build run graph data uses cap urn is equivalent for failed cap | capdag.test.js:5276 |
-| test6507 | js | `test6507_Renderer_buildRunGraphData_backboneHasNoForeachNode` | TEST6507: Renderer build run graph data backbone has no foreach node | capdag.test.js:5336 |
-| test6508 | js | `test6508_Renderer_buildRunGraphData_allFailedDropsTargetPlaceholder` | TEST6508: Renderer build run graph data all failed drops target placeholder | capdag.test.js:5391 |
-| test6509 | js | `test6509_Renderer_buildRunGraphData_unclosedForeachSuccessNoMerge` | TEST6509: Renderer build run graph data unclosed foreach success no merge | capdag.test.js:5457 |
-| test6510 | js | `test6510_Renderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget` | TEST6510: Renderer build run graph data closed foreach success merges at collect target | capdag.test.js:5519 |
-| test6511 | js | `test6511_Renderer_validateEditorGraphPayload_rejectsUnknownKind` | ---------------- editor-graph builder ---------------- | capdag.test.js:5574 |
-| test6512 | js | `test6512_Renderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges` | TEST6512: Renderer build editor graph data collapses caps into labeled edges | capdag.test.js:5589 |
-| test6513 | js | `test6513_Renderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass` | TEST6513: Renderer build editor graph data loop marked edge gets loop class | capdag.test.js:5628 |
-| test6514 | js | `test6514_Renderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags` | TEST6514: Renderer build editor graph data cardinality from data slot sequence flags | capdag.test.js:5647 |
-| test6515 | js | `test6515_Renderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped` | TEST6515: Renderer build editor graph data cap without complete args is dropped | capdag.test.js:5667 |
-| test6516 | js | `test6516_Renderer_buildEditorGraphData_rejectsEdgeWithMissingSource` | TEST6516: Renderer build editor graph data rejects edge with missing source | capdag.test.js:5685 |
-| test6517 | js | `test6517_Renderer_buildResolvedMachineGraphData_singleStrandLinearChain` | ---------------- resolved-machine builder ---------------- | capdag.test.js:5701 |
-| test6518 | js | `test6518_Renderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass` | TEST6518: Renderer build resolved machine graph data loop edge gets loop class | capdag.test.js:5760 |
-| test6519 | js | `test6519_Renderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment` | TEST6519: Renderer build resolved machine graph data fan in produces edge per assignment | capdag.test.js:5795 |
-| test6520 | js | `test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint` | TEST6520: Renderer build resolved machine graph data multi strand keeps strands disjoint | capdag.test.js:5836 |
-| test6521 | js | `test6521_Renderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard` | TEST6521: Renderer build resolved machine graph data duplicate node id across strands fails hard | capdag.test.js:5899 |
-| test6522 | js | `test6522_Renderer_validateResolvedMachinePayload_rejectsMissingFields` | TEST6522: Renderer validate resolved machine payload rejects missing fields | capdag.test.js:5935 |
+| test6491 | js | `test6491_Renderer_buildStrandGraphData_sequenceShowsCardinality` | TEST6491: Renderer build strand graph data sequence shows cardinality | capdag.test.js:4721 |
+| test6492 | js | `test6492_Renderer_buildStrandGraphData_foreachCollectSpan` | TEST6492: Renderer build strand graph data foreach collect span | capdag.test.js:4742 |
+| test6493 | js | `test6493_Renderer_buildStrandGraphData_standaloneCollect` | TEST6493: Renderer build strand graph data standalone collect | capdag.test.js:4794 |
+| test6494 | js | `test6494_Renderer_buildStrandGraphData_unclosedForEachBody` | TEST6494: Renderer build strand graph data unclosed for each body | capdag.test.js:4822 |
+| test6495 | js | `test6495_Renderer_buildStrandGraphData_nestedForEachThrows` | TEST6495: Renderer build strand graph data nested for each throws | capdag.test.js:4860 |
+| test6496 | js | `test6496_Renderer_collapseStrand_singleCapBodyKeepsCapOwnLabel` | TEST6496: Renderer collapse strand single cap body keeps cap own label | capdag.test.js:4889 |
+| test6497 | js | `test6497_Renderer_collapseStrand_unclosedForEachBodyCollapses` | TEST6497: Renderer collapse strand unclosed for each body collapses | capdag.test.js:4942 |
+| test6498 | js | `test6498_Renderer_collapseStrand_standaloneCollectCollapses` | TEST6498: Renderer collapse strand standalone collect collapses | capdag.test.js:4999 |
+| test6499 | js | `test6499_Renderer_collapseStrand_sequenceProducingCapBeforeForeach` | TEST6499: Renderer collapse strand sequence producing cap before foreach | capdag.test.js:5043 |
+| test6500 | js | `test6500_Renderer_collapseStrand_plainCapMergesTrailingOutput` | TEST6500: Renderer collapse strand plain cap merges trailing output | capdag.test.js:5108 |
+| test6501 | js | `test6501_Renderer_collapseStrand_plainCapDistinctTargetNoMerge` | TEST6501: Renderer collapse strand plain cap distinct target no merge | capdag.test.js:5145 |
+| test6502 | js | `test6502_Renderer_validateStrandPayload_missingSourceMediaUrn` | TEST6502: Renderer validate strand payload missing source media urn | capdag.test.js:5172 |
+| test6503 | js | `test6503_Renderer_validateBodyOutcome_rejectsNegativeIndex` | ---------------- run builder ---------------- | capdag.test.js:5185 |
+| test6504 | js | `test6504_Renderer_buildRunGraphData_pagesSuccessesAndFailures` | TEST6504: Renderer build run graph data pages successes and failures | capdag.test.js:5196 |
+| test6505 | js | `test6505_Renderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace` | TEST6505: Renderer build run graph data failure without failed cap renders full trace | capdag.test.js:5267 |
+| test6506 | js | `test6506_Renderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap` | TEST6506: Renderer build run graph data uses cap urn is equivalent for failed cap | capdag.test.js:5306 |
+| test6507 | js | `test6507_Renderer_buildRunGraphData_backboneHasNoForeachNode` | TEST6507: Renderer build run graph data backbone has no foreach node | capdag.test.js:5366 |
+| test6508 | js | `test6508_Renderer_buildRunGraphData_allFailedDropsTargetPlaceholder` | TEST6508: Renderer build run graph data all failed drops target placeholder | capdag.test.js:5421 |
+| test6509 | js | `test6509_Renderer_buildRunGraphData_unclosedForeachSuccessNoMerge` | TEST6509: Renderer build run graph data unclosed foreach success no merge | capdag.test.js:5487 |
+| test6510 | js | `test6510_Renderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget` | TEST6510: Renderer build run graph data closed foreach success merges at collect target | capdag.test.js:5549 |
+| test6511 | js | `test6511_Renderer_validateEditorGraphPayload_rejectsUnknownKind` | ---------------- editor-graph builder ---------------- | capdag.test.js:5604 |
+| test6512 | js | `test6512_Renderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges` | TEST6512: Renderer build editor graph data collapses caps into labeled edges | capdag.test.js:5619 |
+| test6513 | js | `test6513_Renderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass` | TEST6513: Renderer build editor graph data loop marked edge gets loop class | capdag.test.js:5658 |
+| test6514 | js | `test6514_Renderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags` | TEST6514: Renderer build editor graph data cardinality from data slot sequence flags | capdag.test.js:5677 |
+| test6515 | js | `test6515_Renderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped` | TEST6515: Renderer build editor graph data cap without complete args is dropped | capdag.test.js:5697 |
+| test6516 | js | `test6516_Renderer_buildEditorGraphData_rejectsEdgeWithMissingSource` | TEST6516: Renderer build editor graph data rejects edge with missing source | capdag.test.js:5715 |
+| test6517 | js | `test6517_Renderer_buildResolvedMachineGraphData_singleStrandLinearChain` | ---------------- resolved-machine builder ---------------- | capdag.test.js:5731 |
+| test6518 | js | `test6518_Renderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass` | TEST6518: Renderer build resolved machine graph data loop edge gets loop class | capdag.test.js:5790 |
+| test6519 | js | `test6519_Renderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment` | TEST6519: Renderer build resolved machine graph data fan in produces edge per assignment | capdag.test.js:5825 |
+| test6520 | js | `test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint` | TEST6520: Renderer build resolved machine graph data multi strand keeps strands disjoint | capdag.test.js:5866 |
+| test6521 | js | `test6521_Renderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard` | TEST6521: Renderer build resolved machine graph data duplicate node id across strands fails hard | capdag.test.js:5929 |
+| test6522 | js | `test6522_Renderer_validateResolvedMachinePayload_rejectsMissingFields` | TEST6522: Renderer validate resolved machine payload rejects missing fields | capdag.test.js:5965 |
 | test6523 | objc | `test6523_CapAndForEachAreNotStandaloneCollect` | TEST6523: Cap and for each are not standalone collect | Tests/CapDAGTests/CSPlanDecompositionTests.m:76 |
 | test6524 | go | `Test6524_LogFramesDuringRequest` | Mirror-specific coverage: Test LOG frames sent during a request are transparently skipped by host | bifaci/integration_test.go:561 |
 | test6525 | objc | `test6525_InvalidCapUrn` | TEST001 variant: Test empty URN fails | Tests/CapDAGTests/CSCapUrnTests.m:130 |
@@ -471,8 +480,8 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6580 | objc | `test6580_OutputCreationWithNewAPI` | TEST6580: Output creation with new a p i | Tests/CapDAGTests/CSCapTests.m:900 |
 | test6583 | objc | `test6583_CapDocumentationRoundTrip` | Mirrors TEST920 in capdag/src/cap/definition.rs and the JS testJS_capDocumentationRoundTrip test. The body is non-trivial — multi-line, embedded backticks and double quotes, Unicode dingbat (\u2605) — so any escaping mismatch between dictionary serialization here and the Rust / JS counterparts surfaces as a failed round-trip. | Tests/CapDAGTests/CSCapTests.m:922 |
 | test6597 | go | `Test6597_write_chunked_chunk_index_ordering` | TEST6597: WriteResponseWithChunking splits payload into exactly N chunks per max_chunk, and chunk_index tracks ordering within the stream (0, 1, 2, ...). Note: Go assigns seq at write time (Rust assigns seq=0 and uses SeqAssigner at output stage; Go inlines the seq assignment into the write path instead). | bifaci/io_test.go:1158 |
-| test6598 | objc | `test6598_manifestValidatePassesWithIdentity` | TEST6598: CapManifest::validate() passes when CAP_IDENTITY is present | Tests/BifaciTests/StandardCapsTests.swift:41 |
-| test6599 | objc | `test6599_manifestValidateFailsWithoutIdentity` | TEST6599: CapManifest::validate() fails when CAP_IDENTITY is missing | Tests/BifaciTests/StandardCapsTests.swift:56 |
+| test6598 | objc | `test6598_manifestValidatePassesWithIdentity` | TEST6598: CapManifest::validate() passes when CAP_IDENTITY is present | Tests/BifaciTests/StandardCapsTests.swift:81 |
+| test6599 | objc | `test6599_manifestValidateFailsWithoutIdentity` | TEST6599: CapManifest::validate() fails when CAP_IDENTITY is missing | Tests/BifaciTests/StandardCapsTests.swift:96 |
 | test6602 | go | `Test6602_codec_key_constants` | TEST6602: Codec key constants match protocol spec values | bifaci/frame_test.go:1538 |
 | test6607 | py | `test_6607_registry_creation` | TEST6607: A freshly constructed registry is operational and reports an empty cache. Schemas must be inserted explicitly — none are bundled. | tests/test_media_profile.py:103 |
 | test6609 | go | `Test6609_wildcard_empty_cap_defaults_to_media_wildcard` | TEST6609: bare top cap is illegal; identity must be explicit effect=none | urn/cap_urn_test.go:1205 |
@@ -534,22 +543,17 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6725 | objc | `test6725_deinitDoesNotAccessClosedHandle` | TEST6725: A FrameWriter going through deinit must NOT touch the underlying handle's `fileDescriptor` accessor. The original bug used to deinit-flush by reading `handle.fileDescriptor`, which raises NSFileHandleOperationException on a closed handle and aborts the process. The new contract: deinit does no I/O. This test deinits a writer whose handle was closed externally, then asserts the test process is still alive (i.e. did not crash via NSException). | Tests/BifaciTests/FrameTests.swift:1926 |
 | test6726 | go | `Test6726_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST6726: CartridgeJson with FabricManifestVersion=0 (zero value) is absent on the wire. | bifaci/cartridge_json_test.go:13 |
 | test6727 | go | `Test6727_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST6727: CartridgeJson with FabricManifestVersion>0 round-trips the value correctly. | bifaci/cartridge_json_test.go:44 |
-| test6737 | js | `test6737_capVersionZeroOmittedOnWire` | TEST6737: Cap with version=0 round-trips with no `version` key on wire | capdag.test.js:6308 |
-| test6746 | rust | `test6746_all_masters_ready_true_when_expectation_met` | TEST6746: All masters ready true when expectation met | src/bifaci/relay_switch.rs:6142 |
+| test6737 | js | `test6737_capVersionZeroOmittedOnWire` | TEST6737: Cap with version=0 round-trips with no `version` key on wire | capdag.test.js:6338 |
+| test6746 | rust | `test6746_all_masters_ready_true_when_expectation_met` | TEST6746: All masters ready true when expectation met | src/bifaci/relay_switch.rs:6151 |
 | test6747 | rust | `test6747_local_socket_pair_round_trips_in_both_directions` | TEST6747: Local socket pair round trips in both directions | src/bifaci/local_socket.rs:350 |
-| test7022 | rust | `test7022_final_progress_from_end_meta_default` | TEST7022: The receiver delivers final progress exactly once, sourced from END terminal metadata, defaulting to 1.0 on a plain successful END. | src/orchestrator/stream_io.rs:1002 |
-| test7023 | rust | `test7023_final_progress_handler_override` | TEST7023: A handler-declared terminal status (progress + message) in END metadata reaches the progress callback as the final event. | src/orchestrator/stream_io.rs:1040 |
-| test7024 | rust | `test7024_drain_after_end_delivers_logs_without_progress_regression` | TEST7024: Frames already queued behind END are drained before returning — LOG messages are delivered, and no post-terminal progress value can regress the final progress. | src/orchestrator/stream_io.rs:1077 |
+| test7022 | rust | `test7022_final_progress_from_end_meta_default` | TEST7022: The receiver delivers final progress exactly once, sourced from END terminal metadata, defaulting to 1.0 on a plain successful END. | src/orchestrator/stream_io.rs:1024 |
+| test7023 | rust | `test7023_final_progress_handler_override` | TEST7023: A handler-declared terminal status (progress + message) in END metadata reaches the progress callback as the final event. | src/orchestrator/stream_io.rs:1062 |
+| test7024 | rust | `test7024_drain_after_end_delivers_logs_without_progress_regression` | TEST7024: Frames already queued behind END are drained before returning — LOG messages are delivered, and no post-terminal progress value can regress the final progress. | src/orchestrator/stream_io.rs:1099 |
 | test7054 | rust | `test7054_slow_consumer_throttles_input_send` | TEST7054: Input-direction credit: a slow handler recv() throttles the engine's stream send (observed pause on the engine wire). E2E form of the law: the wire pause itself is asserted at the substrate layer (TEST7050); here the observable contract is that a 100-chunk sequence input — 3x the 32-chunk initial window — flows COMPLETELY and CORRECTLY through a deliberately slow consumer. If input-direction grants broke, the engine's send gate would stall forever (timeout fails the test); if the engine ignored the window, the cartridge would terminate with ERR CREDIT_VIOLATION (execution fails); if items were dropped, the count/bytes report would differ. | tests/protocol_v3_e2e.rs:397 |
-| test7056 | rust | `test7056_bidirectional_echo_no_deadlock` | TEST7056: Bidirectional streaming (handler consumes input while emitting output) completes without deadlock at window 2. The window-2 wire variant is the substrate test; at e2e scale the negotiated window is 32 chunks and the input is 100 chunks (>3x the window), so completion is only possible when the engine feeds input concurrently with collecting output (L15) and credit flows in BOTH directions (L14). A deadlock hangs; the timeout converts it into a clear failure. Payload equality proves every item made the round trip in order. | tests/protocol_v3_e2e.rs:481 |
-| test7059 | rust | `test7059_terminal_end_releases_credit_and_leaks_no_state` | TEST7059: Terminal END releases credit waiters and leaks no stream state. Runs a full bidirectional >window request (real credit gates on both directions), then asserts the switch's protocol stats snapshot shows ZERO active requests and the terminated-by-kind accounting recorded the END. A leaked request entry, response channel, or rid-index row keeps `active` non-empty and fails the test (L7/L13). | tests/protocol_v3_e2e.rs:567 |
-| test7061 | rust | `test7061_negotiated_initial_credit_is_min_of_proposals` | TEST7061: The negotiated initial_credit (min of both HELLOs) is the actual first-burst size on the wire. E2E form, in two parts: 1. With the real cartridge host attached (both sides propose the default), the switch's negotiated initial_credit is exactly DEFAULT_INITIAL_CREDIT (32) — and a 48-chunk producer completes correctly, which is only possible if the first burst (32) is followed by grant-driven resumption (the cross-process TEST7055 variant: consumption grants replenish the producer's window). 2. Attaching a second master whose RelayNotify proposes initial_credit=8 drops the switch's negotiated value to the element-wise min, 8 — wire-visible min-negotiation. | tests/protocol_v3_e2e.rs:673 |
-| test7071 | rust | `test7071_terminal_output_yields_before_stream_end` | TEST7071: The incremental terminal consumer yields items BEFORE the stream has ended — required for unbounded output (L16) — and completes on an unbounded STREAM_END + END. | src/orchestrator/stream_io.rs:1131 |
-| test7076 | rust | `test7076_pipelined_chain_downstream_consumes_before_upstream_finishes` | TEST7076: Pipelined chain execution: the downstream cap receives its first item before the upstream cap emits its last. [input -> test-stream-n-chunks -> mid -> test-echo-stream -> output] is a linear chain, so `execute_dag` pipelines it: the intermediate node's data streams cap-to-cap live and is never materialized. The producer emits 48 chunks (> the 32-chunk window) with a progress log per chunk; the echo cap logs on its first consumed item. With credit flowing per hop, the producer CANNOT emit chunk 33+ until the echo cap has consumed — so the echo's first-item log must appear in the captured event sequence BEFORE the producer's final per-chunk log. A materializing (non-pipelined) executor would show the producer finishing all 48 chunks first and fail the ordering assertion. | tests/protocol_v3_e2e.rs:794 |
-| test7077 | rust | `test7077_per_item_meta_incremental` | TEST7077: Per-item stream metadata arrives WITH its item through incremental delivery, not batched at the end. | src/orchestrator/stream_io.rs:1171 |
-| test7078 | rust | `test7078_pipeline_segment_detection` | TEST7078: Pipeline segment detection — linear chains pipeline; fan-out, fan-in heads, and extra-args groups break segments so those edges still materialize correctly. | src/orchestrator/executor.rs:2388 |
-| test7089 | rust | `test7089_hello_failed_stays_in_inventory_with_error` | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. TEST7089: A cartridge whose HELLO permanently failed stays IN the inventory advertisement carrying a handshake_failed attachment error and no cap groups — failure is named, never silently absent; a roster-retired cartridge disappears entirely. | src/bifaci/host_runtime.rs:5953 |
-| test7093 | rust | `test7093_dead_consumer_cancels_upstream` | TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller future) is a counted channel_closed drop AND cancels the request upstream — the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it. | src/bifaci/relay_switch.rs:6526 |
+| test7056 | rust | `test7056_bidirectional_echo_no_deadlock` | TEST7056: Bidirectional streaming (handler consumes input while emitting output) completes without deadlock at window 2. The window-2 wire variant is the substrate test; at e2e scale the negotiated window is 32 chunks and the input is 100 chunks (>3x the window), so completion is only possible when the engine feeds input concurrently with collecting output (L15) and credit flows in BOTH directions (L14). A deadlock hangs; the timeout converts it into a clear failure. Payload equality proves every item made the round trip in order. | tests/protocol_v3_e2e.rs:479 |
+| test7071 | rust | `test7071_terminal_output_yields_before_stream_end` | TEST7071: The incremental terminal consumer yields items BEFORE the stream has ended — required for unbounded output (L16) — and completes on an unbounded STREAM_END + END. | src/orchestrator/stream_io.rs:1153 |
+| test7076 | rust | `test7076_pipelined_chain_downstream_consumes_before_upstream_finishes` | TEST7076: Pipelined chain execution: the downstream cap receives its first item before the upstream cap emits its last. [input -> test-stream-n-chunks -> mid -> test-echo-stream -> output] is a linear chain, so `execute_dag` pipelines it: the intermediate node's data streams cap-to-cap live and is never materialized. The producer emits 48 chunks (> the 32-chunk window) with a progress log per chunk; the echo cap logs on its first consumed item. With credit flowing per hop, the producer CANNOT emit chunk 33+ until the echo cap has consumed — so the echo's first-item log must appear in the captured event sequence BEFORE the producer's final per-chunk log. A materializing (non-pipelined) executor would show the producer finishing all 48 chunks first and fail the ordering assertion. | tests/protocol_v3_e2e.rs:826 |
+| test7077 | rust | `test7077_per_item_meta_incremental` | TEST7077: Per-item stream metadata arrives WITH its item through incremental delivery, not batched at the end. | src/orchestrator/stream_io.rs:1193 |
 
 ---
 
@@ -1130,25 +1134,25 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test801 | rust, go, py | js, objc | TEST801: Tests CapInputFile deserializes from JSON with source metadata fields Verifies JSON with source_id and source_type deserializes to CapInputFile correctly |
 | test802 | rust, go, py | js, objc | TEST802: Tests CapInputFile deserializes from compact JSON via serde_json::Value Verifies deserialization through Value intermediate works correctly |
 | test803 | rust, go, py | js, objc | TEST803: Tests StrandInput validation detects mismatched Single cardinality with multiple files Verifies is_valid() returns false when Single cardinality has more than one file |
-| test804 | rust, go, py | js, objc | TEST804: Tests basic JSON path extraction with dot notation for nested objects Verifies that simple paths like "data.message" correctly extract values from nested JSON structures |
-| test805 | rust, go, py | js, objc | TEST805: Tests JSON path extraction with array indexing syntax Verifies that bracket notation like "items[0].name" correctly accesses array elements and their nested fields |
-| test806 | rust, go, py | js, objc | TEST806: Tests error handling when JSON path references non-existent fields Verifies that accessing missing fields returns an appropriate error message |
-| test807 | rust, go, py | js, objc | TEST807: Tests EdgeType::Direct passes JSON values through unchanged Verifies that Direct edge type acts as a transparent passthrough without transformation |
-| test808 | rust, go, py | js, objc | TEST808: Tests EdgeType::JsonField extracts specific top-level fields from JSON objects Verifies that JsonField edge type correctly isolates a single named field from the source output |
-| test809 | rust, go, py | js, objc | TEST809: Tests EdgeType::JsonField error handling for missing fields Verifies that attempting to extract a non-existent field returns an error |
-| test810 | rust, go, py, objc | js | TEST810: Tests EdgeType::JsonPath extracts values using nested path expressions Verifies that JsonPath edge type correctly navigates through multiple levels like "data.nested.value" |
-| test811 | rust, go, py, objc | js | TEST811: Tests EdgeType::Iteration preserves array values for iterative processing Verifies that Iteration edge type passes through arrays unchanged to enable ForEach patterns |
-| test812 | rust, go, py, objc | js | TEST812: Tests EdgeType::Collection preserves collected values without transformation Verifies that Collection edge type maintains structure for aggregation patterns |
-| test813 | rust, go, py, objc | js | TEST813: Tests JSON path extraction through deeply nested object hierarchies (4+ levels) Verifies that paths can traverse multiple nested levels like "level1.level2.level3.level4.value" |
-| test814 | rust, go, py, objc | js | TEST814: Tests error handling when array index exceeds available elements Verifies that out-of-bounds array access returns a descriptive error message |
-| test815 | rust, go, py, objc | js | TEST815: Tests JSON path extraction with single-level paths (no nesting) Verifies that simple field names without dots correctly extract top-level values |
-| test816 | rust, go, py, objc | js | TEST816: Tests JSON path extraction preserves special characters in string values Verifies that quotes, backslashes, and other special characters are correctly maintained |
-| test817 | rust, go, py, objc | js | TEST817: Tests JSON path extraction correctly handles explicit null values Verifies that null is returned as serde_json::Value::Null rather than an error |
-| test818 | rust, go, py, objc | js | TEST818: Tests JSON path extraction correctly returns empty arrays Verifies that zero-length arrays are extracted as valid empty array values |
-| test819 | rust, go, py, objc | js | TEST819: Tests JSON path extraction handles various numeric types correctly Verifies extraction of integers, floats, negative numbers, and zero |
-| test820 | rust, go, py, objc | js | TEST820: Tests JSON path extraction correctly handles boolean values Verifies that true and false are extracted as proper boolean JSON values |
-| test821 | rust, go, py, objc | js | TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access) Verifies that nested array structures like "matrix[1]" correctly extract inner arrays |
-| test822 | rust, go, py, objc | js | TEST822: Tests error handling for non-numeric array indices Verifies that invalid indices like "items[abc]" return a descriptive parse error |
+| test804 | go, py | rust, js, objc | TEST804: Tests basic JSON path extraction with dot notation for nested objects Verifies that simple paths like "data.message" correctly extract values from nested JSON structures |
+| test805 | go, py | rust, js, objc | TEST805: Tests JSON path extraction with array indexing syntax |
+| test806 | go, py | rust, js, objc | TEST806: Tests error handling when JSON path references non-existent fields Verifies that accessing missing fields returns an appropriate error message |
+| test807 | go, py | rust, js, objc | TEST807: Tests EdgeType::Direct passes JSON values through unchanged Verifies that Direct edge type acts as a transparent passthrough without transformation |
+| test808 | go, py | rust, js, objc | TEST808: Tests EdgeType::JsonField extracts specific top-level fields from JSON objects Verifies that JsonField edge type correctly isolates a single named field from the source output |
+| test809 | go, py | rust, js, objc | TEST809: Tests EdgeType::JsonField error handling for missing fields Verifies that attempting to extract a non-existent field returns an error |
+| test810 | go, py, objc | rust, js | TEST810: Tests EdgeType::JsonPath extracts values using nested path expressions Verifies that JsonPath edge type correctly navigates through multiple levels like "data.nested.value" |
+| test811 | go, py, objc | rust, js | TEST811: Tests EdgeType::Iteration preserves array values for iterative processing Verifies that Iteration edge type passes through arrays unchanged to enable ForEach patterns |
+| test812 | go, py, objc | rust, js | TEST812: Tests EdgeType::Collection preserves collected values without transformation Verifies that Collection edge type maintains structure for aggregation patterns |
+| test813 | go, py, objc | rust, js | TEST813: Tests JSON path extraction through deeply nested object hierarchies (4+ levels) Verifies that paths can traverse multiple nested levels like "level1.level2.level3.level4.value" |
+| test814 | go, py, objc | rust, js | TEST814: Tests error handling when array index exceeds available elements Verifies that out-of-bounds array access returns a descriptive error message |
+| test815 | go, py, objc | rust, js | TEST815: Tests JSON path extraction with single-level paths (no nesting) Verifies that simple field names without dots correctly extract top-level values |
+| test816 | go, py, objc | rust, js | TEST816: Tests JSON path extraction preserves special characters in string values Verifies that quotes, backslashes, and other special characters are correctly maintained |
+| test817 | go, py, objc | rust, js | TEST817: Tests JSON path extraction correctly handles explicit null values Verifies that null is returned as serde_json::Value::Null rather than an error |
+| test818 | go, py, objc | rust, js | TEST818: Tests JSON path extraction correctly returns empty arrays Verifies that zero-length arrays are extracted as valid empty array values |
+| test819 | go, py, objc | rust, js | TEST819: Tests JSON path extraction handles various numeric types correctly Verifies extraction of integers, floats, negative numbers, and zero |
+| test820 | go, py, objc | rust, js | TEST820: Tests JSON path extraction correctly handles boolean values Verifies that true and false are extracted as proper boolean JSON values |
+| test821 | go, py, objc | rust, js | TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access) Verifies that nested array structures like "matrix[1]" correctly extract inner arrays |
+| test822 | go, py, objc | rust, js | TEST822: Tests error handling for non-numeric array indices Verifies that invalid indices like "items[abc]" return a descriptive parse error |
 | test823 | rust, go, py, objc | js | TEST823: is_dispatchable — exact match provider dispatches request |
 | test824 | rust, go, py, objc | js | TEST824: is_dispatchable — provider with broader input handles specific request (contravariance) |
 | test825 | rust, go, py, objc | js | TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider media: on the request input axis means "unconstrained" — vacuously true |
@@ -1359,7 +1363,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1166 | rust, go, py | js, objc | TEST1166: Duplicate header aliases are reported as syntax errors. |
 | test1167 | rust, go, py | js, objc | TEST1167: Wiring that references an undefined alias is reported as a syntax error. |
 | test1168 | rust, go, py | js, objc | TEST1168: Parsing rejects node names that collide with declared cap aliases. |
-| test1169 | rust, go, py | js, objc | TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step. |
+| test1169 | rust, go, py | js, objc | TEST1169: A sequence-output cap feeding a scalar-input cap makes the resolved edge a per-item map (`is_loop`), derived from cardinality — the single rule `Cap::needs_foreach`, which replaces the retired `LOOP` keyword. The scalar→sequence producer edge itself does not loop. |
 | test1170 | rust, go, py | js, objc | TEST1170: Parsing and then serializing machine notation round-trips to the canonical form. |
 | test1171 | rust, go, py | js, objc | TEST1171: Empty machine notation is rejected as a syntax error. |
 | test1172 | rust, go, py | js, objc | TEST1172: Serializing a two-step strand emits the expected aliases and node names. |
@@ -1399,7 +1403,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1257 | rust, go, py | js, objc | TEST1257: Two sequential wirings preserve the intermediate node media type. |
 | test1258 | rust, go, py | js, objc | TEST1258: One source node can fan out into multiple caps and target nodes. |
 | test1259 | rust, go, py | js, objc | TEST1259: Fan-in wiring resolves multiple upstream outputs into one multi-arg cap. |
-| test1260 | rust, go, py | js, objc | TEST1260: LOOP wiring parses as a single edge while preserving the loop marker semantics. |
+| test1260 | rust, go, py | js, objc | TEST1260: The `LOOP` keyword is retired from the grammar. A keyword-free wiring parses to a single edge; the old `LOOP` form no longer parses. ForEach is never authored — it is derived from cardinality in the resolver/realizer. |
 | test1261 | rust, go, py | js, objc | TEST1261: A header cap whose definition cannot be resolved is reported as a machine-notation parse failure at the header site. |
 | test1262 | rust, go, py | js, objc | TEST1262: Non-machine text fails with a machine syntax parse error. |
 | test1263 | rust, go, py | js, objc | TEST1263: Cyclic wirings are rejected as non-DAG orchestrations. |
@@ -1409,9 +1413,10 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1267 | rust, go, py | js, objc | TEST1267: Record-shaped outputs can feed record-shaped inputs without error. |
 | test1268 | rust, go, py | js, objc | TEST1268: Opaque outputs can feed opaque inputs without triggering structure conflicts. |
 | test1269 | rust, go, py | js, objc | TEST1269: Multi-line machine notation parses successfully with the same semantics as inline notation. |
-| test1271 | rust, go, py | js, objc | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags |
-| test1272 | rust, go, py | js, objc | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn |
-| test1273 | rust, go, py | js, objc | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs |
+| test1270 | rust, objc | go, py, js | TEST1270: Runtime memory inspection returns non-negative resident and virtual memory values. |
+| test1271 | rust, go, py, objc | js | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags |
+| test1272 | rust, go, py, objc | js | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn |
+| test1273 | rust, go, py, objc | js | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs |
 | test1275 | rust, go, py | js, objc | TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests; identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement. |
 | test1276 | rust, go, py | js, objc | TEST1276: Registration of a cap group with non-conflicting adapters succeeds |
 | test1277 | rust, go, py | js, objc | TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected |
@@ -1435,13 +1440,16 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1295 | rust, go, py, js | objc | TEST1295: RULE11 - non-void-input cap without stdin source rejected |
 | test1296 | rust, go, py, js | objc | TEST1296: RULE11 - void-input cap with only cli_flag sources passes |
 | test1297 | rust, go, py, js | objc | TEST1297: RULE11 - non-void-input cap with stdin source passes |
+| test1300 | rust, objc | go, py, js | TEST1300: A sequence item CBOR-encoded once and split across multiple CHUNK frames (the emit_list_item framing) reassembles into exactly one delivered item carrying the first fragment's per-item metadata. |
+| test1301 | rust, objc | go, py, js | TEST1301: A sequence stream that ENDs mid-item (trailing fragment bytes that never complete a CBOR item) surfaces a hard decode error instead of silently dropping the partial item. |
+| test1302 | rust, objc | go, py, js | TEST1302: Continuation fragments of a multi-frame sequence item are credited back by the demux on arrival — the handler grants one frame per consumed item, so without fragment grants an item spanning more frames than the credit window could never finish arriving. |
 | test1308 | rust, go, py | js, objc | TEST1308: A wiring set that feeds a cap's output back into an ancestor forms a cycle and must fail hard with CyclicMachineStrand carrying the strand index. Cycle: node 0 → cap A → node 1 → cap B → node 0. |
 | test1847 | rust, go, py, objc | js | TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and `primary_package()` must fall back to that legacy package, so a registry not yet republished with the dual-write keeps installing. When `packages[]` is present it is preferred over the legacy field. |
 | test1875 | rust, go, py, objc | js | TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe. |
 | test1876 | rust, go, py, objc | js | TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent). |
 | test1877 | rust, go, py, objc | js | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. |
 | test1878 | rust, go, py, objc | js | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. |
-| test1879 | rust, go, py, objc | js |  |
+| test1879 | rust, go, py, objc | js | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. |
 | test1883 | rust, go, py | js, objc | TEST1883: a cap-position name with no local header is resolved as a fabric cap alias. The wiring uses `pdf2text` where a cap is expected; it must resolve to the aliased cap URN and produce a one-edge strand whose cap URN is the alias target. A broken resolver would either fail (treating it as undefined) or wire the wrong cap. |
 | test1884 | rust, go, py | js, objc | TEST1884: a local header alias shadows a fabric alias of the same name. If `pdf2text` is BOTH a header (bound to one cap) and a registered alias (pointing at another cap), the header wins. This pins the precedence rule: local definitions shadow registry aliases. |
 | test1885 | rust, go, py | js, objc | TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error — the cap position requires a cap. This proves the type-correct enforcement in notation: a media alias cannot stand in for a cap. |
@@ -1513,6 +1521,8 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test7050 | rust, objc | go, py, js | TEST7050: A credited sender emits exactly its window of chunks then stalls until a CREDIT grant arrives — observed on the frame channel. |
 | test7052 | rust, objc | go, py, js | TEST7052: Input consumption emits batched CREDIT grants — roughly one grant per half-window consumed, not one per chunk. |
 | test7053 | rust, objc | go, py, js | TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12). |
+| test7059 | rust, objc | go, py, js | TEST7059: Terminal END releases credit waiters and leaks no stream state. Runs a full bidirectional >window request (real credit gates on both directions), then asserts the switch's protocol stats snapshot shows ZERO active requests and the terminated-by-kind accounting recorded the END. A leaked request entry, response channel, or rid-index row keeps `active` non-empty and fails the test (L7/L13). |
+| test7061 | rust, objc | go, py, js | TEST7061: The negotiated initial_credit (min of both HELLOs) is the actual first-burst size on the wire. E2E form, in two parts: 1. With the real cartridge host attached (both sides propose the default), the switch's negotiated initial_credit is exactly DEFAULT_INITIAL_CREDIT (32) — and a 48-chunk producer completes correctly, which is only possible if the first burst (32) is followed by grant-driven resumption (the cross-process TEST7055 variant: consumption grants replenish the producer's window). 2. Attaching a second master whose RelayNotify proposes initial_credit=8 drops the switch's negotiated value to the element-wise min, 8 — wire-visible min-negotiation. |
 | test7062 | rust, objc | go, py, js | TEST7062: LOG/progress frames flow while the data window is exhausted — control frames are never credited. |
 | test7063 | rust, objc | go, py, js | TEST7063: A receiver flushes pending sub-batch grants before blocking on an empty input — progress is guaranteed even when the sender's window is smaller than the receiver's grant batch threshold. |
 | test7070 | rust, objc | go, py, js | TEST7070: An unbounded input stream is consumed live — the handler observes early items while the producer is still emitting, and the stream reports itself unbounded. |
@@ -1521,9 +1531,11 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test7086 | rust, objc | go, py, js | TEST7086: One runtime's drop counters aggregate every drop source — post-terminal writer drops and closed-channel sends — each counted exactly once, and the snapshot totals match the induced drops. |
 | test7087 | rust, objc | go, py, js |  |
 | test7088 | rust, objc | go, py, js | TEST7088: last_activity is monotonic non-decreasing across a long-lived streaming request — idle time resets on every recorded frame and never runs backwards. |
+| test7089 | rust, objc | go, py, js | TEST7089: A cartridge whose HELLO permanently failed stays IN the inventory advertisement carrying a handshake_failed attachment error and no cap groups — failure is named, never silently absent; a roster-retired cartridge disappears entirely. |
 | test7090 | rust, objc | go, py, js | TEST7090: The cartridge's cumulative protocol drop counter (`drops_total` heartbeat meta, L8) is ingested by the host and surfaces on the cartridge's inventory runtime stats as `protocol_drops_total` — absent until the first reading, then tracking the running total as-is. |
 | test7091 | rust, objc | go, py, js | TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in `protocol_stats().hosts` keyed by master id; a master that has not yet advertised stats is absent from the map — never a zeroed placeholder. |
 | test7092 | rust, objc | go, py, js | TEST7087: Protocol stats snapshots serialize with stable field names — the snapshot shape is the mirror contract. |
+| test7093 | rust, objc | go, py, js | TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller future) is a counted channel_closed drop AND cancels the request upstream — the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it. |
 
 ---
 
@@ -1552,7 +1564,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST99: A media def with no enc= tag is not text-representable. The old is_binary/is_text axis is gone; text is identified by the presence of an encoding (HasEncoding), so "binary" is simply the absence of one.
 - **py**: TEST99: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
 - **js**: TEST99: Test ResolvedMediaDef is_binary returns true when enc tag is absent
-- **objc**: TEST99: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
+- **objc**: TEST099: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
 
 ### test104
 
@@ -1576,7 +1588,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST108: Test creating new cap with URN, title, and command verifies correct initialization
 - **py**: TEST108: Test creating new cap with URN, title, and command verifies correct initialization
 - **js**: TEST108: Test creating new cap with URN, title, and command verifies correct initialization
-- **objc**: TEST108: Cap creation
+- **objc**: TEST0108: Cap creation
 
 ### test110
 
@@ -1584,7 +1596,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST110: Test cap matching with subset semantics for request fulfillment
 - **py**: TEST110: Test cap matching with subset semantics for request fulfillment
 - **js**: TEST110: Test cap matching with subset semantics for request fulfillment
-- **objc**: TEST110: Cap matching
+- **objc**: TEST0110: Cap matching
 
 ### test119
 
@@ -2089,7 +2101,6 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test805
 
-- **rust**: TEST805: Tests JSON path extraction with array indexing syntax Verifies that bracket notation like "items[0].name" correctly accesses array elements and their nested fields
 - **go**: TEST805: Tests JSON path extraction with array indexing syntax
 - **py**: TEST805: Tests JSON path extraction with array indexing syntax Verifies that bracket notation like "items[0].name" correctly accesses array elements and their nested fields
 
@@ -2314,6 +2325,12 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST1154: Syncing from caps replaces the existing graph contents with the new cap set.
 - **objc**: TEST1154: Sync from caps
 
+### test1169
+
+- **rust**: TEST1169: A sequence-output cap feeding a scalar-input cap makes the resolved edge a per-item map (`is_loop`), derived from cardinality — the single rule `Cap::needs_foreach`, which replaces the retired `LOOP` keyword. The scalar→sequence producer edge itself does not loop.
+- **go**: TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step.
+- **py**: TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step.
+
 ### test1176
 
 - **rust**: TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine.
@@ -2351,6 +2368,12 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST1256: A single declared cap and one wiring parse into a two-node one-edge DAG.
 - **py**: TEST1256: Parsing a single-cap machine notation produces a graph with 2 nodes and 1 edge.
 
+### test1260
+
+- **rust**: TEST1260: The `LOOP` keyword is retired from the grammar. A keyword-free wiring parses to a single edge; the old `LOOP` form no longer parses. ForEach is never authored — it is derived from cardinality in the resolver/realizer.
+- **go**: TEST1260: LOOP wiring parses as a single edge while preserving the loop marker semantics.
+- **py**: TEST1260: LOOP wiring parses as a single edge while preserving the loop marker semantics.
+
 ### test1261
 
 - **rust**: TEST1261: A header cap whose definition cannot be resolved is reported as a machine-notation parse failure at the header site.
@@ -2375,11 +2398,17 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **go**: TEST1266: Record-to-opaque structure mismatches are rejected once structure checking is enabled. Skipped, mirroring Rust's #[ignore = "structure mismatch detection between node media and cap input not yet implemented"]. The orchestrator keys node media on the strand's interned node URN (the resolver's source-to-arg assignment), so a single node carries one media URN: the produce edge's record output and the process edge's source both resolve to that same interned URN, and there is no separate opaque cap-input URN left to compare against. Detecting a record-vs-opaque mismatch between a node's media and a downstream cap's declared input requires comparing the node URN to the cap's in= spec — a check the resolver-based design does not yet perform.
 - **py**: TEST1266: Record-to-opaque structure mismatches are rejected once structure checking is enabled.
 
+### test1270
+
+- **rust**: TEST1270: Runtime memory inspection returns non-negative resident and virtual memory values.
+- **objc**: TEST1270: Runtime memory inspection returns non-negative resident and virtual memory values. `getOwnMemoryMb` calls `proc_pid_rusage(getpid())` which must always work — even in a sandbox (the sandbox only blocks querying OTHER processes). If it returns nil on macOS, the self-reporting mechanism is broken and cartridges will report 0 footprint.
+
 ### test1273
 
 - **rust**: TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs
 - **go**: TEST1273: CapAdapterSelection has correct in/out specs (in=media: out=media:adapter-selection;json;record)
 - **py**: TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs
+- **objc**: TEST1273: the adapter-selection cap URN has correct in/out specs — in is the bare wildcard `media:` (accepts any) and out conforms to the adapter-selection media URN. (The reference exposes this as the `adapter_selection_urn()` builder; here the parsed constant IS the canonical form the runtime registers.)
 
 ### test1290
 
@@ -2392,6 +2421,11 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **rust**: TEST1292: BFS and IDDFS agree that round-trip targets exist. If BFS says target X is reachable from source X, IDDFS must find at least one path.
 - **go**: TEST1292: BFS and IDDFS agree that round-trip targets exist. If BFS says target X is reachable from source X, IDDFS must find at least one path.
 - **py**: TEST1292: BFS and IDDFS agree that round-trip targets exist.
+
+### test1300
+
+- **rust**: TEST1300: A sequence item CBOR-encoded once and split across multiple CHUNK frames (the emit_list_item framing) reassembles into exactly one delivered item carrying the first fragment's per-item metadata.
+- **objc**: TEST1300: A sequence item CBOR-encoded once and split across multiple CHUNK frames (the emitListItem framing) reassembles into exactly one delivered item.
 
 ### test1308
 
@@ -2657,6 +2691,21 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list.
 - **objc**: TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list.
 
+### test7059
+
+- **rust**: TEST7059: Terminal END releases credit waiters and leaks no stream state. Runs a full bidirectional >window request (real credit gates on both directions), then asserts the switch's protocol stats snapshot shows ZERO active requests and the terminated-by-kind accounting recorded the END. A leaked request entry, response channel, or rid-index row keeps `active` non-empty and fails the test (L7/L13).
+- **objc**: TEST7059: Terminal frames release ALL request state and every registration is accounted exactly once (L7/L13) — across a mixed workload of END-, ERR-, and cancel-terminated requests the active table drains to empty and the terminated-by-kind counts sum to the total registrations. A leaked entry keeps `active` non-empty; a double- or un-counted termination breaks the conservation equation. (The reference runs this over a real cartridge execution; the law under test lives in the switch's request table, which is the layer this mirror implements.)
+
+### test7061
+
+- **rust**: TEST7061: The negotiated initial_credit (min of both HELLOs) is the actual first-burst size on the wire. E2E form, in two parts: 1. With the real cartridge host attached (both sides propose the default), the switch's negotiated initial_credit is exactly DEFAULT_INITIAL_CREDIT (32) — and a 48-chunk producer completes correctly, which is only possible if the first burst (32) is followed by grant-driven resumption (the cross-process TEST7055 variant: consumption grants replenish the producer's window). 2. Attaching a second master whose RelayNotify proposes initial_credit=8 drops the switch's negotiated value to the element-wise min, 8 — wire-visible min-negotiation.
+- **objc**: TEST7061: The negotiated initial_credit is the element-wise min of all masters' proposals, wire-visible at the switch. A master's RelayNotify carries its limits; renegotiation must include initialCredit — the regression this pins is `rebuildLimits()` dropping the credit field and silently resetting it to the default (which would let switch-side senders overrun a smaller window with CREDIT_VIOLATIONs at the master).
+
+### test7089
+
+- **rust**: TEST7089: A cartridge whose HELLO permanently failed stays IN the inventory advertisement carrying a handshake_failed attachment error and no cap groups — failure is named, never silently absent; a roster-retired cartridge disappears entirely.
+- **objc**: TEST7089: A cartridge whose HELLO permanently failed stays IN the inventory advertisement carrying a handshake_failed attachment error and no cap groups — failure is named, never silently absent; a roster-retired cartridge disappears entirely. (The reference drives hello_failed directly and merges daemon-provided static inventory records; on this host both flow through `syncDiscoveryOutcomes` — the macOS discovery authority.)
+
 ### test7091
 
 - **rust**: TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in `protocol_stats().hosts` keyed by master id; a master that has not yet advertised stats is absent from the map — never a zeroed placeholder.
@@ -2666,6 +2715,11 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 - **rust**: TEST7087: Protocol stats snapshots serialize with stable field names — the snapshot shape is the mirror contract.
 - **objc**: TEST7092: A request registered with its originating REQ's cap URN carries that identity through the ACTIVE snapshot and into the terminated ring — observability surfaces can always NAME a request (background chatter vs run traffic), never just show a bare rid. A request registered without one snapshots with cap_urn absent — never invented.
+
+### test7093
+
+- **rust**: TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller future) is a counted channel_closed drop AND cancels the request upstream — the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it.
+- **objc**: TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller) is a counted channel_closed drop AND cancels the request upstream — the destination master receives Cancel, the entry terminates as cancelled, and zero state remains: the cartridge stops producing for a dead channel instead of running to completion against it.
 
 ---
 
@@ -3423,25 +3477,25 @@ A number assigned to more than one function inside a single mirror. These must b
 | test801 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test802 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test803 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test804 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test805 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test806 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test807 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test808 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test809 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test810 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test811 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test812 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test813 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test814 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test815 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test816 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test817 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test818 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test819 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test820 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test821 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test822 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test804 | shared | · | ✓ | ✓ | · | · | shared |
+| test805 | shared | · | ✓ | ✓ | · | · | shared |
+| test806 | shared | · | ✓ | ✓ | · | · | shared |
+| test807 | shared | · | ✓ | ✓ | · | · | shared |
+| test808 | shared | · | ✓ | ✓ | · | · | shared |
+| test809 | shared | · | ✓ | ✓ | · | · | shared |
+| test810 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test811 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test812 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test813 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test814 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test815 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test816 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test817 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test818 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test819 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test820 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test821 | shared | · | ✓ | ✓ | · | ✓ | shared |
+| test822 | shared | · | ✓ | ✓ | · | ✓ | shared |
 | test823 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test824 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test825 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -3536,7 +3590,6 @@ A number assigned to more than one function inside a single mirror. These must b
 | test948 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test949 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test950 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test951 | shared | ✓ | · | · | · | · | solo |
 | test952 | shared | ✓ | · | · | · | · | solo |
 | test953 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test954 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -3561,6 +3614,7 @@ A number assigned to more than one function inside a single mirror. These must b
 | test973 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test974 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test975 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test976 | shared | ✓ | · | · | · | · | solo |
 | test977 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test987 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test988 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -3737,10 +3791,10 @@ A number assigned to more than one function inside a single mirror. These must b
 | test1267 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1268 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1269 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1270 | shared | ✓ | · | · | · | · | solo |
-| test1271 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1272 | shared | ✓ | ✓ | ✓ | · | · | shared |
-| test1273 | shared | ✓ | ✓ | ✓ | · | · | shared |
+| test1270 | shared | ✓ | · | · | · | ✓ | shared |
+| test1271 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test1272 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test1273 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1274 | shared | ✓ | · | · | · | · | solo |
 | test1275 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1276 | shared | ✓ | ✓ | ✓ | · | · | shared |
@@ -3765,10 +3819,23 @@ A number assigned to more than one function inside a single mirror. These must b
 | test1295 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test1296 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
 | test1297 | shared | ✓ | ✓ | ✓ | ✓ | · | shared |
+| test1300 | shared | ✓ | · | · | · | ✓ | shared |
+| test1301 | shared | ✓ | · | · | · | ✓ | shared |
+| test1302 | shared | ✓ | · | · | · | ✓ | shared |
+| test1303 | shared | ✓ | · | · | · | · | solo |
+| test1304 | shared | ✓ | · | · | · | · | solo |
+| test1305 | shared | ✓ | · | · | · | · | solo |
+| test1306 | shared | ✓ | · | · | · | · | solo |
 | test1308 | shared | ✓ | ✓ | ✓ | · | · | shared |
 | test1309 | shared | · | · | ✓ | · | · | solo |
 | test1310 | shared | · | · | ✓ | · | · | solo |
 | test1311 | shared | · | · | ✓ | · | · | solo |
+| test1312 | shared | ✓ | · | · | · | · | solo |
+| test1313 | shared | ✓ | · | · | · | · | solo |
+| test1314 | shared | ✓ | · | · | · | · | solo |
+| test1315 | shared | ✓ | · | · | · | · | solo |
+| test1316 | shared | ✓ | · | · | · | · | solo |
+| test1317 | shared | ✓ | · | · | · | · | solo |
 | test1400 | shared | · | · | · | · | ✓ | solo |
 | test1401 | shared | · | · | · | · | ✓ | solo |
 | test1402 | shared | · | · | · | · | ✓ | solo |
@@ -4314,8 +4381,8 @@ A number assigned to more than one function inside a single mirror. These must b
 | test7053 | shared | ✓ | · | · | · | ✓ | shared |
 | test7054 | shared | ✓ | · | · | · | · | solo |
 | test7056 | shared | ✓ | · | · | · | · | solo |
-| test7059 | shared | ✓ | · | · | · | · | solo |
-| test7061 | shared | ✓ | · | · | · | · | solo |
+| test7059 | shared | ✓ | · | · | · | ✓ | shared |
+| test7061 | shared | ✓ | · | · | · | ✓ | shared |
 | test7062 | shared | ✓ | · | · | · | ✓ | shared |
 | test7063 | shared | ✓ | · | · | · | ✓ | shared |
 | test7070 | shared | ✓ | · | · | · | ✓ | shared |
@@ -4323,16 +4390,15 @@ A number assigned to more than one function inside a single mirror. These must b
 | test7073 | shared | ✓ | · | · | · | ✓ | shared |
 | test7076 | shared | ✓ | · | · | · | · | solo |
 | test7077 | shared | ✓ | · | · | · | · | solo |
-| test7078 | shared | ✓ | · | · | · | · | solo |
 | test7085 | shared | ✓ | · | · | · | ✓ | shared |
 | test7086 | shared | ✓ | · | · | · | ✓ | shared |
 | test7087 | shared | ✓ | · | · | · | ✓ | shared |
 | test7088 | shared | ✓ | · | · | · | ✓ | shared |
-| test7089 | shared | ✓ | · | · | · | · | solo |
+| test7089 | shared | ✓ | · | · | · | ✓ | shared |
 | test7090 | shared | ✓ | · | · | · | ✓ | shared |
 | test7091 | shared | ✓ | · | · | · | ✓ | shared |
 | test7092 | shared | ✓ | · | · | · | ✓ | shared |
-| test7093 | shared | ✓ | · | · | · | · | solo |
+| test7093 | shared | ✓ | · | · | · | ✓ | shared |
 | test8000 | impl | ✓ | · | · | · | · | solo |
 | test8001 | impl | ✓ | · | · | · | · | solo |
 | test8002 | impl | ✓ | · | · | · | · | solo |
@@ -4357,8 +4423,6 @@ A number assigned to more than one function inside a single mirror. These must b
 | test8021 | impl | ✓ | · | · | · | · | solo |
 | test8022 | impl | ✓ | · | · | · | · | solo |
 | test8023 | impl | ✓ | · | · | · | · | solo |
-| test8024 | impl | ✓ | · | · | · | · | solo |
-| test8025 | impl | ✓ | · | · | · | · | solo |
 | test8026 | impl | ✓ | · | · | · | · | solo |
 | test8027 | impl | ✓ | · | · | · | · | solo |
 | test8028 | impl | ✓ | · | · | · | · | solo |

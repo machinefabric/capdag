@@ -623,7 +623,7 @@ async fn test952_execute_large_payload() {
     }
 }
 
-// TEST953: Convergence — two producers routed into ONE cap via DISTINCT arg URNs.
+// TEST1316: Convergence — two producers routed into ONE cap via DISTINCT arg URNs.
 //
 // `A -edge1-> B(node2)`; `B -edge2-> D(node3)`; then `(B, D) -combine-> E`. `B` fans
 // out (feeds both edge2 and combine). `combine` has a MAIN input on stdin (node2 = B)
@@ -632,7 +632,7 @@ async fn test952_execute_large_payload() {
 // the plan/parser emit B as the main-input edge and D as a node3 `Arg` edge, and the
 // cartridge `require_stream`s both by their distinct URNs. E must carry BOTH.
 #[tokio::test]
-async fn test953_convergence_two_producers_distinct_arg_urns() {
+async fn test1316_convergence_two_producers_distinct_arg_urns() {
     let registry = create_test_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 

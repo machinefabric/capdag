@@ -256,10 +256,10 @@ mod tests {
         ))
     }
 
-    // Two snapshots recorded to a temp file produce exactly two JSONL lines,
+    // TEST1312: Two snapshots recorded to a temp file produce exactly two JSONL lines,
     // each carrying ts + segment + a round-tripped stats object (requests/drops).
     #[tokio::test]
-    async fn record_appends_one_json_line_per_snapshot() {
+    async fn test1312_record_appends_one_json_line_per_snapshot() {
         let path = temp_path("roundtrip");
         let sink = ProtocolTraceSink::open(&path).await.expect("open sink");
 
@@ -288,11 +288,11 @@ mod tests {
         assert_eq!(second["stats"]["requests"]["total_registered"], 2);
     }
 
-    // Dedup: recording identical protocol state twice writes ONE line; a real
+    // TEST1313: Dedup: recording identical protocol state twice writes ONE line; a real
     // change (a bumped counter, a moved stream byte) writes another. This is what
     // keeps a stalled engine's repeated live samples from spamming the trace.
     #[tokio::test]
-    async fn record_deduped_writes_only_on_change() {
+    async fn test1313_record_deduped_writes_only_on_change() {
         let path = temp_path("dedup");
         let sink = ProtocolTraceSink::open(&path).await.expect("open sink");
 
@@ -315,11 +315,11 @@ mod tests {
     }
 
     // The fingerprint EXCLUDES advancing clocks: two snapshots differing only in
-    // `age_ms`/`idle_ms` are the same transition, while a flow-counter change is
+    // TEST1314: `age_ms`/`idle_ms` are the same transition, while a flow-counter change is
     // a new one. If dedup keyed on the whole serialized stats, these clocks would
     // defeat it and every sample would write.
     #[test]
-    fn fingerprint_ignores_advancing_clocks() {
+    fn test1314_fingerprint_ignores_advancing_clocks() {
         let a = active_stats(1000, 10, 512);
         let b = active_stats(9000, 8010, 512); // only age/idle advanced
         assert_eq!(
@@ -336,12 +336,12 @@ mod tests {
         );
     }
 
-    // Requested diagnostics fail HARD, never silently: a write to an unwritable
+    // TEST1315: Requested diagnostics fail HARD, never silently: a write to an unwritable
     // sink returns Err. `/dev/full` opens fine but every write is ENOSPC — the
     // Linux-standard way to exercise a write failure deterministically.
     #[cfg(target_os = "linux")]
     #[tokio::test]
-    async fn record_to_unwritable_path_is_a_hard_error() {
+    async fn test1315_record_to_unwritable_path_is_a_hard_error() {
         let sink = ProtocolTraceSink::open("/dev/full")
             .await
             .expect("/dev/full opens for append");
