@@ -2314,6 +2314,78 @@ async fn forward_frames(
 /// `log_fn` is mandatory. Cartridges emit operational log and
 /// progress frames during long-running work, and dropping them at
 /// the DAG boundary makes failures opaque.
+/// The per-item activity timeout for a segment, read from the segment's terminal cap
+/// metadata (`activity_timeout_secs`), falling to the documented default only when the
+/// key is absent or malformed. Shared by [`execute_dag`] and the CLI runtime so both
+/// resolve the timeout identically.
+pub(crate) fn segment_activity_timeout(graph: &ResolvedGraph) -> u64 {
+    graph
+        .edges
+        .first()
+        .and_then(|e| e.cap.metadata.get(ACTIVITY_TIMEOUT_METADATA_KEY))
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&v| v > 0)
+        .unwrap_or(DEFAULT_ACTIVITY_TIMEOUT_SECS)
+}
+
+/// One hostable cartridge: its entry-point binary, optional installed identity
+/// `(id, version, channel)` (absent for dev binaries), and the cap groups it serves.
+pub(crate) type HostableCartridge = (
+    PathBuf,
+    Option<(String, String, crate::bifaci::cartridge_repo::CartridgeChannel)>,
+    Vec<crate::bifaci::manifest::CapGroup>,
+);
+
+/// Discover the host's BUNDLED providers (shipped beside the executor, e.g. the capdag
+/// CLI's own `providers/` tree) as hostable cartridges. Uses the shared
+/// `discover_cartridges`, so they pass the same identity + bundled-hash integrity checks
+/// the engine applies. Each `Incompatible` entry is logged and skipped (discovery
+/// already surfaced the reason). An absent directory yields an empty list. Shared by
+/// [`execute_dag`] and the CLI runtime.
+pub(crate) async fn discover_bundled_provider_cartridges(
+    providers_dir: &std::path::Path,
+    channel: crate::bifaci::cartridge_repo::CartridgeChannel,
+    registry_url: &str,
+    fabric_manifest_version: u32,
+) -> Result<Vec<HostableCartridge>, ExecutionError> {
+    let identity = crate::cartridge_discovery::DiscoveryIdentity {
+        channel,
+        registry_url: if registry_url.is_empty() {
+            None
+        } else {
+            Some(registry_url.to_string())
+        },
+        fabric_manifest_version,
+    };
+    let mut out = Vec::new();
+    for discovered in crate::cartridge_discovery::discover_cartridges(providers_dir, &identity)
+        .await
+        .map_err(|e| ExecutionError::HostError(format!("bundled provider discovery failed: {e}")))?
+    {
+        match discovered {
+            crate::cartridge_discovery::DiscoveredCartridge::Directory {
+                entry_point,
+                id,
+                channel: cart_channel,
+                version,
+                cap_groups,
+                ..
+            } => {
+                out.push((entry_point, Some((id, version, cart_channel)), cap_groups));
+            }
+            crate::cartridge_discovery::DiscoveredCartridge::Incompatible {
+                id, version, error, ..
+            } => {
+                tracing::error!(
+                    provider = %id, version = %version, reason = %error.message,
+                    "bundled provider rejected at discovery — not hosted"
+                );
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub async fn execute_dag(
     graph: &ResolvedGraph,
     cartridge_dir: PathBuf,
@@ -2351,35 +2423,19 @@ pub async fn execute_dag(
     let cap_urns: Vec<&str> = graph.edges.iter().map(|e| e.cap_urn.as_str()).collect();
     let mut cartridges = cartridge_manager.resolve_cartridges(&cap_urns).await?;
 
-    // 1b. Discover the host's BUNDLED providers (shipped beside the executor,
-    // e.g. the capdag CLI's own `providers/` tree). Uses the shared
-    // `discover_cartridges`, so they pass the same identity + bundled-hash
-    // integrity checks the engine applies, then register alongside the dev/
-    // registry cartridges. Each `Incompatible` entry is logged and skipped
-    // (discovery already surfaced the reason). Absent dir ⇒ no bundled providers.
+    // 1b. Register the host's BUNDLED providers (shipped beside the executor) alongside
+    // the dev/registry cartridges. Shared discovery + integrity checks live in
+    // `discover_bundled_provider_cartridges`. Absent dir ⇒ no bundled providers.
     if let Some(providers_dir) = bundled_providers_dir {
-        let identity = crate::cartridge_discovery::DiscoveryIdentity {
-            channel,
-            registry_url: if registry_url.is_empty() { None } else { Some(registry_url.clone()) },
-            fabric_manifest_version,
-        };
-        for discovered in crate::cartridge_discovery::discover_cartridges(&providers_dir, &identity).await
-            .map_err(|e| ExecutionError::HostError(format!("bundled provider discovery failed: {e}")))?
-        {
-            match discovered {
-                crate::cartridge_discovery::DiscoveredCartridge::Directory {
-                    entry_point, id, channel: cart_channel, version, cap_groups, ..
-                } => {
-                    cartridges.push((entry_point, Some((id, version, cart_channel)), cap_groups));
-                }
-                crate::cartridge_discovery::DiscoveredCartridge::Incompatible { id, version, error, .. } => {
-                    tracing::error!(
-                        provider = %id, version = %version, reason = %error.message,
-                        "bundled provider rejected at discovery — not hosted"
-                    );
-                }
-            }
-        }
+        cartridges.extend(
+            discover_bundled_provider_cartridges(
+                &providers_dir,
+                channel,
+                &registry_url,
+                fabric_manifest_version,
+            )
+            .await?,
+        );
     }
 
     // 2. Create execution context and add cartridge host as master
@@ -2425,15 +2481,8 @@ pub async fn execute_dag(
     // Run the single shared segment executor. The reference path has no config
     // service, so the activity timeout comes from the terminal cap's metadata
     // (the same key the engine reads), defaulting when absent. No disk writer and
-    // no flow observer — those are engine concerns the reference path does not
-    // carry.
-    let activity_timeout_secs = graph
-        .edges
-        .first()
-        .and_then(|e| e.cap.metadata.get(ACTIVITY_TIMEOUT_METADATA_KEY))
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|&v| v > 0)
-        .unwrap_or(DEFAULT_ACTIVITY_TIMEOUT_SECS);
+    // no flow observer — those are engine concerns the reference path does not carry.
+    let activity_timeout_secs = segment_activity_timeout(graph);
 
     // Protocol trace label: the segment's terminal cap URN (its output anchor).
     // Computed once, shared by the live sampler and the final snapshot.

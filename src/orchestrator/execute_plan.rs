@@ -136,10 +136,75 @@ pub use crate::orchestrator::executor::DagOutput as SegmentOutput;
 /// independent and live in [`execute_plan`].
 #[async_trait]
 pub trait EngineRuntime: Send + Sync {
+    // ── Backend hooks: the ONLY things that differ between the engine and the CLI ──
+    //
+    // Every backend reuses ONE long-lived `RelaySwitch` across all segments (including
+    // every ForEach body), so a cap's cartridge process is spawned once and each body
+    // multiplexes onto it. That single process's `set_capacity(1)` then serializes the
+    // model loads — which is what stops a ForEach fan-out from loading N model copies
+    // into GPU memory at once. This contract is identical for the engine
+    // (`EngineHostRuntime`, daemon-hosted cartridges) and the CLI (`CliRuntime`,
+    // in-process dev-bin cartridges); only the hooks below differ.
+
+    /// The long-lived relay switch to run this segment's caps on. `graph` lets a
+    /// backend lazily ensure the segment's cartridges are hosted before returning the
+    /// switch (the CLI registers dev-bin cartridge hosts on demand; the engine ignores
+    /// `graph` and returns its already-populated switch). Called once per segment; the
+    /// returned switch is shared, never torn down here.
+    async fn segment_switch(
+        &self,
+        graph: &ResolvedGraph,
+    ) -> Result<Arc<crate::bifaci::relay_switch::RelaySwitch>, ExecutionError>;
+
+    /// Per-item activity timeout (seconds) for this segment. The engine reads it from
+    /// its config service (a config-service failure is propagated — fail hard, never
+    /// silently defaulted); the CLI reads it from the terminal cap's metadata. A value
+    /// the source does not specify uses the documented default, but an *error* fetching
+    /// it aborts the segment.
+    async fn activity_timeout_secs(
+        &self,
+        graph: &ResolvedGraph,
+    ) -> Result<u64, ExecutionError>;
+
+    /// Disk writer factory for persisted terminal sinks. `Some` for the engine (each
+    /// persisted sink gets a writer bound to the run artifact dir); `None` for the CLI
+    /// (everything stays in memory). Default `None`.
+    fn writer_factory(&self) -> Option<Box<crate::orchestrator::stream_io::SegmentWriterFactory>> {
+        None
+    }
+
+    /// Flow observer correlating request ids to strand steps for run flow snapshots.
+    /// `Some` for the engine; `None` for the CLI. Default `None`.
+    fn flow_observer(&self) -> Option<&dyn crate::orchestrator::stream_io::FlowObserver> {
+        None
+    }
+
+    /// Per-segment protocol trace sink. `Some` when the CLI's `--trace` /
+    /// the scenario harness's `CAPDAG_SCENARIO_TRACE` is active — the segment is then
+    /// sampled live (250ms) and snapshotted at teardown. `None` otherwise (the engine
+    /// runs its own switch-level dev trace instead). Default `None`.
+    fn trace_sink(&self) -> Option<Arc<crate::bifaci::protocol_trace::ProtocolTraceSink>> {
+        None
+    }
+
+    /// The fabric registry, for plan→resolved-graph conversion.
+    fn fabric_registry(&self) -> Arc<FabricRegistry>;
+
+    /// ForEach partial-failure policy: `"fail"` (any body failure fails the plan) or
+    /// `"allow"` (fail only when every body failed).
+    async fn foreach_partial_failure_policy(&self) -> String;
+
+    // ── Provided orchestration: identical for every backend ──
+
     /// Run one resolved segment — an arbitrary ForEach-free DAG (fan-out and
     /// convergence included). The shared executor decomposes it into pipelined chains,
     /// materialising producers at every non-linear junction, so both backends handle
     /// identical input.
+    ///
+    /// This is the abstraction's job and is the SAME for every backend: get the shared
+    /// switch, build a per-segment [`ExecutionContext`] over it, set inputs, wire the
+    /// optional protocol trace, and drive `run_dag_on_context`. Backends customise only
+    /// via the hooks above — they do not override this.
     ///
     /// - `item_index`: `Some(i)` when this is the body of ForEach iteration `i`.
     /// - `persist_sinks`: the sink node ids whose output is plan terminal. A persisting
@@ -157,15 +222,118 @@ pub trait EngineRuntime: Send + Sync {
         item_index: Option<usize>,
         stall_tracker: Option<Arc<PipelineProgressTracker>>,
         persist_sinks: &HashSet<String>,
-    ) -> Result<SegmentOutput, ExecutionError>;
+    ) -> Result<SegmentOutput, ExecutionError> {
+        use crate::orchestrator::executor::{run_dag_on_context, ExecutionContext};
 
-    /// The fabric registry, for plan→resolved-graph conversion.
-    fn fabric_registry(&self) -> Arc<FabricRegistry>;
+        let activity_timeout_secs = self.activity_timeout_secs(graph).await?;
 
-    /// ForEach partial-failure policy: `"fail"` (any body failure fails the plan) or
-    /// `"allow"` (fail only when every body failed). The per-item activity timeout is
-    /// resolved inside `run_segment` (the runtime owns its config).
-    async fn foreach_partial_failure_policy(&self) -> String;
+        // Shared, long-lived switch (cartridges hosted + reused). The per-segment
+        // context is lightweight: its own node_data, no cleanup handles — so dropping
+        // it at the end of the segment does NOT tear down the shared cartridge host.
+        let switch = self.segment_switch(graph).await?;
+        let mut ctx = ExecutionContext::from_switch(switch).await?;
+
+        // Strict 1:1 between initial_inputs and initial_is_sequence — every input node
+        // carries an explicit scalar/sequence flag (the invariant run_dag_on_context
+        // relies on; a missing flag would silently send a sequence as a scalar blob).
+        let input_keys: HashSet<&str> = initial_inputs.keys().map(|s| s.as_str()).collect();
+        let flag_keys: HashSet<&str> = initial_is_sequence.keys().map(|s| s.as_str()).collect();
+        let missing: Vec<&str> = input_keys.difference(&flag_keys).copied().collect();
+        if !missing.is_empty() {
+            return Err(ExecutionError::HostError(format!(
+                "run_segment: initial_is_sequence is missing flags for input node(s) {missing:?}"
+            )));
+        }
+        let extra: Vec<&str> = flag_keys.difference(&input_keys).copied().collect();
+        if !extra.is_empty() {
+            return Err(ExecutionError::HostError(format!(
+                "run_segment: initial_is_sequence has stale flags for node(s) {extra:?}"
+            )));
+        }
+        for (node, data) in initial_inputs {
+            let is_seq = *initial_is_sequence
+                .get(&node)
+                .expect("key set verified above");
+            ctx.set_node_is_sequence(node.clone(), is_seq);
+            ctx.set_node_data(node, data);
+        }
+
+        // Optional per-segment protocol trace (CLI). When a sink is supplied, sample the
+        // switch's L8 snapshot live every 250ms so a HANGING segment still leaves a stall
+        // line, and snapshot once more at teardown on both the Ok and Err paths. A live
+        // sample write failure is logged and swallowed; the final snapshot is fail-hard.
+        let trace_sink = self.trace_sink();
+        let trace_label = trace_sink.as_ref().map(|_| {
+            graph
+                .edges
+                .last()
+                .map(|e| e.cap_urn.clone())
+                .unwrap_or_else(|| "empty-graph".to_string())
+        });
+        let trace_sampler = match (&trace_sink, &trace_label) {
+            (Some(sink), Some(label)) => {
+                let switch = ctx.switch().clone();
+                let sink = sink.clone();
+                let label = label.clone();
+                Some(tokio::spawn(async move {
+                    let mut ticker =
+                        tokio::time::interval(std::time::Duration::from_millis(250));
+                    loop {
+                        ticker.tick().await;
+                        let stats = switch.protocol_stats().await;
+                        if let Err(e) = sink.record_deduped(&stats, &label).await {
+                            tracing::debug!(
+                                error = %e, segment = %label,
+                                "protocol trace live sample failed (continuing)"
+                            );
+                        }
+                    }
+                }))
+            }
+            _ => None,
+        };
+
+        let writer = self.writer_factory();
+        let observer = self.flow_observer();
+        let out = run_dag_on_context(
+            &mut ctx,
+            graph,
+            cap_arguments,
+            progress_fn,
+            step_progress_fn,
+            log_fn,
+            item_index,
+            stall_tracker,
+            writer.as_deref(),
+            persist_sinks,
+            activity_timeout_secs,
+            observer,
+        )
+        .await;
+
+        // Stop the live sampler before the final snapshot so they cannot race on the file.
+        if let Some(handle) = trace_sampler {
+            handle.abort();
+            let _ = handle.await;
+        }
+        if let (Some(sink), Some(label)) = (&trace_sink, &trace_label) {
+            let stats = ctx.switch().protocol_stats().await;
+            if let Err(e) = sink.record_deduped(&stats, label).await {
+                match &out {
+                    Ok(_) => {
+                        return Err(ExecutionError::HostError(format!(
+                            "protocol trace write failed for segment '{label}': {e}"
+                        )))
+                    }
+                    Err(_) => tracing::error!(
+                        error = %e, segment = %label,
+                        "protocol trace write failed on the segment error path"
+                    ),
+                }
+            }
+        }
+        out
+    }
 }
 
 // =============================================================================

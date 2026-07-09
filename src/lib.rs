@@ -237,7 +237,7 @@ pub use orchestrator::{
     parse_machine_to_cap_dag,
     plan_to_resolved_graph,
     BodyOutcomeFn,
-    DevBinRuntime,
+    CliRuntime,
     EngineRuntime,
     OutputItem,
     PipelineItemFn,

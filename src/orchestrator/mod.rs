@@ -20,7 +20,7 @@
 //! ```
 
 pub mod cbor_util;
-pub mod dev_bin_runtime;
+pub mod cli_runtime;
 pub mod execute_plan;
 pub mod executor;
 pub mod machine_plan;
@@ -41,7 +41,7 @@ pub use execute_plan::{
     SegmentOutput, WriterResult,
 };
 
-pub use dev_bin_runtime::DevBinRuntime;
+pub use cli_runtime::CliRuntime;
 
 pub use plan_converter::plan_to_resolved_graph;
 

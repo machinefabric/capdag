@@ -4,7 +4,7 @@
 
 use capdag::machine::parse_machine_with_node_names;
 use capdag::orchestrator::{
-    build_plans_from_notation, execute_plan, parse_machine_to_cap_dag, DevBinRuntime, EngineRuntime,
+    build_plans_from_notation, execute_plan, parse_machine_to_cap_dag, CliRuntime, EngineRuntime,
 };
 use capdag::{
     CapProgressFn, CartridgeChannel, ExecutionNodeType, FabricRegistry, PipelineLogFn, StreamMeta,
@@ -531,19 +531,20 @@ async fn main() {
         None => None,
     };
 
-    // The reference runtime: hosts cartridges by spawning them per segment via
-    // execute_dag, keeps output in memory, and fails hard on any ForEach body
-    // failure. execute_plan drives the ForEach/Collect decomposition on top of it.
-    let runtime: Arc<dyn EngineRuntime> = Arc::new(DevBinRuntime {
-        cartridge_dir: cartridge_dir.clone(),
-        registry_url: registry_url.clone(),
-        channel: BUILD_CHANNEL,
-        fabric_manifest_version: capdag::FABRIC_MANIFEST_VERSION,
-        dev_binaries: dev_binaries.clone(),
-        bundled_providers_dir: bundled_providers_dir.clone(),
-        fabric_registry: registry.clone(),
+    // The CLI runtime: hosts cartridges in-process on ONE reused relay switch (a cap's
+    // cartridge is spawned once and every ForEach body multiplexes onto it, like the
+    // engine), keeps output in memory, and fails hard on any ForEach body failure.
+    // execute_plan drives the ForEach/Collect decomposition on top of it.
+    let runtime: Arc<dyn EngineRuntime> = Arc::new(CliRuntime::new(
+        cartridge_dir.clone(),
+        registry_url.clone(),
+        BUILD_CHANNEL,
+        capdag::FABRIC_MANIFEST_VERSION,
+        dev_binaries.clone(),
+        bundled_providers_dir.clone(),
+        registry.clone(),
         trace_sink,
-    });
+    ));
 
     let progress: CapProgressFn = Arc::new(|p: f32, cap_urn: &str, msg: &str| {
         eprintln!("  [{:5.1}%] {} {}", p * 100.0, cap_urn, msg);

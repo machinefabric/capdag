@@ -2,15 +2,15 @@
 //!
 //! The engine's dev trace (`machfab/src/cap/protocol_trace.rs`) samples a
 //! LONG-LIVED relay switch every 2s and writes transition-deduped JSONL. The
-//! capdag reference runtime ([`crate::orchestrator::dev_bin_runtime`]) has no
-//! long-lived switch: it builds a fresh cartridge host + [`RelaySwitch`] PER
-//! SEGMENT via [`crate::orchestrator::executor::execute_dag`]. So the reference
-//! path both SAMPLES the switch live during the segment (a 250ms sampler spawned
-//! by `execute_dag`) and captures a final SNAPSHOT at teardown — every line
-//! carries the switch's [`RelaySwitchProtocolStats`], the same information the
-//! Protocol Health view shows. Live sampling is what makes a HANGING segment
-//! observable: the last line written before the harness kills it shows the
-//! stalled active request with its per-stream credit/flow counters.
+//! capdag CLI runtime ([`crate::orchestrator::cli_runtime::CliRuntime`]) reuses a
+//! long-lived switch too, but the trace is scoped PER SEGMENT: the shared
+//! [`EngineRuntime::run_segment`](crate::orchestrator::execute_plan::EngineRuntime)
+//! both SAMPLES the switch live during the segment (a 250ms sampler) and captures
+//! a final SNAPSHOT at teardown — every line carries the switch's
+//! [`RelaySwitchProtocolStats`], the same information the Protocol Health view
+//! shows. Live sampling is what makes a HANGING segment observable: the last line
+//! written before the harness kills it shows the stalled active request with its
+//! per-stream credit/flow counters.
 //!
 //! Line schema (JSONL, one object per line):
 //! ```json
