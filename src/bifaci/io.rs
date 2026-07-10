@@ -252,26 +252,36 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, CborError> {
     let frame_type = FrameType::from_u8(frame_type_u8)
         .ok_or_else(|| CborError::InvalidFrame(format!("invalid frame_type: {}", frame_type_u8)))?;
 
-    let id = lookup
-        .get(&keys::ID)
-        .map(|v| match v {
-            Value::Bytes(bytes) => {
-                if bytes.len() == 16 {
-                    let mut arr = [0u8; 16];
-                    arr.copy_from_slice(bytes);
-                    MessageId::Uuid(arr)
-                } else {
-                    // Treat as bytes, but not a valid UUID - fallback to uint interpretation
-                    MessageId::Uint(0)
-                }
+    // A present-but-malformed id (wrong byte length, negative, or wrong CBOR type) is a
+    // corrupt frame — fail hard. Fabricating MessageId::Uint(0) would forge a routing key
+    // from corruption and silently misroute the frame. A legitimately id-less frame
+    // (HELLO/RelayNotify/RelayState) encodes id as the integer 0, which decodes cleanly.
+    let id = match lookup.get(&keys::ID) {
+        None => return Err(CborError::InvalidFrame("missing id".to_string())),
+        Some(Value::Bytes(bytes)) if bytes.len() == 16 => {
+            let mut arr = [0u8; 16];
+            arr.copy_from_slice(bytes);
+            MessageId::Uuid(arr)
+        }
+        Some(Value::Bytes(bytes)) => {
+            return Err(CborError::InvalidFrame(format!(
+                "id: byte string must be exactly 16 bytes for a UUID, got {}",
+                bytes.len()
+            )))
+        }
+        Some(Value::Integer(i)) => {
+            let n: i128 = (*i).into();
+            if n < 0 {
+                return Err(CborError::InvalidFrame(format!("id: negative integer {n}")));
             }
-            Value::Integer(i) => {
-                let n: i128 = (*i).into();
-                MessageId::Uint(n as u64)
-            }
-            _ => MessageId::Uint(0),
-        })
-        .ok_or_else(|| CborError::InvalidFrame("missing id".to_string()))?;
+            MessageId::Uint(n as u64)
+        }
+        Some(other) => {
+            return Err(CborError::InvalidFrame(format!(
+                "id: must be a 16-byte UUID or a uint, got {other:?}"
+            )))
+        }
+    };
 
     let seq = lookup
         .get(&keys::SEQ)
@@ -344,22 +354,36 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, CborError> {
         _ => None,
     });
 
-    let routing_id = lookup.get(&keys::ROUTING_ID).map(|v| match v {
-        Value::Bytes(bytes) => {
-            if bytes.len() == 16 {
-                let mut arr = [0u8; 16];
-                arr.copy_from_slice(bytes);
-                MessageId::Uuid(arr)
-            } else {
-                MessageId::Uint(0)
-            }
+    // routing_id is optional (absent ⇒ None), but a PRESENT routing_id that is malformed
+    // is corruption — fail hard rather than fabricate MessageId::Uint(0) and misroute.
+    let routing_id = match lookup.get(&keys::ROUTING_ID) {
+        None => None,
+        Some(Value::Bytes(bytes)) if bytes.len() == 16 => {
+            let mut arr = [0u8; 16];
+            arr.copy_from_slice(bytes);
+            Some(MessageId::Uuid(arr))
         }
-        Value::Integer(i) => {
+        Some(Value::Bytes(bytes)) => {
+            return Err(CborError::InvalidFrame(format!(
+                "routing_id: byte string must be exactly 16 bytes, got {}",
+                bytes.len()
+            )))
+        }
+        Some(Value::Integer(i)) => {
             let n: i128 = (*i).into();
-            MessageId::Uint(n as u64)
+            if n < 0 {
+                return Err(CborError::InvalidFrame(format!(
+                    "routing_id: negative integer {n}"
+                )));
+            }
+            Some(MessageId::Uint(n as u64))
         }
-        _ => MessageId::Uint(0),
-    });
+        Some(other) => {
+            return Err(CborError::InvalidFrame(format!(
+                "routing_id: must be a 16-byte UUID or a uint, got {other:?}"
+            )))
+        }
+    };
 
     let chunk_index = lookup.get(&keys::INDEX).and_then(|v| match v {
         Value::Integer(i) => {
@@ -1648,6 +1672,107 @@ mod tests {
 
         let result = decode_frame(&bytes);
         assert!(matches!(result, Err(CborError::InvalidFrame(_))));
+    }
+
+    // TEST7003: decode_frame rejects a present-but-malformed id (wrong byte length) as a
+    // hard decode error instead of fabricating MessageId::Uint(0). Forging a routing key
+    // from corruption would silently misroute the frame.
+    #[test]
+    fn test7003_decode_rejects_malformed_id_wrong_length() {
+        let map = ciborium::Value::Map(vec![
+            (
+                ciborium::Value::Integer(keys::VERSION.into()),
+                ciborium::Value::Integer(1.into()),
+            ),
+            (
+                ciborium::Value::Integer(keys::FRAME_TYPE.into()),
+                ciborium::Value::Integer(1.into()),
+            ),
+            // 5 bytes: present but not a valid 16-byte UUID.
+            (
+                ciborium::Value::Integer(keys::ID.into()),
+                ciborium::Value::Bytes(vec![1, 2, 3, 4, 5]),
+            ),
+        ]);
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&map, &mut bytes).unwrap();
+        assert!(matches!(decode_frame(&bytes), Err(CborError::InvalidFrame(m)) if m.contains("id")));
+    }
+
+    // TEST7004: decode_frame rejects an id of the wrong CBOR type as a hard decode error.
+    #[test]
+    fn test7004_decode_rejects_malformed_id_wrong_type() {
+        let map = ciborium::Value::Map(vec![
+            (
+                ciborium::Value::Integer(keys::VERSION.into()),
+                ciborium::Value::Integer(1.into()),
+            ),
+            (
+                ciborium::Value::Integer(keys::FRAME_TYPE.into()),
+                ciborium::Value::Integer(1.into()),
+            ),
+            (
+                ciborium::Value::Integer(keys::ID.into()),
+                ciborium::Value::Text("not-an-id".to_string()),
+            ),
+        ]);
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&map, &mut bytes).unwrap();
+        assert!(matches!(decode_frame(&bytes), Err(CborError::InvalidFrame(_))));
+    }
+
+    // TEST7005: decode_frame rejects a present-but-malformed routing_id (wrong length or
+    // wrong CBOR type) rather than silently dropping it — a dropped relay hint would let
+    // the switch treat a routed response as a fresh top-level request. A well-formed
+    // routing_id must still decode.
+    #[test]
+    fn test7005_decode_rejects_malformed_routing_id() {
+        let base = || {
+            vec![
+                (
+                    ciborium::Value::Integer(keys::VERSION.into()),
+                    ciborium::Value::Integer(1.into()),
+                ),
+                (
+                    ciborium::Value::Integer(keys::FRAME_TYPE.into()),
+                    ciborium::Value::Integer(1.into()),
+                ),
+                (
+                    ciborium::Value::Integer(keys::ID.into()),
+                    ciborium::Value::Integer(1.into()),
+                ),
+            ]
+        };
+        let encode = |m: Vec<(ciborium::Value, ciborium::Value)>| {
+            let mut bytes = Vec::new();
+            ciborium::into_writer(&ciborium::Value::Map(m), &mut bytes).unwrap();
+            bytes
+        };
+
+        // Wrong byte length.
+        let mut m = base();
+        m.push((
+            ciborium::Value::Integer(keys::ROUTING_ID.into()),
+            ciborium::Value::Bytes(vec![9, 9, 9]),
+        ));
+        assert!(matches!(decode_frame(&encode(m)), Err(CborError::InvalidFrame(_))));
+
+        // Wrong CBOR type.
+        let mut m = base();
+        m.push((
+            ciborium::Value::Integer(keys::ROUTING_ID.into()),
+            ciborium::Value::Text("not-a-routing-id".to_string()),
+        ));
+        assert!(matches!(decode_frame(&encode(m)), Err(CborError::InvalidFrame(_))));
+
+        // Well-formed routing_id still decodes.
+        let mut m = base();
+        m.push((
+            ciborium::Value::Integer(keys::ROUTING_ID.into()),
+            ciborium::Value::Integer(7.into()),
+        ));
+        let ok = decode_frame(&encode(m)).expect("well-formed routing_id must decode");
+        assert_eq!(ok.routing_id, Some(MessageId::Uint(7)));
     }
 
     // TEST229: Test FrameReader/FrameWriter set_limits updates the negotiated limits
