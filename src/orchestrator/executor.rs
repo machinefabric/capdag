@@ -2174,15 +2174,46 @@ async fn forward_frames(
                                     prev_sid
                                 ))
                             })?;
-                            if let Err(closed) = gate.acquire(1).await {
-                                // Downstream consumer terminated while we waited for
-                                // credit — stop forwarding gracefully (see the
-                                // try_acquire arm above for the rationale).
-                                tracing::debug!(
-                                    "[pipeline] forwarding stops early: downstream credit gate closed ({})",
-                                    closed.reason
-                                );
-                                return Ok(());
+                            // Hard block on downstream credit — but never
+                            // silently: this await is outside the main loop's
+                            // 500ms heartbeat, so a starved credit edge here
+                            // is otherwise invisible (the exact shape of the
+                            // rare pipelined-chain deadlock). Surface the
+                            // blocked state with its credit balance at the
+                            // activity-timeout cadence while continuing to
+                            // wait (L8: stalls are observable, never silent).
+                            loop {
+                                match tokio::time::timeout(
+                                    Duration::from_secs(activity_timeout_secs.max(1)),
+                                    gate.acquire(1),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(())) => break,
+                                    Ok(Err(closed)) => {
+                                        // Downstream consumer terminated while we
+                                        // waited for credit — stop forwarding
+                                        // gracefully (see the try_acquire arm
+                                        // above for the rationale).
+                                        tracing::debug!(
+                                            "[pipeline] forwarding stops early: downstream credit gate closed ({})",
+                                            closed.reason
+                                        );
+                                        return Ok(());
+                                    }
+                                    Err(_elapsed) => {
+                                        tracing::warn!(
+                                            cap_urn = %prev_cap_urn,
+                                            stream_id = %prev_sid,
+                                            downstream_available = gate.available(),
+                                            gate_closed = gate.is_closed(),
+                                            "[pipeline] forwarder blocked on downstream credit for {}s — \
+                                             the consumer is not consuming (or its grants are not arriving); \
+                                             continuing to wait",
+                                            activity_timeout_secs.max(1)
+                                        );
+                                    }
+                                }
                             }
                         }
                         let (new_sid, _, consumed) =
@@ -2332,15 +2363,40 @@ async fn forward_frames(
                     }
                 }
                 if timer.is_expired() && !activity_warning_logged {
+                    // Credit-state dump (L8): a silent pipelined stall is a
+                    // starved credit edge somewhere in the per-hop loop; the
+                    // per-stream gate balance and pending upstream grants
+                    // name the starved edge directly. `available` is the
+                    // downstream window this forwarder can still send into;
+                    // `pending_upstream_grants` are consumed-but-ungranted
+                    // credits the producer is owed (should be 0 after the
+                    // flush above).
+                    let credit_state: Vec<String> = stream_id_map
+                        .iter()
+                        .map(|(prev_sid, (new_sid, gate, consumed))| {
+                            format!(
+                                "stream {}→{}: downstream_available={} pending_upstream_grants={} gate_closed={}",
+                                prev_sid,
+                                new_sid,
+                                gate.available(),
+                                consumed,
+                                gate.is_closed(),
+                            )
+                        })
+                        .collect();
                     let msg = format!(
-                        "Cap '{}' has had no activity for {}s — continuing to wait. Use Cancel to abort.",
-                        prev_cap_urn, activity_timeout_secs
+                        "Cap '{}' has had no activity for {}s — continuing to wait. Use Cancel to abort. \
+                         Forwarding credit state: [{}]",
+                        prev_cap_urn,
+                        activity_timeout_secs,
+                        credit_state.join("; "),
                     );
                     if let Some(lfn) = &log_fn {
                         lfn(prev_cap_urn, "warn", &msg, None, body_index);
                     }
                     tracing::warn!(
                         cap_urn = %prev_cap_urn,
+                        credit_state = ?credit_state,
                         "[cap] No activity for {}s; continuing to wait for completion or cancel",
                         activity_timeout_secs
                     );

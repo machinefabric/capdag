@@ -949,15 +949,29 @@ pub async fn collect_terminal_output(
                 // activity for Ns from cap X" without log-spam every
                 // 500 ms.
                 if timer.is_expired() && !activity_warning_logged {
+                    // Credit-state dump (L8): if the terminal cap is silent
+                    // because it is credit-starved, the pending-grant
+                    // counters (all flushed just above, so non-zero means
+                    // the flush path itself is broken) and total consumed
+                    // bytes locate the starved edge.
+                    let pending: Vec<String> = consumed_since_grant
+                        .iter()
+                        .map(|(sid, n)| format!("{:?}: pending_grants={}", sid, n))
+                        .collect();
                     let details = format!(
-                        "no activity for {}s — continuing to wait. Use Cancel to abort.",
-                        activity_timeout_secs
+                        "no activity for {}s — continuing to wait. Use Cancel to abort. \
+                         Terminal credit state: consumed_bytes={} [{}]",
+                        activity_timeout_secs,
+                        response_chunks.len(),
+                        pending.join("; "),
                     );
                     if let Some(lfn) = &log_fn {
                         lfn(cap_urn, "warn", &details, None, body_index);
                     }
                     tracing::warn!(
                         cap_urn = %cap_urn,
+                        consumed_bytes = response_chunks.len(),
+                        pending_grants = ?pending,
                         "[cap] No activity for {}s; continuing to wait for completion or cancel",
                         activity_timeout_secs
                     );

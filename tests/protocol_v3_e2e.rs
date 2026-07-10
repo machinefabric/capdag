@@ -849,8 +849,14 @@ async fn test7076_pipelined_chain_downstream_consumes_before_upstream_finishes()
     initial_is_sequence.insert("input".to_string(), false);
 
     let (log_fn, events) = capturing_log_fn();
+    // 180s, deliberately LONGER than the 120s activity timeout: on a
+    // credit-forwarding stall the runtime's activity warnings fire at 120s
+    // carrying the per-stream credit-state dumps (forwarder gate balances,
+    // pending grants) — the diagnostics that identify the starved edge.
+    // A kill timeout equal to the activity timeout races those dumps and
+    // loses them from the failure log.
     let outputs = tokio::time::timeout(
-        Duration::from_secs(120),
+        Duration::from_secs(180),
         execute_dag(
             &graph,
             cartridge_dir,
@@ -871,7 +877,9 @@ async fn test7076_pipelined_chain_downstream_consumes_before_upstream_finishes()
     .await
     .expect(
         "TEST7076 DEADLOCK: pipelined 2-cap chain did not complete within \
-         120s — per-hop credit forwarding is stalled (L9/L10/L11)",
+         180s — per-hop credit forwarding is stalled (L9/L10/L11); the \
+         credit-state dumps in the 120s activity warnings above name the \
+         starved edge",
     )
     .expect("Execution failed")
     .node_data;
