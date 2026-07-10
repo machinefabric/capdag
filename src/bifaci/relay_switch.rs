@@ -954,6 +954,13 @@ impl RelaySwitch {
                                 master_idx
                             )));
                         }
+                        // Control/side-channel frames are legal ANYWHERE during the
+                        // probe (spec 12.4: LOG interleaves without affecting data
+                        // flow; CREDIT/HEARTBEAT are the control plane the writer
+                        // gate itself exempts, L4). A v3 cartridge crediting its
+                        // probe input as it consumes (L10) must not fail identity
+                        // verification.
+                        FrameType::Log | FrameType::Credit | FrameType::Heartbeat => {}
                         other => {
                             return Err(RelaySwitchError::Protocol(format!(
                                 "master {}: identity verification: unexpected frame type {:?}",
@@ -1887,6 +1894,13 @@ impl RelaySwitch {
                         let msg = frame.error_message().unwrap_or("no message");
                         return Err(format!("identity probe failed: [{}] {}", code, msg));
                     }
+                    // Control/side-channel frames are legal ANYWHERE during the
+                    // probe (spec 12.4: LOG interleaves without affecting data
+                    // flow; CREDIT/HEARTBEAT are the control plane the writer
+                    // gate itself exempts, L4). A v3 cartridge crediting its
+                    // probe input as it consumes (L10) must not fail identity
+                    // verification.
+                    FrameType::Log | FrameType::Credit | FrameType::Heartbeat => {}
                     other => {
                         return Err(format!("identity probe: unexpected frame type {:?}", other));
                     }
@@ -2270,6 +2284,13 @@ impl RelaySwitch {
                                 code, msg
                             ));
                         }
+                        // Control/side-channel frames are legal ANYWHERE during the
+                        // probe (spec 12.4: LOG interleaves without affecting data
+                        // flow; CREDIT/HEARTBEAT are the control plane the writer
+                        // gate itself exempts, L4). A v3 cartridge crediting its
+                        // probe input as it consumes (L10) must not fail identity
+                        // verification.
+                        FrameType::Log | FrameType::Credit | FrameType::Heartbeat => {}
                         other => {
                             return Err(format!(
                                 "identity: unexpected frame type {:?}",
