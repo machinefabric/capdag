@@ -33,6 +33,18 @@ const BUILD_CHANNEL: CartridgeChannel =
 const BAKED_REGISTRY_URL: Option<&str> =
     capdag::registry_url_from_build_env(option_env!("MFR_CARTRIDGE_REGISTRY_URL"));
 
+/// Fabric registry origin (caps / media / aliases — the layer aliases like `disbind-pdf`
+/// live in), baked at build time from the environment `dx capdag-bundle`'s
+/// `select_fabric_target` exports (`https://fabric.capdag.com` for prod,
+/// `https://fabric-staging.capdag.com` for staging). A shipped binary has no such env at
+/// runtime, so `main` seeds the process env from these before any fabric-registry
+/// construction — otherwise every fabric/schema reader would fall back to the prod default
+/// and a staging build would resolve caps/aliases against prod fabric. The cartridge and
+/// fabric registries move together (build.rs fails a product build that bakes one without
+/// the other). `None` only for a bare `cargo run` dev build.
+const BAKED_FABRIC_REGISTRY_URL: Option<&str> = option_env!("CDG_FABRIC_REGISTRY_URL");
+const BAKED_FABRIC_SCHEMA_URL: Option<&str> = option_env!("CDG_SCHEMA_BASE_URL");
+
 /// The per-user cartridge install root: `~/.capdag/cartridges`, in the same
 /// `{registry_slug}/{channel}/{name}/{version}/` tree every host uses.
 fn user_cartridge_dir() -> PathBuf {
@@ -297,6 +309,24 @@ fn print_usage(program: &str) {
 
 #[tokio::main]
 async fn main() {
+    // Bind the CLI to the fabric registry origin (caps/media/aliases) it was built for.
+    // A shipped binary has no runtime env, so seed the process env from the build-baked
+    // value BEFORE any fabric-registry construction, unless the user has explicitly
+    // overridden it (a runtime env var always wins). Without this a `--staging` build
+    // resolves aliases like `disbind-pdf` against the prod fabric default. Schema base is
+    // only seeded alongside the fabric URL — never pair a runtime fabric URL with a baked
+    // schema URL.
+    if std::env::var_os("CDG_FABRIC_REGISTRY_URL").is_none() {
+        if let Some(url) = BAKED_FABRIC_REGISTRY_URL {
+            std::env::set_var("CDG_FABRIC_REGISTRY_URL", url);
+            if std::env::var_os("CDG_SCHEMA_BASE_URL").is_none() {
+                if let Some(schema) = BAKED_FABRIC_SCHEMA_URL {
+                    std::env::set_var("CDG_SCHEMA_BASE_URL", schema);
+                }
+            }
+        }
+    }
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
