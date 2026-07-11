@@ -1,0 +1,10 @@
+{
+  "name": "modelcartridge",
+  "version": "1.222.886-nightly",
+  "channel": "nightly",
+  "registry_url": "https://cartridges-staging.machinefabric.com/manifest",
+  "entry": "modelcartridge",
+  "installed_at": "2026-07-11T17:11:39Z",
+  "installed_from": "bundle",
+  "fabric_manifest_version": 1
+}
