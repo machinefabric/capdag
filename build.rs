@@ -97,6 +97,8 @@ fn enforce_signing_pubkey_pairing() {
     println!("cargo:rerun-if-env-changed=MFR_CARTRIDGE_REGISTRY_URL");
     println!("cargo:rerun-if-env-changed=MFR_CARTRIDGE_ROOT_PUBKEYS");
     println!("cargo:rerun-if-env-changed=MFR_SIGNING_ENVIRONMENT");
+    println!("cargo:rerun-if-env-changed=CDG_FABRIC_REGISTRY_URL");
+    println!("cargo:rerun-if-env-changed=CDG_SCHEMA_BASE_URL");
 
     let registry = env::var("MFR_CARTRIDGE_REGISTRY_URL")
         .ok()
@@ -105,6 +107,9 @@ fn enforce_signing_pubkey_pairing() {
         .ok()
         .filter(|v| !v.trim().is_empty());
     let environment = env::var("MFR_SIGNING_ENVIRONMENT")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let fabric = env::var("CDG_FABRIC_REGISTRY_URL")
         .ok()
         .filter(|v| !v.trim().is_empty());
 
@@ -123,6 +128,17 @@ fn enforce_signing_pubkey_pairing() {
                 "MFR_CARTRIDGE_REGISTRY_URL is set ({url:?}) but MFR_SIGNING_ENVIRONMENT is \
                  absent or empty. A registry-baking build must carry its signing environment \
                  label ('prod' or 'staging') so release-key certificates bind to it."
+            );
+        }
+        if fabric.is_none() {
+            panic!(
+                "MFR_CARTRIDGE_REGISTRY_URL is set ({url:?}) but CDG_FABRIC_REGISTRY_URL is \
+                 absent or empty. A product build binds the cartridge registry AND the fabric \
+                 registry (caps/media/aliases) together — otherwise the shipped CLI silently \
+                 resolves caps and aliases against the prod fabric default even in a staging \
+                 build. Set CDG_FABRIC_REGISTRY_URL (dx's select_fabric_target exports it: \
+                 https://fabric.capdag.com for prod, https://fabric-staging.capdag.com for \
+                 staging), or unset the cartridge registry URL for a dev build."
             );
         }
     }
