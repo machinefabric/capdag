@@ -72,7 +72,6 @@ const CAP_SLOW_CONSUME: &str =
 const CAP_ECHO_STREAM: &str =
     r#"cap:in="media:enc=utf-8;chunk-stream";test-echo-stream;out="media:enc=utf-8;echoed-stream""#;
 
-const REGISTRY_URL: &str = "https://cartridges.machinefabric.com/manifest";
 
 // =============================================================================
 // Log capture — every pipeline log/progress event, in arrival order
@@ -358,7 +357,7 @@ async fn setup_execution_context(
 ) -> ExecutionContext {
     let mut manager = CartridgeManager::new(
         cartridge_dir,
-        REGISTRY_URL.to_string(),
+        None,
         capdag::CartridgeChannel::Release,
         capdag::FABRIC_MANIFEST_VERSION,
         dev_binaries,
@@ -419,7 +418,7 @@ async fn test7054_slow_consumer_throttles_input_send() {
         execute_dag(
             &graph,
             cartridge_dir,
-            REGISTRY_URL.to_string(),
+            None,
             capdag::CartridgeChannel::Release,
             capdag::FABRIC_MANIFEST_VERSION,
             initial_inputs,
@@ -500,7 +499,7 @@ async fn test7056_bidirectional_echo_no_deadlock() {
         execute_dag(
             &graph,
             cartridge_dir,
-            REGISTRY_URL.to_string(),
+            None,
             capdag::CartridgeChannel::Release,
             capdag::FABRIC_MANIFEST_VERSION,
             initial_inputs,
@@ -860,7 +859,7 @@ async fn test7076_pipelined_chain_downstream_consumes_before_upstream_finishes()
         execute_dag(
             &graph,
             cartridge_dir,
-            REGISTRY_URL.to_string(),
+            None,
             capdag::CartridgeChannel::Release,
             capdag::FABRIC_MANIFEST_VERSION,
             initial_inputs,

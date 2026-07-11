@@ -20,6 +20,8 @@
 //! ```
 
 pub mod cbor_util;
+pub mod cli_cap;
+pub mod cli_output;
 pub mod cli_runtime;
 pub mod execute_plan;
 pub mod executor;
@@ -41,6 +43,11 @@ pub use execute_plan::{
     SegmentOutput, WriterResult,
 };
 
+pub use cli_cap::{
+    classify_cap_token, map_invocation, synthesize_single_cap_notation, CapInvocation,
+    CapToken, SINGLE_CAP_INPUT_NODE, SINGLE_CAP_OUTPUT_NODE, SINGLE_CAP_STEP_NAME,
+};
+pub use cli_output::{emit_terminals, extension_for_media, EmitOptions};
 pub use cli_runtime::CliRuntime;
 
 pub use plan_converter::plan_to_resolved_graph;

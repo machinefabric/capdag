@@ -40,7 +40,7 @@ use crate::ExecutionError;
 /// runtime is dropped.
 pub struct CliRuntime {
     cartridge_dir: PathBuf,
-    registry_url: String,
+    registry_url: Option<String>,
     channel: CartridgeChannel,
     fabric_manifest_version: u32,
     dev_binaries: Vec<PathBuf>,
@@ -77,7 +77,7 @@ impl CliRuntime {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         cartridge_dir: PathBuf,
-        registry_url: String,
+        registry_url: Option<String>,
         channel: CartridgeChannel,
         fabric_manifest_version: u32,
         dev_binaries: Vec<PathBuf>,
@@ -132,6 +132,7 @@ impl CliHost {
                 rt.channel,
                 rt.fabric_manifest_version,
                 rt.dev_binaries.clone(),
+                crate::bifaci::release_cert::RegistryTrust::from_build_constants(),
             );
             manager.init().await?;
             self.manager = Some(manager);
@@ -151,7 +152,7 @@ impl CliHost {
                     discover_bundled_provider_cartridges(
                         dir,
                         rt.channel,
-                        &rt.registry_url,
+                        rt.registry_url.as_deref(),
                         rt.fabric_manifest_version,
                     )
                     .await?,

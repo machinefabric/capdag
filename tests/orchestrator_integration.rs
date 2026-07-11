@@ -447,7 +447,7 @@ async fn test889_execute_single_edge_dag() {
     let result = execute_dag(
         &graph,
         cartridge_dir,
-        "https://cartridges.machinefabric.com/manifest".to_string(),
+        None, // dev-bin fixtures — no registry
         capdag::CartridgeChannel::Release,
         capdag::FABRIC_MANIFEST_VERSION,
         initial_inputs,
@@ -497,7 +497,7 @@ async fn test888_execute_edge1_to_edge2_chain() {
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
-        "https://cartridges.machinefabric.com/manifest".to_string(),
+        None, // dev-bin fixtures — no registry
         capdag::CartridgeChannel::Release,
         capdag::FABRIC_MANIFEST_VERSION,
         initial_inputs,
@@ -548,7 +548,7 @@ async fn test887_execute_with_file_input() {
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
-        "https://cartridges.machinefabric.com/manifest".to_string(),
+        None, // dev-bin fixtures — no registry
         capdag::CartridgeChannel::Release,
         capdag::FABRIC_MANIFEST_VERSION,
         initial_inputs,
@@ -595,7 +595,7 @@ async fn test952_execute_large_payload() {
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
-        "https://cartridges.machinefabric.com/manifest".to_string(),
+        None, // dev-bin fixtures — no registry
         capdag::CartridgeChannel::Release,
         capdag::FABRIC_MANIFEST_VERSION,
         initial_inputs,
@@ -656,7 +656,7 @@ async fn test1316_convergence_two_producers_distinct_arg_urns() {
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
-        "https://cartridges.machinefabric.com/manifest".to_string(),
+        None, // dev-bin fixtures — no registry
         capdag::CartridgeChannel::Release,
         capdag::FABRIC_MANIFEST_VERSION,
         initial_inputs,
@@ -810,7 +810,7 @@ async fn test946_four_machine() {
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
-        "https://cartridges.machinefabric.com/manifest".to_string(),
+        None, // dev-bin fixtures — no registry
         capdag::CartridgeChannel::Release,
         capdag::FABRIC_MANIFEST_VERSION,
         initial_inputs,
@@ -870,7 +870,7 @@ async fn test945_five_machine() {
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
-        "https://cartridges.machinefabric.com/manifest".to_string(),
+        None, // dev-bin fixtures — no registry
         capdag::CartridgeChannel::Release,
         capdag::FABRIC_MANIFEST_VERSION,
         initial_inputs,
@@ -930,7 +930,7 @@ async fn test944_six_machine() {
     let outputs = execute_dag(
         &graph,
         cartridge_dir,
-        "https://cartridges.machinefabric.com/manifest".to_string(),
+        None, // dev-bin fixtures — no registry
         capdag::CartridgeChannel::Release,
         capdag::FABRIC_MANIFEST_VERSION,
         initial_inputs,

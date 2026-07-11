@@ -71,6 +71,38 @@ pub use fabric::alias::{
 pub use fabric_manifest_version::FABRIC_MANIFEST_VERSION;
 pub use bundled_provider_hashes::BUNDLED_PROVIDER_HASHES;
 
+// Cartridge binary + manifest signing (minisign / ed25519): runtime
+// verification of registry-downloaded pure-binary artifacts and signed
+// manifests against the baked root public keys.
+pub use bifaci::binary_signing::{
+    parse_minisign_public_key, raw_verify, root_pubkeys_from_build_env,
+    signing_environment_from_build_env, split_root_pubkeys, verify_binary_signature,
+    ParsedPublicKey, SignatureError,
+};
+pub use bifaci::release_cert::{
+    unix_now, verify_manifest_envelope, CertificateEntry, ChainError, ManifestSigEnvelope,
+    ManifestSignature, RegistryTrust, ReleaseKeyCertificate, RootSignature, VerifiedChain,
+    MANIFEST_SIG_FORMAT, RELEASE_KEY_CERT_FORMAT, REQUIRED_ROOT_SIGNATURES,
+};
+
+/// The comma-separated base64 minisign ROOT public keys this build trusts
+/// (Root A, Root B, …), baked at compile time from
+/// `MFR_CARTRIDGE_ROOT_PUBKEYS`. Roots sign release-key certificates only;
+/// artifacts and manifests are signed by a certificate-authorized release
+/// key. `None` = dev build (registry downloads and manifest verification are
+/// disabled). `capdag/build.rs` enforces that a build baking a cartridge
+/// registry URL also bakes the root set and the environment label — the
+/// triple travels together.
+pub const CARTRIDGE_ROOT_PUBKEYS: Option<&'static str> =
+    root_pubkeys_from_build_env(option_env!("MFR_CARTRIDGE_ROOT_PUBKEYS"));
+
+/// The signing environment label (`prod` / `staging`) this build is bound
+/// to, baked from `MFR_SIGNING_ENVIRONMENT`. Release-key certificates carry
+/// the environment they were issued for; a certificate for the other
+/// environment is rejected even though the root set is shared.
+pub const SIGNING_ENVIRONMENT: Option<&'static str> =
+    signing_environment_from_build_env(option_env!("MFR_SIGNING_ENVIRONMENT"));
+
 // Standard caps and media
 pub use standard::*;
 
@@ -106,7 +138,7 @@ pub use bifaci::manifest::*;
 // Re-export ops crate types used by Op-based handlers
 pub use async_trait::async_trait;
 pub use bifaci::cartridge_repo::{
-    host_platform, CartridgeBuild, CartridgeChannel, CartridgeChannelEntries,
+    host_platform, CartridgeBinaryInfo, CartridgeBuild, CartridgeChannel, CartridgeChannelEntries,
     CartridgeCompatibilityResolution, CartridgeDistributionInfo, CartridgeInfo, CartridgeRegistry,
     CartridgeRegistryChannels, CartridgeRegistryEntry, CartridgeRegistryResponse, CartridgeRepo,
     CartridgeRepoError, CartridgeSuggestion, CartridgeVersionData, CompatStatus, RegistryArgSource,

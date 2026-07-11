@@ -83,3 +83,4 @@ standard/*
 standard/media/*
 .wsb/
 diffs/
+tests/fixtures/nocommit/*

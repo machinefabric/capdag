@@ -25,6 +25,69 @@ use std::sync::Arc;
 const BUILD_CHANNEL: CartridgeChannel =
     CartridgeChannel::from_build_env(env!("MFR_CARTRIDGE_CHANNEL"));
 
+/// Cartridge registry identity — baked at build time exactly like the
+/// engine's (`MFR_CARTRIDGE_REGISTRY_URL` via option_env!): `None` = dev
+/// build (dev-bins + bundled providers only; registry downloads are
+/// disabled), `Some(url)` = a product build bound to that registry. Never a
+/// hardcoded literal — the URL is part of the build identity.
+const BAKED_REGISTRY_URL: Option<&str> =
+    capdag::registry_url_from_build_env(option_env!("MFR_CARTRIDGE_REGISTRY_URL"));
+
+/// The per-user cartridge install root: `~/.capdag/cartridges`, in the same
+/// `{registry_slug}/{channel}/{name}/{version}/` tree every host uses.
+fn user_cartridge_dir() -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    home.join(".capdag").join("cartridges")
+}
+
+/// Bundled providers shipped beside this CLI binary (the executor's own
+/// `providers/` tree, staged by `dx capdag-bundle` with baked content
+/// hashes). Present only in a packaged build; absent for a bare `cargo run`.
+fn bundled_providers_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("providers")))
+        .filter(|dir| dir.is_dir())
+}
+
+/// The stderr progress/log hooks shared by every execution mode.
+fn progress_hooks() -> (CapProgressFn, PipelineLogFn) {
+    let progress: CapProgressFn = Arc::new(|p: f32, cap_urn: &str, msg: &str| {
+        eprintln!("  [{:5.1}%] {} {}", p * 100.0, cap_urn, msg);
+    });
+    let log_fn: PipelineLogFn = Arc::new(
+        |cap_urn: &str,
+         level: &str,
+         message: &str,
+         meta: Option<StreamMeta>,
+         body_index: Option<usize>| {
+            let meta_suffix = match meta.as_ref().and_then(|meta| meta.get("progress")) {
+                Some(ciborium::Value::Float(progress)) => {
+                    format!(" [meta progress={:.1}%]", progress * 100.0)
+                }
+                Some(ciborium::Value::Integer(progress)) => {
+                    let progress: i128 = (*progress).into();
+                    format!(" [meta progress={}]", progress)
+                }
+                _ => meta
+                    .as_ref()
+                    .map(|meta| format!(" [meta {:?}]", meta))
+                    .unwrap_or_default(),
+            };
+            match body_index {
+                Some(index) => {
+                    eprintln!(
+                        "  [log:{} body={}]{} {} {}",
+                        level, index, meta_suffix, cap_urn, message
+                    )
+                }
+                None => eprintln!("  [log:{}]{} {} {}", level, meta_suffix, cap_urn, message),
+            }
+        },
+    );
+    (progress, log_fn)
+}
+
 /// Expand dev binary path - supports single file or directory of executables
 fn expand_dev_binary_path(path: &str) -> Vec<PathBuf> {
     let path_buf = PathBuf::from(path);
@@ -196,26 +259,39 @@ fn expand_input_path(path: &str) -> Vec<PathBuf> {
 
 fn print_usage(program: &str) {
     eprintln!(
-        "Usage: {} [options] <machine-file> [input-paths...]\n\n\
-         Execute a machine notation pipeline on input files.\n\n\
+        "Usage:\n\
+           {p} <cap-alias-or-urn> [cap args] [inputs...] [options]   Run one cap\n\
+           {p} run <machine-file> [inputs...] [options]              Run a .machine file\n\
+           {p} resolve <cap-alias-or-urn>                            Show the providing cartridge(s)\n\
+           {p} install <cap-alias-or-urn-or-cartridge-id>            Download + verify without running\n\n\
+         Single-cap mode drives the cap's OWN declared interface — exactly like\n\
+         invoking the cartridge directly, except the cap runs inside a full bifaci\n\
+         host with the bundled providers (data/fetch/model cartridges) registered,\n\
+         so peer calls (e.g. model downloads) work:\n\
+           - piped stdin, or input file paths, feed the cap's stdin arg\n\
+           - the cap's declared --flags and positional args are accepted natively\n\
+           - --arg <flag-or-media-urn>=<value> addresses any arg explicitly\n\
+             (value form @<path> reads the file's bytes)\n\n\
+         Output (pipe discipline): a single scalar result streams RAW to stdout;\n\
+         sequences and fan-outs write files (named {{input}}.{{node}}[.{{i}}].{{ext}})\n\
+         and list their paths on stdout. Logs/progress go to stderr.\n\n\
          Options:\n\
-           --mermaid                Output Mermaid diagram code and exit\n\
-           --gen-values             Output a values JSON template for the machine and exit\n\
+           -o, --output <dir>       Write result files into <dir> (default: cwd)\n\
+           --force                  Overwrite existing output files\n\
+           --arg <name>=<value>     Explicit cap argument (repeatable; single-cap mode)\n\
+           --values <file.json>     Argument values per node (run mode)\n\
+           --gen-values             Output a values JSON template and exit (run mode)\n\
+           --mermaid                Output Mermaid diagram code and exit (run mode)\n\
            --dev-bins <binary> ...  Use local cartridge binaries\n\
-           --values <file.json>     Argument values per node\n\
            --trace <file.trace>     Write a per-segment bifaci protocol trace (JSONL)\n\
            --help                   Show this help\n\n\
-         Input paths can be:\n\
-           - Single file:   /path/to/file.pdf\n\
-           - Directory:     /path/to/pdfs/\n\
-           - Glob pattern:  /path/to/*.pdf\n\n\
+         Utility subcommand: hash-cartridge-dir.\n\n\
          Examples:\n\
-           {} --gen-values pipeline.machine > values.json\n\
-           {} --mermaid pipeline.machine\n\
-           {} pipeline.machine /tmp/test.pdf\n\
-           {} --values values.json pipeline.machine /tmp/pdfs/\n\
-           {} --dev-bins ./pdfcartridge pipeline.machine /tmp/*.pdf",
-        program, program, program, program, program, program
+           {p} pdf2summary report.pdf\n\
+           cat report.pdf | {p} pdf2summary > summary.txt\n\
+           {p} disbind-pdf --index-range 1-5 report.pdf -o pages/\n\
+           {p} run pipeline.machine /tmp/pdfs/",
+        p = program
     );
 }
 
@@ -253,13 +329,45 @@ async fn main() {
         }
     }
 
+    // ── Dispatch ───────────────────────────────────────────────────────────
+    // Reserved subcommands, then: a `.machine` first token is a usage error
+    // pointing at `run` (no silent dispatch), an option-like token is a usage
+    // error, anything else is SINGLE-CAP MODE (alias or cap URN).
+    match args[1].as_str() {
+        "run" => cmd_run(&args).await,
+        "resolve" => cmd_resolve(&args).await,
+        "install" => cmd_install(&args).await,
+        "--help" | "-h" | "help" => {
+            print_usage(&args[0]);
+            process::exit(0);
+        }
+        token if token.ends_with(".machine") => {
+            eprintln!(
+                "'{token}' is a machine file — run it with: {} run {token} [inputs...]",
+                args[0]
+            );
+            process::exit(2);
+        }
+        token if token.starts_with('-') => {
+            eprintln!("Unknown option '{token}'.");
+            print_usage(&args[0]);
+            process::exit(2);
+        }
+        _ => cmd_cap(&args).await,
+    }
+}
+
+/// `capdag run <machine-file> [inputs…]` — execute a .machine pipeline.
+async fn cmd_run(args: &[String]) -> ! {
     // Parse arguments
     let mut dev_binaries = Vec::new();
     let mut mermaid_mode = false;
     let mut gen_values_mode = false;
     let mut values_file: Option<String> = None;
     let mut trace_file: Option<String> = None;
-    let mut arg_idx = 1;
+    let mut output_dir: Option<PathBuf> = None;
+    let mut force_overwrite = false;
+    let mut arg_idx = 2;
 
     // Parse flags
     while arg_idx < args.len() {
@@ -292,6 +400,19 @@ async fn main() {
                     process::exit(1);
                 }
                 trace_file = Some(args[arg_idx].clone());
+                arg_idx += 1;
+            }
+            "-o" | "--output" => {
+                arg_idx += 1;
+                if arg_idx >= args.len() {
+                    eprintln!("--output requires a directory path");
+                    process::exit(1);
+                }
+                output_dir = Some(PathBuf::from(&args[arg_idx]));
+                arg_idx += 1;
+            }
+            "--force" => {
+                force_overwrite = true;
                 arg_idx += 1;
             }
             "--dev-bins" => {
@@ -442,23 +563,11 @@ async fn main() {
         eprintln!("  - {}", f.display());
     }
 
-    // Set up cartridge directory
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    let cartridge_dir = home.join(".capdag").join("cartridges");
+    let cartridge_dir = user_cartridge_dir();
 
-    // Registry URL
-    let registry_url = "https://cartridges.machinefabric.com/manifest".to_string();
+    let registry_url: Option<String> = BAKED_REGISTRY_URL.map(str::to_string);
 
-    // Bundled providers shipped beside this CLI binary (the capdag executor's
-    // own `providers/` tree, staged by its build with baked content hashes —
-    // the same arrangement as the engine). Present only in a packaged build;
-    // absent for a bare `cargo run`, in which case there are no bundled
-    // providers and only ~/.capdag/cartridges + --dev-bins apply. discover_
-    // cartridges verifies each bundled provider against the baked hash.
-    let bundled_providers_dir = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("providers")))
-        .filter(|dir| dir.is_dir());
+    let bundled_providers_dir = bundled_providers_dir();
 
     // Load argument values file
     let node_values: HashMap<String, HashMap<String, serde_json::Value>> =
@@ -546,39 +655,7 @@ async fn main() {
         trace_sink,
     ));
 
-    let progress: CapProgressFn = Arc::new(|p: f32, cap_urn: &str, msg: &str| {
-        eprintln!("  [{:5.1}%] {} {}", p * 100.0, cap_urn, msg);
-    });
-    let log_fn: PipelineLogFn = Arc::new(
-        |cap_urn: &str,
-         level: &str,
-         message: &str,
-         meta: Option<StreamMeta>,
-         body_index: Option<usize>| {
-            let meta_suffix = match meta.as_ref().and_then(|meta| meta.get("progress")) {
-                Some(ciborium::Value::Float(progress)) => {
-                    format!(" [meta progress={:.1}%]", progress * 100.0)
-                }
-                Some(ciborium::Value::Integer(progress)) => {
-                    let progress: i128 = (*progress).into();
-                    format!(" [meta progress={}]", progress)
-                }
-                _ => meta
-                    .as_ref()
-                    .map(|meta| format!(" [meta {:?}]", meta))
-                    .unwrap_or_default(),
-            };
-            match body_index {
-                Some(index) => {
-                    eprintln!(
-                        "  [log:{} body={}]{} {} {}",
-                        level, index, meta_suffix, cap_urn, message
-                    )
-                }
-                None => eprintln!("  [log:{}]{} {} {}", level, meta_suffix, cap_urn, message),
-            }
-        },
-    );
+    let (progress, log_fn) = progress_hooks();
 
     // Process each file
     let mut success_count = 0;
@@ -647,37 +724,35 @@ async fn main() {
             .await
             {
                 Ok(result) => {
-                    let strand_label = if plans.len() > 1 {
-                        format!(" [strand {}]", idx)
+                    // Real output emission (pipe discipline; see cli_output).
+                    // The stdout fast-path only applies when this execution
+                    // can produce exactly one scalar result overall — with
+                    // several strands or several input files, force file
+                    // mode so results never interleave on stdout.
+                    let effective_dir = if plans.len() > 1 || all_files.len() > 1 {
+                        Some(output_dir.clone().unwrap_or_else(|| PathBuf::from(".")))
                     } else {
-                        String::new()
+                        output_dir.clone()
                     };
-                    // A fan-out machine has several terminals (one per Output node).
-                    for terminal in &result.terminals {
-                        eprintln!(
-                            "Result{} [{}]: media={} sequence={} items={}",
-                            strand_label,
-                            terminal.output_node_id,
-                            terminal.media_urn,
-                            terminal.is_sequence,
-                            terminal.items.len()
-                        );
-                        for item in &terminal.items {
-                            let preview_len = item.data.len().min(80);
-                            match std::str::from_utf8(&item.data[..preview_len]) {
-                                Ok(text) => eprintln!(
-                                    "  [{}] {} bytes: {}",
-                                    item.index,
-                                    item.data.len(),
-                                    text.replace('\n', " ")
-                                ),
-                                Err(_) => eprintln!(
-                                    "  [{}] {} bytes (binary)",
-                                    item.index,
-                                    item.data.len()
-                                ),
-                            }
-                        }
+                    let stem = file
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "input".to_string());
+                    let options = capdag::orchestrator::EmitOptions {
+                        output_dir: effective_dir,
+                        force: force_overwrite,
+                        input_stem: if plans.len() > 1 {
+                            format!("{stem}.strand{idx}")
+                        } else {
+                            stem
+                        },
+                    };
+                    let mut stdout = std::io::stdout();
+                    if let Err(e) =
+                        capdag::orchestrator::emit_terminals(&result, &options, &mut stdout)
+                    {
+                        eprintln!("{e}");
+                        file_failed = true;
                     }
                 }
                 Err(e) => {
@@ -701,5 +776,421 @@ async fn main() {
 
     if error_count > 0 {
         process::exit(1);
+    }
+    process::exit(0);
+}
+
+/// Build the FabricRegistry or exit with the error.
+async fn fabric_registry_or_exit() -> Arc<FabricRegistry> {
+    match FabricRegistry::new().await {
+        Ok(reg) => Arc::new(reg),
+        Err(e) => {
+            eprintln!("Error creating FabricRegistry: {}", e);
+            process::exit(1);
+        }
+    }
+}
+
+/// Resolve a cap token (alias or URN) to a `Cap` definition, or exit.
+async fn resolve_cap_or_exit(registry: &FabricRegistry, token: &str) -> capdag::Cap {
+    let cap_ref = match capdag::orchestrator::classify_cap_token(token) {
+        Ok(capdag::orchestrator::CapToken::Urn(urn)) => urn,
+        Ok(capdag::orchestrator::CapToken::Alias(alias)) => alias,
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(2);
+        }
+    };
+    // `get_cap` accepts both forms: an alias resolves at its typed boundary
+    // (a media alias fails hard), a URN resolves against the pinned
+    // manifest.
+    match registry.get_cap(&cap_ref).await {
+        Ok(cap) => cap,
+        Err(e) => {
+            eprintln!("Error resolving cap '{token}': {e}");
+            process::exit(1);
+        }
+    }
+}
+
+/// A `CartridgeManager` bound to the baked registry + trust, initialized
+/// (manifest synced + chain-verified), or exit.
+async fn registry_manager_or_exit(dev_binaries: Vec<PathBuf>) -> capdag::orchestrator::CartridgeManager {
+    let mut manager = capdag::orchestrator::CartridgeManager::new(
+        user_cartridge_dir(),
+        BAKED_REGISTRY_URL.map(str::to_string),
+        BUILD_CHANNEL,
+        capdag::FABRIC_MANIFEST_VERSION,
+        dev_binaries,
+        capdag::RegistryTrust::from_build_constants(),
+    );
+    if let Err(e) = manager.init().await {
+        eprintln!("{e}");
+        process::exit(1);
+    }
+    manager
+}
+
+/// `capdag <cap-alias-or-urn> [cap args] [inputs…]` — single-cap mode.
+///
+/// The invocation surface is the cap's OWN declared interface (piped stdin,
+/// native flags, positional args — exactly as when the cartridge is invoked
+/// directly), but execution runs inside a full bifaci host: the providing
+/// cartridge is resolved from the signed registry (downloaded + verified if
+/// missing) and hosted on the shared switch BESIDE the bundled providers, so
+/// peer calls (e.g. an ML cap peer-invoking modelcartridge's download-model)
+/// route exactly as they do in the engine and the scenario harness.
+async fn cmd_cap(args: &[String]) -> ! {
+    let cap_token = &args[1];
+
+    // Split the remaining tokens: options reserved by the CLI itself are
+    // consumed here; EVERYTHING else — the cap's own flags and positional
+    // values, and input paths — goes to the cap-invocation mapper. A cap
+    // flag that collides with a reserved name is addressed via
+    // `--arg <media-urn>=<value>`.
+    let mut cap_tokens: Vec<String> = Vec::new();
+    let mut explicit_pairs: Vec<(String, String)> = Vec::new();
+    let mut output_dir: Option<PathBuf> = None;
+    let mut force_overwrite = false;
+    let mut dev_binaries: Vec<PathBuf> = Vec::new();
+    let mut trace_file: Option<String> = None;
+    let mut idx = 2usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--help" | "-h" => {
+                print_usage(&args[0]);
+                process::exit(0);
+            }
+            "-o" | "--output" => {
+                idx += 1;
+                let Some(dir) = args.get(idx) else {
+                    eprintln!("--output requires a directory path");
+                    process::exit(2);
+                };
+                output_dir = Some(PathBuf::from(dir));
+            }
+            "--force" => force_overwrite = true,
+            "--arg" => {
+                idx += 1;
+                let Some(pair) = args.get(idx) else {
+                    eprintln!("--arg requires <name-or-media-urn>=<value>");
+                    process::exit(2);
+                };
+                let Some((name, value)) = pair.split_once('=') else {
+                    eprintln!("--arg '{pair}' is not of the form <name>=<value>");
+                    process::exit(2);
+                };
+                explicit_pairs.push((name.to_string(), value.to_string()));
+            }
+            "--trace" => {
+                idx += 1;
+                let Some(path) = args.get(idx) else {
+                    eprintln!("--trace requires a file path");
+                    process::exit(2);
+                };
+                trace_file = Some(path.clone());
+            }
+            "--dev-bins" => {
+                idx += 1;
+                while idx < args.len() && !args[idx].starts_with('-') {
+                    let expanded = expand_dev_binary_path(&args[idx]);
+                    if expanded.is_empty() {
+                        eprintln!("No executables found in: {}", args[idx]);
+                        process::exit(1);
+                    }
+                    dev_binaries.extend(expanded);
+                    idx += 1;
+                }
+                continue;
+            }
+            other => cap_tokens.push(other.to_string()),
+        }
+        idx += 1;
+    }
+
+    let registry = fabric_registry_or_exit().await;
+    let cap = resolve_cap_or_exit(&registry, cap_token).await;
+
+    // The cap's declared interface, applied to the tokens.
+    let notation = match capdag::orchestrator::synthesize_single_cap_notation(&cap) {
+        Ok(notation) => notation,
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+    };
+    let invocation = match capdag::orchestrator::map_invocation(&cap, &cap_tokens, &explicit_pairs)
+    {
+        Ok(invocation) => invocation,
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(2);
+        }
+    };
+
+    // Inputs: file paths from the invocation, else piped stdin, else usage.
+    enum InputSource {
+        Files(Vec<PathBuf>),
+        Stdin(Vec<u8>),
+    }
+    let inputs = if invocation.input_paths.is_empty() {
+        if atty::is(atty::Stream::Stdin) {
+            eprintln!(
+                "cap {} needs input: pipe it in (cat doc.pdf | {} {cap_token}) or pass \
+                 file path(s).",
+                cap.urn, args[0]
+            );
+            process::exit(2);
+        }
+        let mut bytes = Vec::new();
+        use std::io::Read;
+        if let Err(e) = std::io::stdin().read_to_end(&mut bytes) {
+            eprintln!("failed to read stdin: {e}");
+            process::exit(1);
+        }
+        if bytes.is_empty() {
+            eprintln!("stdin was empty — nothing to run the cap on");
+            process::exit(2);
+        }
+        InputSource::Stdin(bytes)
+    } else {
+        let mut files: Vec<PathBuf> = Vec::new();
+        for path in &invocation.input_paths {
+            let expanded = expand_input_path(path);
+            if expanded.is_empty() {
+                eprintln!("No input files found at '{path}'");
+                process::exit(1);
+            }
+            files.extend(expanded);
+        }
+        files.sort();
+        InputSource::Files(files)
+    };
+
+    // Build the plan through the same planner front-end as every other mode.
+    let plans = match build_plans_from_notation(&notation, registry.clone()).await {
+        Ok(plans) => plans,
+        Err(e) => {
+            eprintln!("Failed to plan cap execution: {e}");
+            process::exit(1);
+        }
+    };
+    let [plan] = plans.as_slice() else {
+        eprintln!(
+            "internal error: single-cap notation produced {} plans (expected 1)",
+            plans.len()
+        );
+        process::exit(1);
+    };
+    let input_slot_id = {
+        let slots: Vec<&String> = plan
+            .nodes
+            .iter()
+            .filter(|(_, n)| matches!(n.node_type, ExecutionNodeType::InputSlot { .. }))
+            .map(|(id, _)| id)
+            .collect();
+        match slots.as_slice() {
+            [single] => (*single).clone(),
+            other => {
+                eprintln!(
+                    "internal error: single-cap plan has {} input slots (expected 1)",
+                    other.len()
+                );
+                process::exit(1);
+            }
+        }
+    };
+
+    // Cap arguments land on the edge's destination node.
+    let mut cap_arguments: HashMap<String, Vec<(String, Vec<u8>)>> = HashMap::new();
+    if !invocation.cap_arguments.is_empty() {
+        cap_arguments.insert(
+            capdag::orchestrator::SINGLE_CAP_OUTPUT_NODE.to_string(),
+            invocation.cap_arguments.clone(),
+        );
+    }
+
+    let trace_sink: Option<Arc<capdag::ProtocolTraceSink>> = match &trace_file {
+        Some(path) => match capdag::ProtocolTraceSink::open(path).await {
+            Ok(sink) => Some(sink),
+            Err(e) => {
+                eprintln!("Error opening protocol trace file '{}': {}", path, e);
+                process::exit(1);
+            }
+        },
+        None => None,
+    };
+
+    let runtime: Arc<dyn EngineRuntime> = Arc::new(CliRuntime::new(
+        user_cartridge_dir(),
+        BAKED_REGISTRY_URL.map(str::to_string),
+        BUILD_CHANNEL,
+        capdag::FABRIC_MANIFEST_VERSION,
+        dev_binaries,
+        bundled_providers_dir(),
+        registry.clone(),
+        trace_sink,
+    ));
+    let (progress, log_fn) = progress_hooks();
+
+    // One run per input (stdin = a single run).
+    let runs: Vec<(String, Vec<u8>)> = match inputs {
+        InputSource::Stdin(bytes) => vec![("stdin".to_string(), bytes)],
+        InputSource::Files(files) => {
+            let mut runs = Vec::with_capacity(files.len());
+            for file in files {
+                let stem = file
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "input".to_string());
+                match fs::read(&file) {
+                    Ok(bytes) => runs.push((stem, bytes)),
+                    Err(e) => {
+                        eprintln!("Error reading input file '{}': {}", file.display(), e);
+                        process::exit(1);
+                    }
+                }
+            }
+            runs
+        }
+    };
+    let multi_run = runs.len() > 1;
+
+    let mut error_count = 0usize;
+    for (stem, bytes) in runs {
+        let mut initial_inputs: HashMap<String, Vec<u8>> = HashMap::new();
+        initial_inputs.insert(input_slot_id.clone(), bytes);
+        let mut initial_is_sequence: HashMap<String, bool> = HashMap::new();
+        initial_is_sequence.insert(input_slot_id.clone(), false);
+
+        match execute_plan(
+            plan,
+            runtime.clone(),
+            initial_inputs,
+            initial_is_sequence,
+            &cap_arguments,
+            Some(&progress),
+            None,
+            Some(&log_fn),
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(result) => {
+                // Several inputs must never interleave raw results on
+                // stdout — force file mode.
+                let effective_dir = if multi_run {
+                    Some(output_dir.clone().unwrap_or_else(|| PathBuf::from(".")))
+                } else {
+                    output_dir.clone()
+                };
+                let options = capdag::orchestrator::EmitOptions {
+                    output_dir: effective_dir,
+                    force: force_overwrite,
+                    input_stem: stem,
+                };
+                let mut stdout = std::io::stdout();
+                if let Err(e) =
+                    capdag::orchestrator::emit_terminals(&result, &options, &mut stdout)
+                {
+                    eprintln!("{e}");
+                    error_count += 1;
+                }
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                error_count += 1;
+            }
+        }
+    }
+
+    process::exit(if error_count > 0 { 1 } else { 0 });
+}
+
+/// `capdag resolve <cap-alias-or-urn>` — resolve a cap and show which
+/// registry cartridge(s) provide it, without downloading anything.
+async fn cmd_resolve(args: &[String]) -> ! {
+    let Some(token) = args.get(2) else {
+        eprintln!("Usage: {} resolve <cap-alias-or-urn>", args[0]);
+        process::exit(2);
+    };
+    let registry = fabric_registry_or_exit().await;
+    let cap = resolve_cap_or_exit(&registry, token).await;
+    println!("{}", cap.urn);
+
+    let manager = registry_manager_or_exit(Vec::new()).await;
+    let suggestions = manager.suggestions_for_cap(&cap.urn.to_string()).await;
+    if suggestions.is_empty() {
+        eprintln!(
+            "No registry cartridge provides this cap{}.",
+            if BAKED_REGISTRY_URL.is_none() {
+                " (dev build: no cartridge registry baked)"
+            } else {
+                ""
+            }
+        );
+        process::exit(1);
+    }
+    for suggestion in &suggestions {
+        let detail = manager.registry_cartridge(&suggestion.cartridge_id).await;
+        match detail {
+            Some(info) => {
+                let platform = capdag::host_platform();
+                let build = info.build_for_platform(&platform);
+                let binary_state = match build {
+                    Some(build) if build.binary.is_some() => "signed binary available",
+                    Some(_) => "NO signed binary (installer-only publish — not runnable via capdag)",
+                    None => "no build for this platform",
+                };
+                println!(
+                    "  {} v{} [{}] — {}",
+                    suggestion.cartridge_id, info.version, platform, binary_state
+                );
+            }
+            None => println!("  {} (not in this channel's registry view)", suggestion.cartridge_id),
+        }
+    }
+    process::exit(0);
+}
+
+/// `capdag install <cap-alias-or-urn-or-cartridge-id>` — resolve, download,
+/// and VERIFY a cartridge without executing anything (CI cache warm-up).
+async fn cmd_install(args: &[String]) -> ! {
+    let Some(token) = args.get(2) else {
+        eprintln!(
+            "Usage: {} install <cap-alias-or-urn-or-cartridge-id>",
+            args[0]
+        );
+        process::exit(2);
+    };
+    let manager = registry_manager_or_exit(Vec::new()).await;
+
+    // A token with ':' is a cap URN; a bare token could be an alias OR a
+    // cartridge id — try the registry's cartridge ids first (exact), then
+    // the fabric alias route.
+    let cartridge_id: String = if token.contains(':') || manager.registry_cartridge(token).await.is_none() {
+        let registry = fabric_registry_or_exit().await;
+        let cap = resolve_cap_or_exit(&registry, token).await;
+        let suggestions = manager.suggestions_for_cap(&cap.urn.to_string()).await;
+        let Some(first) = suggestions.first() else {
+            eprintln!("No registry cartridge provides cap {}", cap.urn);
+            process::exit(1);
+        };
+        first.cartridge_id.clone()
+    } else {
+        token.clone()
+    };
+
+    match manager.get_cartridge_path(&cartridge_id).await {
+        Ok(path) => {
+            eprintln!("Installed and verified: {cartridge_id}");
+            println!("{}", path.display());
+            process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(1);
+        }
     }
 }

@@ -11,6 +11,13 @@ pest = "2.8"
 pest_derive = "2.8"
 jsonschema = "0.17"
 libc = "0.2"
+# Zero-dependency, pure-Rust minisign signature verification — the runtime
+# integrity check for registry-downloaded cartridge binaries.
+minisign-verify = "0.2"
+# Raw ed25519 verification for the release-key-certificate / manifest-signature
+# layer (signatures over exact bytes). Keys are minisign public keys, parsed in
+# binary_signing.rs.
+ed25519-dalek = "2"
 regex = "1.0"
 serde_json = "1.0"
 sha2 = "0.10"

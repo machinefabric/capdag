@@ -368,7 +368,17 @@ pub struct CartridgeManager {
     /// Channel-partitioned root: cartridges install under
     /// `{cartridge_dir}/{channel}/{cartridge_id}/{version}/`.
     cartridge_dir: PathBuf,
-    registry_url: String,
+    /// The cartridge registry this manager installs from. `None` = a build
+    /// with no baked registry (dev): only dev binaries and bundled providers
+    /// exist, and any cap that would need a registry download hard-errors.
+    registry_url: Option<String>,
+    /// Signing trust anchors (baked roots + environment). Required for every
+    /// registry operation: the manifest chain-verifies on sync, and every
+    /// downloaded/installed binary verifies under a certificate-authorized
+    /// release key. `Some(registry) + None(trust)` cannot happen in a
+    /// product build (capdag's build.rs enforces the triple); the runtime
+    /// guard below covers library/test misuse.
+    trust: Option<crate::bifaci::release_cert::RegistryTrust>,
     /// Channel this manager is operating in. The orchestrator can only
     /// install/run cartridges that match its channel — release builds
     /// never touch nightly artefacts and vice versa.
@@ -384,10 +394,11 @@ pub struct CartridgeManager {
 impl CartridgeManager {
     pub fn new(
         cartridge_dir: PathBuf,
-        registry_url: String,
+        registry_url: Option<String>,
         channel: crate::bifaci::cartridge_repo::CartridgeChannel,
         fabric_manifest_version: u32,
         dev_binaries: Vec<PathBuf>,
+        trust: Option<crate::bifaci::release_cert::RegistryTrust>,
     ) -> Self {
         use crate::bifaci::cartridge_json::CartridgeJson;
 
@@ -443,6 +454,7 @@ impl CartridgeManager {
             cartridge_repo: CartridgeRepo::new(3600),
             cartridge_dir,
             registry_url,
+            trust,
             channel,
             fabric_manifest_version,
             dev_cartridges: resolved
@@ -479,11 +491,46 @@ impl CartridgeManager {
             }
         }
 
-        self.cartridge_repo
-            .sync_repos(&[self.registry_url.clone()])
-            .await;
+        if let Some(registry_url) = self.registry_url.clone() {
+            // Manifest verification happens inside the fetch when trust is
+            // set: the `<url>.sig` sidecar must chain-verify over the exact
+            // fetched bytes before the manifest is cached.
+            self.cartridge_repo.set_trust(self.trust.clone()).await;
+            self.cartridge_repo.sync_repos(&[registry_url.clone()]).await;
+            // This manager's registry is mandatory — a sync failure (network,
+            // parse, or SIGNATURE) surfaces here with its real cause instead
+            // of a later misleading "cartridge not found".
+            if let Some(err) = self.cartridge_repo.sync_error(&registry_url).await {
+                return Err(ExecutionError::HostError(format!(
+                    "cartridge registry sync failed for '{registry_url}': {err}"
+                )));
+            }
+        }
 
         Ok(())
+    }
+
+    /// The configured registry URL, or the hard error every registry
+    /// operation raises in a registry-less (dev) build.
+    fn registry_url_required(&self, context: &str) -> Result<&str, ExecutionError> {
+        self.registry_url.as_deref().ok_or_else(|| {
+            ExecutionError::CartridgeDownloadFailed(format!(
+                "{context}: this build bakes no cartridge registry — registry installs and \
+                 downloads are disabled in dev builds (use --dev-bins or a bundled provider)"
+            ))
+        })
+    }
+
+    /// The signing trust anchors, or the hard error raised when a registry
+    /// operation is attempted without them.
+    fn trust_required(&self, context: &str) -> Result<&crate::bifaci::release_cert::RegistryTrust, ExecutionError> {
+        self.trust.as_ref().ok_or_else(|| {
+            ExecutionError::CartridgeDownloadFailed(format!(
+                "{context}: this build bakes no cartridge signing root keys — registry \
+                 downloads are disabled without them (a product build bakes \
+                 MFR_CARTRIDGE_ROOT_PUBKEYS beside the registry URL)"
+            ))
+        })
     }
 
     async fn discover_manifest(&self, bin_path: &Path) -> Result<CapManifest, ExecutionError> {
@@ -594,6 +641,29 @@ impl CartridgeManager {
         Ok(result)
     }
 
+    /// Registry suggestions for a cap URN (which cartridges provide it),
+    /// resolved from the synced, signature-verified manifest — no download.
+    /// Powers `capdag resolve`.
+    pub async fn suggestions_for_cap(
+        &self,
+        cap_urn: &str,
+    ) -> Vec<crate::bifaci::cartridge_repo::CartridgeSuggestion> {
+        self.cartridge_repo.get_suggestions_for_cap(cap_urn).await
+    }
+
+    /// The synced registry's entry for a cartridge id in this manager's
+    /// channel, if any. Powers `capdag resolve`'s per-cartridge detail
+    /// (version, platforms, signed-binary presence).
+    pub async fn registry_cartridge(
+        &self,
+        cartridge_id: &str,
+    ) -> Option<crate::bifaci::cartridge_repo::CartridgeInfo> {
+        let registry_url = self.registry_url.as_deref()?;
+        self.cartridge_repo
+            .get_cartridge(registry_url, self.channel, cartridge_id)
+            .await
+    }
+
     /// Find the binary path for a cap URN.
     async fn find_cartridge_binary(
         &self,
@@ -643,11 +713,11 @@ impl CartridgeManager {
         // Look for an existing installed cartridge in the
         // registry-partitioned, channel-partitioned versioned layout:
         // `{cartridge_dir}/{registry_slug}/{channel}/{cartridge_id}/{version}/cartridge.json`.
-        // The orchestrator's manager is bound to a single registry
-        // (`self.registry_url`) — that's the registry it just fetched
-        // the manifest from, so the slug it walks is fixed.
-        let registry_slug =
-            crate::bifaci::cartridge_slug::slug_for(Some(self.registry_url.as_str()));
+        // The orchestrator's manager is bound to a single registry — that's
+        // the registry it just fetched the manifest from, so the slug it
+        // walks is fixed.
+        let registry_url = self.registry_url_required(cartridge_id)?.to_string();
+        let registry_slug = crate::bifaci::cartridge_slug::slug_for(Some(registry_url.as_str()));
         let name_dir = self
             .cartridge_dir
             .join(&registry_slug)
@@ -655,8 +725,13 @@ impl CartridgeManager {
             .join(cartridge_id);
         if name_dir.is_dir() {
             if let Some(entry_point) =
-                self.find_latest_installed_entry_point(&name_dir, &registry_slug)
+                self.find_latest_installed_entry_point(&name_dir, &registry_slug, &registry_url)
             {
+                // Re-verify the installed binary against the registry's
+                // signed manifest on every use — a post-install tamper of
+                // the on-disk executable must never run.
+                self.verify_cartridge_integrity(cartridge_id, &entry_point)
+                    .await?;
                 return Ok(entry_point);
             }
         }
@@ -673,6 +748,7 @@ impl CartridgeManager {
         &self,
         name_dir: &Path,
         expected_slug: &str,
+        registry_url: &str,
     ) -> Option<PathBuf> {
         let mut versions: Vec<(String, PathBuf)> = Vec::new();
 
@@ -707,13 +783,13 @@ impl CartridgeManager {
                     // deleted — a stale install from a previously
                     // configured registry is a user-visible state, not
                     // garbage.
-                    if cj.registry_url.as_deref() != Some(self.registry_url.as_str()) {
+                    if cj.registry_url.as_deref() != Some(registry_url) {
                         tracing::warn!(
                             "Skipping cartridge at {:?}: cartridge.json registry_url={:?} \
                              does not match orchestrator registry_url='{}'",
                             version_dir,
                             cj.registry_url,
-                            self.registry_url
+                            registry_url
                         );
                         continue;
                     }
@@ -747,10 +823,18 @@ impl CartridgeManager {
         Some(versions.into_iter().next()?.1)
     }
 
-    async fn verify_cartridge_integrity(&self, cartridge_id: &str) -> Result<(), ExecutionError> {
+    /// The manifest `binary` entry for a cartridge's host-platform build,
+    /// or the hard error for a build that publishes none. There is NO
+    /// installer fallback — the pure binary is the only artifact this
+    /// execution path runs.
+    async fn registry_binary_info(
+        &self,
+        registry_url: &str,
+        cartridge_id: &str,
+    ) -> Result<(crate::bifaci::cartridge_repo::CartridgeInfo, crate::bifaci::cartridge_repo::CartridgeBinaryInfo), ExecutionError> {
         let cartridge_info = self
             .cartridge_repo
-            .get_cartridge(self.registry_url.as_str(), self.channel, cartridge_id)
+            .get_cartridge(registry_url, self.channel, cartridge_id)
             .await
             .ok_or_else(|| ExecutionError::CartridgeNotFound {
                 cap_urn: format!(
@@ -759,41 +843,6 @@ impl CartridgeManager {
                 ),
             })?;
 
-        if cartridge_info.team_id.is_empty() || cartridge_info.signed_at.is_empty() {
-            return Err(ExecutionError::CartridgeExecutionFailed {
-                cap_urn: cartridge_id.to_string(),
-                details: format!(
-                    "SECURITY: Cartridge {} is not signed. Refusing to execute.",
-                    cartridge_id
-                ),
-            });
-        }
-
-        Ok(())
-    }
-
-    /// Download a cartridge package from the registry and install it into the
-    /// versioned directory layout: {cartridge_dir}/{id}/{version}/cartridge.json + binary.
-    async fn download_cartridge(&self, cartridge_id: &str) -> Result<PathBuf, ExecutionError> {
-        let cartridge_info = self
-            .cartridge_repo
-            .get_cartridge(self.registry_url.as_str(), self.channel, cartridge_id)
-            .await
-            .ok_or_else(|| ExecutionError::CartridgeNotFound {
-                cap_urn: format!(
-                    "Cartridge {} not found in {} registry",
-                    cartridge_id, self.channel
-                ),
-            })?;
-
-        if cartridge_info.team_id.is_empty() || cartridge_info.signed_at.is_empty() {
-            return Err(ExecutionError::CartridgeDownloadFailed(format!(
-                "SECURITY: Cartridge {} is not signed.",
-                cartridge_id
-            )));
-        }
-
-        // Find the build for this platform
         let platform = detect_platform();
         let build = cartridge_info
             .build_for_platform(&platform)
@@ -807,17 +856,132 @@ impl CartridgeManager {
                 ))
             })?;
 
-        let package = build.primary_package().ok_or_else(|| {
+        let binary = build.binary.clone().ok_or_else(|| {
             ExecutionError::CartridgeDownloadFailed(format!(
-                "Cartridge {} v{} build for '{}' ships no installer packages",
-                cartridge_id, cartridge_info.version, platform
+                "Cartridge {} v{} for '{}' publishes no signed pure-binary artifact — \
+                 refusing installer fallback. Re-publish the version under the signing \
+                 regime (dx cartridge {} --release --publish).",
+                cartridge_id, cartridge_info.version, platform, cartridge_id
             ))
         })?;
+        Ok((cartridge_info, binary))
+    }
 
-        // The v5 manifest carries the absolute URL on the package itself.
+    /// Verify `bytes` against a manifest `binary` entry: sha256, size, and
+    /// the minisign signature under a certificate-authorized release key
+    /// from the registry's verified manifest sidecar. Every failure is a
+    /// hard, named error.
+    async fn verify_binary_against_manifest(
+        &self,
+        registry_url: &str,
+        cartridge_id: &str,
+        binary: &crate::bifaci::cartridge_repo::CartridgeBinaryInfo,
+        bytes: &[u8],
+    ) -> Result<(), ExecutionError> {
+        // Trust must exist for any registry operation.
+        self.trust_required(cartridge_id)?;
+
+        use sha2::{Digest, Sha256};
+        let computed = format!("{:x}", Sha256::digest(bytes));
+        if computed != binary.sha256 {
+            return Err(ExecutionError::CartridgeDownloadFailed(format!(
+                "SECURITY: SHA256 mismatch for {}!\n  Expected: {}\n  Computed: {}",
+                cartridge_id, binary.sha256, computed
+            )));
+        }
+        if bytes.len() as u64 != binary.size {
+            return Err(ExecutionError::CartridgeDownloadFailed(format!(
+                "SECURITY: size mismatch for {} (manifest says {} bytes, got {})",
+                cartridge_id,
+                binary.size,
+                bytes.len()
+            )));
+        }
+
+        // The signature must verify under a release key the manifest's
+        // chain-verified certificate list authorizes. The list is populated
+        // by the verified sidecar at sync; empty means the sync didn't
+        // verify — which init() already turns into a hard error, so this is
+        // a defense-in-depth check with its own message.
+        let release_keys = self
+            .cartridge_repo
+            .verified_release_keys(registry_url)
+            .await;
+        if release_keys.is_empty() {
+            return Err(ExecutionError::CartridgeDownloadFailed(format!(
+                "SECURITY: no certificate-authorized release keys for registry '{}' — the \
+                 manifest signature sidecar was never verified; refusing to trust {}'s \
+                 binary signature",
+                registry_url, cartridge_id
+            )));
+        }
+        let mut last_error: Option<crate::SignatureError> = None;
+        for (_key_id, pubkey) in &release_keys {
+            match crate::verify_binary_signature(pubkey, &binary.signature, bytes) {
+                Ok(()) => return Ok(()),
+                Err(e) => last_error = Some(e),
+            }
+        }
+        Err(ExecutionError::CartridgeDownloadFailed(format!(
+            "SECURITY: binary signature for {} does not verify under any of the {} \
+             certificate-authorized release key(s) of registry '{}': {}",
+            cartridge_id,
+            release_keys.len(),
+            registry_url,
+            last_error.expect("non-empty key list implies at least one error")
+        )))
+    }
+
+    /// Re-verify an INSTALLED cartridge binary against the registry's signed
+    /// manifest: recompute the sha256 of the on-disk executable and check
+    /// its manifest signature chain. Runs on every reuse of an installed
+    /// registry cartridge — a post-install tamper must never execute.
+    async fn verify_cartridge_integrity(
+        &self,
+        cartridge_id: &str,
+        binary_path: &Path,
+    ) -> Result<(), ExecutionError> {
+        let registry_url = self.registry_url_required(cartridge_id)?.to_string();
+        let (_info, binary) = self.registry_binary_info(&registry_url, cartridge_id).await?;
+        let bytes = fs::read(binary_path).map_err(|e| {
+            ExecutionError::CartridgeExecutionFailed {
+                cap_urn: cartridge_id.to_string(),
+                details: format!(
+                    "failed to read installed binary {:?} for integrity verification: {}",
+                    binary_path, e
+                ),
+            }
+        })?;
+        self.verify_binary_against_manifest(&registry_url, cartridge_id, &binary, &bytes)
+            .await
+            .map_err(|e| ExecutionError::CartridgeExecutionFailed {
+                cap_urn: cartridge_id.to_string(),
+                details: format!(
+                    "installed binary at {:?} failed integrity verification: {}",
+                    binary_path, e
+                ),
+            })
+    }
+
+    /// Download a cartridge's signed PURE-BINARY artifact from the registry
+    /// and install it into the versioned directory layout:
+    /// `{cartridge_dir}/{slug}/{channel}/{id}/{version}/cartridge.json + binary`.
+    ///
+    /// Nothing touches disk until the bytes pass ALL of: sha256, size, and
+    /// the minisign signature under a certificate-authorized release key
+    /// (chain: baked roots → release-key certificate from the verified
+    /// manifest sidecar → binary signature). Installer packages are never a
+    /// fallback.
+    async fn download_cartridge(&self, cartridge_id: &str) -> Result<PathBuf, ExecutionError> {
+        let registry_url = self.registry_url_required(cartridge_id)?.to_string();
+        self.trust_required(cartridge_id)?;
+        let (cartridge_info, binary) =
+            self.registry_binary_info(&registry_url, cartridge_id).await?;
+
+        // The v5 manifest carries the absolute URL on the binary itself.
         // No URL derivation: if the manifest's URL is wrong, we want to fail
         // hard against the URL the publisher actually committed to.
-        let download_url = package.url.as_str();
+        let download_url = binary.url.as_str();
 
         let response = reqwest::get(download_url).await.map_err(|e| {
             ExecutionError::CartridgeDownloadFailed(format!("Download failed: {}", e))
@@ -837,25 +1001,13 @@ impl CartridgeManager {
             .map_err(|e| ExecutionError::CartridgeDownloadFailed(format!("Read failed: {}", e)))?
             .to_vec();
 
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(&bytes);
-        let computed = format!("{:x}", hasher.finalize());
+        self.verify_binary_against_manifest(&registry_url, cartridge_id, &binary, &bytes)
+            .await?;
 
-        if computed != package.sha256 {
-            return Err(ExecutionError::CartridgeDownloadFailed(format!(
-                "SECURITY: SHA256 mismatch for {}!\n  Expected: {}\n  Computed: {}",
-                cartridge_id, package.sha256, computed
-            )));
-        }
-
-        // Registry-partitioned, channel-partitioned versioned layout:
-        // `{cartridge_dir}/{registry_slug}/{channel}/{cartridge_id}/{version}/{binary}`
-        // + cartridge.json. The orchestrator only ever installs from
-        // its own configured `self.registry_url`, so the slug is
-        // fixed for the lifetime of this manager.
-        let registry_slug =
-            crate::bifaci::cartridge_slug::slug_for(Some(self.registry_url.as_str()));
+        // Registry-partitioned, channel-partitioned versioned layout. The
+        // orchestrator only ever installs from its own configured registry,
+        // so the slug is fixed for the lifetime of this manager.
+        let registry_slug = crate::bifaci::cartridge_slug::slug_for(Some(registry_url.as_str()));
         let version_dir = self
             .cartridge_dir
             .join(&registry_slug)
@@ -877,15 +1029,15 @@ impl CartridgeManager {
             fs::set_permissions(&binary_path, perms)?;
         }
 
-        // Write cartridge.json. `registry_url` is verbatim
-        // `self.registry_url`; the cartridge was downloaded from
-        // there, so the three-place rule (folder ⇔ provenance ⇔
-        // HELLO) is satisfied by construction.
+        // Write cartridge.json. `registry_url` is verbatim the manager's
+        // registry; the cartridge was downloaded from there, so the
+        // three-place rule (folder ⇔ provenance ⇔ HELLO) is satisfied by
+        // construction. sha/size describe the BINARY artifact.
         let cj = crate::CartridgeJson {
             name: cartridge_id.to_string(),
             version: cartridge_info.version.clone(),
             channel: self.channel,
-            registry_url: Some(self.registry_url.clone()),
+            registry_url: Some(registry_url.clone()),
             entry: binary_name.to_string(),
             installed_at: {
                 use std::time::SystemTime;
@@ -896,8 +1048,8 @@ impl CartridgeManager {
             },
             installed_from: Some(crate::CartridgeInstallSource::Registry),
             source_url: download_url.to_string(),
-            package_sha256: package.sha256.clone(),
-            package_size: package.size,
+            package_sha256: binary.sha256.clone(),
+            package_size: binary.size,
             fabric_manifest_version: self.fabric_manifest_version,
         };
         cj.write_to_dir(&version_dir).map_err(|e| {
@@ -2467,16 +2619,12 @@ pub(crate) type HostableCartridge = (
 pub(crate) async fn discover_bundled_provider_cartridges(
     providers_dir: &std::path::Path,
     channel: crate::bifaci::cartridge_repo::CartridgeChannel,
-    registry_url: &str,
+    registry_url: Option<&str>,
     fabric_manifest_version: u32,
 ) -> Result<Vec<HostableCartridge>, ExecutionError> {
     let identity = crate::cartridge_discovery::DiscoveryIdentity {
         channel,
-        registry_url: if registry_url.is_empty() {
-            None
-        } else {
-            Some(registry_url.to_string())
-        },
+        registry_url: registry_url.map(str::to_string),
         fabric_manifest_version,
     };
     let mut out = Vec::new();
@@ -2511,7 +2659,7 @@ pub(crate) async fn discover_bundled_provider_cartridges(
 pub async fn execute_dag(
     graph: &ResolvedGraph,
     cartridge_dir: PathBuf,
-    registry_url: String,
+    registry_url: Option<String>,
     channel: crate::bifaci::cartridge_repo::CartridgeChannel,
     fabric_manifest_version: u32,
     initial_inputs: HashMap<String, NodeData>,
@@ -2539,6 +2687,7 @@ pub async fn execute_dag(
         channel,
         fabric_manifest_version,
         dev_binaries,
+        crate::bifaci::release_cert::RegistryTrust::from_build_constants(),
     );
     cartridge_manager.init().await?;
 
@@ -2553,7 +2702,7 @@ pub async fn execute_dag(
             discover_bundled_provider_cartridges(
                 &providers_dir,
                 channel,
-                &registry_url,
+                registry_url.as_deref(),
                 fabric_manifest_version,
             )
             .await?,
@@ -3084,4 +3233,5 @@ mod tests {
     // along with the variant — not a tautological removal of a real
     // test, but the deletion of an assertion about a code path that
     // no longer exists.
+
 }

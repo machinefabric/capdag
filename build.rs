@@ -69,6 +69,136 @@ fn main() {
     });
 
     generate_bundled_provider_hashes(&out_dir);
+    enforce_signing_pubkey_pairing();
+}
+
+/// A build that bakes a cartridge registry identity
+/// (`MFR_CARTRIDGE_REGISTRY_URL`) MUST also bake the signing trust triple:
+/// the ROOT public key set (`MFR_CARTRIDGE_ROOT_PUBKEYS`, comma-separated —
+/// roots sign release-key certificates, which in turn authorize the release
+/// key that signs binaries and manifests) and the environment label
+/// (`MFR_SIGNING_ENVIRONMENT`, `prod`/`staging`, which certificates are bound
+/// to). The registry URL says where artifacts come from; the roots + label
+/// say what they must chain to. A registry-baking build missing either would
+/// compile a binary whose registry downloads can never verify — a
+/// misconfiguration that must fail here, not at a user's first download.
+///
+/// Valid states:
+/// - none set                          => dev build (no registry, no downloads).
+/// - all three set, every key decodable, label valid => published build.
+/// - roots/label set without registry  => allowed (e.g. test builds).
+///
+/// Invalid states (hard build failure):
+/// - registry set, roots absent/empty or label absent/empty.
+/// - any root key not a decodable minisign public key (`RW` + base64,
+///   56 chars decoding to 42 bytes).
+/// - label not `prod` or `staging`.
+fn enforce_signing_pubkey_pairing() {
+    println!("cargo:rerun-if-env-changed=MFR_CARTRIDGE_REGISTRY_URL");
+    println!("cargo:rerun-if-env-changed=MFR_CARTRIDGE_ROOT_PUBKEYS");
+    println!("cargo:rerun-if-env-changed=MFR_SIGNING_ENVIRONMENT");
+
+    let registry = env::var("MFR_CARTRIDGE_REGISTRY_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let roots = env::var("MFR_CARTRIDGE_ROOT_PUBKEYS")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let environment = env::var("MFR_SIGNING_ENVIRONMENT")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+
+    if let Some(url) = &registry {
+        if roots.is_none() {
+            panic!(
+                "MFR_CARTRIDGE_REGISTRY_URL is set ({url:?}) but MFR_CARTRIDGE_ROOT_PUBKEYS \
+                 is absent or empty. A build baked with a cartridge registry must bake the \
+                 root public key set its downloads verify against. Set the signing vars in \
+                 .env (see capdag keygen / the signing ops procedure) or unset the registry \
+                 URL for a dev build."
+            );
+        }
+        if environment.is_none() {
+            panic!(
+                "MFR_CARTRIDGE_REGISTRY_URL is set ({url:?}) but MFR_SIGNING_ENVIRONMENT is \
+                 absent or empty. A registry-baking build must carry its signing environment \
+                 label ('prod' or 'staging') so release-key certificates bind to it."
+            );
+        }
+    }
+    if let Some(keys) = &roots {
+        let mut count = 0usize;
+        for key in keys.split(',') {
+            let key = key.trim();
+            if key.is_empty() {
+                panic!(
+                    "MFR_CARTRIDGE_ROOT_PUBKEYS contains an empty entry: {keys:?}. Provide a \
+                     comma-separated list of base64 minisign root public keys."
+                );
+            }
+            validate_minisign_pubkey(key);
+            count += 1;
+        }
+        if count == 0 {
+            panic!("MFR_CARTRIDGE_ROOT_PUBKEYS decodes to zero keys: {keys:?}");
+        }
+        // Release-key certificates require two distinct trusted roots to verify
+        // (2-of-3). A published build must therefore bake at least three roots,
+        // so any single root can be lost without making a certificate
+        // unverifiable.
+        if count < 3 {
+            panic!(
+                "MFR_CARTRIDGE_ROOT_PUBKEYS has {count} key(s); at least 3 are required \
+                 (release-key certificates verify under 2 of 3 trusted roots): {keys:?}"
+            );
+        }
+    }
+    if let Some(label) = &environment {
+        let label = label.trim();
+        if label != "prod" && label != "staging" {
+            panic!(
+                "MFR_SIGNING_ENVIRONMENT must be 'prod' or 'staging', got {label:?}."
+            );
+        }
+    }
+}
+
+/// Structural validation of a base64 minisign public key: 56 base64 chars
+/// decoding to 42 bytes whose first two are the `Ed` signature-algorithm tag.
+/// Hand-rolled base64 (no new build-deps) — this is a build-time sanity gate;
+/// full cryptographic validation happens in `minisign-verify` at runtime.
+fn validate_minisign_pubkey(key: &str) {
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let fail = |why: &str| -> ! {
+        panic!(
+            "MFR_CARTRIDGE_ROOT_PUBKEYS entry is not a valid base64 minisign public key \
+             ({why}): {key:?}. Expected the second line of a minisign .pub file (starts \
+             with \"RW\")."
+        )
+    };
+    if key.len() != 56 {
+        fail("must be 56 base64 characters");
+    }
+    let mut bytes: Vec<u8> = Vec::with_capacity(42);
+    let mut buffer: u32 = 0;
+    let mut bits = 0u32;
+    for ch in key.bytes() {
+        let Some(value) = B64.iter().position(|b| *b == ch) else {
+            fail("contains a non-base64 character");
+        };
+        buffer = (buffer << 6) | value as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            bytes.push((buffer >> bits) as u8);
+        }
+    }
+    if bytes.len() != 42 {
+        fail("does not decode to 42 bytes");
+    }
+    if &bytes[0..2] != b"Ed" {
+        fail("does not carry the ed25519 'Ed' algorithm tag");
+    }
 }
 
 /// Bake the expected content hashes of the build's BUNDLED providers

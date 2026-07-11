@@ -23,6 +23,8 @@ pub enum CartridgeRepoError {
     StatusError(u16),
     #[error("Network access blocked: {0}")]
     NetworkBlocked(String),
+    #[error("Manifest signature verification failed: {0}")]
+    ManifestVerificationFailed(String),
 }
 
 pub type Result<T> = std::result::Result<T, CartridgeRepoError>;
@@ -282,6 +284,34 @@ pub struct CartridgeBuild {
     /// cartridge-package compat seam in MACHINEFABRIC.md.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<CartridgeDistributionInfo>,
+    /// The pure-binary artifact: the raw cartridge executable, signed by the
+    /// registry's release key. This is what the capdag CLI's download path
+    /// consumes (installer packages are for the desktop apps). `Option` on
+    /// the wire only because pre-signing versions never published one —
+    /// consumers that need the binary hard-error on `None`; there is NO
+    /// fallback to installer bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary: Option<CartridgeBinaryInfo>,
+}
+
+/// The signed pure-binary artifact of a [`CartridgeBuild`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CartridgeBinaryInfo {
+    /// Artifact file name (`{id}-{version}-{platform}.bin`).
+    pub name: String,
+    /// SHA-256 of the binary bytes (lowercase hex).
+    pub sha256: String,
+    /// Size in bytes.
+    pub size: u64,
+    /// Download URL of the raw executable. A detached `.minisig` sidecar is
+    /// published at `<url>.minisig` for out-of-band `minisign -V` checks.
+    pub url: String,
+    /// The complete minisign signature document over the binary bytes,
+    /// embedded in the manifest so one fetch carries everything a client
+    /// needs to verify a download. Signed by the environment's release key,
+    /// whose authority chains to the baked roots via the release-key
+    /// certificate in the manifest's `.sig` envelope.
+    pub signature: String,
 }
 
 impl CartridgeBuild {
@@ -590,6 +620,22 @@ pub struct CartridgeRepo {
     /// Cache TTL in seconds
     cache_ttl: Duration,
     offline_flag: Arc<AtomicBool>,
+    /// When set, every manifest fetch REQUIRES the `<repo-url>.sig` sidecar
+    /// to verify (root → certificate → release key → exact manifest bytes)
+    /// before the manifest is trusted — a missing or invalid signature
+    /// rejects the whole manifest. `None` = no verification (dev builds, and
+    /// server-side uses that only serve manifests they don't consume).
+    trust: Arc<RwLock<Option<crate::bifaci::release_cert::RegistryTrust>>>,
+    /// Per-repo release keys extracted from the verified manifest sidecar:
+    /// repo_url → [(key_id, release_pubkey_b64)]. Binary artifact signatures
+    /// must verify under one of these. Only populated when `trust` is set.
+    verified_release_keys: Arc<RwLock<HashMap<String, Vec<(String, String)>>>>,
+    /// Last sync outcome per repo URL: `Some(error)` when the most recent
+    /// `sync_repos` fetch/verify for that URL failed. Callers that treat a
+    /// registry as mandatory (the CLI's `CartridgeManager::init`) hard-fail
+    /// on this instead of discovering it later as a misleading
+    /// "cartridge not found".
+    sync_errors: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl CartridgeInfo {
@@ -641,12 +687,85 @@ impl CartridgeRepo {
             caches: Arc::new(RwLock::new(HashMap::new())),
             cache_ttl: Duration::from_secs(cache_ttl_seconds),
             offline_flag: Arc::new(AtomicBool::new(false)),
+            trust: Arc::new(RwLock::new(None)),
+            verified_release_keys: Arc::new(RwLock::new(HashMap::new())),
+            sync_errors: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
     /// Set the offline flag. When true, all registry fetches are blocked.
     pub fn set_offline(&self, offline: bool) {
         self.offline_flag.store(offline, Ordering::Relaxed);
+    }
+
+    /// Configure the signing trust anchors. With trust set, every manifest
+    /// fetch requires a chain-valid `<repo-url>.sig` sidecar (see the field
+    /// doc); without, manifests are consumed unverified (dev builds only).
+    pub async fn set_trust(&self, trust: Option<crate::bifaci::release_cert::RegistryTrust>) {
+        *self.trust.write().await = trust;
+    }
+
+    /// The most recent sync failure for a repo URL, if any. Cleared by a
+    /// subsequent successful sync of the same URL.
+    pub async fn sync_error(&self, repo_url: &str) -> Option<String> {
+        self.sync_errors.read().await.get(repo_url).cloned()
+    }
+
+    /// The release keys `(key_id, pubkey_b64)` authorized by the verified
+    /// manifest sidecar of `repo_url`. Empty when trust is unset or the repo
+    /// has not been (successfully) synced.
+    pub async fn verified_release_keys(&self, repo_url: &str) -> Vec<(String, String)> {
+        self.verified_release_keys
+            .read()
+            .await
+            .get(repo_url)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Fetch and chain-verify the manifest signature sidecar at
+    /// `<repo_url>.sig` over the exact `manifest_bytes`, returning the
+    /// trusted release keys. Every failure names its cause; none fall
+    /// through.
+    async fn verify_manifest_sidecar(
+        &self,
+        repo_url: &str,
+        manifest_bytes: &[u8],
+        trust: &crate::bifaci::release_cert::RegistryTrust,
+    ) -> Result<Vec<(String, String)>> {
+        let sidecar_url = format!("{repo_url}.sig");
+        let response = self.http_client.get(&sidecar_url).send().await.map_err(|e| {
+            CartridgeRepoError::HttpError(format!(
+                "Failed to fetch manifest signature sidecar {sidecar_url}: {e}"
+            ))
+        })?;
+        if !response.status().is_success() {
+            return Err(CartridgeRepoError::ManifestVerificationFailed(format!(
+                "manifest signature sidecar missing (HTTP {} from {sidecar_url}) — refusing \
+                 to trust an unsigned manifest. The registry must be re-published under the \
+                 signing regime.",
+                response.status().as_u16()
+            )));
+        }
+        let envelope_json = response.text().await.map_err(|e| {
+            CartridgeRepoError::HttpError(format!(
+                "Failed to read manifest signature sidecar {sidecar_url}: {e}"
+            ))
+        })?;
+        let roots: Vec<&str> = trust.root_pubkeys.iter().map(String::as_str).collect();
+        let chain = crate::bifaci::release_cert::verify_manifest_envelope(
+            &envelope_json,
+            manifest_bytes,
+            &roots,
+            &trust.environment,
+            crate::bifaci::release_cert::unix_now(),
+        )
+        .map_err(|e| {
+            CartridgeRepoError::ManifestVerificationFailed(format!(
+                "manifest signature chain verification FAILED for {repo_url}: {e}"
+            ))
+        })?;
+        Ok(chain.trusted_release_keys)
     }
 
     /// Fetch the v5.0 channel-partitioned cartridge manifest from a URL
@@ -700,6 +819,22 @@ impl CartridgeRepo {
             ))
         })?;
         let body_len = body_bytes.len();
+
+        // With trust configured, the manifest's signature sidecar must
+        // chain-verify over these EXACT bytes before anything is parsed or
+        // cached — a tampered manifest is rejected wholesale, and the
+        // sidecar's certificate-authorized release keys are retained for
+        // binary artifact verification.
+        let trust = self.trust.read().await.clone();
+        if let Some(trust) = trust {
+            let release_keys = self
+                .verify_manifest_sidecar(repo_url, &body_bytes, &trust)
+                .await?;
+            self.verified_release_keys
+                .write()
+                .await
+                .insert(repo_url.to_string(), release_keys);
+        }
         let manifest: CartridgeRegistry = serde_json::from_slice(&body_bytes).map_err(|e| {
             // Truncate body sample for log readability but keep enough
             // to see HTML error pages, schema-drift fields, etc.
@@ -820,16 +955,34 @@ impl CartridgeRepo {
             match self.fetch_registry(repo_url).await {
                 Ok(registry) => {
                     let mut caches = self.caches.write().await;
-                    if let Err(e) = Self::update_cache(&mut caches, repo_url, registry) {
-                        tracing::error!(
-                            "Failed to index cartridge repo {} into cache: {}",
-                            repo_url,
-                            e
-                        );
+                    match Self::update_cache(&mut caches, repo_url, registry) {
+                        Ok(()) => {
+                            self.sync_errors.write().await.remove(repo_url);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to index cartridge repo {} into cache: {}",
+                                repo_url,
+                                e
+                            );
+                            self.sync_errors
+                                .write()
+                                .await
+                                .insert(repo_url.clone(), e.to_string());
+                        }
                     }
                 }
                 Err(e) => {
                     tracing::error!("Failed to sync cartridge repo {}: {}", repo_url, e);
+                    // Recorded so callers that treat this registry as
+                    // mandatory (CartridgeManager::init) can hard-fail on
+                    // the REAL cause (e.g. a signature-verification
+                    // failure) instead of a later misleading
+                    // "cartridge not found".
+                    self.sync_errors
+                        .write()
+                        .await
+                        .insert(repo_url.clone(), e.to_string());
                 }
             }
         }
@@ -1333,6 +1486,7 @@ mod tests {
                     format: "pkg".to_string(),
                 }],
                 package: None,
+                binary: None,
             }],
             notes_url: None,
         }
@@ -1698,6 +1852,59 @@ mod tests {
         assert_eq!(modern.primary_package().unwrap().name, "c.deb");
     }
 
+    // TEST8032: the `binary` field (signed pure-binary artifact) round-trips
+    // through serde; a build without it — every pre-signing manifest —
+    // deserializes to `None` and serializes without the key (so a manifest
+    // rewritten by new tooling doesn't grow a null field old validators
+    // would reject).
+    #[test]
+    fn test8032_cartridge_build_binary_field_roundtrip() {
+        let with_binary_json = r#"{
+            "platform": "linux-x86_64",
+            "package": {
+                "name": "txtcartridge-1.0.0-linux-x86_64.deb",
+                "url": "https://x/txtcartridge-1.0.0-linux-x86_64.deb",
+                "sha256": "aa", "size": 10
+            },
+            "packages": [
+                {"name": "txtcartridge-1.0.0-linux-x86_64.deb", "url": "https://x/d.deb", "sha256": "aa", "size": 10, "format": "deb"}
+            ],
+            "binary": {
+                "name": "txtcartridge-1.0.0-linux-x86_64.bin",
+                "url": "https://x/txtcartridge-1.0.0-linux-x86_64.bin",
+                "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "size": 123456,
+                "signature": "untrusted comment: signature from minisign secret key\nRUQ...\ntrusted comment: file:txtcartridge-1.0.0-linux-x86_64.bin sha256=01...\nAAA...\n"
+            }
+        }"#;
+        let build: CartridgeBuild = serde_json::from_str(with_binary_json).unwrap();
+        let binary = build.binary.as_ref().expect("binary must deserialize");
+        assert_eq!(binary.name, "txtcartridge-1.0.0-linux-x86_64.bin");
+        assert_eq!(binary.size, 123456);
+        assert!(binary.signature.starts_with("untrusted comment: "));
+        // Round-trip preserves the binary object.
+        let reserialized = serde_json::to_string(&build).unwrap();
+        let reparsed: CartridgeBuild = serde_json::from_str(&reserialized).unwrap();
+        assert_eq!(
+            reparsed.binary.as_ref().unwrap().sha256,
+            binary.sha256
+        );
+
+        // Absent on the wire → None, and stays absent when re-serialized.
+        let without_json = r#"{
+            "platform": "linux-x86_64",
+            "package": {"name": "l.deb", "url": "https://x/l.deb", "sha256": "aa", "size": 1},
+            "packages": [{"name": "l.deb", "url": "https://x/l.deb", "sha256": "aa", "size": 1, "format": "deb"}]
+        }"#;
+        let without: CartridgeBuild = serde_json::from_str(without_json).unwrap();
+        assert!(without.binary.is_none());
+        let reserialized = serde_json::to_string(&without).unwrap();
+        assert!(
+            !reserialized.contains("\"binary\""),
+            "absent binary must not serialize as null: {reserialized}"
+        );
+    }
+
     // ----------------------------------------------------------------------
     // CartridgeInfo behaviour.
     // ----------------------------------------------------------------------
@@ -1770,6 +1977,7 @@ mod tests {
                 format: format.to_string(),
             }],
             package: None,
+            binary: None,
         }
     }
 
