@@ -674,12 +674,20 @@ impl CartridgeManager {
                 cap_urn: format!("Invalid URN: {}: {}", cap_urn, e),
             })?;
 
-        // Check dev cartridges first - use is_dispatchable to find any cartridge
-        // that can legally handle the requested cap.
+        // This is RESOLUTION, not dispatch: `requested_urn` is a fully-resolved,
+        // concrete cap (an alias resolved to exactly one cap URN), and we must
+        // run the cartridge that implements THAT cap — never silently substitute
+        // a merely-dispatchable one. So we match with `is_equivalent` (symmetric
+        // exact match), the SAME relation the registry path uses in
+        // `get_suggestions_for_cap`. Using the looser `is_dispatchable` here
+        // would let a dev cartridge declaring a more-general cap short-circuit
+        // the exact cap the alias named. See capdag/docs/07-dispatch.md,
+        // "Resolution vs. dispatch: which predicate?".
         for (bin_path, manifest) in &self.dev_cartridges {
             for cap in manifest.all_caps() {
-                // cap.urn is the provider, requested_urn is the request
-                if cap.urn.is_dispatchable(&requested_urn) {
+                // cap.urn is the declared provider cap; requested_urn is the
+                // resolved cap we must run.
+                if cap.urn.is_equivalent(&requested_urn) {
                     return Ok((bin_path.clone(), format!("dev:{}", bin_path.display())));
                 }
             }

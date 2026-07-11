@@ -1020,27 +1020,31 @@ impl CartridgeRepo {
                 return Vec::new();
             }
         };
-        let normalized = requested.to_string();
-
+        // This is RESOLUTION, not dispatch. `requested` is a fully-resolved,
+        // concrete cap — an alias resolved to exactly one cap URN — and we must
+        // find the cartridge that implements THAT cap, not merely one that could
+        // handle it. So a cartridge provides it iff one of its DECLARED caps is
+        // EQUIVALENT to it: `is_equivalent` is the SYMMETRIC relation (each side
+        // accepts the other — same position in the specificity lattice), never
+        // the looser directional `is_dispatchable`/`conforms_to` used for
+        // "find anything that would match" (get_cartridges_by_cap). Choosing
+        // dispatch here would let a cartridge declaring a more-general cap
+        // silently stand in for the exact cap the alias named — a surprising,
+        // non-deterministic substitution. See capdag/docs/07-dispatch.md,
+        // "Resolution vs. dispatch: which predicate?".
+        //
+        // Equivalence is decided on in/out/effect by the CapUrn parser, NEVER by
+        // string equality. We iterate the cartridges rather than probe a
+        // string-keyed index because two semantically-equivalent cap URNs can
+        // serialize to different strings (an arbitrary tag, the position of the
+        // op marker), so a string-keyed prefilter silently drops equivalent
+        // providers before equivalence is ever tested. The op marker and every
+        // non-in/out/effect tag are arbitrary and carry no functional weight.
         for cache in caches.values() {
-            let Some(cartridge_keys) = cache.cap_to_cartridges.get(&normalized) else {
-                continue;
-            };
-            for key in cartridge_keys {
-                let Some(cartridge) = cache.cartridges.get(key) else {
-                    continue;
-                };
-                // Cap dispatch is the partial-order question "does the
-                // declared cap conform to the requested pattern?". A
-                // declared cap that is more specific than (or equivalent
-                // to) the requested pattern is a valid provider. We use
-                // `is_equivalent` here because suggestion lookup is on
-                // exact-match URNs (the cap-index key is the normalized
-                // requested URN); upstream dispatch sites that perform
-                // pattern matching use `accepts`/`conforms_to`.
+            for (key, cartridge) in &cache.cartridges {
                 let Some(cap_info) = cartridge.iter_caps().find(|c| {
                     CapUrn::from_string(&c.urn)
-                        .map(|c_parsed| c_parsed.is_equivalent(&requested))
+                        .map(|declared| declared.is_equivalent(&requested))
                         .unwrap_or(false)
                 }) else {
                     continue;
@@ -1054,7 +1058,7 @@ impl CartridgeRepo {
                     cartridge_id: key.id.clone(),
                     cartridge_name: cartridge.name.clone(),
                     cartridge_description: cartridge.description.clone(),
-                    cap_urn: normalized.clone(),
+                    cap_urn: requested.to_string(),
                     cap_title: cap_info.title.clone(),
                     latest_version: cartridge.version.clone(),
                     repo_url: cache.repo_url.clone(),
@@ -1424,17 +1428,22 @@ impl CartridgeRepoServer {
             .collect())
     }
 
-    /// Get cartridges that provide a specific cap.
+    /// Get every cartridge that could HANDLE a cap request — the
+    /// "find anything that would match" query, distinct from exact
+    /// resolution (see [`Self::get_suggestions_for_cap`]).
     ///
     /// The requested URN is parsed via `CapUrn::from_string`; each
     /// declared cartridge cap is parsed too and matched via
-    /// `conforms_to`: cap dispatch is the partial-order question
-    /// "does the declared cap conform to (i.e. refine, equal, or
-    /// be more specific than) the requested pattern?". The `op` tag
-    /// has no functional role in matching — only the parsed predicate
-    /// machinery is used, never string comparison. A malformed input
-    /// URN is a `ParseError`; a malformed declared URN in the registry
-    /// is also propagated rather than silently dropped.
+    /// `is_dispatchable`, the dispatch predicate — "can this declared
+    /// provider cap legally handle the requested pattern?" (input
+    /// contravariant, output covariant, tags invariant; see
+    /// capdag/docs/07-dispatch.md). This is deliberately LOOSER than
+    /// the equivalence used to resolve an alias to its exact provider:
+    /// here we enumerate everything capable, not the one exact match.
+    /// The `op` tag has no functional role in matching — only the
+    /// parsed predicate machinery is used, never string comparison. A
+    /// malformed input URN is a `ParseError`; a malformed declared URN
+    /// in the registry is also propagated rather than silently dropped.
     pub fn get_cartridges_by_cap(&self, cap_urn: &str) -> Result<Vec<CartridgeInfo>> {
         use crate::urn::cap_urn::CapUrn;
         let requested = CapUrn::from_string(cap_urn).map_err(|e| {
@@ -1453,7 +1462,7 @@ impl CartridgeRepoServer {
                         cart.id, cart.channel, cap.urn, e
                     ))
                 })?;
-                if declared.conforms_to(&requested) {
+                if declared.is_dispatchable(&requested) {
                     matched.push(cart.clone());
                     break;
                 }

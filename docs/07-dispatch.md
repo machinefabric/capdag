@@ -409,7 +409,60 @@ All four structural coordinates must be checked.
 
 ---
 
-## 10. Summary
+## 10. Resolution vs. dispatch: which predicate?
+
+Dispatch (`is_dispatchable`, this document) is not the only cap-matching
+question the system asks. There are two, and they use two different predicates
+on purpose:
+
+| Question | Predicate | Symmetry | Used for |
+|---|---|---|---|
+| "Can provider `p` *handle* request `r`?" | `p.is_dispatchable(r)` | directional | routing, planning, and "find **anything** that would match" |
+| "Is declared cap `d` *the same cap* as resolved cap `c`?" | `d.is_equivalent(c)` | symmetric | **alias/cap resolution** — finding the cartridge that implements a specific cap |
+
+### Why alias resolution uses `is_equivalent`, not dispatch
+
+When you run `capdag <alias> …`, the alias is resolved in the fabric registry to
+**exactly one concrete cap URN** — a fully-specified point in the lattice, not a
+pattern. The next step is to find the cartridge that *implements that cap*. That
+is a **resolution** question ("which cartridge declares *this* cap?"), not a
+**dispatch** question ("which cartridge could *handle* this?").
+
+We deliberately match with the **symmetric** `is_equivalent` (each side accepts
+the other — identical lattice position), because:
+
+- **Determinism / least surprise.** The alias names one specific cap. The user
+  gets a cartridge that provides *that* cap, never a different, more‑general cap
+  that merely *could* serve the request. `is_dispatchable` is directional and
+  would let a cartridge declaring `cap:disbind;in="media:ext=pdf";out="media:"`
+  (any output) stand in for a request for
+  `cap:disbind;…;out="media:…;page;plain-text"` — a silent substitution of a
+  different behavior than the alias named.
+- **No accidental widening.** Resolution must not "fall back" to a looser
+  provider; if nothing implements the exact resolved cap, that is a real
+  "no provider" answer the caller needs to see (and fix by publishing the right
+  cartridge), not something to paper over by dispatching to a near‑match.
+
+Equivalence is decided on the parsed in/out/effect coordinates, **never** by
+string equality — two semantically identical cap URNs can serialize differently
+(tag order, the arbitrary `op` marker), so matching walks the parsed predicate,
+and resolution never prefilters through a string-keyed index (which would drop
+equivalent-but-differently-serialized providers before equivalence is tested).
+
+### Where each is used (keep them consistent)
+
+- **Resolution (`is_equivalent`)** — `CartridgeRepo::get_suggestions_for_cap`
+  and the dev-cartridge lookup in `CartridgeManager::find_cartridge_binary`.
+  These two are the *same* run-path question and MUST use the same predicate.
+- **Find-anything / dispatch (`is_dispatchable`)** — `get_cartridges_by_cap`
+  (enumerate every capable cartridge) and the planner/router dispatch sites.
+
+Rule of thumb: **resolving a name → `is_equivalent`; asking "who can handle
+this?" → `is_dispatchable`.** Never mix them within one question.
+
+---
+
+## 11. Summary
 
 The dispatch predicate is:
 
