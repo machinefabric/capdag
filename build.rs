@@ -113,9 +113,9 @@ fn enforce_signing_pubkey_pairing() {
             panic!(
                 "MFR_CARTRIDGE_REGISTRY_URL is set ({url:?}) but MFR_CARTRIDGE_ROOT_PUBKEYS \
                  is absent or empty. A build baked with a cartridge registry must bake the \
-                 root public key set its downloads verify against. Set the signing vars in \
-                 .env (see capdag keygen / the signing ops procedure) or unset the registry \
-                 URL for a dev build."
+                 root public key set its downloads verify against. Set MFR_CARTRIDGE_ROOT_PUBKEYS \
+                 (comma-separated base64 minisign root public keys) in the build environment, or \
+                 unset the registry URL for a dev build."
             );
         }
         if environment.is_none() {
