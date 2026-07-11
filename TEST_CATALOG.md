@@ -1,8 +1,8 @@
 # Rust Test Catalog
 
-**Total Tests:** 1252
+**Total Tests:** 1241
 
-**Numbered Tests:** 1251
+**Numbered Tests:** 1240
 
 **Unnumbered Tests:** 1
 
@@ -1239,34 +1239,23 @@ This catalog lists all tests in the Rust codebase.
 | test8026 | `test8026_line_based_semantic_tokens_no_brackets` | TEST8026: Semantic tokens are produced correctly for line-based notation without brackets. | src/machine/notation_ast.rs:2094 |
 | test8027 | `test8027_byte_offset_to_position_works` | TEST8027: Byte offsets are converted to line and character positions correctly. | src/machine/notation_ast.rs:2125 |
 | test8028 | `test8028_line_char_to_offset_works` | TEST8028: Line and character coordinates are converted back to byte offsets correctly. | src/machine/notation_ast.rs:2152 |
-| test8029 | `test8029_sign_then_verify_roundtrip` | TEST8029: a freshly generated keypair signs a payload and the signature verifies against the payload bytes with the generated public key — the full publisher→runtime roundtrip with real crypto, no mocks. Also pins that the trusted comment binds the artifact name and sha256. | src/bifaci/binary_signing.rs:518 |
-| test8030 | `test8030_verify_fails_on_tampered_payload` | TEST8030: flipping a single payload byte breaks verification — the signature vouches for exact bytes, so any tamper is detected. | src/bifaci/binary_signing.rs:550 |
-| test8031 | `test8031_verify_fails_with_wrong_keypair` | TEST8031: a signature from a different keypair fails verification even over the identical, untampered payload — verification binds the key, not just the bytes. | src/bifaci/binary_signing.rs:572 |
+| test8029 | `test8029_valid_binary_signature_verifies` | TEST8029: a real release-key signature verifies over the exact artifact bytes with the release public key. | src/bifaci/binary_signing.rs:254 |
+| test8030 | `test8030_tampered_artifact_rejected` | TEST8030: flipping a single artifact byte breaks verification — the signature vouches for exact bytes. | src/bifaci/binary_signing.rs:262 |
+| test8031 | `test8031_wrong_key_rejected` | TEST8031: the same signature under a DIFFERENT public key fails even over the identical, untampered artifact — verification binds the key. | src/bifaci/binary_signing.rs:273 |
 | test8032 | `test8032_cartridge_build_binary_field_roundtrip` | TEST8032: the `binary` field (signed pure-binary artifact) round-trips through serde; a build without it — every pre-signing manifest — deserializes to `None` and serializes without the key (so a manifest rewritten by new tooling doesn't grow a null field old validators would reject). | src/bifaci/cartridge_repo.rs:1861 |
-| test8033 | `test8033_download_without_binary_artifact_hard_errors` | TEST8033: a build that publishes NO pure-binary artifact hard-errors at download — there is no fallback to installer-package bytes — and nothing is written to the install dir. | src/orchestrator/executor.rs:3538 |
-| test8034 | `test8034_download_installs_verified_binary` | TEST8034: happy path — the signed binary downloads, verifies (sha256 + size + signature under the certificate-authorized release key), and installs into the registry/channel/id/version layout with an executable mode and a truthful cartridge.json. | src/orchestrator/executor.rs:3570 |
-| test8035 | `test8035_download_sha_mismatch_writes_nothing` | TEST8035: served bytes that differ from what the manifest vouches for (sha mismatch — a tampered download) hard-error and write nothing. | src/orchestrator/executor.rs:3621 |
-| test8036 | `test8036_download_uncertified_signature_rejected` | TEST8036: a binary whose manifest signature was made by a key WITHOUT a certificate (sha and size match the served bytes!) is rejected — the signature check binds authority, independently of the sha. | src/orchestrator/executor.rs:3653 |
-| test8037 | `test8037_download_without_trust_refused` | TEST8037: a manager with a registry but NO signing trust refuses registry downloads outright — verification cannot be silently skipped. | src/orchestrator/executor.rs:3683 |
-| test8038 | `test8038_root_pubkeys_from_build_env_passes_through_nonempty` | TEST8038: `root_pubkeys_from_build_env` passes a non-empty baked root set through unchanged, and `split_root_pubkeys` yields each key (mirror of TEST1872 for the registry URL). | src/bifaci/binary_signing.rs:594 |
-| test8039 | `test8039_post_install_tamper_caught_on_reuse` | TEST8039: post-install tampering of the on-disk binary is caught on the next use — `get_cartridge_path` re-verifies installed binaries against the signed manifest before returning them. | src/orchestrator/executor.rs:3714 |
+| test8038 | `test8038_root_pubkeys_from_build_env_passes_through_nonempty` | TEST8038: `root_pubkeys_from_build_env` passes a non-empty baked root set through unchanged, and `split_root_pubkeys` yields each key (mirror of TEST1872 for the registry URL). | src/bifaci/binary_signing.rs:297 |
 | test8040 | `test8040_single_cap_notation_synthesis` | TEST8040: notation synthesis wraps a resolved cap in the canonical one-edge machine; a cap with zero stdin args (nothing to pipe) and a cap with no output are hard errors naming the cap. | src/orchestrator/cli_cap.rs:419 |
 | test8041 | `test8041_cap_invocation_mapping` | TEST8041: invocation mapping — the cap's OWN interface works exactly as when invoking the cartridge directly: native declared flags (space and `=` forms), declared positional args in position order (leftover bare tokens become input paths), plus the explicit `--arg` addressing by flag name or media URN with `@file` values; unknown flags error listing candidates; a missing required defaultless arg fails the pre-flight with an actionable message. | src/orchestrator/cli_cap.rs:450 |
 | test8042 | `test8042_emit_terminals_contract` | TEST8042: the emission contract — single scalar terminal streams raw bytes to stdout; sequences/multi-terminal results write files with the contract names and list their paths on stdout; an existing file without --force is a hard error and --force overwrites. | src/orchestrator/cli_output.rs:159 |
 | test8043 | `test8043_cap_token_classification` | TEST8043: token classification — ':' means URN, strictly (an invalid URN with ':' errors rather than falling through to alias); no ':' means alias. | src/orchestrator/cli_cap.rs:538 |
-| test8044 | `test8044_root_pubkeys_from_build_env_none_for_dev` | TEST8044: absent env ⇒ dev build ⇒ None for both the root set and the environment label (mirror of TEST1873). | src/bifaci/binary_signing.rs:610 |
-| test8045 | `test8045_root_pubkeys_from_build_env_panics_on_empty` | TEST8045: an exported-but-empty root set (or environment label) is a hard failure — a build must never silently ship with verification disabled (mirror of TEST1874). | src/bifaci/binary_signing.rs:620 |
-| test8046 | `test8046_keygen_refuses_to_overwrite_existing_keys` | TEST8046: keygen refuses to overwrite existing key material — key rotation is an explicit operator action, never accidental. | src/bifaci/binary_signing.rs:689 |
-| test8047 | `test8047_raw_ed25519_roundtrip_with_minisign_keys` | TEST8047: the raw-ed25519 layer round-trips against the SAME minisign key material as the prehashed layer — parse the generated secret key, raw-sign exact bytes, verify with the generated public key; the key id derived from the secret key equals the one derived from the public key (they share the minisign keynum). | src/bifaci/binary_signing.rs:630 |
-| test8048 | `test8048_raw_ed25519_rejects_tamper_and_wrong_key` | TEST8048: raw-ed25519 verification fails on a tampered payload and under a different keypair — same guarantees as the prehashed layer (TEST8030/8031), proven for the raw layer independently. | src/bifaci/binary_signing.rs:658 |
-| test8049 | `test8049_full_chain_issue_sign_verify` | TEST8049: the full happy chain — Root A issues a 1-year certificate for the release key; the release key signs manifest bytes; a verifier baking [Root A, Root B] accepts the envelope (1-of-2), returns the release key as trusted, and the signature binds the exact bytes. | src/bifaci/release_cert.rs:471 |
-| test8050 | `test8050_certificate_from_untrusted_root_rejected` | TEST8050: a certificate signed by a key OUTSIDE the baked root set is rejected — possession of any valid-looking certificate means nothing unless a baked root signed it. | src/bifaci/release_cert.rs:500 |
-| test8051 | `test8051_certificate_expiry_and_not_yet_valid_enforced` | TEST8051: an expired certificate hard-fails with the expiry named; a not-yet-issued certificate likewise. Expiry is wall-clock law, not advisory. | src/bifaci/release_cert.rs:521 |
-| test8052 | `test8052_certificate_environment_binding_enforced` | TEST8052: environment binding — a certificate issued for staging is rejected by a prod-baked verifier (and vice versa) even though the root set is shared. A staging-signed manifest can never stand in for a prod one. | src/bifaci/release_cert.rs:562 |
-| test8053 | `test8053_uncertified_signer_rejected` | TEST8053: a manifest signed by a key with NO authorizing certificate in the envelope fails — both at sign time (sign_manifest refuses) and at verify time (an envelope hand-assembled around the check). | src/bifaci/release_cert.rs:590 |
-| test8054 | `test8054_rotation_envelope_with_two_certificates` | TEST8054: key rotation — an envelope carrying TWO chain-valid certificates (old + new release key) trusts both; the manifest may be signed by either; and a tampered certificate string anywhere in the list fails the WHOLE envelope (no skip-over-bad-entries laxity). | src/bifaci/release_cert.rs:648 |
-| test8055 | `test8055_manifest_sidecar_verification_gates_sync` | TEST8055: a manifest whose signature sidecar does not verify (or is missing) fails the SYNC with the real cause — never a later, misleading "cartridge not found". | src/orchestrator/executor.rs:3759 |
-| test8056 | `test8056_http_test_server_serves_routes` | Keep the standalone canned-route server helper exercised (it backs future sidecar-shape tests); its behavior is pinned here rather than left as untested test infrastructure. | src/orchestrator/executor.rs:3790 |
+| test8044 | `test8044_parse_release_pubkey` | TEST8044: `parse_minisign_public_key` extracts a 32-byte ed25519 key and an 8-byte (16-hex) keynum from a real minisign public key. | src/bifaci/binary_signing.rs:282 |
+| test8045 | `test8045_root_pubkeys_from_build_env_none_for_dev` | TEST8045: absent env ⇒ dev build ⇒ None for both the root set and the environment label (mirror of TEST1873). | src/bifaci/binary_signing.rs:310 |
+| test8046 | `test8046_root_pubkeys_from_build_env_panics_on_empty` | TEST8046: an exported-but-empty root set is a hard failure — a build must never silently ship with verification disabled (mirror of TEST1874). | src/bifaci/binary_signing.rs:319 |
+| test8049 | `test8049_full_2of3_chain_verifies` | TEST8049: the full 2-of-3 chain verifies — roots A+B authorize the release key, which signed the manifest; a verifier baking [A,B,C] accepts the envelope and returns the release key as trusted. | src/bifaci/release_cert.rs:374 |
+| test8050 | `test8050_tampered_manifest_rejected` | TEST8050: tampered manifest bytes fail — the signature binds exact bytes. | src/bifaci/release_cert.rs:383 |
+| test8051 | `test8051_insufficient_root_signatures_rejected` | TEST8051: fewer than 2 distinct trusted roots is insufficient (2-of-3). The cert was signed by A and B, so a verifier baking only [C, wrong] sees zero trusted signers, and baking only [A] sees one. | src/bifaci/release_cert.rs:397 |
+| test8052 | `test8052_expiry_and_not_yet_valid_enforced` | TEST8052: expiry and not-yet-valid are wall-clock law. | src/bifaci/release_cert.rs:412 |
+| test8053 | `test8053_environment_binding_enforced` | TEST8053: environment binding — the prod certificate is rejected by a staging-baked verifier. | src/bifaci/release_cert.rs:428 |
 | | | | |
 | unnumbered | `test914b_progress_mapper_step_sink_reports_raw_child` | TEST914b: ProgressMapper.with_step_sink emits the RAW child (the cap's own fraction) to the step sink while the parent still receives the MAPPED overall. | src/orchestrator/executor.rs:3024 |
 ---
@@ -1296,8 +1285,8 @@ These tests have a numbering disagreement between the function name and the auth
 ---
 
 *Generated from Rust source tree*
-*Total tests: 1252*
-*Total numbered tests: 1251*
+*Total tests: 1241*
+*Total numbered tests: 1240*
 *Total unnumbered tests: 1*
 *Total numbered tests missing descriptions: 1*
 *Total numbering mismatches: 1*
