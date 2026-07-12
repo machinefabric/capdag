@@ -266,7 +266,7 @@ mod tests {
         let cap = Cap::new(
             urn,
             "Extract Metadata".to_string(),
-            "extract-metadata".to_string(),
+            vec!["extract-metadata".to_string()],
         );
 
         let manifest = CapManifest::new(
@@ -296,7 +296,7 @@ mod tests {
         let cap = Cap::new(
             urn,
             "Extract Metadata".to_string(),
-            "extract-metadata".to_string(),
+            vec!["extract-metadata".to_string()],
         );
 
         let manifest = CapManifest::new(
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn test118_dev_manifest_registry_url_is_explicit_null() {
         let urn = CapUrn::from_string(&test_urn("dev")).unwrap();
-        let cap = Cap::new(urn, "Dev".to_string(), "dev".to_string());
+        let cap = Cap::new(urn, "Dev".to_string(), vec!["dev".to_string()]);
         let manifest = CapManifest::new(
             "DevComponent".to_string(),
             "0.1.0".to_string(),
@@ -394,7 +394,7 @@ mod tests {
         let cap = Cap::new(
             urn,
             "Extract Metadata".to_string(),
-            "extract-metadata".to_string(),
+            vec!["extract-metadata".to_string()],
         );
 
         let manifest = CapManifest::new(
@@ -419,7 +419,7 @@ mod tests {
         let mut cap = Cap::new(
             urn,
             "Extract Metadata".to_string(),
-            "extract-metadata".to_string(),
+            vec!["extract-metadata".to_string()],
         );
         cap.add_arg(CapArg::new(
             "media:ext=pdf",
@@ -501,7 +501,7 @@ mod tests {
         let cap1 = Cap::new(
             id1,
             "Extract Metadata".to_string(),
-            "extract-metadata".to_string(),
+            vec!["extract-metadata".to_string()],
         );
 
         let id2 = CapUrn::from_string(&test_urn("extract;target=outline")).unwrap();
@@ -510,7 +510,7 @@ mod tests {
         let cap2 = Cap::with_metadata(
             id2,
             "Extract Outline".to_string(),
-            "extract-outline".to_string(),
+            vec!["extract-outline".to_string()],
             metadata,
         );
 
@@ -553,7 +553,7 @@ mod tests {
     #[test]
     fn test154_cap_manifest_optional_author_field() {
         let urn = CapUrn::from_string(&test_urn("validate;file")).unwrap();
-        let cap = Cap::new(urn, "Validate".to_string(), "validate".to_string());
+        let cap = Cap::new(urn, "Validate".to_string(), vec!["validate".to_string()]);
 
         let manifest = CapManifest::new(
             "ValidatorComponent".to_string(),
@@ -590,7 +590,7 @@ mod tests {
         }
 
         let urn = CapUrn::from_string(&test_urn("test;type=component")).unwrap();
-        let cap = Cap::new(urn, "Test Component".to_string(), "test".to_string());
+        let cap = Cap::new(urn, "Test Component".to_string(), vec!["test".to_string()]);
 
         let component = TestComponent {
             name: "TestImpl".to_string(),
@@ -606,7 +606,7 @@ mod tests {
     #[test]
     fn test475_validate_passes_with_identity() {
         let identity_urn = CapUrn::from_string(CAP_IDENTITY).unwrap();
-        let cap = Cap::new(identity_urn, "Identity".to_string(), "identity".to_string());
+        let cap = Cap::new(identity_urn, "Identity".to_string(), vec!["identity".to_string()]);
         let manifest = CapManifest::new(
             "TestCartridge".to_string(),
             "1.0.0".to_string(),
@@ -625,7 +625,7 @@ mod tests {
     #[test]
     fn test476_validate_fails_without_identity() {
         let specific_urn = CapUrn::from_string(&test_urn("convert")).unwrap();
-        let cap = Cap::new(specific_urn, "Convert".to_string(), "convert".to_string());
+        let cap = Cap::new(specific_urn, "Convert".to_string(), vec!["convert".to_string()]);
         let manifest = CapManifest::new(
             "TestCartridge".to_string(),
             "1.0.0".to_string(),
@@ -646,7 +646,7 @@ mod tests {
     #[test]
     fn test1284_cap_group_with_adapter_urns() {
         let urn = CapUrn::from_string(&test_urn("convert")).unwrap();
-        let cap = Cap::new(urn, "Convert".to_string(), "convert".to_string());
+        let cap = Cap::new(urn, "Convert".to_string(), vec!["convert".to_string()]);
 
         let group = CapGroup {
             name: "data-formats".to_string(),
@@ -706,7 +706,7 @@ mod tests {
     #[test]
     fn test6363_cap_manifest_with_page_url() {
         let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
-        let cap = Cap::new(urn, "Metadata Extractor".to_string(), "extract-metadata".to_string());
+        let cap = Cap::new(urn, "Metadata Extractor".to_string(), vec!["extract-metadata".to_string()]);
         let manifest = CapManifest::new(
             "TestComponent".to_string(),
             "0.1.0".to_string(),
@@ -732,7 +732,7 @@ mod tests {
     #[test]
     fn test6371_cap_manifest_compatibility() {
         let urn = CapUrn::from_string(&test_urn("process")).unwrap();
-        let cap = Cap::new(urn, "Data Processor".to_string(), "process".to_string());
+        let cap = Cap::new(urn, "Data Processor".to_string(), vec!["process".to_string()]);
         let cartridge = CapManifest::new(
             "CartridgeComponent".to_string(),
             "0.1.0".to_string(),

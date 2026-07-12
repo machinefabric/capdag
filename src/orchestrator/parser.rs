@@ -294,7 +294,8 @@ mod tests {
                 cap_description: None,
                 documentation: None,
                 metadata: HashMap::new(),
-                command: "test".to_string(),
+                aliases: vec!["test".to_string()],
+                is_abstract: false,
                 args: arg_values,
                 output: Some(CapOutput::new(
                     out_media_urn.to_string(),

@@ -570,6 +570,14 @@ impl LiveCapFab {
 
     /// Add a capability as an edge in the graph.
     pub fn add_cap(&mut self, cap: &Cap) {
+        // Abstract caps are dispatch umbrellas — never backed by a cartridge and
+        // never a runnable edge. Adding one would put an unbacked edge in the
+        // graph (the wizard/planner could offer a path that fails at execution).
+        // They are narrowed to a concrete specialization at the CLI layer instead.
+        if cap.is_abstract {
+            return;
+        }
+
         let in_spec_str = cap.urn.in_spec();
         let out_spec_str = cap.urn.out_spec();
 
@@ -1433,7 +1441,8 @@ mod tests {
             cap_description: None,
             documentation: None,
             metadata: Default::default(),
-            command: "test".to_string(),
+            aliases: vec!["test".to_string()],
+            is_abstract: false,
             output: None,
             args: vec![],
             metadata_json: None,
@@ -1467,7 +1476,8 @@ mod tests {
             cap_description: None,
             documentation: None,
             metadata: Default::default(),
-            command: "test".to_string(),
+            aliases: vec!["test".to_string()],
+            is_abstract: false,
             output: Some(CapOutput::new(out_spec.to_string(), title.to_string())),
             args: vec![CapArg::new(
                 in_spec.to_string(),
@@ -2060,7 +2070,7 @@ mod tests {
     fn test789_cap_from_json_has_valid_specs() {
         let json = r#"{
             "urn": "cap:disbind;in=\"media:ext=pdf\";out=\"media:disbound-page;enc=utf-8\"",
-            "command": "disbind",
+            "aliases": ["disbind"],
             "title": "Disbind PDF",
             "args": [],
             "output": null
@@ -2805,4 +2815,41 @@ mod tests {
             paths.len()
         );
     }
+
+    // TEST8062: An abstract cap is a dispatch umbrella — never backed by a
+    // cartridge and never a runnable graph edge. `LiveCapFab::add_cap` must skip
+    // it, or the wizard/planner could offer a path that fails at execution. This
+    // fails hard if abstract caps ever leak into the graph.
+    #[test]
+    fn test8062_abstract_cap_excluded_from_graph() {
+        let mut graph = LiveCapFab::new();
+        let before = graph.stats();
+
+        let mut abstract_cap = make_test_cap(
+            "media:",
+            "media:enc=utf-8;ext=txt;page;plain-text",
+            "disbind",
+            "Disbind (abstract)",
+        );
+        abstract_cap.set_abstract(true);
+        graph.add_cap(&abstract_cap);
+        assert_eq!(
+            graph.stats(),
+            before,
+            "an abstract cap must not add any node or edge to the runnable graph"
+        );
+
+        // A concrete cap in the same family DOES become a runnable edge.
+        let concrete = make_test_cap(
+            "media:ext=pdf",
+            "media:enc=utf-8;ext=txt;page;plain-text",
+            "disbind",
+            "Disbind PDF",
+        );
+        graph.add_cap(&concrete);
+        let (n_after, e_after) = graph.stats();
+        assert!(e_after > before.1, "a concrete cap must add a runnable edge");
+        assert!(n_after > before.0, "a concrete cap must add graph nodes");
+    }
 }
+

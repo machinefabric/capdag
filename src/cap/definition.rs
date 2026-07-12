@@ -352,8 +352,17 @@ pub struct Cap {
     /// Optional metadata as key-value pairs
     pub metadata: HashMap<String, String>,
 
-    /// Command string for CLI execution
-    pub command: String,
+    /// Globally-unique human-facing names that select this cap in both the
+    /// capdag CLI (fabric-wide) and the direct cartridge CLI. Replaces the
+    /// former non-unique `command` field. At least one; uniqueness across the
+    /// whole catalogue (and against media aliases) is enforced at publish.
+    pub aliases: Vec<String>,
+
+    /// True when this cap is a generic-input dispatch umbrella: a valid alias
+    /// target that is never backed by a cartridge and never a runnable graph
+    /// edge. The capdag CLI narrows an abstract cap to a concrete
+    /// specialization by the detected input media (`is_dispatchable`).
+    pub is_abstract: bool,
 
     /// Cap arguments
     pub args: Vec<CapArg>,
@@ -400,7 +409,12 @@ impl Serialize for Cap {
         }
 
         state.serialize_field("title", &self.title)?;
-        state.serialize_field("command", &self.command)?;
+        state.serialize_field("aliases", &self.aliases)?;
+
+        // Emit `abstract` only when true; absent ⇒ false in the wire form.
+        if self.is_abstract {
+            state.serialize_field("abstract", &self.is_abstract)?;
+        }
 
         if self.cap_description.is_some() {
             state.serialize_field("cap_description", &self.cap_description)?;
@@ -457,7 +471,9 @@ impl<'de> Deserialize<'de> for Cap {
             documentation: Option<String>,
             #[serde(default)]
             metadata: HashMap<String, String>,
-            command: String,
+            aliases: Vec<String>,
+            #[serde(rename = "abstract", default)]
+            is_abstract: bool,
             #[serde(default)]
             args: Vec<CapArg>,
             output: Option<CapOutput>,
@@ -479,6 +495,16 @@ impl<'de> Deserialize<'de> for Cap {
             _ => return Err(serde::de::Error::custom("urn must be a string in canonical format (e.g., 'cap:in=\"media:...\";op=...;out=\"media:...\"')")),
         };
 
+        // A cap must declare at least one alias — it is how the cap is
+        // selected in both CLIs. An empty (or absent) list is a hard error,
+        // never silently defaulted.
+        if wire.aliases.is_empty() {
+            return Err(serde::de::Error::custom(format!(
+                "cap '{}' must declare at least one alias (the `aliases` field is required and non-empty)",
+                urn
+            )));
+        }
+
         Ok(Cap {
             urn,
             version: wire.version,
@@ -486,7 +512,8 @@ impl<'de> Deserialize<'de> for Cap {
             cap_description: wire.cap_description,
             documentation: wire.documentation,
             metadata: wire.metadata,
-            command: wire.command,
+            aliases: wire.aliases,
+            is_abstract: wire.is_abstract,
             args: wire.args,
             output: wire.output,
             metadata_json: wire.metadata_json,
@@ -499,7 +526,7 @@ impl<'de> Deserialize<'de> for Cap {
 
 impl Cap {
     /// Create a new cap
-    pub fn new(urn: CapUrn, title: String, command: String) -> Self {
+    pub fn new(urn: CapUrn, title: String, aliases: Vec<String>) -> Self {
         Self {
             urn,
             version: 0,
@@ -507,7 +534,8 @@ impl Cap {
             cap_description: None,
             documentation: None,
             metadata: HashMap::new(),
-            command,
+            aliases,
+            is_abstract: false,
             args: Vec::new(),
             output: None,
             metadata_json: None,
@@ -521,7 +549,7 @@ impl Cap {
     pub fn with_description(
         urn: CapUrn,
         title: String,
-        command: String,
+        aliases: Vec<String>,
         description: String,
     ) -> Self {
         Self {
@@ -531,7 +559,8 @@ impl Cap {
             cap_description: Some(description),
             documentation: None,
             metadata: HashMap::new(),
-            command,
+            aliases,
+            is_abstract: false,
             args: Vec::new(),
             output: None,
             metadata_json: None,
@@ -545,7 +574,7 @@ impl Cap {
     pub fn with_metadata(
         urn: CapUrn,
         title: String,
-        command: String,
+        aliases: Vec<String>,
         metadata: HashMap<String, String>,
     ) -> Self {
         Self {
@@ -555,7 +584,8 @@ impl Cap {
             cap_description: None,
             documentation: None,
             metadata,
-            command,
+            aliases,
+            is_abstract: false,
             args: Vec::new(),
             output: None,
             metadata_json: None,
@@ -569,7 +599,7 @@ impl Cap {
     pub fn with_description_and_metadata(
         urn: CapUrn,
         title: String,
-        command: String,
+        aliases: Vec<String>,
         description: String,
         metadata: HashMap<String, String>,
     ) -> Self {
@@ -580,7 +610,8 @@ impl Cap {
             cap_description: Some(description),
             documentation: None,
             metadata,
-            command,
+            aliases,
+            is_abstract: false,
             args: Vec::new(),
             output: None,
             metadata_json: None,
@@ -591,7 +622,7 @@ impl Cap {
     }
 
     /// Create a new cap with args
-    pub fn with_args(urn: CapUrn, title: String, command: String, args: Vec<CapArg>) -> Self {
+    pub fn with_args(urn: CapUrn, title: String, aliases: Vec<String>, args: Vec<CapArg>) -> Self {
         Self {
             urn,
             version: 0,
@@ -599,7 +630,8 @@ impl Cap {
             cap_description: None,
             documentation: None,
             metadata: HashMap::new(),
-            command,
+            aliases,
+            is_abstract: false,
             args,
             output: None,
             metadata_json: None,
@@ -615,7 +647,7 @@ impl Cap {
         title: String,
         description: Option<String>,
         metadata: HashMap<String, String>,
-        command: String,
+        aliases: Vec<String>,
         args: Vec<CapArg>,
         output: Option<CapOutput>,
         metadata_json: Option<serde_json::Value>,
@@ -627,7 +659,8 @@ impl Cap {
             cap_description: description,
             documentation: None,
             metadata,
-            command,
+            aliases,
+            is_abstract: false,
             args,
             output,
             metadata_json,
@@ -766,14 +799,39 @@ impl Cap {
         self.registered_by = None;
     }
 
-    /// Get the command
-    pub fn get_command(&self) -> &String {
-        &self.command
+    /// Get the cap's aliases (globally-unique selection names).
+    pub fn get_aliases(&self) -> &[String] {
+        &self.aliases
     }
 
-    /// Set the command
-    pub fn set_command(&mut self, command: String) {
-        self.command = command;
+    /// Set the cap's aliases.
+    pub fn set_aliases(&mut self, aliases: Vec<String>) {
+        self.aliases = aliases;
+    }
+
+    /// The primary (first) alias — used for single-name display (help text,
+    /// listings). A cap always has at least one alias.
+    pub fn primary_alias(&self) -> &str {
+        self.aliases
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or_default()
+    }
+
+    /// Whether `name` is one of this cap's aliases (exact match).
+    pub fn has_alias(&self, name: &str) -> bool {
+        self.aliases.iter().any(|a| a == name)
+    }
+
+    /// Whether this cap is an abstract dispatch umbrella (never backed by a
+    /// cartridge, never a runnable graph edge).
+    pub fn is_abstract(&self) -> bool {
+        self.is_abstract
+    }
+
+    /// Mark this cap abstract or concrete.
+    pub fn set_abstract(&mut self, is_abstract: bool) {
+        self.is_abstract = is_abstract;
     }
 
     /// Get the title
@@ -843,7 +901,7 @@ mod tests {
         let cap = Cap::new(
             urn,
             "Transform JSON Data".to_string(),
-            "test-command".to_string(),
+            vec!["test-command".to_string()],
         );
 
         assert!(cap.urn_string().contains("transform"));
@@ -870,7 +928,7 @@ mod tests {
         let cap = Cap::with_metadata(
             urn,
             "Perform Mathematical Operations".to_string(),
-            "test-command".to_string(),
+            vec!["test-command".to_string()],
             metadata,
         );
 
@@ -893,7 +951,7 @@ mod tests {
         let cap = Cap::new(
             urn,
             "Transform JSON Data".to_string(),
-            "test-command".to_string(),
+            vec!["test-command".to_string()],
         );
 
         assert!(cap.accepts_request(&test_urn("transform;format=json;type=data_processing")));
@@ -909,7 +967,7 @@ mod tests {
         let mut cap = Cap::new(
             urn,
             "Extract Document Metadata".to_string(),
-            "extract-metadata".to_string(),
+            vec!["extract-metadata".to_string()],
         );
 
         assert_eq!(cap.get_title(), &"Extract Document Metadata".to_string());
@@ -929,17 +987,17 @@ mod tests {
         let cap1 = Cap::new(
             urn1,
             "Transform JSON Data".to_string(),
-            "transform".to_string(),
+            vec!["transform".to_string()],
         );
         let cap2 = Cap::new(
             urn2.clone(),
             "Transform JSON Data".to_string(),
-            "transform".to_string(),
+            vec!["transform".to_string()],
         );
         let cap3 = Cap::new(
             urn2,
             "Convert JSON Format".to_string(),
-            "transform".to_string(),
+            vec!["transform".to_string()],
         );
 
         assert_eq!(cap1, cap2);
@@ -954,7 +1012,7 @@ mod tests {
         let mut cap = Cap::new(
             urn,
             "Generate Embeddings".to_string(),
-            "generate".to_string(),
+            vec!["generate".to_string()],
         );
 
         // By default, caps should not accept stdin
@@ -1090,17 +1148,17 @@ mod tests {
         let general = Cap::new(
             CapUrn::from_string(&test_urn("transform")).unwrap(),
             "General".to_string(),
-            "cmd".to_string(),
+            vec!["cmd".to_string()],
         );
         let specific = Cap::new(
             CapUrn::from_string(&test_urn("transform;format=json")).unwrap(),
             "Specific".to_string(),
-            "cmd".to_string(),
+            vec!["cmd".to_string()],
         );
         let unrelated = Cap::new(
             CapUrn::from_string(&test_urn("convert")).unwrap(),
             "Unrelated".to_string(),
-            "cmd".to_string(),
+            vec!["cmd".to_string()],
         );
 
         // Specific is more specific than general for the general request
@@ -1124,7 +1182,7 @@ mod tests {
     #[test]
     fn test592_remove_metadata() {
         let urn = CapUrn::from_string(&test_urn("test")).unwrap();
-        let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
+        let mut cap = Cap::new(urn, "Test".to_string(), vec!["cmd".to_string()]);
 
         cap.set_metadata("key1".to_string(), "val1".to_string());
         cap.set_metadata("key2".to_string(), "val2".to_string());
@@ -1144,7 +1202,7 @@ mod tests {
     #[test]
     fn test593_registered_by_lifecycle() {
         let urn = CapUrn::from_string(&test_urn("test")).unwrap();
-        let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
+        let mut cap = Cap::new(urn, "Test".to_string(), vec!["cmd".to_string()]);
 
         // Initially None
         assert!(cap.get_registered_by().is_none());
@@ -1165,7 +1223,7 @@ mod tests {
     #[test]
     fn test594_metadata_json_lifecycle() {
         let urn = CapUrn::from_string(&test_urn("test")).unwrap();
-        let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
+        let mut cap = Cap::new(urn, "Test".to_string(), vec!["cmd".to_string()]);
 
         // Initially None
         assert!(cap.get_metadata_json().is_none());
@@ -1199,7 +1257,7 @@ mod tests {
             ),
         ];
 
-        let cap = Cap::with_args(urn, "Test".to_string(), "cmd".to_string(), args);
+        let cap = Cap::with_args(urn, "Test".to_string(), vec!["cmd".to_string()], args);
         assert_eq!(cap.get_args().len(), 2);
         assert_eq!(cap.get_args()[0].media_urn, "media:string");
         assert!(cap.get_args()[0].required);
@@ -1222,7 +1280,7 @@ mod tests {
             "Full Cap".to_string(),
             Some("Description".to_string()),
             metadata,
-            "full-cmd".to_string(),
+            vec!["full-cmd".to_string()],
             args,
             Some(output),
             Some(json_meta.clone()),
@@ -1231,7 +1289,7 @@ mod tests {
         assert_eq!(cap.title, "Full Cap");
         assert_eq!(cap.cap_description, Some("Description".to_string()));
         assert_eq!(cap.get_metadata("env"), Some(&"prod".to_string()));
-        assert_eq!(cap.get_command(), &"full-cmd".to_string());
+        assert_eq!(cap.primary_alias(), "full-cmd");
         assert_eq!(cap.get_args().len(), 1);
         assert!(cap.get_output().is_some());
         assert_eq!(cap.get_output().unwrap().media_urn, "media:object");
@@ -1279,7 +1337,7 @@ mod tests {
     #[test]
     fn test598_cap_output_lifecycle() {
         let urn = CapUrn::from_string(&test_urn("test")).unwrap();
-        let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
+        let mut cap = Cap::new(urn, "Test".to_string(), vec!["cmd".to_string()]);
 
         // Initially no output
         assert!(cap.get_output().is_none());
@@ -1310,6 +1368,71 @@ mod tests {
         assert!(output3.get_metadata().is_none());
     }
 
+    // TEST8060: A cap wire body MUST declare at least one alias. Aliases are how
+    // a cap is selected in both CLIs; there is no `command` fallback and no
+    // silent default — a body without aliases (or with an empty list) is a hard
+    // deserialization error. This exposes any producer that emits a cap without
+    // the required selection name(s).
+    #[test]
+    fn test8060_deserialize_requires_non_empty_aliases() {
+        // Absent `aliases` → error.
+        let no_aliases = r#"{"urn":"cap:effect=none","title":"Identity"}"#;
+        assert!(
+            serde_json::from_str::<Cap>(no_aliases).is_err(),
+            "a cap wire body without `aliases` must fail to deserialize"
+        );
+        // Empty `aliases` → error.
+        let empty_aliases = r#"{"urn":"cap:effect=none","title":"Identity","aliases":[]}"#;
+        assert!(
+            serde_json::from_str::<Cap>(empty_aliases).is_err(),
+            "a cap wire body with an empty `aliases` list must fail to deserialize"
+        );
+        // A legacy body carrying only `command` (no aliases) must ALSO fail —
+        // the old field is gone, not a fallback.
+        let legacy_command = r#"{"urn":"cap:effect=none","title":"Identity","command":"identity"}"#;
+        assert!(
+            serde_json::from_str::<Cap>(legacy_command).is_err(),
+            "a legacy `command`-only cap body must fail — `command` is not a fallback for `aliases`"
+        );
+        // A valid body with one alias round-trips.
+        let ok = r#"{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]}"#;
+        let cap: Cap = serde_json::from_str(ok).expect("valid cap must deserialize");
+        assert_eq!(cap.get_aliases(), &["identity".to_string()]);
+        assert_eq!(cap.primary_alias(), "identity");
+        assert!(cap.has_alias("identity"));
+        assert!(!cap.is_abstract());
+    }
+
+    // TEST8061: The `abstract` flag round-trips and is absent-⇒-false. It is
+    // emitted ONLY when true (matching the wire schema's optional-with-default),
+    // so a concrete cap never carries `"abstract":false`.
+    #[test]
+    fn test8061_abstract_flag_roundtrip() {
+        // Absent → false; serialize omits it.
+        let concrete: Cap = serde_json::from_str(
+            r#"{"urn":"cap:disbind;in="media:ext=pdf";out="media:enc=utf-8"","title":"Disbind PDF","aliases":["disbind-pdf"]}"#,
+        )
+        .expect("concrete cap must deserialize");
+        assert!(!concrete.is_abstract());
+        let concrete_json = serde_json::to_string(&concrete).unwrap();
+        assert!(
+            !concrete_json.contains("abstract"),
+            "a concrete cap must not serialize an `abstract` field, got: {concrete_json}"
+        );
+
+        // Present true → is_abstract, and serialize emits it.
+        let abstract_cap: Cap = serde_json::from_str(
+            r#"{"urn":"cap:disbind;out="media:enc=utf-8"","title":"Disbind","aliases":["disbind"],"abstract":true}"#,
+        )
+        .expect("abstract cap must deserialize");
+        assert!(abstract_cap.is_abstract());
+        let abstract_json = serde_json::to_string(&abstract_cap).unwrap();
+        assert!(
+            abstract_json.contains("\"abstract\":true"),
+            "an abstract cap must serialize `\"abstract\":true`, got: {abstract_json}"
+        );
+    }
+
     // TEST1127: Documentation field round-trips through JSON serialize/deserialize.
     //
     // The documentation field carries an arbitrary markdown body authored
@@ -1322,7 +1445,7 @@ mod tests {
     #[test]
     fn test1127_cap_documentation_round_trip_with_markdown_body() {
         let urn = CapUrn::from_string(&test_urn("documented")).unwrap();
-        let mut cap = Cap::new(urn, "Documented Cap".to_string(), "documented".to_string());
+        let mut cap = Cap::new(urn, "Documented Cap".to_string(), vec!["documented".to_string()]);
 
         // A non-trivial markdown body — multi-line, headings, code blocks,
         // backticks, embedded quotes, and a literal CRLF and Unicode dingbat
@@ -1365,7 +1488,7 @@ mod tests {
         let cap = Cap::new(
             urn,
             "Undocumented Cap".to_string(),
-            "undocumented".to_string(),
+            vec!["undocumented".to_string()],
         );
         assert!(cap.get_documentation().is_none());
 
@@ -1394,7 +1517,7 @@ mod tests {
         let json = serde_json::json!({
             "urn": "cap:in=\"media:enc=utf-8\";docparse;out=\"media:enc=utf-8\"",
             "title": "Doc Parse",
-            "command": "docparse",
+            "aliases": ["docparse"],
             "cap_description": "short",
             "documentation": "## Heading\n\nbody text",
             "metadata": {}
@@ -1415,7 +1538,7 @@ mod tests {
         let mut cap = Cap::with_description(
             urn,
             "Lifecycle".to_string(),
-            "lifecycle".to_string(),
+            vec!["lifecycle".to_string()],
             "short".to_string(),
         );
         assert_eq!(cap.cap_description.as_deref(), Some("short"));

@@ -3797,7 +3797,7 @@ mod tests {
         let cap = crate::cap::definition::Cap::with_description(
             crate::urn::cap_urn::CapUrn::from_string(cap_urn).expect("test cap URN must parse"),
             "Test Transform".to_string(),
-            "test-transform".to_string(),
+            vec!["test-transform".to_string()],
             "Transforms test source into test output.".to_string(),
         );
         registry.add_caps_to_cache(vec![cap]);
@@ -3850,7 +3850,7 @@ mod tests {
                 serde_json::json!({
                     "urn": urn,
                     "title": "test",
-                    "command": "test",
+                    "aliases": ["test"],
                     "args": [],
                 })
             })
@@ -3963,7 +3963,7 @@ mod tests {
             .iter()
             .map(|v| {
                 let urn = v.as_str().expect("cap URN must be a string").to_string();
-                serde_json::json!({ "urn": urn, "title": "test", "command": "test", "args": [] })
+                serde_json::json!({ "urn": urn, "title": "test", "aliases": ["test"], "args": [] })
             })
             .collect();
         let notify_payload = serde_json::json!({
@@ -4930,7 +4930,7 @@ mod tests {
                                     {
                                         "urn": "cap:effect=none",
                                         "title": "Identity",
-                                        "command": "identity",
+                                        "aliases": ["identity"],
                                         "args": [],
                                     }
                                 ],
@@ -5019,13 +5019,13 @@ mod tests {
                                     {
                                         "urn": "cap:effect=none",
                                         "title": "Identity",
-                                        "command": "identity",
+                                        "aliases": ["identity"],
                                         "args": [],
                                     },
                                     {
                                         "urn": "cap:in=\"media:void\";test;out=\"media:void\"",
                                         "title": "Test",
-                                        "command": "test",
+                                        "aliases": ["test"],
                                         "args": [],
                                     }
                                 ],
@@ -5344,7 +5344,8 @@ mod tests {
             cap_description: None,
             documentation: None,
             metadata: std::collections::HashMap::new(),
-            command: String::new(),
+            aliases: vec![String::new()],
+            is_abstract: false,
             args: Vec::new(),
             output: None,
             metadata_json: None,
@@ -5551,7 +5552,8 @@ mod tests {
                     cap_description: None,
                     documentation: None,
                     metadata: std::collections::HashMap::new(),
-                    command: String::new(),
+                    aliases: vec![String::new()],
+                    is_abstract: false,
                     args: Vec::new(),
                     output: None,
                     metadata_json: None,
@@ -5585,7 +5587,8 @@ mod tests {
                     cap_description: None,
                     documentation: None,
                     metadata: std::collections::HashMap::new(),
-                    command: String::new(),
+                    aliases: vec![String::new()],
+                    is_abstract: false,
                     args: Vec::new(),
                     output: None,
                     metadata_json: None,
@@ -5946,7 +5949,8 @@ mod tests {
                     cap_description: None,
                     documentation: None,
                     metadata: std::collections::HashMap::new(),
-                    command: String::new(),
+                    aliases: vec![String::new()],
+                    is_abstract: false,
                     args: Vec::new(),
                     output: None,
                     metadata_json: None,
@@ -5971,7 +5975,8 @@ mod tests {
                     cap_description: None,
                     documentation: None,
                     metadata: std::collections::HashMap::new(),
-                    command: String::new(),
+                    aliases: vec![String::new()],
+                    is_abstract: false,
                     args: Vec::new(),
                     output: None,
                     metadata_json: None,
@@ -6656,7 +6661,7 @@ mod tests {
                             {
                                 "name": "test",
                                 "caps": [
-                                    { "urn": "cap:effect=none", "title": "test", "command": "test", "args": [] }
+                                    { "urn": "cap:effect=none", "title": "test", "aliases": ["test"], "args": [] }
                                 ],
                                 "adapter_urns": [],
                             }

@@ -460,6 +460,33 @@ equivalent-but-differently-serialized providers before equivalence is tested).
 Rule of thumb: **resolving a name → `is_equivalent`; asking "who can handle
 this?" → `is_dispatchable`.** Never mix them within one question.
 
+### Abstract caps: resolve the umbrella, then dispatch to a concrete cap
+
+An **abstract cap** is a generic-input dispatch umbrella — e.g.
+`cap:disbind;out="media:enc=utf-8;ext=txt;page;plain-text"` (input `media:`,
+i.e. any) or `cap:convert-image` (input and output both `media:`). It is a valid
+alias target but is **never backed by a cartridge** and is **excluded from the
+runnable cap graph** (`LiveMachinePlanGraph::add_cap` skips it), so it can never
+appear as an edge the wizard or planner would offer and then fail to execute.
+
+Running `capdag <abstract-alias> <file>` uses **both** predicates, in order:
+
+1. **Resolve** the alias to the abstract cap URN — `is_equivalent` (which cap
+   does this name mean?).
+2. **Dispatch** to a concrete cap — `is_dispatchable`. The CLI detects the input
+   file's media type, builds the request = the abstract cap with its input
+   specialized to that media (and its output specialized to `--to <target>` when
+   given), and asks `FabricRegistry::narrow_abstract_cap`: which **concrete**
+   (non-abstract) cap URN `is_dispatchable` for that request? Exactly one → run
+   it; zero → "no handler for this input"; more than one → ambiguous (the caller
+   disambiguates with `--to`, or by naming the concrete alias).
+
+Every abstract cap must have ≥1 concrete specialization in the same snapshot
+(enforced at publish, `fabric/src/fabric.js` `validateAbstractCoverage`), so the
+narrowing can always reach a real cartridge. This is the same two-question split
+as an ordinary alias — `is_equivalent` for the name, `is_dispatchable` for "who
+can handle this input?" — with the input-media detection supplying the request.
+
 ---
 
 ## 11. Summary

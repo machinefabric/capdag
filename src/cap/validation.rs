@@ -1224,7 +1224,7 @@ mod tests {
         let mut cap = Cap::new(
             urn,
             "Test Capability".to_string(),
-            "test-command".to_string(),
+            vec!["test-command".to_string()],
         );
 
         let arg = CapArg::new(
@@ -1252,7 +1252,7 @@ mod tests {
         let mut cap = Cap::new(
             urn,
             "Test Capability".to_string(),
-            "test-command".to_string(),
+            vec!["test-command".to_string()],
         );
 
         let arg = CapArg::new(
@@ -1286,7 +1286,7 @@ mod tests {
         let mut cap = Cap::new(
             urn,
             "Test Capability".to_string(),
-            "test-command".to_string(),
+            vec!["test-command".to_string()],
         );
 
         // Seed the registry with the schema-bearing media def; caps no
@@ -1339,7 +1339,7 @@ mod tests {
     fn make_test_cap_with_args(args: Vec<CapArg>) -> Cap {
         // Uses in=media:void — only for tests where no arg has a stdin source.
         let urn = CapUrn::from_string(&test_urn("test")).unwrap();
-        let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
+        let mut cap = Cap::new(urn, "Test".to_string(), vec!["cmd".to_string()]);
         for arg in args {
             cap.add_arg(arg);
         }
@@ -1349,7 +1349,7 @@ mod tests {
     fn make_test_cap_with_stdin_args(args: Vec<CapArg>) -> Cap {
         // Uses in=media:enc=utf-8 — for tests where at least one arg has a stdin source.
         let urn = CapUrn::from_string(r#"cap:in="media:enc=utf-8";test;out="media:record""#).unwrap();
-        let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
+        let mut cap = Cap::new(urn, "Test".to_string(), vec!["cmd".to_string()]);
         for arg in args {
             cap.add_arg(arg);
         }
@@ -1646,7 +1646,7 @@ mod tests {
     #[test]
     fn test1295_rule11_non_void_input_without_stdin_rejected() {
         let urn = CapUrn::from_string(r#"cap:in="media:enc=utf-8";test;out="media:record""#).unwrap();
-        let mut cap = Cap::new(urn, "Test".to_string(), "cmd".to_string());
+        let mut cap = Cap::new(urn, "Test".to_string(), vec!["cmd".to_string()]);
         cap.add_arg(CapArg::new(
             MEDIA_STRING,
             true,

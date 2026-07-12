@@ -2874,7 +2874,7 @@ mod tests {
     /// Minimal ResolvedEdge for segment-detection tests.
     fn edge(from: &str, to: &str, urn: &str) -> ResolvedEdge {
         let cap_urn = CapUrn::from_string(urn).expect("test cap URN");
-        let cap = Cap::new(cap_urn, "t".to_string(), "t".to_string());
+        let cap = Cap::new(cap_urn, "t".to_string(), vec!["t".to_string()]);
         ResolvedEdge {
             token_id: format!("{}->{}", from, to),
             from: from.to_string(),

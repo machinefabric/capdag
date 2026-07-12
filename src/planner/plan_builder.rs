@@ -704,7 +704,7 @@ mod tests {
             "declared".to_string(),
             tags,
         )?;
-        Ok(Cap::new(urn, title.to_string(), "test-command".to_string()))
+        Ok(Cap::new(urn, title.to_string(), vec!["test-command".to_string()]))
     }
 
     /// Simulates the graph-building duplicate detection logic

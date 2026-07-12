@@ -84,7 +84,8 @@ fn build_testcartridge_cap(urn_str: &str) -> Cap {
         cap_description: None,
         documentation: None,
         metadata: HashMap::new(),
-        command: "testcartridge".to_string(),
+        aliases: vec!["testcartridge".to_string()],
+        is_abstract: false,
         args: vec![CapArg::new(
             in_spec.clone(),
             true,
@@ -118,7 +119,8 @@ fn build_combine_cap() -> Cap {
         cap_description: None,
         documentation: None,
         metadata: HashMap::new(),
-        command: "testcartridge".to_string(),
+        aliases: vec!["testcartridge".to_string()],
+        is_abstract: false,
         args: vec![
             CapArg::new(
                 "media:enc=utf-8;file-path",

@@ -4,7 +4,7 @@
 
 use capdag::machine::parse_machine_with_node_names;
 use capdag::orchestrator::{
-    build_plans_from_notation, execute_plan, parse_machine_to_cap_dag, CliRuntime, EngineRuntime,
+    build_plans_from_notation, execute_plan, CliRuntime, EngineRuntime,
 };
 use capdag::{
     CapProgressFn, CartridgeChannel, ExecutionNodeType, FabricRegistry, PipelineLogFn, StreamMeta,
@@ -274,7 +274,10 @@ fn print_usage(program: &str) {
         "Usage:\n\
            {p} <cap-alias-or-urn> [cap args] [inputs...] [options]   Run one cap\n\
            {p} run <machine-file> [inputs...] [options]              Run a .machine file\n\
+           {p} dag-viz <machine-file> [--mermaid|--dot]              Render the execution plan as a diagram\n\
            {p} resolve <cap-alias-or-urn>                            Show the providing cartridge(s)\n\
+           {p} cap-def [--no-cache] <cap-alias-or-urn>               Print the cap's canonical definition JSON\n\
+           {p} cache [clear|refresh]                                 Invalidate/renew the local fabric cache\n\
            {p} install <cap-alias-or-urn-or-cartridge-id>            Download + verify without running\n\n\
          Single-cap mode drives the cap's OWN declared interface — exactly like\n\
          invoking the cartridge directly, except the cap runs inside a full bifaci\n\
@@ -291,9 +294,6 @@ fn print_usage(program: &str) {
            -o, --output <dir>       Write result files into <dir> (default: cwd)\n\
            --force                  Overwrite existing output files\n\
            --arg <name>=<value>     Explicit cap argument (repeatable; single-cap mode)\n\
-           --values <file.json>     Argument values per node (run mode)\n\
-           --gen-values             Output a values JSON template and exit (run mode)\n\
-           --mermaid                Output Mermaid diagram code and exit (run mode)\n\
            --dev-bins <binary> ...  Use local cartridge binaries\n\
            --trace <file.trace>     Write a per-segment bifaci protocol trace (JSONL)\n\
            --help                   Show this help\n\n\
@@ -365,7 +365,10 @@ async fn main() {
     // error, anything else is SINGLE-CAP MODE (alias or cap URN).
     match args[1].as_str() {
         "run" => cmd_run(&args).await,
+        "dag-viz" => cmd_dag_viz(&args).await,
         "resolve" => cmd_resolve(&args).await,
+        "cap-def" => cmd_cap_def(&args).await,
+        "cache" => cmd_cache(&args).await,
         "install" => cmd_install(&args).await,
         "--help" | "-h" | "help" => {
             print_usage(&args[0]);
@@ -387,13 +390,75 @@ async fn main() {
     }
 }
 
+/// `capdag dag-viz <machine-file> [--mermaid|--dot]` — render the machine's
+/// execution plan(s) as a diagram. This walks the SAME planner output the
+/// engine executes (`build_plans_from_notation`), so it faithfully expresses
+/// everything machine notation can model — ForEach fan-out, Collect/Merge
+/// fan-in, Split, input slots, outputs, and every typed edge — not the old
+/// flat cap-to-cap view. `--mermaid` (default) or `--dot` selects the format.
+async fn cmd_dag_viz(args: &[String]) -> ! {
+    let mut want_dot = false;
+    let mut machine_file: Option<&str> = None;
+    for a in &args[2..] {
+        match a.as_str() {
+            "--mermaid" => want_dot = false,
+            "--dot" => want_dot = true,
+            "--help" | "-h" => {
+                print_usage(&args[0]);
+                process::exit(0);
+            }
+            other if other.starts_with('-') => {
+                eprintln!("Unknown dag-viz option '{other}'.");
+                eprintln!("Usage: {} dag-viz <machine-file> [--mermaid|--dot]", args[0]);
+                process::exit(2);
+            }
+            path => {
+                if machine_file.is_some() {
+                    eprintln!("dag-viz takes a single machine file.");
+                    process::exit(2);
+                }
+                machine_file = Some(path);
+            }
+        }
+    }
+    let Some(machine_file) = machine_file else {
+        eprintln!("Usage: {} dag-viz <machine-file> [--mermaid|--dot]", args[0]);
+        process::exit(2);
+    };
+
+    let notation = match fs::read_to_string(machine_file) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("Error reading machine file '{}': {}", machine_file, e);
+            process::exit(1);
+        }
+    };
+    let registry = match FabricRegistry::new().await {
+        Ok(reg) => Arc::new(reg),
+        Err(e) => {
+            eprintln!("Error creating FabricRegistry: {}", e);
+            process::exit(1);
+        }
+    };
+    let plans = match build_plans_from_notation(&notation, registry.clone()).await {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Validation failed: {}", e);
+            process::exit(1);
+        }
+    };
+    if want_dot {
+        println!("{}", capdag::planner::plans_to_dot(&plans));
+    } else {
+        println!("{}", capdag::planner::plans_to_mermaid(&plans));
+    }
+    process::exit(0);
+}
+
 /// `capdag run <machine-file> [inputs…]` — execute a .machine pipeline.
 async fn cmd_run(args: &[String]) -> ! {
     // Parse arguments
     let mut dev_binaries = Vec::new();
-    let mut mermaid_mode = false;
-    let mut gen_values_mode = false;
-    let mut values_file: Option<String> = None;
     let mut trace_file: Option<String> = None;
     let mut output_dir: Option<PathBuf> = None;
     let mut force_overwrite = false;
@@ -405,23 +470,6 @@ async fn cmd_run(args: &[String]) -> ! {
             "--help" | "-h" => {
                 print_usage(&args[0]);
                 process::exit(0);
-            }
-            "--mermaid" => {
-                mermaid_mode = true;
-                arg_idx += 1;
-            }
-            "--gen-values" => {
-                gen_values_mode = true;
-                arg_idx += 1;
-            }
-            "--values" => {
-                arg_idx += 1;
-                if arg_idx >= args.len() {
-                    eprintln!("--values requires a JSON file path");
-                    process::exit(1);
-                }
-                values_file = Some(args[arg_idx].clone());
-                arg_idx += 1;
             }
             "--trace" => {
                 arg_idx += 1;
@@ -493,22 +541,6 @@ async fn cmd_run(args: &[String]) -> ! {
         }
     };
 
-    // --mermaid: render the resolved DAG as a diagram and exit. This is a flat
-    // visualization (parse_machine_to_cap_dag), not an execution path — execution
-    // runs through the ForEach/Collect-aware planner below.
-    if mermaid_mode {
-        match parse_machine_to_cap_dag(&notation, registry.as_ref()).await {
-            Ok(graph) => {
-                println!("{}", graph.to_mermaid());
-                process::exit(0);
-            }
-            Err(e) => {
-                eprintln!("Validation failed: {}", e);
-                process::exit(1);
-            }
-        }
-    }
-
     // Build execution plans through the single ForEach/Collect-aware front-end — the
     // same planner path the engine runs. One plan per connected strand.
     let plans = match build_plans_from_notation(&notation, registry.clone()).await {
@@ -518,49 +550,6 @@ async fn cmd_run(args: &[String]) -> ! {
             process::exit(1);
         }
     };
-
-    // --gen-values: emit a values JSON template and exit. For each cap step, list the
-    // non-stdin args (the ones no data-flow edge can supply — model-spec, budgets, …)
-    // keyed by plan node id → arg media URN → default. These keys are exactly what
-    // `--values` feeds back into the executor as extra-arg streams.
-    if gen_values_mode {
-        let mut template: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-        for plan in &plans {
-            for (node_id, node) in &plan.nodes {
-                let Some(cap_urn) = node.cap_urn() else {
-                    continue;
-                };
-                let cap = match registry.get_cap(cap_urn).await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("Error resolving cap '{}': {}", cap_urn, e);
-                        process::exit(1);
-                    }
-                };
-                let mut node_args = serde_json::Map::new();
-                for arg in cap.get_args() {
-                    let has_stdin = arg
-                        .sources
-                        .iter()
-                        .any(|s| matches!(s, capdag::cap::definition::ArgSource::Stdin { .. }));
-                    if has_stdin {
-                        continue;
-                    }
-                    let value = arg.default_value.clone().unwrap_or(serde_json::Value::Null);
-                    node_args.insert(arg.media_urn.clone(), value);
-                }
-                if !node_args.is_empty() {
-                    template.insert(node_id.clone(), serde_json::Value::Object(node_args));
-                }
-            }
-        }
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::Value::Object(template))
-                .expect("JSON serialization cannot fail for this structure")
-        );
-        process::exit(0);
-    }
 
     // Find input nodes automatically
     let input_nodes = find_input_nodes(&notation, registry.as_ref());
@@ -599,48 +588,10 @@ async fn cmd_run(args: &[String]) -> ! {
 
     let bundled_providers_dir = bundled_providers_dir();
 
-    // Load argument values file
-    let node_values: HashMap<String, HashMap<String, serde_json::Value>> =
-        if let Some(ref vf) = values_file {
-            match fs::read_to_string(vf) {
-                Ok(content) => match serde_json::from_str(&content) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        eprintln!("Error parsing values file '{}': {}", vf, e);
-                        process::exit(1);
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Error reading values file '{}': {}", vf, e);
-                    process::exit(1);
-                }
-            }
-        } else {
-            HashMap::new()
-        };
-
-    // The executor speaks `cap_arguments` (raw arg-stream bytes) — its single argument
-    // format. Serialize the JSON values file: a string arg is its own UTF-8 bytes,
-    // anything else is its JSON encoding.
-    let cap_arguments: HashMap<String, Vec<(String, Vec<u8>)>> = node_values
-        .iter()
-        .map(|(node, args)| {
-            let pairs = args
-                .iter()
-                .map(|(media, value)| {
-                    let bytes = match value {
-                        serde_json::Value::String(s) => s.as_bytes().to_vec(),
-                        other => serde_json::to_vec(other).unwrap_or_else(|e| {
-                            eprintln!("Error serializing value for arg '{}': {}", media, e);
-                            process::exit(1);
-                        }),
-                    };
-                    (media.clone(), bytes)
-                })
-                .collect();
-            (node.clone(), pairs)
-        })
-        .collect();
+    // The executor speaks `cap_arguments` (raw per-node arg-stream bytes). A
+    // `.machine` run supplies every argument through data-flow edges and input
+    // files, so the CLI passes no extra per-node argument streams here.
+    let cap_arguments: HashMap<String, Vec<(String, Vec<u8>)>> = HashMap::new();
 
     eprintln!("\n=== Executing ===\n");
     if !dev_binaries.is_empty() {
@@ -648,9 +599,6 @@ async fn cmd_run(args: &[String]) -> ! {
         for bin in &dev_binaries {
             eprintln!("  - {}", bin.display());
         }
-    }
-    if !node_values.is_empty() {
-        eprintln!("Values: {} node(s) configured", node_values.len());
     }
 
     // --trace: open the per-segment protocol-trace sink up front. A trace the
@@ -812,7 +760,15 @@ async fn cmd_run(args: &[String]) -> ! {
 
 /// Build the FabricRegistry or exit with the error.
 async fn fabric_registry_or_exit() -> Arc<FabricRegistry> {
-    match FabricRegistry::new().await {
+    fabric_registry_or_exit_with_bypass(false).await
+}
+
+/// Construct the fabric registry, optionally bypassing every on-disk cache so
+/// the manifest and all cap bodies are fetched fresh (correct against a
+/// mutable channel like staging that re-publishes the same manifest version).
+async fn fabric_registry_or_exit_with_bypass(bypass_cache: bool) -> Arc<FabricRegistry> {
+    let config = capdag::RegistryConfig::default().with_bypass_cache(bypass_cache);
+    match FabricRegistry::with_config(config).await {
         Ok(reg) => Arc::new(reg),
         Err(e) => {
             eprintln!("Error creating FabricRegistry: {}", e);
@@ -840,6 +796,97 @@ async fn resolve_cap_or_exit(registry: &FabricRegistry, token: &str) -> capdag::
             eprintln!("Error resolving cap '{token}': {e}");
             process::exit(1);
         }
+    }
+}
+
+/// Parse a `--to` target into a media URN. A value containing ':' is taken as a
+/// full media URN; a bare token (e.g. `png`) is the file-extension shorthand
+/// `media:ext=<token>`. Exits on a malformed value.
+fn parse_target_media_or_exit(t: &str) -> capdag::MediaUrn {
+    let s = if t.contains(':') {
+        t.to_string()
+    } else {
+        format!("media:ext={t}")
+    };
+    match capdag::MediaUrn::from_string(&s) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Invalid --to target '{t}': {e}");
+            process::exit(2);
+        },
+    }
+}
+
+/// Narrow an abstract cap to its concrete specialization by detecting the input
+/// file's media type (and honouring `--to`), or exit with an actionable error.
+async fn narrow_abstract_or_exit(
+    registry: &Arc<FabricRegistry>,
+    abstract_cap: capdag::Cap,
+    cap_tokens: &[String],
+    to_target: Option<&str>,
+) -> capdag::Cap {
+    // Find the input FILE among the positional tokens — the first token that
+    // expands to at least one existing file. Abstract narrowing needs a
+    // concrete input to detect media from; piped stdin has no path/extension
+    // and therefore cannot be narrowed (fail hard rather than guess).
+    let mut input_path: Option<PathBuf> = None;
+    for tok in cap_tokens {
+        if tok.starts_with('-') {
+            continue;
+        }
+        if let Some(first) = expand_input_path(tok).into_iter().next() {
+            input_path = Some(first);
+            break;
+        }
+    }
+    let Some(path) = input_path else {
+        eprintln!(
+            "'{}' is an abstract cap — it needs an input FILE to detect the media type and narrow to a concrete cap. Provide a file path (piped stdin cannot be narrowed).",
+            abstract_cap.primary_alias()
+        );
+        process::exit(2);
+    };
+
+    let resolved = match capdag::detect_file_with_fabric_registry(&path, registry.clone()) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Failed to detect the media type of '{}': {e}", path.display());
+            process::exit(1);
+        },
+    };
+    let input_media = match capdag::MediaUrn::from_string(&resolved.media_urn) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Detected an invalid media URN '{}': {e}", resolved.media_urn);
+            process::exit(1);
+        },
+    };
+
+    let target_media = to_target.map(parse_target_media_or_exit);
+
+    match registry
+        .narrow_abstract_cap(&abstract_cap.urn, &input_media, target_media.as_ref())
+        .await
+    {
+        Ok(concrete_urn) => match registry.get_cap(&concrete_urn.to_string()).await {
+            Ok(concrete) => {
+                eprintln!(
+                    "{} → {} (input {})",
+                    abstract_cap.primary_alias(),
+                    concrete.primary_alias(),
+                    input_media
+                );
+                concrete
+            },
+            Err(e) => {
+                eprintln!("Narrowed to '{concrete_urn}' but that cap is not in the registry: {e}");
+                process::exit(1);
+            },
+        },
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(1);
+        },
     }
 }
 
@@ -884,6 +931,9 @@ async fn cmd_cap(args: &[String]) -> ! {
     let mut force_overwrite = false;
     let mut dev_binaries: Vec<PathBuf> = Vec::new();
     let mut trace_file: Option<String> = None;
+    // Target output for narrowing an ABSTRACT cap (e.g. `convert-image` needs a
+    // target format). Ignored (and rejected) for concrete caps.
+    let mut to_target: Option<String> = None;
     let mut idx = 2usize;
     while idx < args.len() {
         match args[idx].as_str() {
@@ -920,6 +970,14 @@ async fn cmd_cap(args: &[String]) -> ! {
                 };
                 trace_file = Some(path.clone());
             }
+            "--to" => {
+                idx += 1;
+                let Some(t) = args.get(idx) else {
+                    eprintln!("--to requires a target (an extension like `png`, a media URN, or `media:...`)");
+                    process::exit(2);
+                };
+                to_target = Some(t.clone());
+            }
             "--dev-bins" => {
                 idx += 1;
                 while idx < args.len() && !args[idx].starts_with('-') {
@@ -939,7 +997,24 @@ async fn cmd_cap(args: &[String]) -> ! {
     }
 
     let registry = fabric_registry_or_exit().await;
-    let cap = resolve_cap_or_exit(&registry, cap_token).await;
+    let resolved_cap = resolve_cap_or_exit(&registry, cap_token).await;
+
+    // Alias/URN resolution answered "which cap does this name mean?" (an
+    // is_equivalent question). If it named an ABSTRACT cap, we now answer the
+    // dispatch question — "which concrete cap handles THIS input?" — by
+    // detecting the input media and narrowing via is_dispatchable. Concrete
+    // caps run as-is; `--to` is only meaningful for the abstract case.
+    let cap = if resolved_cap.is_abstract() {
+        narrow_abstract_or_exit(&registry, resolved_cap, &cap_tokens, to_target.as_deref()).await
+    } else {
+        if to_target.is_some() {
+            eprintln!(
+                "--to is only valid for an abstract (generic) cap; '{cap_token}' resolves to a concrete cap"
+            );
+            process::exit(2);
+        }
+        resolved_cap
+    };
 
     // The cap's declared interface, applied to the tokens.
     let notation = match capdag::orchestrator::synthesize_single_cap_notation(&cap) {
@@ -1140,6 +1215,75 @@ async fn cmd_cap(args: &[String]) -> ! {
 
 /// `capdag resolve <cap-alias-or-urn>` — resolve a cap and show which
 /// registry cartridge(s) provide it, without downloading anything.
+/// `capdag cap-def <cap-alias-or-urn>` — print the canonical cap definition
+/// JSON for a single cap, resolved through the baked fabric registry (the same
+/// registry every mirror uses). Cartridges use this to (re)generate the cap-def
+/// snapshots they embed and implement: the printed JSON deserializes straight
+/// back into a `Cap`, carrying the aliases, args, and output as the fabric
+/// defines them. Resolution uses the alias/URN boundary (a media alias fails
+/// hard); an abstract cap is dumped as-is (cartridges only ever snapshot the
+/// concrete caps they implement).
+async fn cmd_cap_def(args: &[String]) -> ! {
+    // `--no-cache` forces a fresh fetch against the live fabric (skips the
+    // version-keyed on-disk cache, which is stale on a mutable channel).
+    let no_cache = args[2..].iter().any(|a| a == "--no-cache");
+    let Some(token) = args[2..].iter().find(|a| !a.starts_with('-')).map(|s| s.as_str())
+    else {
+        eprintln!("Usage: {} cap-def [--no-cache] <cap-alias-or-urn>", args[0]);
+        process::exit(2);
+    };
+    let registry = fabric_registry_or_exit_with_bypass(no_cache).await;
+    let cap = resolve_cap_or_exit(&registry, token).await;
+    match serde_json::to_string_pretty(&cap) {
+        Ok(json) => {
+            println!("{json}");
+            process::exit(0);
+        },
+        Err(e) => {
+            eprintln!("Failed to serialize cap def for '{token}': {e}");
+            process::exit(1);
+        },
+    }
+}
+
+/// `capdag cache clear|refresh` — invalidate the local fabric cache for the
+/// active registry. `clear` purges (in-memory + on-disk, manifest included);
+/// `refresh` (the default) purges and then re-fetches the manifest so the next
+/// command starts from a renewed cache. Use this after a channel re-publishes
+/// under the same manifest version and the version-keyed cache is stale.
+async fn cmd_cache(args: &[String]) -> ! {
+    let sub = args.get(2).map(String::as_str).unwrap_or("refresh");
+    let (do_refresh, ok_verb) = match sub {
+        "clear" | "purge" | "invalidate" => (false, "cleared"),
+        "refresh" | "renew" => (true, "refreshed"),
+        other => {
+            eprintln!(
+                "Unknown cache subcommand '{other}'. Usage: {} cache [clear|refresh]",
+                args[0]
+            );
+            process::exit(2);
+        }
+    };
+
+    // Build against the live cache (no bypass) so clear_cache targets the very
+    // directory the other commands read.
+    let registry = fabric_registry_or_exit().await;
+    let dir = registry.cache_dir().display().to_string();
+    if let Err(e) = registry.clear_cache() {
+        eprintln!("Failed to clear fabric cache at {dir}: {e}");
+        process::exit(1);
+    }
+
+    if do_refresh {
+        // Re-fetch the manifest fresh into the now-empty cache so the renewal
+        // is complete rather than lazy. A fresh bypass-mode registry pulls the
+        // current manifest and writes it through.
+        let _ = fabric_registry_or_exit_with_bypass(true).await;
+    }
+    println!("Fabric cache {ok_verb}: {dir}");
+    process::exit(0);
+}
+
 async fn cmd_resolve(args: &[String]) -> ! {
     let Some(token) = args.get(2) else {
         eprintln!("Usage: {} resolve <cap-alias-or-urn>", args[0]);

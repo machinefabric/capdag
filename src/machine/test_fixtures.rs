@@ -64,7 +64,8 @@ pub(crate) fn build_cap_with_slot_stdin_pairs(
         cap_description: None,
         documentation: None,
         metadata: HashMap::new(),
-        command: format!("test-fixture://{title}"),
+        aliases: vec![format!("test-fixture://{title}")],
+        is_abstract: false,
         args: arg_values,
         output: Some(CapOutput::new(
             output_media_urn.to_string(),
