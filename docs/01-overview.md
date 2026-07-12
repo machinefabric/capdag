@@ -91,6 +91,13 @@ This specification defines the semantic foundations, runtime protocol, execution
 | 17.2 | [Error Handling](/docs/17.2-error-handling) | Error type hierarchy, propagation patterns | 13.4 |
 | 17.3 | [Memory Pressure Detection](/docs/17.3-memory-pressure-detection) | macOS memory pressure, cartridge lifecycle | — |
 
+### The capdag CLI (18)
+
+| # | Document | Purpose | Dependencies |
+|---|----------|---------|--------------|
+| 18.1 | [CLI Reference](/docs/18.1-cli-reference) | Every `capdag` subcommand, options, fabric binding, output discipline | 7, 15.2 |
+| 18.2 | [Getting Started with Cartridge Development](/docs/18.2-getting-started-cartridge-development) | Scaffold, dev-install, run, and iterate on a cartridge; the local dev fallback | 16.1, 18.1 |
+
 ---
 
 ## Reading Order
@@ -111,6 +118,7 @@ This specification defines the semantic foundations, runtime protocol, execution
 14. **15 Execution** — DAG orchestration and planning
 15. **16 Cartridge Development** — building cartridges
 16. **17 Integration** — tasks, errors, resource management
+17. **18 The capdag CLI** — the command-line tool and the cartridge-development loop
 
 ---
 
