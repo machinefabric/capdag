@@ -3970,7 +3970,7 @@ impl CartridgeRuntime {
 
         // Handle subcommand --help
         if args.len() == 3 && (args[2] == "--help" || args[2] == "-h") {
-            if let Some(cap) = self.find_cap_by_command(manifest, subcommand) {
+            if let Some(cap) = self.find_cap_by_alias(manifest, subcommand) {
                 self.print_cap_help(&cap);
                 return Ok(());
             }
@@ -3978,7 +3978,7 @@ impl CartridgeRuntime {
 
         // Find cap by command name
         let cap = self
-            .find_cap_by_command(manifest, subcommand)
+            .find_cap_by_alias(manifest, subcommand)
             .ok_or_else(|| {
                 RuntimeError::UnknownSubcommand(format!(
                     "Unknown subcommand '{}'. Run with --help to see available commands.",
@@ -4159,16 +4159,18 @@ impl CartridgeRuntime {
         dispatch_op(op, input_package, output, peer_arc).await
     }
 
-    /// Find a cap by its command name (the CLI subcommand).
-    fn find_cap_by_command<'a>(
+    /// Find a cap by one of its aliases (the CLI subcommand). Aliases are
+    /// globally unique, so at most one cap matches — the direct cartridge CLI
+    /// selects the exact cap named, with no family narrowing.
+    fn find_cap_by_alias<'a>(
         &self,
         manifest: &'a CapManifest,
-        command_name: &str,
+        alias: &str,
     ) -> Option<&'a Cap> {
         manifest
             .all_caps()
             .into_iter()
-            .find(|cap| cap.command == command_name)
+            .find(|cap| cap.has_alias(alias))
     }
 
     /// Build payload from streaming stdin (CLI mode with piped binary).
@@ -4540,7 +4542,7 @@ impl CartridgeRuntime {
 
         for cap in manifest.all_caps() {
             let desc = cap.cap_description.as_deref().unwrap_or(&cap.title);
-            let padded_command = format!("{:16}", cap.command);
+            let padded_command = format!("{:16}", cap.primary_alias());
             let _ = writeln!(handle, "    {}{}", padded_command, desc);
         }
         let _ = writeln!(handle);
@@ -4556,7 +4558,7 @@ impl CartridgeRuntime {
         let mut handle = stderr.lock();
         use std::io::Write;
 
-        let _ = writeln!(handle, "Usage: {} [options]", cap.command);
+        let _ = writeln!(handle, "Usage: {} [options]", cap.primary_alias());
         let _ = writeln!(handle);
         let desc = cap.cap_description.as_deref().unwrap_or(&cap.title);
         let _ = writeln!(handle, "{}", desc);
@@ -6289,7 +6291,7 @@ mod tests {
     /// Helper function to create a Cap for tests
     fn create_test_cap(urn_str: &str, title: &str, command: &str, args: Vec<CapArg>) -> Cap {
         let urn = CapUrn::from_string(urn_str).expect("Invalid cap URN");
-        Cap::with_args(urn, title.to_string(), command.to_string(), args)
+        Cap::with_args(urn, title.to_string(), vec![command.to_string()], args)
     }
 
     /// Mock registry for tests - stores caps and returns them by URN lookup
@@ -6493,7 +6495,7 @@ mod tests {
         // Always append CAP_IDENTITY at the end - cartridges must declare it
         // (Appending instead of prepending to avoid breaking tests that reference caps[0])
         let identity_urn = crate::CapUrn::from_string(crate::standard::caps::CAP_IDENTITY).unwrap();
-        let identity_cap = Cap::new(identity_urn, "Identity".to_string(), "identity".to_string());
+        let identity_cap = Cap::new(identity_urn, "Identity".to_string(), vec!["identity".to_string()]);
         caps.push(identity_cap);
 
         CapManifest::new(
@@ -6512,10 +6514,10 @@ mod tests {
 
     /// Test manifest JSON with identity and a test cap.
     /// Uses cap_groups format. `cap:test` is a legal fully-generic declared transform.
-    const TEST_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"},{"urn":"cap:test","title":"Test","command":"test"}]}]}"#;
+    const TEST_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases": ["identity"]},{"urn":"cap:test","title":"Test","aliases": ["test"]}]}]}"#;
 
     /// Valid manifest with proper in/out specs for tests that need parsed CapManifest
-    const VALID_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"},{"urn":"cap:in=media:void;test;out=media:void","title":"Test","command":"test"}],"adapter_urns":[]}]}"#;
+    const VALID_MANIFEST: &str = r#"{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases": ["identity"]},{"urn":"cap:in=media:void;test;out=media:void","title":"Test","aliases": ["test"]}],"adapter_urns":[]}]}"#;
 
     // TEST248: Test register_op and find_handler by exact cap URN
     #[test]

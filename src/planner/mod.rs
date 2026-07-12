@@ -30,6 +30,7 @@ pub mod live_cap_fab;
 pub mod plan;
 pub mod plan_analysis;
 pub mod plan_builder;
+pub mod viz;
 
 // Re-exports - Shape types (cardinality + structure)
 pub use argument_binding::{
@@ -68,6 +69,7 @@ pub use plan_builder::{
     ArgumentInfo, ArgumentResolution, MachinePlanBuilder, PathArgumentRequirements,
     StepArgumentRequirements,
 };
+pub use viz::{plans_to_dot, plans_to_mermaid};
 
 // =============================================================================
 // Error Type

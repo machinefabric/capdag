@@ -185,7 +185,7 @@ mod tests {
         Cap::new(
             CapUrn::from_string(urn).expect("valid cap urn"),
             title.to_string(),
-            "test-command".to_string(),
+            vec!["test-command".to_string()],
         )
     }
 

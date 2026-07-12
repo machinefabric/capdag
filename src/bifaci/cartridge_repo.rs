@@ -141,14 +141,16 @@ const fn const_eq(a: &str, b: &str) -> bool {
 
 /// One cap as it appears inside a `cap_group` in the registry response.
 ///
-/// `urn`, `title`, and `command` are always present. `cap_description`,
-/// `args`, and `output` are only emitted by cartridges that document
-/// them; the identity cap, for example, omits all three.
+/// `urn`, `title`, and `aliases` are always present. `abstract` defaults to
+/// false. `cap_description`, `args`, and `output` are only emitted by
+/// cartridges that document them; the identity cap, for example, omits all three.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RegistryCap {
     pub urn: String,
     pub title: String,
-    pub command: String,
+    pub aliases: Vec<String>,
+    #[serde(rename = "abstract", default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_abstract: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cap_description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1505,7 +1507,8 @@ mod tests {
         RegistryCap {
             urn: urn.to_string(),
             title: title.to_string(),
-            command: command.to_string(),
+            aliases: vec![command.to_string()],
+            is_abstract: false,
             cap_description: None,
             args: None,
             output: None,
@@ -1613,11 +1616,11 @@ mod tests {
     // TEST632: A registry cap with only the three required fields parses.
     #[test]
     fn test632_deserialize_minimal_registry_cap() {
-        let json = r#"{"urn": "cap:effect=none", "title": "Identity", "command": "identity"}"#;
+        let json = r#"{"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]}"#;
         let cap: RegistryCap = serde_json::from_str(json).unwrap();
         assert_eq!(cap.urn, "cap:effect=none");
         assert_eq!(cap.title, "Identity");
-        assert_eq!(cap.command, "identity");
+        assert_eq!(cap.aliases, vec!["identity".to_string()]);
         assert!(cap.cap_description.is_none());
         assert!(cap.args.is_none());
         assert!(cap.output.is_none());
@@ -1629,7 +1632,7 @@ mod tests {
         let json = r#"{
             "urn": "cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\"",
             "title": "Disbind PDF",
-            "command": "disbind",
+            "aliases": ["disbind"],
             "cap_description": "Extract each PDF page as plain page text.",
             "args": [
                 {
@@ -1647,7 +1650,7 @@ mod tests {
             }
         }"#;
         let cap: RegistryCap = serde_json::from_str(json).unwrap();
-        assert_eq!(cap.command, "disbind");
+        assert_eq!(cap.aliases, vec!["disbind".to_string()]);
         assert_eq!(
             cap.cap_description.as_deref(),
             Some("Extract each PDF page as plain page text.")
@@ -1668,7 +1671,7 @@ mod tests {
         let json = r#"{
             "name": "pdf-formats",
             "caps": [
-                {"urn": "cap:effect=none", "title": "Identity", "command": "identity"}
+                {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]}
             ],
             "adapter_urns": ["media:ext=pdf"]
         }"#;
@@ -1697,8 +1700,8 @@ mod tests {
                 {
                     "name": "pdf-formats",
                     "caps": [
-                        {"urn": "cap:effect=none", "title": "Identity", "command": "identity"},
-                        {"urn": "cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\"", "title": "Disbind PDF Into Page Text", "command": "disbind"}
+                        {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]},
+                        {"urn": "cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\"", "title": "Disbind PDF Into Page Text", "aliases": ["disbind"]}
                     ],
                     "adapter_urns": ["media:ext=pdf"]
                 }
@@ -1763,7 +1766,7 @@ mod tests {
                         {
                             "name": "pdf-formats",
                             "caps": [
-                                {"urn": "cap:effect=none", "title": "Identity", "command": "identity"}
+                                {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]}
                             ],
                             "adapter_urns": ["media:ext=pdf"]
                         }
@@ -1788,7 +1791,7 @@ mod tests {
                         {
                             "name": "image-formats",
                             "caps": [
-                                {"urn": "cap:in=\"media:convert-image;image;jpeg;png\";out=\"media:image\"", "title": "Convert JPEG to PNG", "command": "convert-image"}
+                                {"urn": "cap:in=\"media:convert-image;image;jpeg;png\";out=\"media:image\"", "title": "Convert JPEG to PNG", "aliases": ["convert-image"]}
                             ],
                             "adapter_urns": ["media:ext=bmp;image", "media:ext=jpeg;image", "media:ext=png;image", "media:ext=tiff;image", "media:ext=webp;image", "media:ext=gif;image"]
                         }

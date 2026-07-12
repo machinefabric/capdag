@@ -370,7 +370,7 @@ mod tests {
             r#"cap:in="media:ext=pdf";summarize;out="media:enc=utf-8;summary""#,
         )
         .unwrap();
-        let mut cap = Cap::new(urn, "Summarize".to_string(), "summarize".to_string());
+        let mut cap = Cap::new(urn, "Summarize".to_string(), vec!["summarize".to_string()]);
         cap.args = vec![
             arg(
                 "media:ext=pdf",

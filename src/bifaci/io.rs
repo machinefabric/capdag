@@ -1937,7 +1937,7 @@ mod tests {
     // TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits
     #[test]
     fn test848_relay_notify_roundtrip() {
-        let manifest = br#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","command":"test"},{"urn":"cap:in=\"media:void\";convert;out=\"media:void\"","title":"Convert","command":"convert"}]}]}"#;
+        let manifest = br#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\"media:void\";test;out=\"media:void\"","title":"Test","aliases": ["test"]},{"urn":"cap:in=\"media:void\";convert;out=\"media:void\"","title":"Convert","aliases": ["convert"]}]}]}"#;
         let limits = crate::bifaci::frame::Limits {
             max_frame: 2_000_000,
             max_chunk: 128_000,
@@ -2159,7 +2159,7 @@ mod tests {
             max_reorder_buffer: 32,
             initial_credit: DEFAULT_INITIAL_CREDIT,
         };
-        let manifest = br#"{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}"#;
+        let manifest = br#"{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases": ["identity"]}]}]}"#;
 
         // Write cartridge's HELLO with manifest to a duplex stream
         let (mut cartridge_write, mut cartridge_read) = tokio::io::duplex(64 * 1024);
@@ -2198,7 +2198,7 @@ mod tests {
         assert_eq!(host_reorder, DEFAULT_MAX_REORDER_BUFFER);
     }
 
-    const V3_TEST_MANIFEST: &[u8] = br#"{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}"#;
+    const V3_TEST_MANIFEST: &[u8] = br#"{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases": ["identity"]}]}]}"#;
 
     /// Run a real host↔cartridge handshake over a bidirectional duplex pair.
     /// The cartridge side proposes `cartridge_limits` in its HELLO.
@@ -2356,7 +2356,7 @@ mod tests {
     // =========================================================================
 
     /// Manifest with only CAP_IDENTITY (minimum valid manifest)
-    const IDENTITY_MANIFEST: &str = r#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]}]}]}"#;
+    const IDENTITY_MANIFEST: &str = r#"{"name":"Test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases": ["identity"],"args":[]}]}]}"#;
 
     /// Simulate cartridge side: handshake_accept, then handle one identity REQ
     /// by echoing back the payload (like the standard identity handler).

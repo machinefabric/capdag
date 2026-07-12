@@ -101,7 +101,8 @@ mod tests {
             cap_description: None,
             documentation: None,
             metadata: std::collections::HashMap::new(),
-            command: "test".to_string(),
+            aliases: vec!["test".to_string()],
+            is_abstract: false,
             args: vec![CapArg::new(
                 in_spec.clone(),
                 true,

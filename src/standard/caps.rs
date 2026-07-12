@@ -122,7 +122,7 @@ pub fn lookup_cap_fabric_cap() -> Cap {
     let mut cap = Cap::with_description(
         urn,
         "Look Up Cap Definition (Fabric)".to_string(),
-        "lookup_cap".to_string(),
+        vec!["lookup-cap-fabric".to_string()],
         "Resolve a canonical cap URN to its full registry-published cap definition by \
          fetching from the public fabric registry."
             .to_string(),
@@ -169,7 +169,7 @@ pub fn lookup_media_def_fabric_cap() -> Cap {
     let mut cap = Cap::with_description(
         urn,
         "Look Up Media Definition (Fabric)".to_string(),
-        "lookup_media_def".to_string(),
+        vec!["lookup-media-def-fabric".to_string()],
         "Resolve a canonical media URN to its full registry-published media def \
          definition by fetching from the public fabric registry."
             .to_string(),
@@ -238,7 +238,7 @@ pub fn identity_cap() -> Cap {
     let mut cap = Cap::with_description(
         urn,
         "Identity".to_string(),
-        "identity".to_string(),
+        vec!["identity".to_string()],
         "The categorical identity morphism. Echoes input as output unchanged. Mandatory in every capability set.".to_string(),
     );
 
@@ -268,7 +268,7 @@ pub fn discard_cap() -> Cap {
     let mut cap = Cap::with_description(
         urn,
         "Discard".to_string(),
-        "discard".to_string(),
+        vec!["discard".to_string()],
         "The terminal morphism. Accepts any input and produces void output. Standard but not mandatory.".to_string(),
     );
 
@@ -305,7 +305,7 @@ pub fn adapter_selection_cap() -> Cap {
     let mut cap = Cap::with_description(
         urn,
         "Adapter Selection".to_string(),
-        "adapter-selection".to_string(),
+        vec!["adapter-selection".to_string()],
         "Content inspection adapter. Inspects file content and returns media URNs matching the detected file type. Default returns empty END (no match).".to_string(),
     );
 
@@ -1424,7 +1424,7 @@ mod tests {
     fn test1274_adapter_selection_cap_builder() {
         let cap = adapter_selection_cap();
         assert_eq!(cap.title, "Adapter Selection");
-        assert_eq!(cap.command, "adapter-selection");
+        assert_eq!(cap.primary_alias(), "adapter-selection");
 
         // Must have exactly one arg (wildcard media: input)
         assert_eq!(cap.args.len(), 1, "Adapter selection cap must have one arg");

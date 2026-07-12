@@ -64,6 +64,15 @@ const SYNC_FETCH_DEADLINE: Duration = Duration::from_millis(500);
 pub struct RegistryConfig {
     pub registry_base_url: String,
     pub schema_base_url: String,
+    /// When true, the registry ignores every on-disk cache entry: the
+    /// manifest is re-fetched from the network (rather than read from
+    /// `manifests/<v>.json`) and the disk cap/media/alias bodies are NOT
+    /// preloaded, so every lookup is served fresh from the registry. This
+    /// is the correct mode against a mutable channel (e.g. staging, which
+    /// re-publishes the SAME manifest version with new/changed caps): the
+    /// version-keyed cache would otherwise return a stale snapshot. Fresh
+    /// bytes still overwrite the cache as they arrive.
+    pub bypass_cache: bool,
 }
 
 impl Default for RegistryConfig {
@@ -75,6 +84,7 @@ impl Default for RegistryConfig {
         Self {
             registry_base_url: registry_base,
             schema_base_url: schema_base,
+            bypass_cache: false,
         }
     }
 }
@@ -95,6 +105,12 @@ impl RegistryConfig {
 
     pub fn with_schema_url(mut self, url: impl Into<String>) -> Self {
         self.schema_base_url = url.into();
+        self
+    }
+
+    /// Enable cache-bypass mode (see [`RegistryConfig::bypass_cache`]).
+    pub fn with_bypass_cache(mut self, bypass: bool) -> Self {
+        self.bypass_cache = bypass;
         self
     }
 }
@@ -330,6 +346,55 @@ pub struct FabricRegistry {
     cache_revision_tx: watch::Sender<u64>,
 }
 
+/// Outcome of trying to narrow an abstract cap to a concrete backed cap given a
+/// detected input media (and optional target). The CLI turns each variant into
+/// an actionable message.
+#[derive(Debug, Clone)]
+pub enum CapNarrowError {
+    /// The cap cache could not be read.
+    Registry(String),
+    /// No concrete cap can handle this input (and target).
+    NoHandler {
+        abstract_urn: String,
+        input_media: String,
+        target: Option<String>,
+    },
+    /// More than one concrete cap matches — the caller must disambiguate
+    /// (e.g. by passing `--to <target>`, or naming the concrete alias).
+    Ambiguous {
+        abstract_urn: String,
+        candidates: Vec<String>,
+    },
+}
+
+impl std::fmt::Display for CapNarrowError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CapNarrowError::Registry(e) => write!(f, "cap registry unavailable while narrowing: {}", e),
+            CapNarrowError::NoHandler { abstract_urn, input_media, target } => {
+                write!(
+                    f,
+                    "no concrete cap specializes '{}' for input '{}'{}",
+                    abstract_urn,
+                    input_media,
+                    target.as_ref().map(|t| format!(" → '{}'", t)).unwrap_or_default()
+                )
+            },
+            CapNarrowError::Ambiguous { abstract_urn, candidates } => {
+                write!(
+                    f,
+                    "'{}' is ambiguous for this input — {} concrete caps match: {}. Disambiguate with --to <target> or name the concrete alias.",
+                    abstract_urn,
+                    candidates.len(),
+                    candidates.join(", ")
+                )
+            },
+        }
+    }
+}
+
+impl std::error::Error for CapNarrowError {}
+
 impl FabricRegistry {
     /// Create a new fabric registry pinned at the workspace-baked
     /// `capdag::FABRIC_MANIFEST_VERSION`. Standard entry point — engine
@@ -392,12 +457,30 @@ impl FabricRegistry {
         let manifest = if manifest_version == 0 {
             Manifest::empty(0)
         } else {
-            load_or_fetch_manifest(&manifests_dir, &client, &config, manifest_version).await?
+            load_or_fetch_manifest(
+                &manifests_dir,
+                &client,
+                &config,
+                manifest_version,
+                config.bypass_cache,
+            )
+            .await?
         };
 
-        let mut cached_caps_map = Self::load_all_cached_caps(&caps_dir)?;
-        let mut cached_specs_map = Self::load_all_cached_media_defs(&media_dir)?;
-        let mut cached_aliases_map = Self::load_all_cached_aliases(&aliases_dir)?;
+        // In bypass-cache mode we do NOT hydrate from disk: every cap/media/
+        // alias body is fetched fresh on demand against the (just re-fetched)
+        // manifest, so a mutable channel can never serve a stale body under a
+        // reused defver. The fresh bytes still write through to the cache.
+        let (mut cached_caps_map, mut cached_specs_map, mut cached_aliases_map) =
+            if config.bypass_cache {
+                (HashMap::new(), HashMap::new(), HashMap::new())
+            } else {
+                (
+                    Self::load_all_cached_caps(&caps_dir)?,
+                    Self::load_all_cached_media_defs(&media_dir)?,
+                    Self::load_all_cached_aliases(&aliases_dir)?,
+                )
+            };
         // Filter loaded caches by manifest pin: only retain entries
         // whose URN's defver in the manifest matches the cached entry's
         // own version. At v0 the manifest is empty and we retain
@@ -1110,6 +1193,65 @@ impl FabricRegistry {
         Ok(cached_caps.values().cloned().collect())
     }
 
+    /// Narrow an ABSTRACT cap to the unique CONCRETE cap that handles a given
+    /// input media (and optional target output). This is the CLI's dispatch
+    /// step: the alias already resolved to the abstract cap (via `is_equivalent`
+    /// — a resolution question); this asks the dispatch question ("which
+    /// concrete cap can handle THIS input?") with `is_dispatchable`.
+    ///
+    /// The request is the abstract cap specialized on `input_media` (and, if
+    /// given, `target` as the output). A concrete provider matches iff its
+    /// declared cap URN `is_dispatchable` for that request. Exactly one match →
+    /// that cap; zero → `NoHandler`; more than one → `Ambiguous`.
+    pub async fn narrow_abstract_cap(
+        &self,
+        abstract_urn: &crate::CapUrn,
+        input_media: &crate::MediaUrn,
+        target: Option<&crate::MediaUrn>,
+    ) -> Result<crate::CapUrn, CapNarrowError> {
+        let out_spec = target
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| abstract_urn.out_spec().to_string());
+        let request = abstract_urn
+            .clone()
+            .with_in_spec(input_media.to_string())
+            .with_out_spec(out_spec);
+
+        let all = self
+            .get_cached_caps()
+            .await
+            .map_err(|e| CapNarrowError::Registry(e.to_string()))?;
+
+        // Concrete providers whose declared cap can legally handle the request.
+        // Dedup by canonical URN string (a cap could appear once per cartridge).
+        let mut seen = std::collections::BTreeSet::new();
+        let mut matches: Vec<crate::CapUrn> = Vec::new();
+        for cap in all.iter() {
+            if cap.is_abstract {
+                continue;
+            }
+            if cap.urn.is_dispatchable(&request) && seen.insert(cap.urn.to_string()) {
+                matches.push(cap.urn.clone());
+            }
+        }
+
+        match matches.len() {
+            0 => Err(CapNarrowError::NoHandler {
+                abstract_urn: abstract_urn.to_string(),
+                input_media: input_media.to_string(),
+                target: target.map(|m| m.to_string()),
+            }),
+            1 => Ok(matches.pop().unwrap()),
+            _ => {
+                matches.sort_by_key(|u| u.to_string());
+                Err(CapNarrowError::Ambiguous {
+                    abstract_urn: abstract_urn.to_string(),
+                    candidates: matches.iter().map(|u| u.to_string()).collect(),
+                })
+            },
+        }
+    }
+
     /// Synchronous cap lookup that warms its own cache. See module docs.
     pub fn get_cached_cap(&self, urn: &str) -> Option<Cap> {
         // A malformed URN cannot be in the cache and cannot be fetched, so it
@@ -1252,10 +1394,29 @@ impl FabricRegistry {
     /// Validate a local cap against its canonical definition.
     pub async fn validate_cap(&self, cap: &Cap) -> Result<(), FabricRegistryError> {
         let canonical_cap = self.get_cap(&cap.urn_string()).await?;
-        if cap.command != canonical_cap.command {
+        // A cartridge responds to a SUBSET of the fabric cap's canonical alias
+        // names (it may implement fewer names, never invent one the fabric does
+        // not define). The fabric registry owns the full alias set; each alias a
+        // cartridge declares must be one of the canonical aliases.
+        let canonical_aliases: std::collections::BTreeSet<&String> =
+            canonical_cap.get_aliases().iter().collect();
+        let unknown: Vec<&String> = cap
+            .get_aliases()
+            .iter()
+            .filter(|a| !canonical_aliases.contains(a))
+            .collect();
+        if !unknown.is_empty() {
             return Err(FabricRegistryError::ValidationError(format!(
-                "Command mismatch. Local: {}, Canonical: {}",
-                cap.command, canonical_cap.command
+                "Alias mismatch: {:?} not among the fabric cap's aliases {:?}",
+                unknown,
+                canonical_cap.get_aliases()
+            )));
+        }
+        if cap.is_abstract() != canonical_cap.is_abstract() {
+            return Err(FabricRegistryError::ValidationError(format!(
+                "Abstract-flag mismatch. Local: {}, Canonical: {}",
+                cap.is_abstract(),
+                canonical_cap.is_abstract()
             )));
         }
         let local_stdin = cap.get_stdin_media_urn();
@@ -1568,9 +1729,18 @@ impl FabricRegistry {
     // SHARED ADMIN API
     // -------------------------------------------------------------------------
 
-    /// Clear both caches (in-memory and on disk). The manifest snapshot
-    /// is preserved — clearing the byte caches is the natural way to
-    /// force re-fetch under the same snapshot, not to switch snapshots.
+    /// The on-disk cache root for this registry (per-registry-URL slug under
+    /// the OS cache dir). Exposed so admin surfaces can report the path they
+    /// purge/renew.
+    pub fn cache_dir(&self) -> &Path {
+        &self.cache_dir
+    }
+
+    /// Invalidate every cache for this registry — in-memory maps and the
+    /// entire on-disk cache tree, INCLUDING the manifest snapshot. After
+    /// this the next lookup (or a freshly constructed `FabricRegistry`)
+    /// re-fetches the manifest and all bodies from the network, so this is
+    /// the way to force a full renewal against a mutated channel.
     pub fn clear_cache(&self) -> Result<(), FabricRegistryError> {
         if let Ok(mut g) = self.cached_caps.lock() {
             g.clear();
@@ -2385,9 +2555,12 @@ async fn load_or_fetch_manifest(
     client: &reqwest::Client,
     config: &RegistryConfig,
     version: u32,
+    bypass_cache: bool,
 ) -> Result<Manifest, FabricRegistryError> {
     let cache_file = manifests_dir.join(format!("{}.json", version));
-    if cache_file.exists() {
+    // In bypass mode skip the cached manifest entirely and fetch fresh — the
+    // fresh copy still writes through below so later cached reads are current.
+    if !bypass_cache && cache_file.exists() {
         let content = fs::read_to_string(&cache_file).map_err(|e| {
             FabricRegistryError::CacheError(format!(
                 "Failed to read cached manifest at {:?}: {}",
@@ -2660,7 +2833,8 @@ mod alias_tests {
             cap_description: None,
             documentation: None,
             metadata: std::collections::HashMap::new(),
-            command: "test://cap".to_string(),
+            aliases: vec!["test://cap".to_string()],
+            is_abstract: false,
             args: vec![CapArg::new(
                 "media:ext=pdf".to_string(),
                 true,
@@ -2728,6 +2902,73 @@ mod alias_tests {
         assert_eq!(upper, "media:fmt=json;record");
         // Malformed name fails hard (not silently None).
         assert!(registry.resolve_alias("bad:name").await.is_err());
+    }
+
+    // TEST8063: narrow_abstract_cap resolves an abstract cap + detected input to
+    // the unique concrete cap via is_dispatchable — the CLI's dispatch step.
+    // Exercises all three outcomes: unique (fixed-output disbind), ambiguous
+    // (convert-image jpeg with no --to), and no-handler.
+    #[tokio::test]
+    async fn test8063_narrow_abstract_cap() {
+        use crate::MediaUrn;
+        let registry = FabricRegistry::new_for_test();
+        let disbind_pdf = Cap::new(
+            CapUrn::from_string(
+                r#"cap:disbind;in="media:ext=pdf";out="media:enc=utf-8;ext=txt;page;plain-text""#,
+            )
+            .unwrap(),
+            "Disbind PDF".to_string(),
+            vec!["disbind-pdf".to_string()],
+        );
+        let jpeg_png = Cap::new(
+            CapUrn::from_string(r#"cap:convert-image;in="media:ext=jpeg;image";out="media:ext=png;image""#).unwrap(),
+            "JPEG to PNG".to_string(),
+            vec!["convert-image-jpeg-to-png".to_string()],
+        );
+        let jpeg_webp = Cap::new(
+            CapUrn::from_string(r#"cap:convert-image;in="media:ext=jpeg;image";out="media:ext=webp;image""#).unwrap(),
+            "JPEG to WebP".to_string(),
+            vec!["convert-image-jpeg-to-webp".to_string()],
+        );
+        registry.add_caps_to_cache(vec![disbind_pdf, jpeg_png, jpeg_webp]);
+
+        // disbind has a fixed output → a pdf input narrows uniquely, no --to.
+        let disbind_abstract =
+            CapUrn::from_string(r#"cap:disbind;out="media:enc=utf-8;ext=txt;page;plain-text""#).unwrap();
+        let pdf = MediaUrn::from_string("media:ext=pdf").unwrap();
+        let concrete = registry
+            .narrow_abstract_cap(&disbind_abstract, &pdf, None)
+            .await
+            .expect("disbind must narrow uniquely for a pdf input");
+        assert!(concrete.to_string().contains("ext=pdf"));
+
+        // convert-image with jpeg but no target is AMBIGUOUS (png or webp).
+        let convert_abstract = CapUrn::from_string("cap:convert-image").unwrap();
+        let jpeg = MediaUrn::from_string("media:ext=jpeg;image").unwrap();
+        assert!(
+            matches!(
+                registry.narrow_abstract_cap(&convert_abstract, &jpeg, None).await,
+                Err(CapNarrowError::Ambiguous { .. })
+            ),
+            "jpeg convert-image without --to must be ambiguous"
+        );
+        // --to png disambiguates.
+        let png = MediaUrn::from_string("media:ext=png").unwrap();
+        let picked = registry
+            .narrow_abstract_cap(&convert_abstract, &jpeg, Some(&png))
+            .await
+            .expect("--to png must narrow uniquely");
+        assert!(picked.to_string().contains("ext=png"));
+
+        // An input no concrete cap handles → NoHandler (never a silent fallback).
+        let gif = MediaUrn::from_string("media:ext=gif;image").unwrap();
+        assert!(
+            matches!(
+                registry.narrow_abstract_cap(&convert_abstract, &gif, None).await,
+                Err(CapNarrowError::NoHandler { .. })
+            ),
+            "a gif input has no convert-image handler here → NoHandler"
+        );
     }
 
     // TEST1889: resolve_alias_typed enforces the expected kind. A media
@@ -3159,7 +3400,8 @@ mod parity_port_tests {
             cap_description: None,
             documentation: None,
             metadata: std::collections::HashMap::new(),
-            command: "test".to_string(),
+            aliases: vec!["test".to_string()],
+            is_abstract: false,
             args: Vec::<CapArg>::new(),
             output: Some(CapOutput::new("media:void".to_string(), "void".to_string())),
             metadata_json: None,
@@ -3190,7 +3432,7 @@ mod parity_port_tests {
     // TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction
     #[test]
     fn test138_parse_registry_json_with_stdin() {
-        let json = r#"{"urn":"cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\"","command":"disbind","title":"Disbind PDF","args":[{"media_urn":"media:ext=pdf","required":true,"sources":[{"stdin":"media:ext=pdf"}]}]}"#;
+        let json = r#"{"urn":"cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\"","aliases": ["disbind"],"title":"Disbind PDF","args":[{"media_urn":"media:ext=pdf","required":true,"sources":[{"stdin":"media:ext=pdf"}]}]}"#;
         let cap: Cap = serde_json::from_str(json).expect("cap parses");
         assert_eq!(cap.title, "Disbind PDF");
         assert!(cap.accepts_stdin());
@@ -3200,10 +3442,10 @@ mod parity_port_tests {
     // TEST6382: Test parsing registry JSON without stdin args verifies cap structure
     #[test]
     fn test6382_parse_registry_json_no_stdin() {
-        let json = r#"{"urn":"cap:in=\"media:listing-id\";use-grinder;out=\"media:id;task\"","command":"grinder_task","title":"Create Grinder Tool Task","args":[{"media_urn":"media:listing-id","required":true,"sources":[{"cli_flag":"--listing-id"}]}]}"#;
+        let json = r#"{"urn":"cap:in=\"media:listing-id\";use-grinder;out=\"media:id;task\"","aliases": ["grinder_task"],"title":"Create Grinder Tool Task","args":[{"media_urn":"media:listing-id","required":true,"sources":[{"cli_flag":"--listing-id"}]}]}"#;
         let cap: Cap = serde_json::from_str(json).expect("cap parses");
         assert_eq!(cap.title, "Create Grinder Tool Task");
-        assert_eq!(cap.command, "grinder_task");
+        assert_eq!(cap.primary_alias(), "grinder_task");
         assert!(cap.get_stdin_media_urn().is_none(), "no stdin source means no stdin support");
     }
 

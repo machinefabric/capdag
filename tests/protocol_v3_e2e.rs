@@ -163,7 +163,8 @@ fn build_testcartridge_cap(urn_str: &str) -> Cap {
         cap_description: None,
         documentation: None,
         metadata: HashMap::new(),
-        command: "testcartridge".to_string(),
+        aliases: vec!["testcartridge".to_string()],
+        is_abstract: false,
         args: vec![CapArg::new(
             in_spec.clone(),
             true,
@@ -361,6 +362,7 @@ async fn setup_execution_context(
         capdag::CartridgeChannel::Release,
         capdag::FABRIC_MANIFEST_VERSION,
         dev_binaries,
+        None,
     );
     manager.init().await.expect("CartridgeManager init failed");
     let cartridges = manager
