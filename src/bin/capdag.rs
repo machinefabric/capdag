@@ -275,10 +275,12 @@ fn print_usage(program: &str) {
            {p} <cap-alias-or-urn> [cap args] [inputs...] [options]   Run one cap\n\
            {p} run <machine-file> [inputs...] [options]              Run a .machine file\n\
            {p} dag-viz <machine-file> [--mermaid|--dot]              Render the execution plan as a diagram\n\
-           {p} resolve <cap-alias-or-urn>                            Show the providing cartridge(s)\n\
-           {p} cap-def [--no-cache] <cap-alias-or-urn>               Print the cap's canonical definition JSON\n\
+           {p} find <cap-alias-or-urn>                               Show the providing cartridge(s)\n\
+           {p} resolve [--no-cache] <cap-alias-or-urn>               Print the cap's canonical definition JSON\n\
            {p} cache [clear|refresh]                                 Invalidate/renew the local fabric cache\n\
-           {p} install <cap-alias-or-urn-or-cartridge-id>            Download + verify without running\n\n\
+           {p} install <cap-alias-or-urn-or-cartridge-id>            Download + verify without running\n\
+           {p} new <name> [--python] [-o <dir>]                      Scaffold a new cartridge project\n\
+           {p} dev-install <project-dir>                             Install/update a dev cartridge under the dev slug\n\n\
          Single-cap mode drives the cap's OWN declared interface — exactly like\n\
          invoking the cartridge directly, except the cap runs inside a full bifaci\n\
          host with the bundled providers (data/fetch/model cartridges) registered,\n\
@@ -366,8 +368,8 @@ async fn main() {
     match args[1].as_str() {
         "run" => cmd_run(&args).await,
         "dag-viz" => cmd_dag_viz(&args).await,
+        "find" => cmd_find(&args).await,
         "resolve" => cmd_resolve(&args).await,
-        "cap-def" => cmd_cap_def(&args).await,
         "cache" => cmd_cache(&args).await,
         "install" => cmd_install(&args).await,
         "--help" | "-h" | "help" => {
@@ -1216,23 +1218,21 @@ async fn cmd_cap(args: &[String]) -> ! {
     process::exit(if error_count > 0 { 1 } else { 0 });
 }
 
-/// `capdag resolve <cap-alias-or-urn>` — resolve a cap and show which
-/// registry cartridge(s) provide it, without downloading anything.
-/// `capdag cap-def <cap-alias-or-urn>` — print the canonical cap definition
-/// JSON for a single cap, resolved through the baked fabric registry (the same
-/// registry every mirror uses). Cartridges use this to (re)generate the cap-def
-/// snapshots they embed and implement: the printed JSON deserializes straight
+/// `capdag resolve [--no-cache] <cap-alias-or-urn>` — print the canonical cap
+/// definition JSON for a single cap, resolved through the baked fabric registry
+/// (the same registry every mirror uses). Cartridges use this to (re)generate
+/// the cap-def snapshots they embed and implement: the printed JSON deserializes straight
 /// back into a `Cap`, carrying the aliases, args, and output as the fabric
 /// defines them. Resolution uses the alias/URN boundary (a media alias fails
 /// hard); an abstract cap is dumped as-is (cartridges only ever snapshot the
 /// concrete caps they implement).
-async fn cmd_cap_def(args: &[String]) -> ! {
+async fn cmd_resolve(args: &[String]) -> ! {
     // `--no-cache` forces a fresh fetch against the live fabric (skips the
     // version-keyed on-disk cache, which is stale on a mutable channel).
     let no_cache = args[2..].iter().any(|a| a == "--no-cache");
     let Some(token) = args[2..].iter().find(|a| !a.starts_with('-')).map(|s| s.as_str())
     else {
-        eprintln!("Usage: {} cap-def [--no-cache] <cap-alias-or-urn>", args[0]);
+        eprintln!("Usage: {} resolve [--no-cache] <cap-alias-or-urn>", args[0]);
         process::exit(2);
     };
     let registry = fabric_registry_or_exit_with_bypass(no_cache).await;
@@ -1287,9 +1287,11 @@ async fn cmd_cache(args: &[String]) -> ! {
     process::exit(0);
 }
 
-async fn cmd_resolve(args: &[String]) -> ! {
+/// `capdag find <cap-alias-or-urn>` — resolve a cap and show which registry
+/// cartridge(s) provide it, without downloading anything.
+async fn cmd_find(args: &[String]) -> ! {
     let Some(token) = args.get(2) else {
-        eprintln!("Usage: {} resolve <cap-alias-or-urn>", args[0]);
+        eprintln!("Usage: {} find <cap-alias-or-urn>", args[0]);
         process::exit(2);
     };
     let registry = fabric_registry_or_exit().await;
