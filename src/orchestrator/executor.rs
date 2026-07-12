@@ -399,6 +399,10 @@ impl CartridgeManager {
         fabric_manifest_version: u32,
         dev_binaries: Vec<PathBuf>,
         trust: Option<crate::bifaci::release_cert::RegistryTrust>,
+        // The fabric registry this client resolves caps against. Every cartridge
+        // registry fetched must declare this same fabric (enforced in
+        // `CartridgeRepoServer::new`) so all registries share one fabric.
+        fabric_registry_url: String,
     ) -> Self {
         use crate::bifaci::cartridge_json::CartridgeJson;
 
@@ -451,7 +455,7 @@ impl CartridgeManager {
         }
 
         Self {
-            cartridge_repo: CartridgeRepo::new(3600),
+            cartridge_repo: CartridgeRepo::new(3600, fabric_registry_url),
             cartridge_dir,
             registry_url,
             trust,
@@ -2699,6 +2703,7 @@ pub async fn execute_dag(
         fabric_manifest_version,
         dev_binaries,
         crate::bifaci::release_cert::RegistryTrust::from_build_constants(),
+        crate::fabric::registry::RegistryConfig::default().registry_base_url,
     );
     cartridge_manager.init().await?;
 
