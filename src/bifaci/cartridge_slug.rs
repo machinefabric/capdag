@@ -1,20 +1,22 @@
-//! Cartridge registry slug — deterministic mapping from a registry URL
-//! to a top-level folder name under the cartridges install root.
+//! Cartridge registry slug — deterministic, HUMAN-READABLE mapping from a
+//! registry URL to a top-level folder name under the cartridges install root.
 //!
-//! Registries are identified by their full URL (the exact byte string
-//! the user/operator typed; no normalization, scheme stripping, slash
-//! trimming, or path canonicalization). The first 16 hex chars of the
-//! URL's SHA-256 form the folder name on disk. The literal string
-//! `"dev"` is reserved for dev cartridges that have no registry — it
-//! cannot collide with the 16-hex slug space.
+//! A registry is identified by its **authority** (host, plus `:port` if
+//! present) — NOT the full URL. The manifest path (e.g. `/v1/manifest`) and any
+//! query/trailing slash are IGNORED, so every version of the same registry
+//! shares one slug and the on-disk version level (`v<N>`) sits beneath it. The
+//! slug is a path-safe transform of that authority: lowercased, with every
+//! character outside `[a-z0-9.-]` replaced by `-` (so a port `:` becomes `-`).
+//! No hashing — domains are already unique and readable, and a readable folder
+//! name is far easier to reason about on disk.
 //!
-//! The mapping is one-way: folder → URL is recovered from each
-//! installed cartridge's own `cartridge.json:registry_url`. The
+//! The literal string `"dev"` is reserved for dev cartridges that have no
+//! registry. The mapping is one-way: folder → URL is recovered from each
+//! installed cartridge's own `cartridge.json:registry_url`, and the
 //! installer/host validates `slug_for(cartridge_json.registry_url) ==
 //! folder_name` at parse time.
 
 use serde::{Deserialize, Deserializer};
-use sha2::{Digest, Sha256};
 
 /// Required-but-nullable `Option<String>` for serde wire formats.
 ///
@@ -47,156 +49,160 @@ where
 }
 
 /// Reserved folder name for cartridges with no registry (developer-built
-/// cartridges installed via `dx cartridge --install` without
-/// `--registry`). The four-character literal can never collide with a
-/// 16-character hex slug — no decoding needed.
+/// cartridges installed via `dx cartridge --install` without `--registry`).
+/// A real registry authority is never the literal `dev`, so the two namespaces
+/// never overlap.
 pub const DEV_SLUG: &str = "dev";
 
-/// Number of hex characters in the slug. 16 chars = 64 bits = ~10^19
-/// possible values; collision probability across thousands of registries
-/// is astronomically low and the literal "dev" is shorter than any
-/// possible value, so the two namespaces never overlap.
-pub const SLUG_HEX_LEN: usize = 16;
+/// Extract the authority (host, plus `:port` if present) from a registry URL:
+/// the substring after `://` up to the next `/`, `?`, or `#`. If there is no
+/// `://`, the whole string up to those delimiters is taken. The manifest path,
+/// version segment, query, and fragment are all discarded — the slug is
+/// version- and path-independent by construction.
+fn authority_of(url: &str) -> &str {
+    let after_scheme = match url.find("://") {
+        Some(i) => &url[i + 3..],
+        None => url,
+    };
+    let end = after_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(after_scheme.len());
+    &after_scheme[..end]
+}
 
 /// Compute the on-disk slug for a registry URL.
 ///
-/// `None` (i.e. a dev cartridge) → returns the literal [`DEV_SLUG`].
-/// `Some(url)` → returns the first [`SLUG_HEX_LEN`] hex characters of
-/// `sha256(url.as_bytes())`, lowercase.
-///
-/// The URL is hashed verbatim. Two URLs that differ in any byte (case,
-/// trailing slash, port, path, query) hash to different slugs — that's
-/// intentional, because the URL is the registry's identity and the
-/// installer treats it as opaque.
+/// `None` (a dev cartridge) → the literal [`DEV_SLUG`].
+/// `Some(url)` → a path-safe transform of the URL's authority: lowercased,
+/// with every character outside `[a-z0-9.-]` replaced by `-` (so a port `:`
+/// becomes `-`). The slug depends ONLY on the authority — path (including the
+/// `/v<N>/manifest` version segment), query, trailing slash, and host case do
+/// not change it. This is the identity of the registry as a network location;
+/// the registry regime version is a separate on-disk level below the slug.
 pub fn slug_for(registry_url: Option<&str>) -> String {
     match registry_url {
         None => DEV_SLUG.to_string(),
-        Some(url) => {
-            let mut hasher = Sha256::new();
-            hasher.update(url.as_bytes());
-            let digest = hasher.finalize();
-            let hex = format!("{:x}", digest);
-            hex[..SLUG_HEX_LEN].to_string()
-        }
+        Some(url) => authority_of(url)
+            .chars()
+            .map(|c| {
+                let c = c.to_ascii_lowercase();
+                if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect(),
     }
 }
 
-/// True if `s` could be a valid slug for a non-dev registry.
-/// Used by host scanners to distinguish dev folders from registry
+/// True if `s` could be a valid slug for a non-dev registry: a non-empty
+/// path-safe authority string (`[a-z0-9.-]+`) that is not the reserved dev
+/// sentinel. Used by host scanners to distinguish dev folders from registry
 /// folders before they read any cartridge.json.
 pub fn is_registry_slug(s: &str) -> bool {
-    s.len() == SLUG_HEX_LEN
+    s != DEV_SLUG
+        && !s.is_empty()
         && s.chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// TEST1500: The default central registry's URL hashes to a stable,
-    /// pre-computed slug. If this value ever changes silently it means
-    /// either the encoding rule shifted or the hashing algorithm
-    /// changed — either way every installed cartridge would land in
-    /// the wrong directory and stop being discovered. The slug is
-    /// pinned as a literal so a regression is loud.
+    /// TEST1500: The central registry's URL maps to its readable authority.
+    /// The slug is the host verbatim (lowercased, path-safe) — no hash. If this
+    /// ever changes silently every installed cartridge lands in the wrong
+    /// directory and stops being discovered, so the value is pinned as a literal.
     #[test]
-    fn test1500_slug_for_central_registry_is_stable() {
-        let url = "https://cartridges.machinefabric.com/manifest";
-        let slug = slug_for(Some(url));
-        // Compute once on a known-good build and freeze it. The first
-        // 16 hex chars of `sha256("https://cartridges.machinefabric.com/manifest")`.
-        let expected = {
-            let mut h = Sha256::new();
-            h.update(url.as_bytes());
-            let d = h.finalize();
-            format!("{:x}", d)[..SLUG_HEX_LEN].to_string()
-        };
-        assert_eq!(slug, expected);
-        assert_eq!(slug.len(), SLUG_HEX_LEN);
-        assert!(is_registry_slug(&slug));
+    fn test1500_slug_for_central_registry_is_the_host() {
+        assert_eq!(
+            slug_for(Some("https://cartridges.machinefabric.com/v1/manifest")),
+            "cartridges.machinefabric.com"
+        );
+        assert_eq!(
+            slug_for(Some("https://cartridges-staging.machinefabric.com/v1/manifest")),
+            "cartridges-staging.machinefabric.com"
+        );
+        assert!(is_registry_slug("cartridges.machinefabric.com"));
     }
 
-    /// TEST1501: `None` (dev cartridge) maps to the literal `dev` and
-    /// never to a hex slug. The dev sentinel must remain
-    /// distinguishable from registry slugs by length alone — no
-    /// caller should ever hash the string "dev" to get this value.
+    /// TEST1501: `None` (dev cartridge) maps to the literal `dev`, which is not
+    /// classified as a registry slug.
     #[test]
     fn test1501_slug_for_none_is_dev() {
         assert_eq!(slug_for(None), DEV_SLUG);
-        assert_ne!(DEV_SLUG.len(), SLUG_HEX_LEN);
         assert!(!is_registry_slug(DEV_SLUG));
     }
 
-    /// TEST1502: The URL is treated as raw bytes — adding a trailing
-    /// slash, changing case, or appending a query string yields a
-    /// different slug. Proves we are not normalizing the URL behind
-    /// the operator's back; if they typed two URLs that look "the
-    /// same" but differ byte-wise, those are two distinct registries.
+    /// TEST1502: The slug depends ONLY on the authority. The manifest path (incl.
+    /// the `/v<N>/` version segment), a trailing slash, and a query string are
+    /// all discarded, and the host is compared case-insensitively — so every
+    /// version and spelling of the same registry shares one slug. Two DIFFERENT
+    /// hosts, or the same host on different ports, are distinct registries.
     #[test]
-    fn test1502_slug_byte_sensitivity() {
-        let a = slug_for(Some("https://cartridges.machinefabric.com/manifest"));
-        let b = slug_for(Some("https://cartridges.machinefabric.com/manifest/"));
-        let c = slug_for(Some("https://CARTRIDGES.machinefabric.com/manifest"));
-        let d = slug_for(Some("https://cartridges.machinefabric.com/manifest?v=1"));
-        assert_ne!(a, b, "trailing slash must change slug");
-        assert_ne!(a, c, "case change must change slug");
-        assert_ne!(a, d, "query string must change slug");
+    fn test1502_slug_is_authority_only() {
+        let base = slug_for(Some("https://cartridges.machinefabric.com/manifest"));
+        // Path / version / query / trailing slash / host case do NOT change it.
+        assert_eq!(base, slug_for(Some("https://cartridges.machinefabric.com/v1/manifest")));
+        assert_eq!(base, slug_for(Some("https://cartridges.machinefabric.com/v2/manifest")));
+        assert_eq!(base, slug_for(Some("https://cartridges.machinefabric.com/manifest/")));
+        assert_eq!(base, slug_for(Some("https://cartridges.machinefabric.com/manifest?v=1")));
+        assert_eq!(base, slug_for(Some("https://CARTRIDGES.machinefabric.com/manifest")));
+        // A different host is a different registry.
+        assert_ne!(base, slug_for(Some("https://other.machinefabric.com/manifest")));
+        // Port is part of the authority: different ports → different slugs, and
+        // the port ':' becomes a path-safe '-'.
+        assert_eq!(slug_for(Some("http://localhost:8080/manifest")), "localhost-8080");
+        assert_ne!(
+            slug_for(Some("http://localhost:8080/manifest")),
+            slug_for(Some("http://localhost:9090/manifest"))
+        );
     }
 
-    /// TEST1503: Calling `slug_for` twice on the same URL returns the
-    /// same string. Determinism is the whole point of using a hash
-    /// here — if this fails, every install/restart would land in a
-    /// different folder and discovery would be permanently broken.
+    /// TEST1503: `slug_for` is deterministic — same URL, same slug every time.
     #[test]
     fn test1503_slug_is_deterministic() {
         let url = "https://example.com/some/registry/path?token=abc";
         let s1 = slug_for(Some(url));
         let s2 = slug_for(Some(url));
-        let s3 = slug_for(Some(url));
         assert_eq!(s1, s2);
-        assert_eq!(s2, s3);
+        assert_eq!(s1, "example.com");
     }
 
-    /// TEST1504: A 16-character hex slug can never equal the literal
-    /// `dev` — `dev` is 3 characters, so by-length comparison alone
-    /// rules out collision. This invariant is what lets us use the
-    /// folder name as a dev-vs-registry discriminator without
-    /// reading any file inside the directory.
+    /// TEST1504: A registry slug never equals the reserved `dev` sentinel for
+    /// any real registry URL — that invariant is what lets the folder name be a
+    /// dev-vs-registry discriminator without reading any file inside.
     #[test]
-    fn test1504_dev_never_collides_with_hex_slug() {
-        assert_ne!(DEV_SLUG.len(), SLUG_HEX_LEN);
-        // Probe a wide variety of URLs and confirm none produce the
-        // dev string. Catches a hypothetical hashing bug that
-        // truncated to 3 characters.
+    fn test1504_dev_never_collides_with_registry_slug() {
         let probes = [
-            "",
             "https://a.test",
-            "https://b.test",
-            "ftp://example.com/",
-            "https://localhost:8080/",
-            "x",
+            "https://b.test/manifest",
+            "https://localhost:8080/manifest",
+            "https://cartridges.machinefabric.com/v1/manifest",
         ];
         for p in probes {
             let s = slug_for(Some(p));
             assert_ne!(s, DEV_SLUG);
-            assert_eq!(s.len(), SLUG_HEX_LEN);
+            assert!(is_registry_slug(&s));
         }
     }
 
-    /// TEST1505: `is_registry_slug` rejects the dev sentinel, accepts
-    /// 16-hex strings, rejects anything else. Used by the XPC service
-    /// and engine to distinguish dev folders from registry folders
-    /// during the pre-read scan.
+    /// TEST1505: `is_registry_slug` rejects the dev sentinel and non-path-safe
+    /// strings, accepts a lowercase authority. Used by the XPC service and
+    /// engine to distinguish dev folders from registry folders during the scan.
     #[test]
     fn test1505_is_registry_slug_classification() {
         assert!(!is_registry_slug(DEV_SLUG));
         assert!(!is_registry_slug(""));
-        assert!(!is_registry_slug("nightly")); // an old channel folder name
-        assert!(!is_registry_slug("ABCDEF1234567890")); // uppercase rejected
-        assert!(!is_registry_slug("zzzz567890abcdef")); // non-hex rejected
-        assert!(is_registry_slug("0123456789abcdef"));
-        let real = slug_for(Some("https://cartridges.machinefabric.com/manifest"));
-        assert!(is_registry_slug(&real));
+        assert!(!is_registry_slug("Has Space"));
+        assert!(!is_registry_slug("UPPER.example.com")); // uppercase rejected
+        assert!(!is_registry_slug("has/slash"));
+        assert!(is_registry_slug("cartridges.machinefabric.com"));
+        assert!(is_registry_slug("localhost-8080"));
+        assert!(is_registry_slug(&slug_for(Some(
+            "https://cartridges.machinefabric.com/v1/manifest"
+        ))));
     }
 }
