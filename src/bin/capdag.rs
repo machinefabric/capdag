@@ -900,6 +900,9 @@ async fn registry_manager_or_exit(dev_binaries: Vec<PathBuf>) -> capdag::orchest
         capdag::FABRIC_MANIFEST_VERSION,
         dev_binaries,
         capdag::RegistryTrust::from_build_constants(),
+        // The CLI seeds CDG_FABRIC_REGISTRY_URL from BAKED_FABRIC_REGISTRY_URL at
+        // startup, so this resolves to the fabric this build resolves caps against.
+        capdag::RegistryConfig::default().registry_base_url,
     );
     if let Err(e) = manager.init().await {
         eprintln!("{e}");

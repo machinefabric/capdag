@@ -133,6 +133,7 @@ impl CliHost {
                 rt.fabric_manifest_version,
                 rt.dev_binaries.clone(),
                 crate::bifaci::release_cert::RegistryTrust::from_build_constants(),
+                rt.fabric_registry.config().registry_base_url.clone(),
             );
             manager.init().await?;
             self.manager = Some(manager);

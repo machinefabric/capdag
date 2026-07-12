@@ -565,6 +565,13 @@ pub struct CartridgeRegistry {
     pub registry_version: u32,
     pub last_updated: String,
     pub registry_url: String,
+    /// The fabric registry (caps/media/aliases) this cartridge registry's cap
+    /// definitions were resolved against — the verbatim `CDG_FABRIC_REGISTRY_URL`
+    /// the caps were published under. A client only ingests a cartridge registry
+    /// whose `fabric_registry_url` equals its own baked fabric, so every
+    /// cartridge registry a client uses shares ONE fabric and their caps stay
+    /// mutually comparable. Enforced in [`CartridgeRepoServer::new`].
+    pub fabric_registry_url: String,
     pub channels: CartridgeRegistryChannels,
 }
 
@@ -643,6 +650,11 @@ pub struct CartridgeRepo {
     /// on this instead of discovering it later as a misleading
     /// "cartridge not found".
     sync_errors: Arc<RwLock<HashMap<String, String>>>,
+    /// The fabric registry THIS client resolves caps against (its baked
+    /// `CDG_FABRIC_REGISTRY_URL`). Every fetched cartridge registry must declare
+    /// this same fabric (`CartridgeRepoServer::new` enforces it) so all
+    /// registries a client uses share one fabric and their caps are comparable.
+    expected_fabric_url: String,
 }
 
 impl CartridgeInfo {
@@ -681,8 +693,10 @@ impl CartridgeInfo {
 }
 
 impl CartridgeRepo {
-    /// Create a new cartridge repo service
-    pub fn new(cache_ttl_seconds: u64) -> Self {
+    /// Create a new cartridge repo service. `expected_fabric_url` is the fabric
+    /// this client resolves caps against (its baked `CDG_FABRIC_REGISTRY_URL`);
+    /// every fetched cartridge registry must declare the same fabric.
+    pub fn new(cache_ttl_seconds: u64, expected_fabric_url: impl Into<String>) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
             .user_agent("MachineFabricEngine/1.0.0")
@@ -697,6 +711,7 @@ impl CartridgeRepo {
             trust: Arc::new(RwLock::new(None)),
             verified_release_keys: Arc::new(RwLock::new(HashMap::new())),
             sync_errors: Arc::new(RwLock::new(HashMap::new())),
+            expected_fabric_url: expected_fabric_url.into(),
         }
     }
 
@@ -890,7 +905,7 @@ impl CartridgeRepo {
         // across the cache. The server stamps `registry_url` from the
         // URL we just fetched the manifest from — verbatim string,
         // identity comparison downstream is byte equality.
-        let server = CartridgeRepoServer::new(manifest, repo_url)?;
+        let server = CartridgeRepoServer::new(manifest, repo_url, &self.expected_fabric_url)?;
         server.get_cartridges()
     }
 
@@ -1200,7 +1215,16 @@ impl CartridgeRepoServer {
     /// registry, tagged with the URL it was fetched from. The URL is
     /// the verbatim string the operator/installer used; identity
     /// comparison downstream is byte-equality.
-    pub fn new(registry: CartridgeRegistry, registry_url: impl Into<String>) -> Result<Self> {
+    /// `expected_fabric_url` is the fabric registry THIS build resolves caps
+    /// against (its baked `CDG_FABRIC_REGISTRY_URL`). The cartridge registry's
+    /// declared `fabric_registry_url` must equal it byte-for-byte — otherwise
+    /// the registry's caps were resolved against a different fabric and are not
+    /// comparable with this client's, which would silently break cap routing.
+    pub fn new(
+        registry: CartridgeRegistry,
+        registry_url: impl Into<String>,
+        expected_fabric_url: impl AsRef<str>,
+    ) -> Result<Self> {
         if registry.schema_version != "5.0" {
             return Err(CartridgeRepoError::ParseError(format!(
                 "Unsupported registry schema version: {}. Required: 5.0",
@@ -1216,6 +1240,15 @@ impl CartridgeRepoServer {
                 "Unsupported cartridge registry version: {}. This build speaks v{}.",
                 registry.registry_version,
                 crate::CARTRIDGE_REGISTRY_VERSION
+            )));
+        }
+        let expected_fabric_url = expected_fabric_url.as_ref();
+        if registry.fabric_registry_url != expected_fabric_url {
+            return Err(CartridgeRepoError::ParseError(format!(
+                "Cartridge registry fabric mismatch: registry declares fabric '{}', but this \
+                 client resolves caps against '{}'. Every cartridge registry a client uses must \
+                 reference the same fabric so their caps are comparable.",
+                registry.fabric_registry_url, expected_fabric_url
             )));
         }
         Ok(Self {
@@ -1494,6 +1527,11 @@ impl CartridgeRepoServer {
 mod tests {
     use super::*;
 
+    /// The fabric URL every test fixture declares and every test
+    /// `CartridgeRepoServer::new` / `CartridgeRepo::new` expects — so the
+    /// fabric-match check passes and the OTHER behaviour under test is exercised.
+    const TEST_FABRIC_URL: &str = "https://fabric.test";
+
     // ----------------------------------------------------------------------
     // Fixture builders shared by the cap_groups test suite.
     // ----------------------------------------------------------------------
@@ -1611,14 +1649,14 @@ mod tests {
     // TEST630: CartridgeRepo creation starts with empty cartridge list.
     #[tokio::test]
     async fn test630_cartridge_repo_creation() {
-        let repo = CartridgeRepo::new(3600);
+        let repo = CartridgeRepo::new(3600, TEST_FABRIC_URL);
         assert!(repo.get_all_cartridges().await.is_empty());
     }
 
     // TEST631: needs_sync returns true with empty cache and non-empty URLs.
     #[tokio::test]
     async fn test631_needs_sync_empty_cache() {
-        let repo = CartridgeRepo::new(3600);
+        let repo = CartridgeRepo::new(3600, TEST_FABRIC_URL);
         let urls = vec!["https://example.com/cartridges".to_string()];
         assert!(repo.needs_sync(&urls).await);
     }
@@ -1736,7 +1774,7 @@ mod tests {
         assert_eq!(cartridge.cap_groups[0].caps.len(), 2);
         assert_eq!(cartridge.iter_caps().count(), 2);
         assert_eq!(cartridge.channel, CartridgeChannel::Release);
-        assert_eq!(cartridge.registry_url, "https://test.example/manifest");
+        assert_eq!(cartridge.registry_url, "https://test.example/manifest", TEST_FABRIC_URL);
     }
 
     // TEST636: CartridgeInfo with null version/description/author still
@@ -2208,6 +2246,7 @@ mod tests {
         CartridgeRegistry {
             schema_version: "5.0".to_string(),
             registry_version: crate::CARTRIDGE_REGISTRY_VERSION,
+            fabric_registry_url: TEST_FABRIC_URL.to_string(),
             last_updated: "2026-02-07".to_string(),
             // Test fixture URL — matches the `https://test.example/manifest`
             // used by the test calls to CartridgeRepoServer::new so the
@@ -2228,12 +2267,12 @@ mod tests {
     #[test]
     fn test323_cartridge_repo_server_validate_registry() {
         let server =
-            CartridgeRepoServer::new(build_registry(vec![]), "https://test.example/manifest");
+            CartridgeRepoServer::new(build_registry(vec![]), "https://test.example/manifest", TEST_FABRIC_URL);
         assert!(server.is_ok());
 
         let mut bad = build_registry(vec![]);
         bad.schema_version = "4.0".to_string();
-        let result = CartridgeRepoServer::new(bad, "https://test.example/manifest");
+        let result = CartridgeRepoServer::new(bad, "https://test.example/manifest", TEST_FABRIC_URL);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("5.0"));
 
@@ -2242,12 +2281,23 @@ mod tests {
         // reinterpreted across an incompatible cap-shape regime.
         let mut wrong_version = build_registry(vec![]);
         wrong_version.registry_version = crate::CARTRIDGE_REGISTRY_VERSION + 1;
-        let result = CartridgeRepoServer::new(wrong_version, "https://test.example/manifest");
+        let result = CartridgeRepoServer::new(wrong_version, "https://test.example/manifest", TEST_FABRIC_URL);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("cartridge registry version"));
+
+        // A registry that references a DIFFERENT fabric than this client resolves
+        // caps against must be rejected — its caps are not comparable with ours.
+        let ok = build_registry(vec![]);
+        let result = CartridgeRepoServer::new(
+            ok,
+            "https://test.example/manifest",
+            "https://other-fabric.test",
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("fabric"));
     }
 
     // TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat
@@ -2263,6 +2313,7 @@ mod tests {
         let server = CartridgeRepoServer::new(
             build_registry(vec![("testcartridge", entry)]),
             "https://test.example/manifest",
+            TEST_FABRIC_URL,
         )
         .unwrap();
 
@@ -2292,6 +2343,7 @@ mod tests {
         let server = CartridgeRepoServer::new(
             build_registry(vec![("testcartridge", entry)]),
             "https://test.example/manifest",
+            TEST_FABRIC_URL,
         )
         .unwrap();
         let response = server.get_cartridges().unwrap();
@@ -2316,6 +2368,7 @@ mod tests {
         let server = CartridgeRepoServer::new(
             build_registry(vec![("testcartridge", entry)]),
             "https://test.example/manifest",
+            TEST_FABRIC_URL,
         )
         .unwrap();
         assert!(server
@@ -2371,7 +2424,7 @@ mod tests {
             vec![("foocartridge", release_entry)],
             vec![("foocartridge", nightly_entry)],
         );
-        let server = CartridgeRepoServer::new(registry, "https://test.example/manifest").unwrap();
+        let server = CartridgeRepoServer::new(registry, "https://test.example/manifest", TEST_FABRIC_URL).unwrap();
 
         let r = server
             .get_cartridge_by_id(CartridgeChannel::Release, "foocartridge")
@@ -2413,7 +2466,7 @@ mod tests {
             vec![("foo", release_entry)],
             vec![("bar", nightly_entry)],
         );
-        let server = CartridgeRepoServer::new(registry, "https://test.example/manifest").unwrap();
+        let server = CartridgeRepoServer::new(registry, "https://test.example/manifest", TEST_FABRIC_URL).unwrap();
 
         let cartridges = server.transform_to_cartridge_array().unwrap();
         let channels: Vec<CartridgeChannel> = cartridges.iter().map(|c| c.channel).collect();
@@ -2445,6 +2498,7 @@ mod tests {
         let server = CartridgeRepoServer::new(
             build_registry(vec![("pdfcartridge", entry)]),
             "https://test.example/manifest",
+            TEST_FABRIC_URL,
         )
         .unwrap();
 
@@ -2475,6 +2529,7 @@ mod tests {
         let server = CartridgeRepoServer::new(
             build_registry(vec![("doccartridge", entry)]),
             "https://test.example/manifest",
+            TEST_FABRIC_URL,
         )
         .unwrap();
         assert_eq!(
@@ -2512,6 +2567,7 @@ mod tests {
         let server = CartridgeRepoServer::new(
             build_registry(vec![("pdfcartridge", entry)]),
             "https://test.example/manifest",
+            TEST_FABRIC_URL,
         )
         .unwrap();
 
@@ -2538,7 +2594,7 @@ mod tests {
     // URNs.
     #[tokio::test]
     async fn test330_cartridge_repo_client_update_cache() {
-        let repo = CartridgeRepo::new(3600);
+        let repo = CartridgeRepo::new(3600, TEST_FABRIC_URL);
         let registry = CartridgeRegistryResponse {
             cartridges: vec![build_cartridge_info(
                 "testcartridge",
@@ -2579,7 +2635,7 @@ mod tests {
     // request, even if declared with different tag order.
     #[tokio::test]
     async fn test331_cartridge_repo_client_get_suggestions() {
-        let repo = CartridgeRepo::new(3600);
+        let repo = CartridgeRepo::new(3600, TEST_FABRIC_URL);
         let declared_urn = "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
         let request_urn = "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
 
@@ -2617,7 +2673,7 @@ mod tests {
     // the wrong channel must miss.
     #[tokio::test]
     async fn test332_cartridge_repo_client_get_cartridge() {
-        let repo = CartridgeRepo::new(3600);
+        let repo = CartridgeRepo::new(3600, TEST_FABRIC_URL);
         let registry = CartridgeRegistryResponse {
             cartridges: vec![build_cartridge_info_in(
                 CartridgeChannel::Nightly,
@@ -2665,7 +2721,7 @@ mod tests {
     // normalized URNs across cartridges.
     #[tokio::test]
     async fn test333_cartridge_repo_client_get_all_caps() {
-        let repo = CartridgeRepo::new(3600);
+        let repo = CartridgeRepo::new(3600, TEST_FABRIC_URL);
         let cap1 = "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
         let cap2 =
             "cap:in=\"media:enc=utf-8;ext=txt\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
@@ -2705,7 +2761,7 @@ mod tests {
     // after a successful update.
     #[tokio::test]
     async fn test334_cartridge_repo_client_needs_sync() {
-        let repo = CartridgeRepo::new(3600);
+        let repo = CartridgeRepo::new(3600, TEST_FABRIC_URL);
         let urls = vec!["https://example.com/cartridges".to_string()];
         assert!(repo.needs_sync(&urls).await);
 
@@ -2735,6 +2791,7 @@ mod tests {
         let server = CartridgeRepoServer::new(
             build_registry(vec![("testcartridge", entry)]),
             "https://test.example/manifest",
+            TEST_FABRIC_URL,
         )
         .unwrap();
         let response = server.get_cartridges().unwrap();
@@ -2756,7 +2813,7 @@ mod tests {
     // cache, not silently disappear.
     #[tokio::test]
     async fn test319_update_cache_rejects_malformed_cap_urn() {
-        let repo = CartridgeRepo::new(3600);
+        let repo = CartridgeRepo::new(3600, TEST_FABRIC_URL);
         let registry = CartridgeRegistryResponse {
             cartridges: vec![build_cartridge_info(
                 "broken",
