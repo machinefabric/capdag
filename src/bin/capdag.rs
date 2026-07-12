@@ -276,7 +276,7 @@ fn print_usage(program: &str) {
            {p} run <machine-file> [inputs...] [options]              Run a .machine file\n\
            {p} dag-viz <machine-file> [--mermaid|--dot]              Render the execution plan as a diagram\n\
            {p} find <cap-alias-or-urn>                               Show the providing cartridge(s)\n\
-           {p} resolve [--no-cache] <cap-alias-or-urn>               Print the cap's canonical definition JSON\n\
+           {p} resolve [--no-cache] <cap-alias-or-urn>...            Print cap definition JSON (array for >1)\n\
            {p} cache [clear|refresh]                                 Invalidate/renew the local fabric cache\n\
            {p} install <cap-alias-or-urn-or-cartridge-id>            Download + verify without running\n\
            {p} new <name> [--python] [-o <dir>]                      Scaffold a new cartridge project\n\
@@ -1294,22 +1294,41 @@ async fn cmd_resolve(args: &[String]) -> ! {
     // `--no-cache` forces a fresh fetch against the live fabric (skips the
     // version-keyed on-disk cache, which is stale on a mutable channel).
     let no_cache = args[2..].iter().any(|a| a == "--no-cache");
-    let Some(token) = args[2..].iter().find(|a| !a.starts_with('-')).map(|s| s.as_str())
-    else {
-        eprintln!("Usage: {} resolve [--no-cache] <cap-alias-or-urn>", args[0]);
+    // Accept ONE or MANY cap tokens. A single token prints the cap def object;
+    // several tokens print a JSON ARRAY of cap defs, in order — one process, one
+    // registry, one manifest read. Cartridge snapshot generation resolves a
+    // cartridge's whole cap-aliases.txt in a single batched call this way,
+    // instead of spawning `capdag` once per alias.
+    let tokens: Vec<&str> = args[2..]
+        .iter()
+        .filter(|a| !a.starts_with('-'))
+        .map(|s| s.as_str())
+        .collect();
+    if tokens.is_empty() {
+        eprintln!("Usage: {} resolve [--no-cache] <cap-alias-or-urn>...", args[0]);
         process::exit(2);
-    };
+    }
     let registry = fabric_registry_or_exit_with_bypass(no_cache).await;
-    let cap = resolve_cap_or_exit(&registry, token).await;
-    match serde_json::to_string_pretty(&cap) {
+
+    let json = if tokens.len() == 1 {
+        let cap = resolve_cap_or_exit(&registry, tokens[0]).await;
+        serde_json::to_string_pretty(&cap)
+    } else {
+        let mut caps: Vec<capdag::Cap> = Vec::with_capacity(tokens.len());
+        for token in &tokens {
+            caps.push(resolve_cap_or_exit(&registry, token).await);
+        }
+        serde_json::to_string_pretty(&caps)
+    };
+    match json {
         Ok(json) => {
             println!("{json}");
             process::exit(0);
-        },
+        }
         Err(e) => {
-            eprintln!("Failed to serialize cap def for '{token}': {e}");
+            eprintln!("Failed to serialize cap def(s): {e}");
             process::exit(1);
-        },
+        }
     }
 }
 
