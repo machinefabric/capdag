@@ -14,17 +14,17 @@ This document specifies all validation rules for the capdag system. All implemen
 | Category | Rules | Scope |
 |----------|-------|-------|
 | Cap URN Rules | CU1-CU2 | URN structure |
-| Cap Definition Rules | RULE1-RULE12 | Capability arguments |
+| Cap Definition Rules | RULE1-RULE13 | Capability arguments and identity |
 | Media Def Rules | MS1-MS3 | Media definitions |
-| Cross-Validation Rules | XV1-XV5 | Reference integrity |
+| Cross-Validation Rules | XV1-XV7 | Reference integrity |
 
 ### Validation Order
 
 1. Structural validation (JSON Schema)
 2. Cap URN validation (CU1, CU2)
-3. Cap definition rules (RULE1-RULE12)
+3. Cap definition rules (RULE1-RULE13)
 4. Media def rules (MS1-MS3)
-5. Cross-validation (XV1-XV5)
+5. Cross-validation (XV1-XV7)
 
 ---
 
@@ -175,6 +175,19 @@ These rules validate the `args` array in capability definitions.
 
 **Enforcement**: By schema — no `name` field allowed in argument definitions.
 
+### RULE13: Aliases Required
+
+**Rule**: Every capability definition MUST carry a non-empty `aliases`
+list. Each alias is lowercase, matches `[a-z0-9._-]+`, and contains no
+colon.
+
+**Rationale**: `aliases` is the single source of a cap's human-facing
+names (the DNS layer, used by both the fabric-wide capdag CLI and the
+direct cartridge CLI). It replaces the former `command` field. A cap
+with no aliases has no name and is inadmissible.
+
+**Error**: `RULE13: Capability '<urn>' has empty aliases`
+
 ---
 
 ## 4. Media Def Rules (MS1-MS3)
@@ -264,6 +277,34 @@ These rules validate the `args` array in capability definitions.
 
 **Warning (offline)**: `XV5: Could not verify inline spec '<urn>' against online registry (offline mode)`
 
+### XV6: Global Alias Uniqueness
+
+**Rule**: Alias names are unique across the entire snapshot. No two caps
+may share an alias, and no cap alias may collide with a media alias. The
+union of cap aliases and media aliases contains no duplicates.
+
+**Rationale**: Aliases are the DNS layer — a name resolves to exactly one
+cap or media. A collision makes resolution ambiguous.
+
+**Enforcement**: The publisher hard-fails on any collision.
+
+**Error**: `XV6: Duplicate alias '<alias>' (defined by <a> and <b>)`
+
+### XV7: Abstract-Cap Coverage
+
+**Rule**: Every `abstract` cap MUST have at least one concrete
+specialization in the same snapshot — a concrete (non-abstract) cap that
+is `is_dispatchable` from the abstract cap's URN specialized on a
+concrete input. An abstract cap with no concrete specialization is dead.
+
+**Rationale**: An abstract cap is a dispatch umbrella (see
+[07-DISPATCH](/docs/07-dispatch) §"Abstract caps"). Without a concrete
+specialization it can never dispatch to anything.
+
+**Enforcement**: The publisher hard-fails on a dead abstract cap.
+
+**Error**: `XV7: Abstract cap '<urn>' has no concrete specialization`
+
 ---
 
 ## 6. Implementation Requirements
@@ -284,9 +325,9 @@ All implementations (Rust, JavaScript, server functions) MUST enforce identical 
 | Code Range | Category |
 |------------|----------|
 | CU1-CU2 | Cap URN Validation |
-| RULE1-RULE12 | Cap Args Validation |
+| RULE1-RULE13 | Cap Args and Identity Validation |
 | MS1-MS3 | Media Def Validation |
-| XV1-XV5 | Cross-Validation |
+| XV1-XV7 | Cross-Validation |
 
 ---
 
@@ -308,6 +349,7 @@ All implementations (Rust, JavaScript, server functions) MUST enforce identical 
 | RULE10 | Reserved cli_flags forbidden | Args |
 | RULE11 | CLI flags verbatim | Args |
 | RULE12 | media_urn as identifier | Args |
+| RULE13 | Non-empty aliases required | Args |
 | MS1 | Title required | Media |
 | MS2 | media: prefix required | Media |
 | MS3 | media_type required | Media |
@@ -316,3 +358,5 @@ All implementations (Rust, JavaScript, server functions) MUST enforce identical 
 | XV3 | All media URNs resolve | Cross |
 | XV4 | Inline specs need title | Cross |
 | XV5 | No registry redefinition | Cross |
+| XV6 | Global alias uniqueness (caps ∪ media) | Cross |
+| XV7 | Abstract-cap coverage (≥1 concrete specialization) | Cross |

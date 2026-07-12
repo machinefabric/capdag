@@ -428,6 +428,13 @@ pattern. The next step is to find the cartridge that *implements that cap*. That
 is a **resolution** question ("which cartridge declares *this* cap?"), not a
 **dispatch** question ("which cartridge could *handle* this?").
 
+The same CLI also exposes inspection and visualization surfaces around this
+resolution: `capdag cap-def <alias> [--no-cache]` prints a cap's resolved
+definition (with `--no-cache` bypassing a version-keyed fabric cache that a
+staging re-publish can leave stale), `capdag cache clear|refresh` invalidates or
+renews that cache, and `capdag dag-viz <alias> --mermaid|--dot` renders the full
+MachinePlan (ForEach/Collect/Merge/Split/InputSlot/Output nodes and typed edges).
+
 We deliberately match with the **symmetric** `is_equivalent` (each side accepts
 the other — identical lattice position), because:
 

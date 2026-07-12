@@ -25,6 +25,26 @@ Where:
 - `y ∈ U` — Non-direction cap-tags (op, ext, model, language, etc.)
 - `e ∈ E` — Effect on runtime media/type identity
 
+### 1.1 Cap Definition: aliases and abstract
+
+The Cap URN is the cap's structural identity. Beyond the URN, a cap
+definition carries two non-URN fields:
+
+- **`aliases`** — a non-empty list of globally-unique, lowercase
+  (`[a-z0-9._-]+`, colon-free) names. Aliases are the DNS layer for the
+  cap: they are the single source of a cap's human-facing names, used by
+  both the fabric-wide capdag CLI and the direct cartridge CLI. `aliases`
+  is required and non-empty; it replaces the former `command` field.
+- **`abstract`** — an optional boolean (default `false`). An abstract cap
+  is a generic-input dispatch umbrella: it is never backed by a cartridge
+  and never appears as a runnable graph edge. Its resolve → detect →
+  narrow → dispatch mechanics are specified in [07-DISPATCH](/docs/07-dispatch)
+  §"Abstract caps".
+
+Both fields are governed by publish-time invariants — global alias
+uniqueness and abstract-cap coverage — specified in
+[10-VALIDATION-RULES](/docs/10-validation-rules).
+
 ---
 
 ## 2. String Representation
