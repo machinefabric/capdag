@@ -1408,9 +1408,10 @@ mod tests {
     // so a concrete cap never carries `"abstract":false`.
     #[test]
     fn test8061_abstract_flag_roundtrip() {
-        // Absent → false; serialize omits it.
+        // Absent → false; serialize omits it. (The URN's media-spec quotes are
+        // JSON-escaped as \" so the wire body is valid JSON.)
         let concrete: Cap = serde_json::from_str(
-            r#"{"urn":"cap:disbind;in="media:ext=pdf";out="media:enc=utf-8"","title":"Disbind PDF","aliases":["disbind-pdf"]}"#,
+            r#"{"urn":"cap:disbind;in=\"media:ext=pdf\";out=\"media:enc=utf-8\"","title":"Disbind PDF","aliases":["disbind-pdf"]}"#,
         )
         .expect("concrete cap must deserialize");
         assert!(!concrete.is_abstract());
@@ -1422,7 +1423,7 @@ mod tests {
 
         // Present true → is_abstract, and serialize emits it.
         let abstract_cap: Cap = serde_json::from_str(
-            r#"{"urn":"cap:disbind;out="media:enc=utf-8"","title":"Disbind","aliases":["disbind"],"abstract":true}"#,
+            r#"{"urn":"cap:disbind;in=\"media:\";out=\"media:enc=utf-8\"","title":"Disbind","aliases":["disbind"],"abstract":true}"#,
         )
         .expect("abstract cap must deserialize");
         assert!(abstract_cap.is_abstract());
