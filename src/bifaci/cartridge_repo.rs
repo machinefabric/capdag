@@ -558,6 +558,11 @@ pub struct CartridgeRegistryChannels {
 #[serde(rename_all = "camelCase")]
 pub struct CartridgeRegistry {
     pub schema_version: String,
+    /// Cartridge registry regime version. v0 was the pre-versioning legacy at
+    /// the bare `/manifest` path; this workspace speaks only v>=1 at the
+    /// versioned `/v<version>/manifest` path. Validated against the baked
+    /// [`crate::CARTRIDGE_REGISTRY_VERSION`] in [`CartridgeRepoServer::new`].
+    pub registry_version: u32,
     pub last_updated: String,
     pub registry_url: String,
     pub channels: CartridgeRegistryChannels,
@@ -1200,6 +1205,17 @@ impl CartridgeRepoServer {
             return Err(CartridgeRepoError::ParseError(format!(
                 "Unsupported registry schema version: {}. Required: 5.0",
                 registry.schema_version
+            )));
+        }
+        // The registry regime version must match the version this build speaks.
+        // A mismatch means we resolved a manifest from the wrong version path
+        // (e.g. a v0 legacy manifest reached a v1 build); fail hard rather than
+        // reinterpret cap definitions across an incompatible regime.
+        if registry.registry_version != crate::CARTRIDGE_REGISTRY_VERSION {
+            return Err(CartridgeRepoError::ParseError(format!(
+                "Unsupported cartridge registry version: {}. This build speaks v{}.",
+                registry.registry_version,
+                crate::CARTRIDGE_REGISTRY_VERSION
             )));
         }
         Ok(Self {
@@ -2191,6 +2207,7 @@ mod tests {
         }
         CartridgeRegistry {
             schema_version: "5.0".to_string(),
+            registry_version: crate::CARTRIDGE_REGISTRY_VERSION,
             last_updated: "2026-02-07".to_string(),
             // Test fixture URL — matches the `https://test.example/manifest`
             // used by the test calls to CartridgeRepoServer::new so the
@@ -2219,6 +2236,18 @@ mod tests {
         let result = CartridgeRepoServer::new(bad, "https://test.example/manifest");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("5.0"));
+
+        // A registry from a different regime version (e.g. a v0 legacy manifest
+        // that somehow reached this v>=1 build) must be rejected, not silently
+        // reinterpreted across an incompatible cap-shape regime.
+        let mut wrong_version = build_registry(vec![]);
+        wrong_version.registry_version = crate::CARTRIDGE_REGISTRY_VERSION + 1;
+        let result = CartridgeRepoServer::new(wrong_version, "https://test.example/manifest");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("cartridge registry version"));
     }
 
     // TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat

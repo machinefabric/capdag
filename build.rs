@@ -24,52 +24,80 @@ use std::env;
 use std::path::Path;
 
 fn main() {
-    println!("cargo:rerun-if-env-changed=MFR_FABRIC_MANIFEST_VERSION");
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR is set by cargo");
 
-    let raw = env::var("MFR_FABRIC_MANIFEST_VERSION").unwrap_or_else(|_| {
+    bake_registry_version(
+        &out_dir,
+        "MFR_FABRIC_MANIFEST_VERSION",
+        "fabric_manifest_version.rs",
+        "FABRIC_MANIFEST_VERSION",
+        "Fabric registry manifest version this build is pinned to. Sourced from",
+        "fabric/manifest-version.txt",
+    );
+    // The cartridge registry is versioned by the SAME mechanism as the fabric
+    // registry (a breaking cap-shape change — `command` → `aliases` — forced a
+    // new registry regime). v0 is the implicit legacy state served to
+    // already-shipped builds at the un-versioned path; this build speaks only
+    // v >= 1 at the versioned path.
+    bake_registry_version(
+        &out_dir,
+        "MFR_CARTRIDGE_REGISTRY_VERSION",
+        "cartridge_registry_version.rs",
+        "CARTRIDGE_REGISTRY_VERSION",
+        "Cartridge registry version this build is pinned to. Sourced from",
+        "schemas/cartridge-registry/registry-version.txt",
+    );
+
+    generate_bundled_provider_hashes(&out_dir);
+    enforce_signing_pubkey_pairing();
+}
+
+/// Bake a `pub const <const_name>: u32` into `<out_file>` in OUT_DIR from the
+/// `<env_var>` build environment variable. Shared by the fabric-manifest and
+/// cartridge-registry version bakes — identical contract: the var is mandatory
+/// (a raw `cargo build` without it fails the build with a descriptive message,
+/// no implicit default), must parse to a non-negative integer, and must be
+/// >= 1 (v0 is the implicit pre-versioning legacy state, never a build target).
+fn bake_registry_version(
+    out_dir: &str,
+    env_var: &str,
+    out_file: &str,
+    const_name: &str,
+    doc_lead: &str,
+    source_file: &str,
+) {
+    println!("cargo:rerun-if-env-changed={env_var}");
+
+    let raw = env::var(env_var).unwrap_or_else(|_| {
         panic!(
-            "MFR_FABRIC_MANIFEST_VERSION is not set. Every cargo invocation against the \
-             MachineFabric workspace must export this variable, sourced from \
-             fabric/manifest-version.txt. Run builds and tests through `dx` \
-             (which exports it for you) instead of invoking cargo directly."
+            "{env_var} is not set. Every cargo invocation against the MachineFabric \
+             workspace must export this variable, sourced from {source_file}. Run \
+             builds and tests through `dx` (which exports it for you) instead of \
+             invoking cargo directly."
         );
     });
 
     let trimmed = raw.trim();
     let version: u32 = trimmed.parse().unwrap_or_else(|e| {
-        panic!(
-            "MFR_FABRIC_MANIFEST_VERSION must be a non-negative integer (got {:?}): {}",
-            trimmed, e
-        );
+        panic!("{env_var} must be a non-negative integer (got {trimmed:?}): {e}");
     });
-    // 0 is reserved for legacy v0 cartridges already in the wild and is
-    // never a valid bake target — the workspace builds only at v >= 1.
+    // 0 is reserved for legacy v0 already in the wild and is never a valid bake
+    // target — the workspace builds only at v >= 1.
     if version < 1 {
         panic!(
-            "MFR_FABRIC_MANIFEST_VERSION must be >= 1 (got {}). v0 is the implicit \
-             pre-versioning state for legacy cartridges and is not a build target.",
-            version
+            "{env_var} must be >= 1 (got {version}). v0 is the implicit \
+             pre-versioning state for legacy consumers and is not a build target."
         );
     }
 
-    let out_dir = env::var("OUT_DIR").expect("OUT_DIR is set by cargo");
-    let dest = Path::new(&out_dir).join("fabric_manifest_version.rs");
+    let dest = Path::new(out_dir).join(out_file);
     let body = format!(
-        "/// Fabric registry manifest version this build is pinned to. Sourced from\n\
-         /// `fabric/manifest-version.txt` at build time via `MFR_FABRIC_MANIFEST_VERSION`.\n\
-         pub const FABRIC_MANIFEST_VERSION: u32 = {};\n",
-        version
+        "/// {doc_lead}\n\
+         /// `{source_file}` at build time via `{env_var}`.\n\
+         pub const {const_name}: u32 = {version};\n"
     );
-    std::fs::write(&dest, body).unwrap_or_else(|e| {
-        panic!(
-            "failed to write {}: {}",
-            dest.display(),
-            e
-        );
-    });
-
-    generate_bundled_provider_hashes(&out_dir);
-    enforce_signing_pubkey_pairing();
+    std::fs::write(&dest, body)
+        .unwrap_or_else(|e| panic!("failed to write {}: {}", dest.display(), e));
 }
 
 /// A build that bakes a cartridge registry identity
