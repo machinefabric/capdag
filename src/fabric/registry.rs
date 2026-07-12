@@ -1443,6 +1443,21 @@ impl FabricRegistry {
     /// it" and the natural assignment is the snapshot we belong to).
     /// An explicitly-non-zero version is honored as-is — test fixtures
     /// can simulate cross-snapshot scenarios when they need to.
+    /// Seed the warm alias cache directly, parallel to [`add_caps_to_cache`]
+    /// for the alias registry: the given aliases then resolve via
+    /// [`get_alias`](Self::get_alias) / [`resolve_alias`](Self::resolve_alias)
+    /// without a network round-trip. The dev-cap conflict guard and tests use
+    /// this to stage known `alias → target` mappings.
+    pub fn add_aliases_to_cache(&self, aliases: Vec<StoredAlias>) {
+        if let Ok(mut cache) = self.cached_aliases.lock() {
+            for alias in aliases {
+                let key = crate::fabric::alias::normalize_alias_name(&alias.name)
+                    .unwrap_or_else(|_| alias.name.clone());
+                cache.insert(key, alias);
+            }
+        }
+    }
+
     pub fn add_caps_to_cache(&self, caps: Vec<Cap>) {
         let mut changed = false;
         let pin = self.manifest_version;

@@ -372,6 +372,8 @@ async fn main() {
         "resolve" => cmd_resolve(&args).await,
         "cache" => cmd_cache(&args).await,
         "install" => cmd_install(&args).await,
+        "new" => cmd_new(&args).await,
+        "dev-install" => cmd_dev_install(&args).await,
         "--help" | "-h" | "help" => {
             print_usage(&args[0]);
             process::exit(0);
@@ -801,6 +803,62 @@ async fn resolve_cap_or_exit(registry: &FabricRegistry, token: &str) -> capdag::
     }
 }
 
+/// Resolve a cap for single-cap mode with a local dev fallback: try the fabric
+/// first; if the token names a cap the fabric does NOT define, fall back to a
+/// locally dev-installed cartridge's OWN manifest (run by alias). A dev cap is
+/// accepted only if it does not conflict with the fabric — no alias of it may
+/// already mean a different cap upstream. On acceptance the cap is injected into
+/// the registry's in-memory cache so the rest of the pipeline plans and routes
+/// it exactly like any fabric cap. This is what lets a brand-new cap be run
+/// through the full capdag host before it is ever published.
+async fn resolve_cap_or_dev_or_exit(
+    registry: &FabricRegistry,
+    token: &str,
+) -> (capdag::Cap, Option<PathBuf>) {
+    let cap_ref = match capdag::orchestrator::classify_cap_token(token) {
+        Ok(capdag::orchestrator::CapToken::Urn(urn)) => urn,
+        Ok(capdag::orchestrator::CapToken::Alias(alias)) => alias,
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(2);
+        }
+    };
+    if let Ok(cap) = registry.get_cap(&cap_ref).await {
+        return (cap, None);
+    }
+    // Not in the fabric — is it a locally dev-installed cap? Dev caps are run by
+    // their alias.
+    match capdag::dev::find_dev_cap_by_alias(&user_cartridge_dir(), &cap_ref) {
+        Ok(Some((cap, dir))) => {
+            if let Err(e) = capdag::dev::check_no_fabric_conflict(registry, &cap).await {
+                eprintln!("{e}");
+                process::exit(1);
+            }
+            eprintln!(
+                "  [dev] '{token}' is not published in the fabric; running the local dev \
+                 cartridge at {}",
+                dir.display()
+            );
+            // Inject so the planner and arg mapper resolve the cap's URN uniformly;
+            // return the install dir so the runtime hosts that dev cartridge.
+            registry.add_caps_to_cache(vec![cap.clone()]);
+            (cap, Some(dir))
+        }
+        Ok(None) => {
+            eprintln!(
+                "Error resolving cap '{token}': not defined in the fabric, and no dev cartridge \
+                 installed under the local `dev` slug advertises it. Publish the cap, or run \
+                 `capdag dev-install <project>` on a cartridge that provides it."
+            );
+            process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("Error scanning local dev cartridges for '{token}': {e}");
+            process::exit(1);
+        }
+    }
+}
+
 /// Parse a `--to` target into a media URN. A value containing ':' is taken as a
 /// full media URN; a bare token (e.g. `png`) is the file-extension shorthand
 /// `media:ext=<token>`. Exits on a malformed value.
@@ -1002,7 +1060,13 @@ async fn cmd_cap(args: &[String]) -> ! {
     }
 
     let registry = fabric_registry_or_exit().await;
-    let resolved_cap = resolve_cap_or_exit(&registry, cap_token).await;
+    let (resolved_cap, dev_dir) = resolve_cap_or_dev_or_exit(&registry, cap_token).await;
+    // A dev cap's cartridge is hosted by feeding its install dir to the runtime
+    // as a dev binary (the same path `--dev-bins` uses); its cartridge.json
+    // resolves the entry point.
+    if let Some(dir) = dev_dir {
+        dev_binaries.push(dir);
+    }
 
     // Alias/URN resolution answered "which cap does this name mean?" (an
     // is_equivalent question). If it named an ABSTRACT cap, we now answer the
@@ -1365,6 +1429,129 @@ async fn cmd_install(args: &[String]) -> ! {
         Ok(path) => {
             eprintln!("Installed and verified: {cartridge_id}");
             println!("{}", path.display());
+            process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+    }
+}
+
+/// `capdag new <name> [--python] [-o <dir>]` — scaffold a fresh cartridge
+/// project. Python is the only (and default) kind today. Writes a runnable
+/// `cartridge.py`, a README, and a `.gitignore` into `<dir>/<name>/`.
+async fn cmd_new(args: &[String]) -> ! {
+    let mut name: Option<&str> = None;
+    let mut parent = PathBuf::from(".");
+    let mut idx = 2usize;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--python" => {} // the only kind; explicit is fine.
+            "-o" | "--output" => {
+                idx += 1;
+                let Some(dir) = args.get(idx) else {
+                    eprintln!("--output requires a directory path");
+                    process::exit(2);
+                };
+                parent = PathBuf::from(dir);
+            }
+            other if other.starts_with("--") => {
+                eprintln!("Unknown option '{other}' for `new` (only --python is supported).");
+                process::exit(2);
+            }
+            other if name.is_none() => name = Some(other),
+            other => {
+                eprintln!("Unexpected argument '{other}' for `new`.");
+                process::exit(2);
+            }
+        }
+        idx += 1;
+    }
+    let Some(name) = name else {
+        eprintln!("Usage: {} new <name> [--python] [-o <dir>]", args[0]);
+        process::exit(2);
+    };
+
+    match capdag::dev::scaffold_python_cartridge(name, &parent) {
+        Ok(project_dir) => {
+            eprintln!("Scaffolded Python cartridge '{name}' at {}", project_dir.display());
+            eprintln!("Next:");
+            eprintln!("  pip install capdag            # the cartridge runtime");
+            eprintln!("  cd {}", project_dir.display());
+            eprintln!("  capdag dev-install .          # install under the local `dev` slug");
+            eprintln!("  echo \"I love this\" | capdag {name}");
+            println!("{}", project_dir.display());
+            process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+    }
+}
+
+/// `capdag dev-install <project-dir>` — install (or update) a dev cartridge
+/// under the per-user cartridge root's `dev` slug so the capdag host discovers
+/// it. Reads the project's manifest, verifies none of its caps conflict with
+/// the fabric, then stages it. Re-running overwrites the same version directory
+/// — the update step of the edit/reinstall loop.
+async fn cmd_dev_install(args: &[String]) -> ! {
+    let project_dir = PathBuf::from(args.get(2).map(String::as_str).unwrap_or("."));
+
+    let entry = match capdag::dev::project_entry(&project_dir) {
+        Ok(entry) => entry,
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+    };
+    let manifest = match capdag::dev::read_entry_manifest(&entry) {
+        Ok(manifest) => manifest,
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+    };
+
+    // A dev cartridge may declare caps the fabric does not know, but its aliases
+    // must not collide with the fabric. Check every declared cap up front so a
+    // conflict is reported before anything is written to disk.
+    let registry = fabric_registry_or_exit().await;
+    for group in &manifest.cap_groups {
+        for cap in &group.caps {
+            if let Err(e) = capdag::dev::check_no_fabric_conflict(&registry, cap).await {
+                eprintln!("{e}");
+                process::exit(1);
+            }
+        }
+    }
+
+    match capdag::dev::stage_dev_cartridge(
+        &project_dir,
+        &manifest,
+        &user_cartridge_dir(),
+        capdag::FABRIC_MANIFEST_VERSION,
+    ) {
+        Ok(version_dir) => {
+            eprintln!(
+                "Installed dev cartridge '{}' v{} ({}) at {}",
+                manifest.name,
+                manifest.version,
+                manifest.channel.as_str(),
+                version_dir.display()
+            );
+            // Hint the run command using the first non-identity cap alias.
+            let run_alias = manifest
+                .cap_groups
+                .iter()
+                .flat_map(|g| g.caps.iter())
+                .filter(|c| !c.get_aliases().iter().any(|a| a == "identity"))
+                .find_map(|c| c.get_aliases().first().cloned());
+            if let Some(alias) = run_alias {
+                eprintln!("Run it:  echo \"...\" | {} {alias}", args[0]);
+            }
+            println!("{}", version_dir.display());
             process::exit(0);
         }
         Err(e) => {
