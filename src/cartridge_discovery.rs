@@ -14,7 +14,7 @@
 //! same code serves a host built for any channel/registry.
 //!
 //! Managed layout (relative to the root passed to [`discover_cartridges`]):
-//! `{root}/{slug}/{channel}/{name}/{version}/cartridge.json`.
+//! `{root}/{slug}/v{cartridge_registry_version}/{channel}/{name}/{version}/cartridge.json`.
 
 use crate::bifaci::cartridge_json::{validate_registry_url_scheme, CartridgeJson, RegistryUrlSchemeResult};
 use crate::bifaci::cartridge_repo::CartridgeChannel;
@@ -35,6 +35,11 @@ pub struct DiscoveryIdentity {
     /// then live under the reserved dev slug and any registry scheme is allowed).
     pub registry_url: Option<String>,
     pub fabric_manifest_version: u32,
+    /// Cartridge registry regime version this host speaks (the baked
+    /// [`crate::CARTRIDGE_REGISTRY_VERSION`]). It is an on-disk PATH level —
+    /// cartridges live under `{slug}/v{cartridge_registry_version}/{channel}/…`
+    /// — pinned like the channel, so a v1 host never scans a v2 cartridge tree.
+    pub cartridge_registry_version: u32,
 }
 
 impl DiscoveryIdentity {
@@ -181,10 +186,14 @@ pub async fn discover_cartridges(
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let scan_root = slug_dir.join(identity.channel.as_str());
+        // `{slug}/v{cartridge_registry_version}/{channel}/…` — the registry
+        // regime version is an on-disk level pinned to the host's version (like
+        // the channel), so a v1 host never scans a v2 cartridge tree.
+        let scan_root = slug_dir
+            .join(format!("v{}", identity.cartridge_registry_version))
+            .join(identity.channel.as_str());
         if !scan_root.is_dir() {
-            // This slug has no subtree for the host's channel — nothing to do.
-            // (A slug folder may legitimately hold only the other channel.)
+            // This slug has no subtree for the host's (version, channel) — skip.
             continue;
         }
         scan_channel_root(&scan_root, &expected_slug, identity, &mut discovered).await?;
@@ -525,13 +534,15 @@ mod tests {
             channel: CartridgeChannel::Nightly,
             registry_url: None,
             fabric_manifest_version: 1,
+            cartridge_registry_version: crate::CARTRIDGE_REGISTRY_VERSION,
         }
     }
 
-    /// Lay down `{root}/{slug}/{channel_folder}/{name}/{version}/`. When
-    /// `cartridge_json` is `Some`, also write it plus an executable `entry`
-    /// binary so `read_from_dir` accepts the directory and discovery reaches its
-    /// own identity checks.
+    /// Lay down `{root}/{slug}/v{CARTRIDGE_REGISTRY_VERSION}/{channel_folder}/{name}/{version}/`
+    /// — the version level pins to the host build's registry version, exactly
+    /// where `discover_cartridges` scans. When `cartridge_json` is `Some`, also
+    /// write it plus an executable `entry` binary so `read_from_dir` accepts the
+    /// directory and discovery reaches its own identity checks.
     fn install_fixture(
         root: &Path,
         slug: &str,
@@ -541,7 +552,12 @@ mod tests {
         cartridge_json: Option<&str>,
         entry: &str,
     ) {
-        let dir = root.join(slug).join(channel_folder).join(name).join(version);
+        let dir = root
+            .join(slug)
+            .join(format!("v{}", crate::CARTRIDGE_REGISTRY_VERSION))
+            .join(channel_folder)
+            .join(name)
+            .join(version);
         fs::create_dir_all(&dir).unwrap();
         if let Some(json) = cartridge_json {
             fs::write(dir.join("cartridge.json"), json).unwrap();
@@ -659,6 +675,7 @@ mod tests {
             channel: CartridgeChannel::Nightly,
             registry_url: Some("https://other.example.com/manifest".to_string()),
             fabric_manifest_version: 1,
+            cartridge_registry_version: crate::CARTRIDGE_REGISTRY_VERSION,
         };
         install_fixture(root.path(), "dev", "nightly", "devcart", "1.0.0", Some(&dev_cartridge_json("nightly", 1)), "cart");
         install_fixture(root.path(), &rslug, "nightly", "regcart", "1.0.0", Some(&registry_cartridge_json(url, "nightly", 1)), "cart");
@@ -692,6 +709,43 @@ mod tests {
             .await
             .unwrap();
         assert!(out.is_empty(), "a release-only slug must be invisible to a nightly host, got: {out:?}");
+    }
+
+    // TEST1879: only the host's registry-VERSION subtree is scanned. A cartridge
+    // installed under `{slug}/v{N+1}/nightly/…` (a different registry regime) is
+    // invisible to a host that speaks v{N} — the version level is pinned exactly
+    // like the channel, so v1 and v2 cartridges of the same registry never mix.
+    #[tokio::test]
+    async fn test1879_other_registry_version_subtree_is_skipped() {
+        let root = tempdir().unwrap();
+        let url = "https://cartridges.example.com/manifest";
+        let rslug = registry_slug_for(url);
+        // Hand-place a cartridge under the NEXT registry version's subtree
+        // (install_fixture always writes the host's version, so compose directly).
+        let other_version = crate::CARTRIDGE_REGISTRY_VERSION + 1;
+        let dir = root
+            .path()
+            .join(&rslug)
+            .join(format!("v{other_version}"))
+            .join("nightly")
+            .join("regcart")
+            .join("1.0.0");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("cartridge.json"), registry_cartridge_json(url, "nightly", 1)).unwrap();
+        let entry = dir.join("cart");
+        std::fs::write(&entry, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&entry, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let out = discover_cartridges(root.path(), &nightly_dev_identity())
+            .await
+            .unwrap();
+        assert!(
+            out.is_empty(),
+            "a cartridge under a different registry-version subtree must be invisible, got: {out:?}"
+        );
     }
 
     // TEST1877: a registry cartridge hand-copied under the WRONG registry slug

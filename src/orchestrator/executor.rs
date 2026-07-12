@@ -718,9 +718,9 @@ impl CartridgeManager {
             return Ok(path);
         }
 
-        // Look for an existing installed cartridge in the
-        // registry-partitioned, channel-partitioned versioned layout:
-        // `{cartridge_dir}/{registry_slug}/{channel}/{cartridge_id}/{version}/cartridge.json`.
+        // Look for an existing installed cartridge in the registry-partitioned,
+        // version-partitioned, channel-partitioned versioned layout:
+        // `{cartridge_dir}/{registry_slug}/v{cartridge_registry_version}/{channel}/{cartridge_id}/{version}/cartridge.json`.
         // The orchestrator's manager is bound to a single registry — that's
         // the registry it just fetched the manifest from, so the slug it
         // walks is fixed.
@@ -729,6 +729,7 @@ impl CartridgeManager {
         let name_dir = self
             .cartridge_dir
             .join(&registry_slug)
+            .join(format!("v{}", crate::CARTRIDGE_REGISTRY_VERSION))
             .join(self.channel.as_str())
             .join(cartridge_id);
         if name_dir.is_dir() {
@@ -1012,13 +1013,14 @@ impl CartridgeManager {
         self.verify_binary_against_manifest(&registry_url, cartridge_id, &binary, &bytes)
             .await?;
 
-        // Registry-partitioned, channel-partitioned versioned layout. The
-        // orchestrator only ever installs from its own configured registry,
-        // so the slug is fixed for the lifetime of this manager.
+        // Registry-partitioned, version-partitioned, channel-partitioned
+        // layout. The orchestrator only ever installs from its own configured
+        // registry, so the slug is fixed for the lifetime of this manager.
         let registry_slug = crate::bifaci::cartridge_slug::slug_for(Some(registry_url.as_str()));
         let version_dir = self
             .cartridge_dir
             .join(&registry_slug)
+            .join(format!("v{}", crate::CARTRIDGE_REGISTRY_VERSION))
             .join(self.channel.as_str())
             .join(cartridge_id)
             .join(&cartridge_info.version);
@@ -2634,6 +2636,7 @@ pub(crate) async fn discover_bundled_provider_cartridges(
         channel,
         registry_url: registry_url.map(str::to_string),
         fabric_manifest_version,
+        cartridge_registry_version: crate::CARTRIDGE_REGISTRY_VERSION,
     };
     let mut out = Vec::new();
     for discovered in crate::cartridge_discovery::discover_cartridges(providers_dir, &identity)

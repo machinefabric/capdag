@@ -171,7 +171,7 @@ pub use bifaci::cartridge_json::{
 };
 
 // Registry slug — deterministic on-disk folder name for a registry URL.
-pub use bifaci::cartridge_slug::{is_registry_slug, slug_for, DEV_SLUG, SLUG_HEX_LEN};
+pub use bifaci::cartridge_slug::{is_registry_slug, slug_for, DEV_SLUG};
 
 // Shared cartridge discovery (engine + machfab-daemon)
 pub use cartridge_discovery::{
