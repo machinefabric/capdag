@@ -33,6 +33,7 @@ pub mod cap;
 pub mod bundled_provider_hashes;
 pub mod cartridge_discovery;
 pub mod cartridge_registry_version;
+pub mod dev;
 pub mod fabric;
 pub mod fabric_manifest_version;
 pub mod input_resolver;

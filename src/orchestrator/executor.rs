@@ -1265,20 +1265,21 @@ impl ExecutionContext {
             })?;
             let cartridge_json_path = version_dir.join("cartridge.json");
             if cartridge_json_path.exists() {
-                // Installed-cartridge path. Walk up: version → name
-                // → channel → slug. The slug folder is three levels
-                // up from the binary; pass it through so the
+                // Installed-cartridge path. Walk up: version → name →
+                // channel → v{registry_version} → slug. The slug folder is
+                // FOUR levels up from the version dir (the registry-version
+                // level sits between slug and channel); pass it through so the
                 // three-place rule is enforced inside read_from_dir.
                 let expected_slug_owned = version_dir
                     .ancestors()
-                    .nth(3)
+                    .nth(4)
                     .and_then(|p| p.file_name())
                     .and_then(|s| s.to_str())
                     .map(|s| s.to_string())
                     .ok_or_else(|| {
                         ExecutionError::HostError(format!(
                             "cartridge path {} is not under a valid \
-                             {{slug}}/{{channel}}/{{name}}/{{version}}/ tree",
+                             {{slug}}/v{{registry_version}}/{{channel}}/{{name}}/{{version}}/ tree",
                             path.display()
                         ))
                     })?;
