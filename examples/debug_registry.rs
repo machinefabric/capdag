@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(cap) => {
                         println!("\n✓ Successfully parsed as Cap:");
                         println!("  URN: {}", cap.urn_string());
-                        println!("  Command: {}", cap.command);
+                        println!("  Command: {}", cap.primary_alias());
                     }
                     Err(e) => {
                         println!("\n✗ Failed to parse as Cap: {}", e);

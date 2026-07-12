@@ -1774,7 +1774,7 @@ mod tests {
         assert_eq!(cartridge.cap_groups[0].caps.len(), 2);
         assert_eq!(cartridge.iter_caps().count(), 2);
         assert_eq!(cartridge.channel, CartridgeChannel::Release);
-        assert_eq!(cartridge.registry_url, "https://test.example/manifest", TEST_FABRIC_URL);
+        assert_eq!(cartridge.registry_url, "https://test.example/manifest");
     }
 
     // TEST636: CartridgeInfo with null version/description/author still

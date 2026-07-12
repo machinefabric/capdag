@@ -363,6 +363,7 @@ async fn setup_execution_context(
         capdag::FABRIC_MANIFEST_VERSION,
         dev_binaries,
         None,
+        capdag::RegistryConfig::default().registry_base_url,
     );
     manager.init().await.expect("CartridgeManager init failed");
     let cartridges = manager
