@@ -1880,6 +1880,191 @@ mod tests {
         );
     }
 
+    // TEST1421 (axis D, the location slider): AtSource admits ONLY depth-0
+    // apexes (the free join); AtDepth(1) admits ONLY the paid page apex.
+    #[test]
+    fn test1421_location_slider_knob() {
+        let (fab, registry) = fabric();
+        let sources = vec![
+            SourceSpec::single(media("media:ext=pdf")),
+            SourceSpec::single(media("media:ext=md")),
+        ];
+
+        let mut at_source = PlanRequest::auto(sources.clone(), TargetSpec::Exact(vec![txt()]));
+        at_source.mode = PlanMode::Configured;
+        at_source.convergence.presence = ConvergencePresence::Converged;
+        at_source.convergence.location = ConvergenceLocation::AtSource;
+        let candidates = fab.plan(&at_source, &registry).expect("AtSource must plan");
+        assert!(
+            candidates
+                .iter()
+                .flat_map(|c| c.profile.apexes.iter())
+                .all(|a| a.depth == 0),
+            "AtSource admits only depth-0 apexes"
+        );
+
+        let mut at_depth = PlanRequest::auto(sources, TargetSpec::Exact(vec![txt()]));
+        at_depth.mode = PlanMode::Configured;
+        at_depth.convergence.presence = ConvergencePresence::Converged;
+        at_depth.convergence.location = ConvergenceLocation::AtDepth(1);
+        let candidates = fab.plan(&at_depth, &registry).expect("AtDepth(1) must plan");
+        assert!(
+            !candidates.is_empty()
+                && candidates
+                    .iter()
+                    .flat_map(|c| c.profile.apexes.iter())
+                    .all(|a| a.depth == 1),
+            "AtDepth(1) admits only depth-1 apexes"
+        );
+    }
+
+    // TEST1422 (axis F, the apex-type pin): at_type restricts apexes to types
+    // conforming to the pin — the page apex survives, the join does not.
+    #[test]
+    fn test1422_at_type_pin() {
+        let (fab, registry) = fabric();
+        let mut request = PlanRequest::auto(
+            vec![
+                SourceSpec::single(media("media:ext=pdf")),
+                SourceSpec::single(media("media:ext=md")),
+            ],
+            TargetSpec::Exact(vec![txt()]),
+        );
+        request.mode = PlanMode::Configured;
+        request.convergence.presence = ConvergencePresence::Converged;
+        request.convergence.at_type = Some(media("media:page"));
+        let candidates = fab.plan(&request, &registry).expect("pinned apex must plan");
+        assert!(
+            candidates.iter().flat_map(|c| c.profile.apexes.iter()).all(|a| {
+                a.media_urn.conforms_to(&media("media:page")).unwrap()
+            }),
+            "every apex must conform to the at_type pin"
+        );
+    }
+
+    // TEST1423 (axis K): Shortest ranks by cap steps, Cost by total steps —
+    // both deterministic and both must put a minimal candidate first.
+    #[test]
+    fn test1423_rank_policies() {
+        let (fab, registry) = fabric();
+        let sources = vec![
+            SourceSpec::single(media("media:ext=pdf")),
+            SourceSpec::single(media("media:ext=md")),
+        ];
+        let policies: [(RankPolicy, fn(&PlanCandidate) -> usize); 2] = [
+            (RankPolicy::Shortest, |c: &PlanCandidate| c.cost.cap_steps),
+            (RankPolicy::Cost, |c: &PlanCandidate| c.cost.total_steps),
+        ];
+        for (policy, key) in policies {
+            let mut request =
+                PlanRequest::auto(sources.clone(), TargetSpec::Exact(vec![txt()]));
+            request.ranking = policy;
+            let candidates = fab.plan(&request, &registry).expect("must plan");
+            let min = candidates.iter().map(key).min().expect("non-empty");
+            assert_eq!(
+                key(&candidates[0]),
+                min,
+                "the top candidate must be minimal under the rank policy"
+            );
+            for w in candidates.windows(2) {
+                assert!(key(&w[0]) <= key(&w[1]), "ranking must be monotone");
+            }
+        }
+    }
+
+    // TEST1424 (discover, degenerate |S|=1): single-source discovery returns
+    // the reachable bookend targets, never internal media.
+    #[test]
+    fn test1424_discover_single_source() {
+        let (fab, _registry) = fabric();
+        let targets = fab
+            .discover_convergent_targets(
+                &[SourceSpec::single(media("media:ext=pdf"))],
+                PlanRequest::DEFAULT_MAX_DEPTH,
+            )
+            .expect("single-source discovery must succeed");
+        assert!(
+            targets.iter().any(|t| t.media_def.is_equivalent(&txt()).unwrap()),
+            "txt must be discovered for a single pdf"
+        );
+        assert!(
+            !targets
+                .iter()
+                .any(|t| t.media_def.is_equivalent(&media("media:enc=utf-8;page")).unwrap()),
+            "internal (non-bookend) media must not be discovered"
+        );
+    }
+
+    // TEST1425 (bounds): max_candidates truncates AFTER ranking and ranks are
+    // re-assigned densely from 0.
+    #[test]
+    fn test1425_max_candidates_truncation() {
+        let (fab, registry) = fabric();
+        let mut request = PlanRequest::auto(
+            vec![
+                SourceSpec::single(media("media:ext=pdf")),
+                SourceSpec::single(media("media:ext=md")),
+            ],
+            TargetSpec::Exact(vec![txt()]),
+        );
+        request.max_candidates = 1;
+        let candidates = fab.plan(&request, &registry).expect("must plan");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].rank, 0);
+    }
+
+    // TEST1426 (axis I): divergence AtSource shares NOTHING — the common
+    // pdf2text prefix is duplicated per branch instead of shared.
+    #[test]
+    fn test1426_divergence_at_source_duplicates_prefix() {
+        let pdf2text = build_cap(
+            "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;page\"",
+            "pdf2text",
+            &["media:ext=pdf"],
+            "media:enc=utf-8;page",
+        );
+        let mut concat = build_cap(
+            "cap:in=\"media:enc=utf-8\";concat;out=\"media:enc=utf-8;ext=txt\"",
+            "concat",
+            &["media:enc=utf-8"],
+            "media:enc=utf-8;ext=txt",
+        );
+        concat.args[0].is_sequence = true;
+        let page2html = build_cap(
+            "cap:in=\"media:enc=utf-8;page\";render;out=\"media:enc=utf-8;ext=html\"",
+            "page2html",
+            &["media:enc=utf-8;page"],
+            "media:enc=utf-8;ext=html",
+        );
+        let caps = vec![pdf2text, concat, page2html];
+        let registry = registry_with(caps.clone());
+        let bookends: HashSet<MediaUrn> = [
+            media("media:ext=pdf"),
+            media("media:enc=utf-8;ext=txt"),
+            media("media:enc=utf-8;ext=html"),
+        ]
+        .into_iter()
+        .collect();
+        let mut fab = LiveCapFab::new();
+        fab.sync_from_caps(&caps, &bookends);
+
+        let mut request = PlanRequest::auto(
+            vec![SourceSpec::single(media("media:ext=pdf"))],
+            TargetSpec::Exact(vec![
+                media("media:enc=utf-8;ext=txt"),
+                media("media:enc=utf-8;ext=html"),
+            ]),
+        );
+        request.divergence.location = DivergenceLocation::AtSource;
+        let candidates = fab.plan(&request, &registry).expect("must plan");
+        assert_eq!(
+            candidates[0].notation.matches("extract").count(),
+            2,
+            "AtSource divergence must NOT share the prefix: {}",
+            candidates[0].notation
+        );
+    }
+
     // TEST1418 (region 2 degenerate fold): ONE sequence anchor of pdfs → txt.
     // The plan is single-source; the fold happens because the entry is a
     // sequence and concat consumes it — profile.converged reflects the fold.

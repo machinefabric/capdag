@@ -3009,6 +3009,46 @@ mod tests {
     }
 
 
+    // TEST1430: a multi-edge group (fan-in / gather) ALWAYS heads its own
+    // chain — mid-chain streaming forwards exactly one producer stream, so a
+    // multi-input invocation must be fed from materialised node_data. A
+    // single-edge group with one dedicated producer still chains linearly.
+    #[test]
+    fn test1430_multi_edge_group_heads_a_chain() {
+        // Gather shape: in→A, in2→B, then (A, B) → C on one cap.
+        let cap_c = "cap:in=\"media:enc=utf-8\";fold;out=\"media:enc=utf-8;ext=txt\"";
+        let edges = vec![
+            edge("in", "A", "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8\""),
+            edge("in2", "B", "cap:in=\"media:ext=md\";op-b;out=\"media:enc=utf-8\""),
+            edge("A", "C", cap_c),
+            edge("B", "C", cap_c),
+        ];
+        let groups = build_edge_groups(&edges);
+        assert_eq!(groups.len(), 3, "A, B, and the two-edge C group");
+        let order = topological_sort_groups(&groups).expect("acyclic");
+        let chains = decompose_group_chains(&groups, &order);
+        assert_eq!(
+            chains.len(),
+            3,
+            "the gather group must head its own chain, never continue A's or B's"
+        );
+        // Every chain containing the C group contains ONLY the C group.
+        let c_idx = groups.iter().position(|g| g.to == "C").expect("C group");
+        let c_chain = chains.iter().find(|ch| ch.contains(&c_idx)).expect("C chained");
+        assert_eq!(c_chain, &vec![c_idx]);
+
+        // Control: a plain linear chain still fuses.
+        let linear = vec![
+            edge("in", "A", "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8\""),
+            edge("A", "D", "cap:in=\"media:enc=utf-8\";op-d;out=\"media:enc=utf-8;ext=txt\""),
+        ];
+        let groups = build_edge_groups(&linear);
+        let order = topological_sort_groups(&groups).expect("acyclic");
+        let chains = decompose_group_chains(&groups, &order);
+        assert_eq!(chains.len(), 1, "a dedicated single-edge consumer fuses into one chain");
+        assert_eq!(chains[0].len(), 2);
+    }
+
     // TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight]
     #[test]
     fn test1125_map_progress_basic_mapping() {
