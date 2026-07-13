@@ -262,19 +262,19 @@ impl MachinePlanBuilder {
 
             // Synthesize a Collect for a gathered slot: producers wire into the
             // Collect via `Collection` edges; the Collect feeds the cap. Fails
-            // hard unless the arg is a sequence arg and every gathered producer
-            // is a top-level (non-ForEach-region) node — gathering per-item
-            // ForEach output through this path would silently mis-order the
-            // region machinery, and a scalar arg with N bindings is a resolver
-            // invariant violation.
+            // hard unless the arg is a sequence arg (a scalar arg with N
+            // bindings is a resolver invariant violation). A member produced
+            // inside a ForEach region is fine: the executor's post-region
+            // segment materializes the region's accumulated per-item output as
+            // one sequence, and the gather flattens it alongside the other
+            // members in binding order.
             let synthesize_gather_collect =
                 |plan: &mut MachinePlan,
                  group: &[&crate::machine::graph::EdgeAssignmentBinding],
                  arg_def: &crate::cap::definition::CapArg,
                  collect_id: &str,
                  producer: &HashMap<NodeId, String>,
-                 node_runtime: &HashMap<NodeId, MediaUrn>,
-                 node_region: &HashMap<NodeId, String>|
+                 node_runtime: &HashMap<NodeId, MediaUrn>|
                  -> PlannerResult<MediaUrn> {
                     if !arg_def.is_sequence {
                         return Err(PlannerError::InvalidPath(format!(
@@ -288,15 +288,6 @@ impl MachinePlanBuilder {
                     let mut input_producer_ids: Vec<String> = Vec::with_capacity(group.len());
                     let mut member_media: Vec<MediaUrn> = Vec::with_capacity(group.len());
                     for b in group {
-                        if let Some(region) = node_region.get(&b.source) {
-                            return Err(PlannerError::InvalidPath(format!(
-                                "strand '{name}': cap '{cap_urn_str}' gathers node {} which is \
-                                 produced inside ForEach region '{region}' — gathering per-item \
-                                 ForEach output into a sequence arg is not supported; the region \
-                                 machinery owns that collection",
-                                b.source
-                            )));
-                        }
                         let pid = producer.get(&b.source).cloned().ok_or_else(|| {
                             PlannerError::Internal(format!(
                                 "gathered source node {} has no producer",
@@ -359,7 +350,6 @@ impl MachinePlanBuilder {
                     &collect_id,
                     &producer,
                     &node_runtime,
-                    &node_region,
                 )?;
                 src = primary_group[0].source;
                 in_media = item_media;
@@ -536,7 +526,6 @@ impl MachinePlanBuilder {
                         &collect_id,
                         &producer,
                         &node_runtime,
-                        &node_region,
                     )?;
                     plan.add_edge(MachinePlanEdge::arg(&collect_id, &cap_node_id, &stream_urn));
                 }
