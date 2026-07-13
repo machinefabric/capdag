@@ -223,6 +223,159 @@ mod tests {
         }
     }
 
+    /// A registry cap whose single stdin arg is a SEQUENCE arg — the gather
+    /// consumer shape (e.g. `concat`: sequence of text items → one text).
+    fn seq_arg_cap(urn: &str) -> Cap {
+        let mut c = cap(urn, false);
+        c.args[0].is_sequence = true;
+        c
+    }
+
+    // TEST1307: Fan-in `(x, y) -> concat` where concat's stdin arg is a SEQUENCE
+    // arg gathers both producers through a synthesized Collect node: the plan
+    // carries a real `Collect{input_nodes=[a,b]}` feeding concat (never a bare
+    // multi-bound arg), and no ForEach is introduced (the gathered value IS the
+    // sequence the arg consumes).
+    #[tokio::test]
+    async fn test1307_fan_in_gather_synthesizes_collect() {
+        let reg = registry(vec![
+            cap(r#"cap:in="media:ext=pdf";op-a;out="media:enc=utf-8;page""#, false),
+            cap(r#"cap:in="media:ext=md";op-b;out="media:enc=utf-8;page""#, false),
+            seq_arg_cap(r#"cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;ext=txt""#),
+        ]);
+        let notation = concat!(
+            r#"[a cap:in="media:ext=pdf";op-a;out="media:enc=utf-8;page"]"#,
+            r#"[b cap:in="media:ext=md";op-b;out="media:enc=utf-8;page"]"#,
+            r#"[cat cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;ext=txt"]"#,
+            "[doc_a -> a -> x]",
+            "[doc_b -> b -> y]",
+            "[(x, y) -> cat -> z]",
+        );
+        let plans = build_plans_from_notation(notation, reg).await.expect(
+            "a fan-in gather into a sequence arg must build (the implicit Collect)",
+        );
+        assert_eq!(plans.len(), 1, "one connected strand");
+        let plan = &plans[0];
+
+        // Exactly one Collect node, gathering BOTH producer caps.
+        let collects: Vec<(&String, &Vec<String>)> = plan
+            .nodes
+            .iter()
+            .filter_map(|(id, n)| match &n.node_type {
+                ExecutionNodeType::Collect { input_nodes, output_media_urn } => {
+                    assert!(
+                        output_media_urn.is_some(),
+                        "gather Collect must carry its element media"
+                    );
+                    Some((id, input_nodes))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(collects.len(), 1, "exactly one gather Collect");
+        let (collect_id, input_nodes) = collects[0];
+        assert_eq!(input_nodes.len(), 2, "the Collect gathers both producers");
+
+        // The Collect's inputs are the two producer cap nodes.
+        for input in input_nodes {
+            let node = plan.nodes.get(input).expect("collect input node exists");
+            assert!(node.is_cap(), "collect input '{input}' must be a cap node");
+        }
+
+        // The Collect feeds the concat cap via a Direct edge (it is the stdin arg).
+        let concat_node_id = plan
+            .nodes
+            .iter()
+            .find_map(|(id, n)| {
+                n.cap_urn().filter(|u| u.contains("concat")).map(|_| id.clone())
+            })
+            .expect("concat cap node present");
+        assert!(
+            plan.edges.iter().any(|e| &e.from_node == collect_id
+                && e.to_node == concat_node_id
+                && matches!(e.edge_type, crate::planner::EdgeType::Direct)),
+            "the gather Collect must feed concat's stdin directly"
+        );
+        // Producer → Collect wiring is Collection edges, one per member.
+        let collection_edges = plan
+            .edges
+            .iter()
+            .filter(|e| {
+                &e.to_node == collect_id
+                    && matches!(e.edge_type, crate::planner::EdgeType::Collection)
+            })
+            .count();
+        assert_eq!(collection_edges, 2, "one Collection edge per gathered producer");
+
+        // No ForEach: the gathered value IS the sequence the arg consumes.
+        assert!(
+            foreach_nodes(plan).is_empty(),
+            "a gather into a sequence arg must not introduce a ForEach"
+        );
+    }
+
+    // TEST1309: a SEQUENCE-consuming cap fed from inside a ForEach region
+    // CLOSES the region (the fold): it must NOT extend the ForEach body. The
+    // body stays [upscale]; the fold is wired as a plain downstream consumer
+    // and the executor runs it post-region on the collected sequence.
+    #[tokio::test]
+    async fn test1309_fold_after_mapped_region_closes_the_region() {
+        let mut render = cap(
+            r#"cap:in="media:ext=pdf";render;out="media:ext=png;image""#,
+            true, // sequence of page images
+        );
+        render.output.as_mut().unwrap().is_sequence = true;
+        let upscale = cap(
+            r#"cap:in="media:ext=png;image";upscale;out="media:ext=png;image;upscaled""#,
+            false,
+        );
+        let fold = seq_arg_cap(
+            r#"cap:in="media:ext=png;image";animate;out="media:ext=gif;image""#,
+        );
+        let reg = registry(vec![render, upscale, fold]);
+        let notation = concat!(
+            r#"[render cap:in="media:ext=pdf";render;out="media:ext=png;image"]"#,
+            r#"[upscale cap:in="media:ext=png;image";upscale;out="media:ext=png;image;upscaled"]"#,
+            r#"[animate cap:in="media:ext=png;image";animate;out="media:ext=gif;image"]"#,
+            "[doc -> render -> pics]",
+            "[pics -> upscale -> big]",
+            "[big -> animate -> out]",
+        );
+        let plans = build_plans_from_notation(notation, reg).await.expect("must build");
+        assert_eq!(plans.len(), 1);
+        let plan = &plans[0];
+        let fe = foreach_nodes(plan);
+        assert_eq!(fe.len(), 1, "upscale maps per item under one ForEach");
+        assert!(
+            cap_urn_of(plan, &fe[0].1).contains("upscale"),
+            "the body entry is the scalar mapper"
+        );
+        // The fold cap must NOT be the region's exit — the region closed at it.
+        let animate_id = plan
+            .nodes
+            .iter()
+            .find_map(|(id, n)| n.cap_urn().filter(|u| u.contains("animate")).map(|_| id.clone()))
+            .expect("animate node present");
+        for n in plan.nodes.values() {
+            if let ExecutionNodeType::ForEach { body_exit, .. } = &n.node_type {
+                assert_ne!(
+                    body_exit, &animate_id,
+                    "the fold must not extend the ForEach body"
+                );
+            }
+        }
+        // The fold is a plain Direct consumer of the mapper's output.
+        let upscale_id = plan
+            .nodes
+            .iter()
+            .find_map(|(id, n)| n.cap_urn().filter(|u| u.contains("upscale")).map(|_| id.clone()))
+            .expect("upscale node present");
+        assert!(
+            plan.edges.iter().any(|e| e.from_node == upscale_id && e.to_node == animate_id),
+            "fold consumes the mapped output directly"
+        );
+    }
+
     // TEST1306: A cap wired with two incoming data sources is a hard error — there is
     // no second stdin. (Constructed via a synthetic two-source edge is impossible in
     // notation under one-stdin, so we assert the resolver/one-stdin path rejects the

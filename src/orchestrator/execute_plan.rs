@@ -379,7 +379,10 @@ async fn compute_regions(
         };
 
         // BFS the body: caps reachable from body_entry via Direct edges, excluding
-        // Output nodes and any other ForEach node.
+        // Output nodes and any other ForEach node. A cap whose input is a
+        // SEQUENCE closes the region: it consumes the region's collected
+        // per-item output as one sequence (the fold), so it belongs to the
+        // post-region trunk, never to the body.
         let mut body_nodes: Vec<String> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         let mut queue = std::collections::VecDeque::new();
@@ -387,7 +390,21 @@ async fn compute_regions(
         seen.insert(body_entry.clone());
         while let Some(nid) = queue.pop_front() {
             match plan.nodes.get(&nid).map(|n| &n.node_type) {
-                Some(ExecutionNodeType::Cap { .. }) => body_nodes.push(nid.clone()),
+                Some(ExecutionNodeType::Cap { cap_urn, .. }) => {
+                    if nid != *body_entry {
+                        let cap = registry.get_cached_cap(cap_urn).ok_or_else(|| {
+                            ExecutionError::HostError(format!(
+                                "cap '{cap_urn}' at '{nid}' is not in the registry cache"
+                            ))
+                        })?;
+                        let (input_is_sequence, _) = cap.sequence_shape();
+                        if input_is_sequence {
+                            // Fold consumer — closes the region; runs post-region.
+                            continue;
+                        }
+                    }
+                    body_nodes.push(nid.clone());
+                }
                 Some(ExecutionNodeType::ForEach { .. }) => {
                     return Err(ExecutionError::HostError(format!(
                         "nested ForEach reached from body of '{fe_id}' at '{nid}' — unsupported"
@@ -417,9 +434,6 @@ async fn compute_regions(
             derive_foreach_media_urns(plan, input_node).map_err(|e| {
                 ExecutionError::HostError(format!("derive foreach item media for '{fe_id}': {e}"))
             })?;
-        // Touch the registry so an unresolved item type fails here, not mid-stream.
-        let _ = registry;
-
         regions.push(Region {
             fe_id: fe_id.clone(),
             input_node: input_node.clone(),
@@ -433,6 +447,76 @@ async fn compute_regions(
     // Deterministic order.
     regions.sort_by(|a, b| a.fe_id.cmp(&b.fe_id));
     Ok(regions)
+}
+
+/// The trunk caps that depend — transitively, over data-flow edges — on a
+/// ForEach region's output: they can only run AFTER the regions (a fold cap
+/// consuming the collected per-item sequence, and everything downstream of
+/// it). Includes gather `Collect` nodes on the post side.
+fn compute_post_region_caps(
+    plan: &MachinePlan,
+    region_nodes: &HashSet<String>,
+) -> HashSet<String> {
+    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
+    for edge in &plan.edges {
+        if matches!(
+            edge.edge_type,
+            crate::planner::EdgeType::Direct
+                | crate::planner::EdgeType::Arg { .. }
+                | crate::planner::EdgeType::Collection
+        ) {
+            adj.entry(edge.from_node.as_str()).or_default().push(edge.to_node.as_str());
+        }
+    }
+    let mut post: HashSet<String> = HashSet::new();
+    let mut queue: std::collections::VecDeque<&str> =
+        region_nodes.iter().map(|s| s.as_str()).collect();
+    let mut seen: HashSet<&str> = queue.iter().copied().collect();
+    while let Some(nid) = queue.pop_front() {
+        if let Some(children) = adj.get(nid) {
+            for &child in children {
+                if !seen.insert(child) {
+                    continue;
+                }
+                queue.push_back(child);
+                if region_nodes.contains(child) {
+                    continue;
+                }
+                match plan.nodes.get(child).map(|n| &n.node_type) {
+                    Some(ExecutionNodeType::Cap { .. })
+                    | Some(ExecutionNodeType::Collect { .. }) => {
+                        post.insert(child.to_string());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    post
+}
+
+/// The post-region sub-plan: the post caps/Collects with every data-flow edge
+/// INTO them (external producers stay as root references — their materialized
+/// data seeds the segment's node table).
+fn build_post_subplan(plan: &MachinePlan, post_ids: &HashSet<String>) -> MachinePlan {
+    let mut post = MachinePlan::new(&format!("{} [post-region]", plan.name));
+    for id in post_ids {
+        if let Some(node) = plan.nodes.get(id) {
+            post.add_node(node.clone());
+        }
+    }
+    for edge in &plan.edges {
+        if matches!(
+            edge.edge_type,
+            crate::planner::EdgeType::Direct
+                | crate::planner::EdgeType::Arg { .. }
+                | crate::planner::EdgeType::Collection
+        ) && post_ids.contains(&edge.to_node)
+        {
+            post.add_edge(edge.clone());
+        }
+    }
+    post
 }
 
 /// The trunk sub-plan: input slots + every cap NOT inside a ForEach body, with the
@@ -451,16 +535,28 @@ fn build_trunk_subplan(plan: &MachinePlan, region_nodes: &HashSet<String>) -> Ma
                 trunk.add_node(node.clone());
                 trunk_ids.insert(id.clone());
             }
+            // Standalone / gather Collects (output_media_urn set) are trunk
+            // structure: plan_converter resolves them through into per-producer
+            // edges and the segment executor gathers at the consuming arg.
+            ExecutionNodeType::Collect {
+                output_media_urn: Some(_),
+                ..
+            } => {
+                trunk.add_node(node.clone());
+                trunk_ids.insert(id.clone());
+            }
             _ => {}
         }
     }
     for edge in &plan.edges {
-        // Data-flow edges among trunk nodes: the main input (`Direct`) and any
-        // convergence input (`Arg`). Convergence must survive into the subgraph the
-        // executor runs.
+        // Data-flow edges among trunk nodes: the main input (`Direct`), any
+        // convergence input (`Arg`), and gather wiring into a Collect
+        // (`Collection`). All must survive into the subgraph the executor runs.
         if matches!(
             edge.edge_type,
-            crate::planner::EdgeType::Direct | crate::planner::EdgeType::Arg { .. }
+            crate::planner::EdgeType::Direct
+                | crate::planner::EdgeType::Arg { .. }
+                | crate::planner::EdgeType::Collection
         ) && trunk_ids.contains(&edge.from_node)
             && trunk_ids.contains(&edge.to_node)
         {
@@ -606,17 +702,24 @@ pub async fn execute_plan(
     let regions = compute_regions(plan, &registry).await?;
     let region_nodes: HashSet<String> =
         regions.iter().flat_map(|r| r.body_nodes.iter().cloned()).collect();
+    // Caps that consume region output (the fold and everything after it) run
+    // AFTER the regions, in their own segment.
+    let post_ids = compute_post_region_caps(plan, &region_nodes);
 
     // Accumulated producer output items (node id → items) across trunk + regions.
     let mut node_data: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
+    let mut node_seq: HashMap<String, bool> = HashMap::new();
     let mut node_writers: HashMap<String, Vec<WriterResult>> = HashMap::new();
     let mut body_outcomes: Vec<BodyOutcome> = Vec::new();
 
     // Cap nodes whose output is a plan terminal — persisted when the runtime persists.
     let persist_sinks: HashSet<String> = outputs.iter().map(|(_, src)| src.clone()).collect();
 
-    // ── Trunk (ForEach-free) — decomposed into linear chains, materialized at fan-out ──
-    let trunk = build_trunk_subplan(plan, &region_nodes);
+    // ── Trunk (ForEach-free, pre-region) — decomposed into linear chains,
+    // materialized at fan-out. Region caps AND post-region caps are excluded. ──
+    let mut trunk_excluded = region_nodes.clone();
+    trunk_excluded.extend(post_ids.iter().cloned());
+    let trunk = build_trunk_subplan(plan, &trunk_excluded);
     let mut trunk_roots: HashMap<String, (Vec<u8>, bool)> = HashMap::new();
     for (k, v) in initial_inputs {
         let seq = *initial_is_sequence.get(&k).ok_or_else(|| {
@@ -658,6 +761,9 @@ pub async fn execute_plan(
     for (nid, items) in trunk_seg.node_data {
         node_data.insert(nid, items);
     }
+    for (nid, seq) in &trunk_seg.node_is_sequence {
+        node_seq.insert(nid.clone(), *seq);
+    }
     // Record a trunk BodyOutcome ONLY for the linear/no-ForEach case, where the trunk
     // is the whole pipeline (one outcome, like a linear run). When ForEach regions
     // exist, `body_outcomes` must be the per-item bodies only — the trunk caps surface
@@ -686,7 +792,8 @@ pub async fn execute_plan(
     }
 
     // ── ForEach regions ──
-    let region_band = 1.0 - trunk_weight;
+    let post_weight = if post_ids.is_empty() { 0.0 } else { 0.2 };
+    let region_band = 1.0 - trunk_weight - post_weight;
     let region_slice = if regions.is_empty() { 0.0 } else { region_band / regions.len() as f32 };
     for (ri, region) in regions.iter().enumerate() {
         let input_items = node_data.get(&region.input_node).cloned().ok_or_else(|| {
@@ -728,12 +835,88 @@ pub async fn execute_plan(
                 }
             }
             node_data.insert(nid.clone(), seq);
+            // A region node's accumulated output is structurally a sequence.
+            node_seq.insert(nid.clone(), true);
         }
         // Region writer results, keyed by sink node.
         for (_, writers_by_sink) in &per_item {
             for (sink, ws) in writers_by_sink {
                 node_writers.entry(sink.clone()).or_default().extend(ws.clone());
             }
+        }
+    }
+
+    // ── Post-region segment: the fold consumer(s) and everything after them.
+    // Their external producers (region body nodes, pre-trunk caps, input slots)
+    // are materialized from the accumulated node_data as segment roots — a
+    // region node's accumulated per-item output enters as ONE sequence. ──
+    if !post_ids.is_empty() {
+        let post_plan = build_post_subplan(plan, &post_ids);
+        let mut post_roots: HashMap<String, (Vec<u8>, bool)> = HashMap::new();
+        for edge in &plan.edges {
+            if !post_ids.contains(&edge.to_node) || post_ids.contains(&edge.from_node) {
+                continue;
+            }
+            if post_roots.contains_key(&edge.from_node) {
+                continue;
+            }
+            let items = node_data.get(&edge.from_node).ok_or_else(|| {
+                ExecutionError::HostError(format!(
+                    "post-region segment needs '{}' but it produced no data",
+                    edge.from_node
+                ))
+            })?;
+            let is_seq = *node_seq.get(&edge.from_node).ok_or_else(|| {
+                ExecutionError::HostError(format!(
+                    "post-region segment root '{}' has no sequence flag — a producer \
+                     completed without recording its cardinality",
+                    edge.from_node
+                ))
+            })?;
+            let bytes = if is_seq {
+                crate::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(items).map_err(
+                    |e| {
+                        ExecutionError::HostError(format!(
+                            "materialise post-region root '{}': {e}",
+                            edge.from_node
+                        ))
+                    },
+                )?
+            } else {
+                items.first().cloned().ok_or_else(|| {
+                    ExecutionError::HostError(format!(
+                        "post-region root '{}' holds no items",
+                        edge.from_node
+                    ))
+                })?
+            };
+            post_roots.insert(edge.from_node.clone(), (bytes, is_seq));
+        }
+
+        let post_seg = run_subplan(
+            &runtime,
+            &registry,
+            &post_plan,
+            post_roots,
+            &persist_sinks,
+            cap_arguments,
+            progress_fn,
+            step_progress_fn,
+            log_fn,
+            None,
+            None,
+            1.0 - post_weight,
+            post_weight,
+        )
+        .await?;
+        for (nid, items) in post_seg.node_data {
+            node_data.insert(nid, items);
+        }
+        for (nid, seq) in &post_seg.node_is_sequence {
+            node_seq.insert(nid.clone(), *seq);
+        }
+        for (sink, ws) in post_seg.writer_results {
+            node_writers.entry(sink).or_default().extend(ws);
         }
     }
 

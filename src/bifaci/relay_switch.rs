@@ -1359,6 +1359,31 @@ impl RelaySwitch {
         )
     }
 
+    /// Plan candidate machines through the unified configurable planner —
+    /// THE general entry (multi-source convergence, multi-target divergence,
+    /// every knob of `PlanRequest`). The historical calls above are presets
+    /// over the same graph: `|sources| == 1` with default policies reproduces
+    /// `find_paths_to_exact_target`'s strands exactly.
+    pub async fn plan(
+        &self,
+        request: &crate::planner::PlanRequest,
+    ) -> Result<Vec<crate::planner::PlanCandidate>, crate::planner::PlanError> {
+        let graph = self.live_cap_fab.read().await;
+        graph.plan(request, &self.fabric_registry)
+    }
+
+    /// Discover the reachable targets for a (possibly heterogeneous) source
+    /// set: convergent targets tagged with their apex, plus independent (map)
+    /// targets. The multi-source generalization of `get_reachable_targets`.
+    pub async fn discover_convergent_targets(
+        &self,
+        sources: &[crate::planner::SourceSpec],
+        max_depth: usize,
+    ) -> Result<Vec<crate::planner::ConvergentTargetInfo>, crate::planner::PlanError> {
+        let graph = self.live_cap_fab.read().await;
+        graph.discover_convergent_targets(sources, max_depth)
+    }
+
     /// Find paths with streaming progress callback.
     pub async fn find_paths_streaming<F>(
         &self,

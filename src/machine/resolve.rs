@@ -20,7 +20,7 @@
 //! ## Source-to-cap-arg matching
 //!
 //! For each edge being resolved, the algorithm runs a
-//! Hungarian-style minimum-cost bipartite matching:
+//! minimum-cost assignment in two strict-precedence phases:
 //!
 //! - **Sources**: the URNs feeding this edge (one for the
 //!   planner path; one or more for the parser path).
@@ -29,14 +29,27 @@
 //!   `10-VALIDATION-RULES` enforces uniqueness across the args
 //!   of a single cap).
 //! - **Cost** of pairing source `s` with arg `a`:
-//!   `spec(s) - spec(a)` if `s.conforms_to(a)` (always
-//!   non-negative because `s` is at least as specific as `a`).
+//!   `|spec(s) - spec(a)|` if `s.conforms_to(a)` — the absolute
+//!   specificity gap (a wildcard-carrying source such as the
+//!   planner's join `media:ext` conforms to a value-exact arg
+//!   while being LESS specific; both directions of mismatch cost).
 //!   If `s` does not conform to `a`, the pair is impossible.
-//! - The minimum-cost assignment must be **unique**: among the
-//!   set of assignments with the minimum total cost, only one
-//!   bipartite matching may exist. If two distinct assignments
-//!   tie, the result is `AmbiguousMachineNotation` and resolution
-//!   fails hard. Source-vec position is NOT used as a tiebreaker.
+//! - **Phase 1 — product (§13.4):** each source claims a *distinct*
+//!   arg (an injection). Whenever a valid injection exists, this
+//!   phase decides — byte-identical to the historical matcher.
+//! - **Phase 2 — gather (implicit Collect):** only when NO injection
+//!   exists, a **sequence** cap-arg may absorb several conforming
+//!   sources (scalar args still take at most one). The N sources
+//!   become N bindings on that arg; downstream, plan construction
+//!   synthesizes the `Collect` that concatenates the N scalar
+//!   producer outputs into the one sequence the arg consumes. This
+//!   is cardinality-driven, like the retired `LOOP` — never authored
+//!   syntax.
+//! - The minimum-cost assignment of the deciding phase must be
+//!   **unique**. If two distinct assignments tie, the result is
+//!   `AmbiguousMachineNotation` and resolution fails hard.
+//!   Source-vec position is NOT used as a tiebreaker (it only fixes
+//!   the item order *within* one gathered arg).
 //!
 //! ## Connected components and the strand boundary
 //!
@@ -299,6 +312,7 @@ pub fn resolve_pre_interned(
         // names are historical — these are the per-arg stream and slot URNs.
         let mut stdin_arg_urns: Vec<MediaUrn> = Vec::new();
         let mut stdin_arg_slot_urns: Vec<MediaUrn> = Vec::new();
+        let mut stdin_arg_is_sequence: Vec<bool> = Vec::new();
         for arg in &cap.args {
             let stream_urn = MediaUrn::from_string(arg.stream_urn())
                 .expect("cap registry invariant: every arg stream URN is a valid MediaUrn");
@@ -306,6 +320,7 @@ pub fn resolve_pre_interned(
                 .expect("cap registry invariant: every cap arg media_urn is a valid MediaUrn");
             stdin_arg_urns.push(stream_urn);
             stdin_arg_slot_urns.push(slot_urn);
+            stdin_arg_is_sequence.push(arg.is_sequence);
         }
 
         // Pull the source URNs out of the nodes table for
@@ -322,8 +337,13 @@ pub fn resolve_pre_interned(
         // `matched_arg_urn` is the stdin URN that the source
         // was assigned to. We then translate each matched
         // stdin URN back to its slot identity for the binding.
-        let sorted_assignment =
-            match_sources_to_args(&source_urns, &stdin_arg_urns, &wiring.cap_urn, strand_index)?;
+        let sorted_assignment = match_sources_to_args(
+            &source_urns,
+            &stdin_arg_urns,
+            &stdin_arg_is_sequence,
+            &wiring.cap_urn,
+            strand_index,
+        )?;
 
         // Build the bindings. The `cap_arg_media_urn` field
         // on each binding records the **slot identity**
@@ -372,27 +392,45 @@ pub fn resolve_pre_interned(
         }
 
         // The bindings vec is currently in the order produced by
-        // `sorted_assignment` (sorted by stdin URN). To keep the
-        // canonical equivalence comparison stable, re-sort by
-        // slot identity (`cap_arg_media_urn`) before storing.
+        // `sorted_assignment` (sorted by stdin URN, source-order-stable within
+        // one arg). To keep the canonical equivalence comparison stable,
+        // re-sort by slot identity (`cap_arg_media_urn`); the sort is stable,
+        // so several bindings gathered onto one arg keep their source
+        // declaration order — the gathered sequence's item order.
         bindings.sort_by(|a, b| a.cap_arg_media_urn.cmp(&b.cap_arg_media_urn));
+
+        // A slot with several bindings is the implicit Collect: the matcher only
+        // produces it for a sequence arg. Members may be scalar or sequence —
+        // execution flattens deterministically: each member contributes its
+        // item(s) to the gathered sequence in binding (source-declaration)
+        // order (a scalar member contributes one item, a sequence member its
+        // items). No further validation is needed here.
 
         // Derive `is_loop` from cardinality — the single ForEach rule
         // (`Cap::needs_foreach`, mirroring `get_outgoing_edges` line 673): the
         // primary data input (the first stdin arg) carries a sequence but this cap
         // consumes it as a scalar, so it maps per-item. The primary stdin source node
-        // is the binding feeding the first stdin arg's slot. A cap with no stdin arg
-        // (config-only) never loops.
+        // is the binding feeding the first stdin arg's slot; a GATHER on the primary
+        // arg (several bindings) forms a sequence by construction. A cap with no
+        // stdin arg (config-only) never loops.
         let primary_stdin_source_is_sequence = stdin_arg_slot_urns
             .first()
-            .and_then(|primary_slot| {
-                bindings.iter().find(|b| {
-                    b.cap_arg_media_urn
-                        .is_equivalent(primary_slot)
-                        .unwrap_or(false)
-                })
+            .map(|primary_slot| {
+                let primary: Vec<&EdgeAssignmentBinding> = bindings
+                    .iter()
+                    .filter(|b| {
+                        b.cap_arg_media_urn
+                            .is_equivalent(primary_slot)
+                            .unwrap_or(false)
+                    })
+                    .collect();
+                match primary.len() {
+                    0 => false,
+                    1 => node_is_sequence[primary[0].source as usize],
+                    // Gathered: N scalar producers form one sequence.
+                    _ => true,
+                }
             })
-            .map(|b| node_is_sequence[b.source as usize])
             .unwrap_or(false);
         let is_loop = cap.needs_foreach(primary_stdin_source_is_sequence);
 
@@ -469,25 +507,48 @@ pub fn resolve_pre_interned(
 /// Match a wiring's sources to a cap's input args by minimum
 /// total specificity-distance, with a uniqueness requirement.
 ///
-/// Returns the matched pairs as `(cap_arg_media_urn, source_urn)`,
-/// sorted by `cap_arg_media_urn` (via `MediaUrn`'s structural
-/// `Ord`). Returns errors when:
+/// Two phases, in strict precedence order:
 ///
-/// - A source has no candidate arg (`UnmatchedSourceInCapArgs`).
-/// - The minimum-cost matching is not unique
+/// 1. **Product (exact bipartite injection)** — each source claims a
+///    *distinct* arg. This is the §13.4 fan-in semantics and it WINS
+///    whenever a valid injection exists: the outcome (including the
+///    ambiguity hard-fail on tied minimum-cost injections) is byte-identical
+///    to the historical matcher.
+/// 2. **Gather (implicit Collect)** — only when NO injection exists
+///    (more sources than args, or a Hall violation): a **sequence** cap-arg
+///    (`CapArg::is_sequence`) may absorb *several* conforming sources; a
+///    scalar arg still takes at most one. The minimum-cost such assignment
+///    must be unique, else `AmbiguousMachineNotation`. The N sources
+///    gathered into one sequence arg become N bindings on that arg — the
+///    resolver's cardinality-driven equivalent of the retired `LOOP`:
+///    "how many items feed this sequence slot" is a run/wiring fact, never
+///    authored syntax.
+///
+/// Returns the matched pairs as `(cap_arg_media_urn, source_urn)`,
+/// sorted by `cap_arg_media_urn` (stable: several sources gathered into one
+/// arg keep their source-declaration order, which fixes the gathered
+/// sequence's item order deterministically). Returns errors when:
+///
+/// - A source has no candidate arg, or no valid assignment exists under the
+///   capacity rules (`UnmatchedSourceInCapArgs`).
+/// - The minimum-cost assignment of the winning phase is not unique
 ///   (`AmbiguousMachineNotation`).
 fn match_sources_to_args(
     sources: &[MediaUrn],
     args: &[MediaUrn],
+    arg_is_sequence: &[bool],
     cap_urn: &CapUrn,
     strand_index: usize,
 ) -> Result<Vec<(MediaUrn, MediaUrn)>, MachineAbstractionError> {
-    if sources.len() > args.len() {
-        // Pigeonhole: at least one source has no arg slot.
-        // Find the first source with no candidate arg and
-        // report it. (If all sources DO conform to some arg,
-        // we still can't match — but that's still a
-        // structural unmatched-source condition.)
+    debug_assert_eq!(args.len(), arg_is_sequence.len());
+    let has_sequence_arg = arg_is_sequence.iter().any(|s| *s);
+
+    if sources.len() > args.len() && !has_sequence_arg {
+        // Pigeonhole: at least one source has no arg slot and no
+        // sequence arg exists to gather the surplus. Find the first
+        // source with no candidate arg and report it. (If all
+        // sources DO conform to some arg, we still can't match —
+        // but that's still a structural unmatched-source condition.)
         for source in sources {
             if !args.iter().any(|a| source.conforms_to(a).unwrap_or(false)) {
                 return Err(MachineAbstractionError::UnmatchedSourceInCapArgs {
@@ -516,16 +577,14 @@ fn match_sources_to_args(
     for (s_idx, source) in sources.iter().enumerate() {
         for (a_idx, arg) in args.iter().enumerate() {
             if source.conforms_to(arg).unwrap_or(false) {
-                let distance = source.specificity() as i64 - arg.specificity() as i64;
-                // Always non-negative since source ⪯ arg implies
-                // spec(source) ≥ spec(arg).
-                debug_assert!(
-                    distance >= 0,
-                    "source {} conforms to arg {} but distance {} is negative",
-                    source,
-                    arg,
-                    distance
-                );
+                // Absolute specificity gap. A source is USUALLY at least as
+                // specific as the arg it conforms to, but a wildcard-carrying
+                // source (e.g. the planner's join `media:ext`) conforms to a
+                // value-exact arg (`media:ext=md`) while being LESS specific —
+                // runtime narrowing closes the gap. Either direction of
+                // mismatch is a worse fit than an exact one, so both cost.
+                let distance =
+                    source.specificity().abs_diff(arg.specificity()) as i64;
                 cost[s_idx][a_idx] = Some(distance);
             }
         }
@@ -539,8 +598,7 @@ fn match_sources_to_args(
         }
     }
 
-    // Brute-force enumeration of perfect matchings of sources
-    // to a subset of args.
+    // ── Phase 1: product — brute-force enumeration of injections. ──
     //
     // For each ordered injection f: [0..n_sources) ↣ [0..n_args)
     // such that cost[s][f(s)].is_some() for all s, compute
@@ -549,15 +607,58 @@ fn match_sources_to_args(
     //
     // For the input sizes the system actually encounters (a
     // cap typically has 1–5 args, edges typically have 1–5
-    // sources), brute force enumerates at most A_n_args choose
-    // n_sources permutations — bounded.
+    // sources), brute force is bounded.
     let mut best_cost: Option<i64> = None;
     let mut best_assignments: Vec<Vec<usize>> = Vec::new();
 
+    if n_sources <= n_args {
+        let all_scalar_capacity: Vec<bool> = vec![false; n_args];
+        let mut current: Vec<usize> = vec![usize::MAX; n_sources];
+        let mut used: Vec<bool> = vec![false; n_args];
+        enumerate_assignments(
+            &cost,
+            &all_scalar_capacity,
+            0,
+            &mut current,
+            &mut used,
+            &mut best_cost,
+            &mut best_assignments,
+        );
+
+        if best_cost.is_some() {
+            // A valid injection exists — product wins. A tie among
+            // minimum-cost injections is a hard ambiguity (never fall
+            // through to gather: that would mask a genuinely ambiguous
+            // product wiring).
+            if best_assignments.len() != 1 {
+                return Err(MachineAbstractionError::AmbiguousMachineNotation {
+                    strand_index,
+                    cap_urn: cap_urn.to_string(),
+                });
+            }
+            return Ok(assignment_to_pairs(&best_assignments[0], sources, args));
+        }
+    }
+
+    // ── Phase 2: gather — no injection exists. Sequence args may absorb
+    // several sources; scalar args still take at most one. ──
+    if !has_sequence_arg {
+        // No injection and nothing can gather: every per-source candidate
+        // set is non-empty, but the candidate sets collectively can't all
+        // be claimed by distinct args (Hall's theorem violation). Pick the
+        // first source as the canonical "unmatched" representative.
+        return Err(MachineAbstractionError::UnmatchedSourceInCapArgs {
+            strand_index,
+            cap_urn: cap_urn.to_string(),
+            source_urn: sources[0].to_string(),
+        });
+    }
+
     let mut current: Vec<usize> = vec![usize::MAX; n_sources];
     let mut used: Vec<bool> = vec![false; n_args];
-    enumerate_matchings(
+    enumerate_assignments(
         &cost,
+        arg_is_sequence,
         0,
         &mut current,
         &mut used,
@@ -566,43 +667,128 @@ fn match_sources_to_args(
     );
 
     if best_cost.is_none() {
-        // No injection covers all sources: every per-source
-        // candidate set is non-empty, but the candidate sets
-        // collectively can't all be claimed by distinct args
-        // (Hall's theorem violation). Pick the first source as
-        // the canonical "unmatched" representative.
         return Err(MachineAbstractionError::UnmatchedSourceInCapArgs {
             strand_index,
             cap_urn: cap_urn.to_string(),
             source_urn: sources[0].to_string(),
         });
     }
-
     if best_assignments.len() != 1 {
         return Err(MachineAbstractionError::AmbiguousMachineNotation {
             strand_index,
             cap_urn: cap_urn.to_string(),
         });
     }
-
-    // Convert the unique assignment into (cap_arg, source)
-    // pairs sorted by cap_arg_media_urn.
-    let assignment = &best_assignments[0];
-    let mut pairs: Vec<(MediaUrn, MediaUrn)> = (0..n_sources)
-        .map(|s_idx| {
-            let a_idx = assignment[s_idx];
-            (args[a_idx].clone(), sources[s_idx].clone())
-        })
-        .collect();
-    pairs.sort_by(|x, y| x.0.cmp(&y.0));
-    Ok(pairs)
+    Ok(assignment_to_pairs(&best_assignments[0], sources, args))
 }
 
-/// Recursively enumerate all injections of sources into args
-/// with a defined cost, tracking the minimum total cost and
-/// the assignments that achieve it.
-fn enumerate_matchings(
+/// Convert a source→arg assignment into `(cap_arg, source)` pairs sorted by
+/// `cap_arg_media_urn`. The sort is stable and pairs are emitted in source
+/// order, so several sources gathered into one arg keep their declaration
+/// order — the deterministic item order of the gathered sequence.
+fn assignment_to_pairs(
+    assignment: &[usize],
+    sources: &[MediaUrn],
+    args: &[MediaUrn],
+) -> Vec<(MediaUrn, MediaUrn)> {
+    let mut pairs: Vec<(MediaUrn, MediaUrn)> = assignment
+        .iter()
+        .enumerate()
+        .map(|(s_idx, &a_idx)| (args[a_idx].clone(), sources[s_idx].clone()))
+        .collect();
+    pairs.sort_by(|x, y| x.0.cmp(&y.0));
+    pairs
+}
+
+/// Bind N concrete sources to N input anchors by minimum-cost unique assignment —
+/// the SAME discipline as the resolver's source-to-cap-arg matching, applied at the
+/// strand boundary: a run over a multi-input-anchor machine binds exactly one source
+/// per anchor, decided by `conforms_to` + specificity distance, never by position.
+///
+/// Returns `assignment` where `assignment[s]` is the anchor index bound to
+/// `sources[s]`. Fails hard when:
+///
+/// - `sources.len() != anchors.len()` (`SourceAnchorCountMismatch`);
+/// - no bijection exists in which every source conforms to its anchor
+///   (`UnbindableAnchorSource`);
+/// - the minimum-cost bijection is not unique (`AmbiguousAnchorBinding`).
+///
+/// `strand_index` is used only for diagnostics.
+pub fn assign_sources_to_anchors(
+    sources: &[MediaUrn],
+    anchors: &[MediaUrn],
+    strand_index: usize,
+) -> Result<Vec<usize>, MachineAbstractionError> {
+    if sources.len() != anchors.len() {
+        return Err(MachineAbstractionError::SourceAnchorCountMismatch {
+            strand_index,
+            sources: sources.len(),
+            anchors: anchors.len(),
+        });
+    }
+
+    // cost[s][a] = specificity distance when sources[s] conforms to anchors[a],
+    // None when the pairing is impossible — identical cost model to
+    // `match_sources_to_args`.
+    let mut cost: Vec<Vec<Option<i64>>> = vec![vec![None; anchors.len()]; sources.len()];
+    for (s_idx, source) in sources.iter().enumerate() {
+        for (a_idx, anchor) in anchors.iter().enumerate() {
+            if source.conforms_to(anchor).unwrap_or(false) {
+                cost[s_idx][a_idx] = Some(source.specificity() as i64 - anchor.specificity() as i64);
+            }
+        }
+        if cost[s_idx].iter().all(|c| c.is_none()) {
+            return Err(MachineAbstractionError::UnbindableAnchorSource {
+                strand_index,
+                source_urn: source.to_string(),
+            });
+        }
+    }
+
+    // Anchors are strictly one-source-each: all-scalar capacity restricts the
+    // enumeration to bijections.
+    let all_scalar: Vec<bool> = vec![false; anchors.len()];
+    let mut current: Vec<usize> = vec![usize::MAX; sources.len()];
+    let mut used: Vec<bool> = vec![false; anchors.len()];
+    let mut best_cost: Option<i64> = None;
+    let mut best_assignments: Vec<Vec<usize>> = Vec::new();
+    enumerate_assignments(
+        &cost,
+        &all_scalar,
+        0,
+        &mut current,
+        &mut used,
+        &mut best_cost,
+        &mut best_assignments,
+    );
+
+    if best_cost.is_none() {
+        // Every source has a candidate anchor, but no bijection exists (Hall
+        // violation). The first source is the canonical representative.
+        return Err(MachineAbstractionError::UnbindableAnchorSource {
+            strand_index,
+            source_urn: sources
+                .first()
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+        });
+    }
+    if best_assignments.len() != 1 {
+        return Err(MachineAbstractionError::AmbiguousAnchorBinding { strand_index });
+    }
+    Ok(best_assignments.into_iter().next().expect("checked len == 1"))
+}
+
+/// Recursively enumerate all source→arg assignments with a defined cost,
+/// tracking the minimum total cost and the assignments that achieve it.
+///
+/// `arg_can_gather[a]` gives arg `a` unbounded capacity (a sequence arg in
+/// the gather phase); a `false` entry is a scalar arg claimable by at most
+/// one source. Passing all-`false` restricts the enumeration to injections —
+/// the historical product matching, byte-identical.
+fn enumerate_assignments(
     cost: &[Vec<Option<i64>>],
+    arg_can_gather: &[bool],
     s_idx: usize,
     current: &mut Vec<usize>,
     used: &mut Vec<bool>,
@@ -613,7 +799,7 @@ fn enumerate_matchings(
     if s_idx == n_sources {
         // Compute total cost of `current`.
         let total: i64 = (0..n_sources)
-            .map(|s| cost[s][current[s]].expect("matchings filter on Some(_)"))
+            .map(|s| cost[s][current[s]].expect("assignments filter on Some(_)"))
             .sum();
         match best_cost {
             None => {
@@ -635,16 +821,25 @@ fn enumerate_matchings(
     }
 
     for a_idx in 0..cost[s_idx].len() {
-        if used[a_idx] {
+        if used[a_idx] && !arg_can_gather[a_idx] {
             continue;
         }
         if cost[s_idx][a_idx].is_none() {
             continue;
         }
+        let was_used = used[a_idx];
         used[a_idx] = true;
         current[s_idx] = a_idx;
-        enumerate_matchings(cost, s_idx + 1, current, used, best_cost, best_assignments);
-        used[a_idx] = false;
+        enumerate_assignments(
+            cost,
+            arg_can_gather,
+            s_idx + 1,
+            current,
+            used,
+            best_cost,
+            best_assignments,
+        );
+        used[a_idx] = was_used;
     }
 }
 
@@ -793,7 +988,7 @@ mod tests {
         let sources = vec![media("media:ext=pdf")];
         let args = vec![media("media:ext=pdf")];
         let cap_urn = cap("cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\"");
-        let pairs = match_sources_to_args(&sources, &args, &cap_urn, 0)
+        let pairs = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0)
             .expect("trivial single-source match must succeed");
         assert_eq!(pairs.len(), 1);
         assert!(pairs[0].0.is_equivalent(&media("media:ext=pdf")).unwrap());
@@ -810,7 +1005,7 @@ mod tests {
         let sources = vec![media("media:enc=utf-8;page")];
         let args = vec![media("media:enc=utf-8")];
         let cap_urn = cap("cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;enc=utf-8\"");
-        let pairs = match_sources_to_args(&sources, &args, &cap_urn, 0)
+        let pairs = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0)
             .expect("more-specific source must be matched to its arg");
         assert!(pairs[0].0.is_equivalent(&media("media:enc=utf-8")).unwrap());
         assert!(pairs[0]
@@ -828,7 +1023,7 @@ mod tests {
         let sources = vec![media("media:numeric")];
         let args = vec![media("media:enc=utf-8")];
         let cap_urn = cap("cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"");
-        let err = match_sources_to_args(&sources, &args, &cap_urn, 7).unwrap_err();
+        let err = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 7).unwrap_err();
         match err {
             MachineAbstractionError::UnmatchedSourceInCapArgs {
                 strand_index,
@@ -863,7 +1058,7 @@ mod tests {
         let args = vec![media("media:ext=png;image"), media("media:enc=utf-8")];
         let cap_urn =
             cap("cap:in=\"media:ext=png;image\";describe;out=\"media:enc=utf-8;image-description\"");
-        let pairs = match_sources_to_args(&sources, &args, &cap_urn, 0).unwrap();
+        let pairs = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0).unwrap();
         assert_eq!(pairs.len(), 2);
         // Pairs are sorted by cap_arg_media_urn structurally.
         // image;png and enc=utf-8: structural Ord places
@@ -899,7 +1094,7 @@ mod tests {
         let sources = vec![media("media:enc=utf-8"), media("media:enc=utf-8")];
         let args = vec![media("media:enc=utf-8"), media("media:enc=utf-8")];
         let cap_urn = cap("cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"");
-        let err = match_sources_to_args(&sources, &args, &cap_urn, 0).unwrap_err();
+        let err = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0).unwrap_err();
         assert!(
             matches!(
                 err,
@@ -916,7 +1111,7 @@ mod tests {
         let sources = vec![media("media:ext=pdf"), media("media:ext=pdf"), media("media:ext=pdf")];
         let args = vec![media("media:ext=pdf"), media("media:ext=pdf")];
         let cap_urn = cap("cap:in=\"media:ext=pdf\";t;out=\"media:ext=pdf\"");
-        let err = match_sources_to_args(&sources, &args, &cap_urn, 0).unwrap_err();
+        let err = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0).unwrap_err();
         assert!(matches!(
             err,
             MachineAbstractionError::UnmatchedSourceInCapArgs { .. }
@@ -1395,5 +1590,259 @@ mod tests {
             }
             other => panic!("expected CyclicMachineStrand, got {other:?}"),
         }
+    }
+
+    // ----- sequence-arg gather (implicit Collect) ---------------------------
+
+    // TEST1400: N sources gather into a single sequence arg when no injection
+    // exists. Three page sources feed a one-arg concat cap whose arg is a
+    // sequence — all three land on the same arg, in source-declaration order.
+    #[test]
+    fn test1400_gather_n_sources_into_sequence_arg() {
+        let sources = vec![
+            media("media:enc=utf-8;page"),
+            media("media:enc=utf-8;page"),
+            media("media:enc=utf-8;page"),
+        ];
+        let args = vec![media("media:enc=utf-8")];
+        let arg_seq = vec![true];
+        let cap_urn = cap("cap:in=\"media:enc=utf-8\";concat;out=\"media:enc=utf-8;ext=txt\"");
+        let pairs = match_sources_to_args(&sources, &args, &arg_seq, &cap_urn, 0)
+            .expect("three sources must gather into the sequence arg");
+        assert_eq!(pairs.len(), 3, "one binding per gathered source");
+        for (arg, src) in &pairs {
+            assert!(arg.is_equivalent(&media("media:enc=utf-8")).unwrap());
+            assert!(src.is_equivalent(&media("media:enc=utf-8;page")).unwrap());
+        }
+    }
+
+    // TEST1401: product precedence — when a valid injection exists it wins,
+    // even though gathering everything into the sequence arg is also valid.
+    // s1 exactly fits the scalar page arg; s2 only fits the sequence arg.
+    #[test]
+    fn test1401_product_precedence_over_gather() {
+        let sources = vec![
+            media("media:enc=utf-8;page"),
+            media("media:enc=utf-8;summary"),
+        ];
+        let args = vec![media("media:enc=utf-8;page"), media("media:enc=utf-8")];
+        let arg_seq = vec![false, true];
+        let cap_urn = cap("cap:in=\"media:enc=utf-8;page\";compose;out=\"media:enc=utf-8;ext=txt\"");
+        let pairs = match_sources_to_args(&sources, &args, &arg_seq, &cap_urn, 0)
+            .expect("unique injection must resolve");
+        assert_eq!(pairs.len(), 2);
+        // The page source must claim the scalar page arg (injection), NOT be
+        // gathered into the sequence arg alongside the summary.
+        let page_pair = pairs
+            .iter()
+            .find(|(a, _)| a.is_equivalent(&media("media:enc=utf-8;page")).unwrap())
+            .expect("scalar page arg must be claimed");
+        assert!(page_pair
+            .1
+            .is_equivalent(&media("media:enc=utf-8;page"))
+            .unwrap());
+        let seq_pair = pairs
+            .iter()
+            .find(|(a, _)| a.is_equivalent(&media("media:enc=utf-8")).unwrap())
+            .expect("sequence arg must take the remaining source");
+        assert!(seq_pair
+            .1
+            .is_equivalent(&media("media:enc=utf-8;summary"))
+            .unwrap());
+    }
+
+    // TEST1402: more sources than args with NO sequence arg still hard-fails
+    // (the historical pigeonhole), and a gather tie between two sequence args
+    // is ambiguous, not silently ordered.
+    #[test]
+    fn test1402_gather_ambiguity_and_scalar_pigeonhole_fail_hard() {
+        // Two equally-costed sequence args (each drops a different one of the
+        // source's tags → the same absolute specificity gap) → every
+        // distribution of the three sources ties → ambiguous.
+        let sources = vec![
+            media("media:chunk;enc=utf-8;page"),
+            media("media:chunk;enc=utf-8;page"),
+            media("media:chunk;enc=utf-8;page"),
+        ];
+        let args = vec![media("media:enc=utf-8;page"), media("media:chunk;enc=utf-8")];
+        let arg_seq = vec![true, true];
+        let cap_urn = cap("cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"");
+        let err = match_sources_to_args(&sources, &args, &arg_seq, &cap_urn, 0).unwrap_err();
+        assert!(
+            matches!(err, MachineAbstractionError::AmbiguousMachineNotation { .. }),
+            "tied gather distributions must be ambiguous, got {err:?}"
+        );
+    }
+
+    // TEST1403: resolve_pre_interned emits N bindings on ONE sequence arg for a
+    // fan-in gather `(x, y) -> concat`, with is_loop=false (the gathered value
+    // IS the sequence the arg consumes) and stable source order.
+    #[test]
+    fn test1403_resolve_gather_emits_n_bindings_on_sequence_arg() {
+        let cap_a = build_cap(
+            "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8;page\"",
+            "op_a",
+            &["media:ext=pdf"],
+            "media:enc=utf-8;page",
+        );
+        let cap_b = build_cap(
+            "cap:in=\"media:ext=md\";op-b;out=\"media:enc=utf-8;page\"",
+            "op_b",
+            &["media:ext=md"],
+            "media:enc=utf-8;page",
+        );
+        let mut concat = build_cap(
+            "cap:in=\"media:enc=utf-8\";concat;out=\"media:enc=utf-8;ext=txt\"",
+            "concat",
+            &["media:enc=utf-8"],
+            "media:enc=utf-8;ext=txt",
+        );
+        concat.args[0].is_sequence = true;
+        let registry = registry_with(vec![cap_a, cap_b, concat]);
+
+        // nodes: 0=pdf, 1=md, 2=page(from a), 3=page(from b), 4=txt
+        let nodes = vec![
+            media("media:ext=pdf"),
+            media("media:ext=md"),
+            media("media:enc=utf-8;page"),
+            media("media:enc=utf-8;page"),
+            media("media:enc=utf-8;ext=txt"),
+        ];
+        let wirings = vec![
+            PreInternedWiring {
+                token_id: "tok-a".to_string(),
+                cap_urn: CapUrn::from_string(
+                    "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8;page\"",
+                )
+                .unwrap(),
+                source_node_ids: vec![0],
+                target_node_id: 2,
+            },
+            PreInternedWiring {
+                token_id: "tok-b".to_string(),
+                cap_urn: CapUrn::from_string(
+                    "cap:in=\"media:ext=md\";op-b;out=\"media:enc=utf-8;page\"",
+                )
+                .unwrap(),
+                source_node_ids: vec![1],
+                target_node_id: 3,
+            },
+            PreInternedWiring {
+                token_id: "tok-concat".to_string(),
+                cap_urn: CapUrn::from_string(
+                    "cap:in=\"media:enc=utf-8\";concat;out=\"media:enc=utf-8;ext=txt\"",
+                )
+                .unwrap(),
+                source_node_ids: vec![2, 3],
+                target_node_id: 4,
+            },
+        ];
+
+        let strand = resolve_pre_interned(nodes, &wirings, &registry, 0)
+            .expect("gather wiring must resolve");
+        let concat_edge = strand
+            .edges()
+            .iter()
+            .find(|e| e.cap_urn.to_string().contains("concat"))
+            .expect("concat edge present");
+        assert_eq!(
+            concat_edge.assignment.len(),
+            2,
+            "the sequence arg gathers BOTH producers as two bindings"
+        );
+        // Both bindings target the same slot.
+        assert!(concat_edge.assignment[0]
+            .cap_arg_media_urn
+            .is_equivalent(&concat_edge.assignment[1].cap_arg_media_urn)
+            .unwrap());
+        // Deterministic gather order = source declaration order (node 2 then 3).
+        assert_eq!(concat_edge.assignment[0].source, 2);
+        assert_eq!(concat_edge.assignment[1].source, 3);
+        // The gathered value IS the sequence the arg consumes — no ForEach.
+        assert!(!concat_edge.is_loop, "gather-fed sequence arg must not loop");
+        // Anchors: two inputs (pdf, md), one output (txt).
+        assert_eq!(strand.input_anchors().len(), 2);
+        assert_eq!(strand.output_anchors().len(), 1);
+    }
+
+    // TEST1404: a sequence PRODUCER inside a gather resolves — the gather
+    // flattens deterministically at execution (each member contributes its
+    // item(s) in binding order). This is the batch-plus-single convergence
+    // shape: one leg maps a sequence, the other produces one item, and the
+    // fold consumes them all as one sequence.
+    #[test]
+    fn test1404_sequence_producer_in_gather_flattens() {
+        let mut cap_a = build_cap(
+            "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8;page\"",
+            "op_a",
+            &["media:ext=pdf"],
+            "media:enc=utf-8;page",
+        );
+        // op-a emits a SEQUENCE of pages.
+        cap_a.output.as_mut().unwrap().is_sequence = true;
+        let cap_b = build_cap(
+            "cap:in=\"media:ext=md\";op-b;out=\"media:enc=utf-8;page\"",
+            "op_b",
+            &["media:ext=md"],
+            "media:enc=utf-8;page",
+        );
+        let mut concat = build_cap(
+            "cap:in=\"media:enc=utf-8\";concat;out=\"media:enc=utf-8;ext=txt\"",
+            "concat",
+            &["media:enc=utf-8"],
+            "media:enc=utf-8;ext=txt",
+        );
+        concat.args[0].is_sequence = true;
+        let registry = registry_with(vec![cap_a, cap_b, concat]);
+
+        let nodes = vec![
+            media("media:ext=pdf"),
+            media("media:ext=md"),
+            media("media:enc=utf-8;page"),
+            media("media:enc=utf-8;page"),
+            media("media:enc=utf-8;ext=txt"),
+        ];
+        let wirings = vec![
+            PreInternedWiring {
+                token_id: "tok-a".to_string(),
+                cap_urn: CapUrn::from_string(
+                    "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8;page\"",
+                )
+                .unwrap(),
+                source_node_ids: vec![0],
+                target_node_id: 2,
+            },
+            PreInternedWiring {
+                token_id: "tok-b".to_string(),
+                cap_urn: CapUrn::from_string(
+                    "cap:in=\"media:ext=md\";op-b;out=\"media:enc=utf-8;page\"",
+                )
+                .unwrap(),
+                source_node_ids: vec![1],
+                target_node_id: 3,
+            },
+            PreInternedWiring {
+                token_id: "tok-concat".to_string(),
+                cap_urn: CapUrn::from_string(
+                    "cap:in=\"media:enc=utf-8\";concat;out=\"media:enc=utf-8;ext=txt\"",
+                )
+                .unwrap(),
+                source_node_ids: vec![2, 3],
+                target_node_id: 4,
+            },
+        ];
+
+        let strand = resolve_pre_interned(nodes, &wirings, &registry, 3)
+            .expect("a gather with a sequence member must resolve (execution flattens)");
+        let concat_edge = strand
+            .edges()
+            .iter()
+            .find(|e| e.cap_urn.to_string().contains("concat"))
+            .expect("concat edge present");
+        assert_eq!(concat_edge.assignment.len(), 2, "both members bound to the sequence arg");
+        assert!(
+            !concat_edge.is_loop,
+            "the gathered value IS the sequence the arg consumes — no ForEach"
+        );
     }
 }

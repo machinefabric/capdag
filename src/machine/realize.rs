@@ -27,9 +27,12 @@
 //!
 //! ## Invariants (enforced, no fallbacks)
 //!
-//! - **Exactly one stdin (main) input per cap.** The cap definition declares one
-//!   `Stdin` argument; the resolver's assignment binds a source to it. A cap with no
-//!   stdin arg, or an edge with no binding to it, is a hard error.
+//! - **One stdin (main) input per cap — one binding, or a gather.** The cap
+//!   definition declares one `Stdin` argument; the resolver's assignment binds a
+//!   source to it — or, for a SEQUENCE stdin arg, N sources (the implicit-Collect
+//!   gather; the runtime media threading the chain is then the join ∨ of the
+//!   gathered members). A cap with no stdin arg, or an edge with no binding to it,
+//!   is a hard error.
 //! - **Convergence wires only cap outputs.** A non-main argument fed by wiring must be
 //!   another cap's output. A raw input feeding a non-main arg is an argument VALUE
 //!   (default / setting / config / user input), delivered through the value channel,
@@ -48,7 +51,8 @@ use crate::urn::media_urn::MediaUrn;
 
 /// Realize a single resolved `MachineStrand` into a `Strand`, instantiating runtime
 /// media from `source_urn` (the concrete media flowing into the strand's input
-/// anchors).
+/// anchors). The single-source form of [`realize_strand_with_anchor_sources`]: every
+/// input anchor is seeded with the one `source_urn`.
 ///
 /// `strand_index` is used only for diagnostics.
 pub fn realize_strand(
@@ -57,13 +61,71 @@ pub fn realize_strand(
     source_urn: &MediaUrn,
     strand_index: usize,
 ) -> Result<Strand, MachineAbstractionError> {
-    // Per-node runtime media. A convergence strand fans out from its input and
-    // converges at a multi-input cap, so each node carries its own runtime media —
-    // there is no single linear thread. Input anchors carry the concrete input media
-    // (`source_urn`); each emitted cap sets its target node's media.
+    let anchor_sources: HashMap<NodeId, MediaUrn> = machine_strand
+        .input_anchor_ids()
+        .iter()
+        .map(|&anchor| (anchor, source_urn.clone()))
+        .collect();
+    realize_strand_with_anchor_sources(machine_strand, registry, &anchor_sources, strand_index)
+}
+
+/// Realize a single resolved `MachineStrand` into a `Strand`, instantiating runtime
+/// media PER INPUT ANCHOR: `anchor_sources` binds each input anchor `NodeId` to the
+/// concrete media flowing into it. This is the general (multi-source convergence)
+/// realization — heterogeneous legs each start from their own bound source and meet
+/// at the strand's convergence point(s).
+///
+/// Enforced hard, no fallbacks:
+/// - every input anchor must have a bound source (`MissingAnchorSource`);
+/// - a binding for a node that is not an input anchor is a caller bug
+///   (`SourceBoundToNonAnchor`);
+/// - every bound source must conform to its anchor's declared media URN
+///   (`AnchorSourceMismatch`) — realization never coerces.
+///
+/// The realized strand's `source_media_urn` is the join ∨ (least common
+/// generalization) of the bound sources — for a single anchor this is exactly that
+/// anchor's source.
+///
+/// `strand_index` is used only for diagnostics.
+pub fn realize_strand_with_anchor_sources(
+    machine_strand: &MachineStrand,
+    registry: &FabricRegistry,
+    anchor_sources: &HashMap<NodeId, MediaUrn>,
+    strand_index: usize,
+) -> Result<Strand, MachineAbstractionError> {
+    // Per-node runtime media. A convergence strand fans out from its input(s) and
+    // converges at a multi-input cap or a gather, so each node carries its own
+    // runtime media — there is no single linear thread. Input anchors carry their
+    // bound concrete media; each emitted cap sets its target node's media.
+    let anchor_ids = machine_strand.input_anchor_ids();
+    for node_id in anchor_sources.keys() {
+        if !anchor_ids.contains(node_id) {
+            return Err(MachineAbstractionError::SourceBoundToNonAnchor {
+                strand_index,
+                node_id: *node_id,
+            });
+        }
+    }
     let mut node_media: HashMap<NodeId, MediaUrn> = HashMap::new();
-    for &anchor in machine_strand.input_anchor_ids() {
-        node_media.insert(anchor, source_urn.clone());
+    let mut bound_sources: Vec<MediaUrn> = Vec::with_capacity(anchor_ids.len());
+    for &anchor in anchor_ids {
+        let declared = machine_strand.node_urn(anchor);
+        let source = anchor_sources.get(&anchor).ok_or_else(|| {
+            MachineAbstractionError::MissingAnchorSource {
+                strand_index,
+                anchor_id: anchor,
+                anchor_urn: declared.to_string(),
+            }
+        })?;
+        if !source.conforms_to(declared).unwrap_or(false) {
+            return Err(MachineAbstractionError::AnchorSourceMismatch {
+                strand_index,
+                anchor_urn: declared.to_string(),
+                source_urn: source.to_string(),
+            });
+        }
+        node_media.insert(anchor, source.clone());
+        bound_sources.push(source.clone());
     }
     // The step (by stable `token_id`) that produced each node, for wiring convergence
     // args. Input anchors have no producing step.
@@ -132,24 +194,38 @@ pub fn realize_strand(
             }
         })?;
 
-        let primary = edge
+        // The stdin arg may carry ONE binding (the linear case) or N bindings —
+        // a GATHER: N distinct producers feeding a sequence arg (the resolver's
+        // implicit Collect). The runtime media threading the chain is the single
+        // member's media, or the join ∨ (least common generalization) of all
+        // gathered members — the element type of the gathered sequence.
+        let primary_bindings: Vec<_> = edge
             .assignment
             .iter()
-            .find(|b| {
+            .filter(|b| {
                 b.cap_arg_media_urn
                     .is_equivalent(&stdin_arg_urn)
                     .unwrap_or(false)
             })
-            .ok_or_else(|| MachineAbstractionError::NoStdinBinding {
+            .collect();
+        if primary_bindings.is_empty() {
+            return Err(MachineAbstractionError::NoStdinBinding {
                 strand_index,
                 cap_urn: edge.cap_urn.to_string(),
                 stdin_arg: stdin_arg_str.clone(),
-            })?;
+            });
+        }
 
-        let primary_media = node_media
-            .get(&primary.source)
-            .expect("primary source media present: the edge was chosen emittable")
-            .clone();
+        let primary_member_media: Vec<MediaUrn> = primary_bindings
+            .iter()
+            .map(|b| {
+                node_media
+                    .get(&b.source)
+                    .expect("primary source media present: the edge was chosen emittable")
+                    .clone()
+            })
+            .collect();
+        let primary_media = MediaUrn::least_upper_bound(&primary_member_media);
 
         // ForEach synthesis — read the resolver's cardinality decision (`is_loop`); the
         // media URN is unchanged (a shape transition, not a type transition).
@@ -236,9 +312,12 @@ pub fn realize_strand(
 
     let cap_step_count = steps.iter().filter(|s| s.is_cap()).count() as i32;
     let total_steps = steps.len() as i32;
+    // The strand's source media is the join ∨ of the bound anchor sources — the most
+    // specific single type every bound source conforms to. One anchor ⇒ its source.
+    let source_media_urn = MediaUrn::least_upper_bound(&bound_sources);
     Ok(Strand {
         steps,
-        source_media_urn: source_urn.clone(),
+        source_media_urn,
         target_media_urn,
         total_steps,
         cap_step_count,

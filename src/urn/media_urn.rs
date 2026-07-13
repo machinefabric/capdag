@@ -503,16 +503,28 @@ impl MediaUrn {
         Self::new(self.0.apply_delta(delta)?)
     }
 
-    /// Compute the least upper bound (most specific common type) of a set of MediaUrns.
+    /// Compute the least upper bound — the join `∨` of the dispatch poset
+    /// `(𝑀, ⊑)` ordered by `conforms_to` — of a set of MediaUrns: the **most
+    /// specific** single type every input conforms to (the "denominator").
     ///
-    /// Returns the MediaUrn whose tag set is the intersection of all input tag sets:
-    /// only tags present in ALL inputs with matching values are kept.
+    /// Per tag key:
+    /// - present in every input with the **same** stored value → kept as-is
+    ///   (exact values and bare markers alike);
+    /// - present in every input with **differing plain values** (exact or the
+    ///   `*` must-have-any sigil) → promoted to the must-have-any wildcard
+    ///   (`key` ≡ `key=*`): every input *has* the key, so "has key, any value"
+    ///   is a sound shared constraint strictly tighter than dropping it. This
+    ///   is what lets `ext=pdf ∨ ext=txt = media:ext` land on generic caps
+    ///   like `in="media:ext"` with zero transformation;
+    /// - present with differing values where any side carries a qualifier form
+    ///   (`?…`/`!…` — optional / must-not-have) → dropped: `!key` asserts
+    ///   *absence*, so presence cannot be soundly required;
+    /// - absent from any input → dropped (presence cannot be required).
     ///
-    /// - Empty input → `media:` (universal type)
+    /// - Empty input → `media:` (universal type ⊤)
     /// - Single input → returned as-is
     /// - `[media:ext=pdf, media:ext=pdf]` → `media:ext=pdf`
-    /// - `[media:ext=pdf, media:ext=png;image]` → `media:` (no common tags)
-    /// - `[media:fmt=json, media:fmt=csv]` → `media:enc=utf-8`
+    /// - `[media:ext=pdf, media:ext=png;image]` → `media:ext`
     /// - `[media:fmt=json;list, media:fmt=json]` → `media:fmt=json`
     pub fn least_upper_bound(urns: &[MediaUrn]) -> MediaUrn {
         if urns.is_empty() {
@@ -527,14 +539,30 @@ impl MediaUrn {
             return urns[0].clone();
         }
 
-        // Start with the first URN's tags, intersect with each subsequent URN
-        let mut common_tags = urns[0].0.tags.clone();
+        // A stored value is "plain" when it is an exact value or the `*`
+        // must-have-any sigil — i.e. it asserts presence. Qualifier forms
+        // (`?`, `!`, `?=v`, `!=v`) do not assert presence and are only kept
+        // when identical across every input.
+        let is_plain = |v: &str| !v.starts_with('?') && !v.starts_with('!');
 
+        // Start with the first URN's tags; fold each subsequent URN in.
+        let mut common_tags = urns[0].0.tags.clone();
         for urn in &urns[1..] {
-            common_tags.retain(|key, value| match urn.0.tags.get(key) {
-                Some(other_value) if other_value == value => true,
-                _ => false,
-            });
+            let mut folded = std::collections::BTreeMap::new();
+            for (key, value) in &common_tags {
+                match urn.0.tags.get(key) {
+                    Some(other) if other == value => {
+                        folded.insert(key.clone(), value.clone());
+                    }
+                    Some(other) if is_plain(value) && is_plain(other) => {
+                        // Both assert presence with differing values → promote
+                        // to must-have-any.
+                        folded.insert(key.clone(), "*".to_string());
+                    }
+                    _ => {} // absent, or a qualifier-form conflict → drop
+                }
+            }
+            common_tags = folded;
         }
 
         MediaUrn(TaggedUrn {
@@ -1407,16 +1435,36 @@ mod debug_tests {
         assert!(lub.is_equivalent(&pdf).unwrap());
     }
 
-    // TEST853: LUB of URNs with no common tags returns media: (universal)
+    // TEST853: LUB promotes a shared key with differing values to must-have-any.
+    // Both inputs HAVE an `ext` (pdf vs png), so the join is `media:ext` — the
+    // wildcard denominator that generic caps like `in="media:ext"` accept —
+    // NOT the trivial `media:`. The `image` marker is only on one side → dropped.
     #[test]
-    fn test853_lub_no_common_tags() {
+    fn test853_lub_shared_key_promotes_to_wildcard() {
         let pdf = MediaUrn::from_string("media:ext=pdf").unwrap();
         let png = MediaUrn::from_string("media:ext=png;image").unwrap();
-        let lub = MediaUrn::least_upper_bound(&[pdf, png]);
+        let lub = MediaUrn::least_upper_bound(&[pdf.clone(), png.clone()]);
+        let expected = MediaUrn::from_string("media:ext").unwrap();
+        assert!(
+            lub.is_equivalent(&expected).unwrap(),
+            "LUB of ext=pdf and ext=png;image should be media:ext but got {}",
+            lub.to_string()
+        );
+        // Join soundness: every input conforms to the join.
+        assert!(pdf.conforms_to(&lub).unwrap());
+        assert!(png.conforms_to(&lub).unwrap());
+    }
+
+    // TEST853b: LUB of URNs sharing NO keys at all is the universal type.
+    #[test]
+    fn test853b_lub_disjoint_keys_is_universal() {
+        let a = MediaUrn::from_string("media:image").unwrap();
+        let b = MediaUrn::from_string("media:audio").unwrap();
+        let lub = MediaUrn::least_upper_bound(&[a, b]);
         let universal = MediaUrn::from_string("media:").unwrap();
         assert!(
             lub.is_equivalent(&universal).unwrap(),
-            "LUB of pdf and png should be media: but got {}",
+            "LUB of disjoint-key URNs should be media: but got {}",
             lub.to_string()
         );
     }
@@ -1471,31 +1519,34 @@ mod debug_tests {
     // TEST858: LUB with three+ inputs narrows correctly
     #[test]
     fn test858_lub_three_inputs() {
-        // All three are lists (shared `list`); they differ in serialization
-        // format (json/csv/ndjson) and in the record marker (a,b have it; c
-        // doesn't). The LUB keeps only the common `list` marker.
+        // All three are lists (shared `list`) and all three HAVE a `fmt`
+        // (json/csv/ndjson — differing values → promoted to must-have-any).
+        // The record marker is on a,b but not c → dropped.
         let a = MediaUrn::from_string("media:fmt=json;list;record").unwrap();
         let b = MediaUrn::from_string("media:fmt=csv;list;record").unwrap();
         let c = MediaUrn::from_string("media:fmt=ndjson;list").unwrap();
-        let lub = MediaUrn::least_upper_bound(&[a, b, c]);
-        let expected = MediaUrn::from_string("media:list").unwrap();
+        let lub = MediaUrn::least_upper_bound(&[a.clone(), b.clone(), c.clone()]);
+        let expected = MediaUrn::from_string("media:fmt;list").unwrap();
         assert!(
             lub.is_equivalent(&expected).unwrap(),
-            "LUB should be media:list but got {}",
+            "LUB should be media:fmt;list but got {}",
             lub.to_string()
         );
+        assert!(a.conforms_to(&lub).unwrap());
+        assert!(b.conforms_to(&lub).unwrap());
+        assert!(c.conforms_to(&lub).unwrap());
     }
 
-    // TEST859: LUB with valued tags (non-marker) that differ
+    // TEST859: LUB with valued tags (non-marker) that differ promotes the key
     #[test]
     fn test859_lub_valued_tags() {
         let v1 = MediaUrn::from_string("media:ext=png;image").unwrap();
         let v2 = MediaUrn::from_string("media:ext=jpeg;image").unwrap();
         let lub = MediaUrn::least_upper_bound(&[v1, v2]);
-        let expected = MediaUrn::from_string("media:image").unwrap();
+        let expected = MediaUrn::from_string("media:ext;image").unwrap();
         assert!(
             lub.is_equivalent(&expected).unwrap(),
-            "LUB should drop conflicting ext tag, got {}",
+            "LUB should promote conflicting ext to must-have-any, got {}",
             lub.to_string()
         );
     }

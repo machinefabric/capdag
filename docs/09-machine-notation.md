@@ -85,17 +85,17 @@ The cap URN is parsed by `CapUrn::from_string` (see [04-CAP-URN-STRUCTURE](/docs
 A wiring connects nodes through a cap:
 
 ```
-<source> -> <loop_cap> -> <target>
+<source> -> <cap> -> <target>
 ```
 
-`source` is either a single node alias or a parenthesized fan-in group `(a, b, c)`. `loop_cap` is either a header alias or `LOOP <alias>` (sets `is_loop` on the resulting edge). `target` is a single node alias.
+`source` is either a single node alias or a parenthesized fan-in group `(a, b, c)`. `cap` is a header alias or a registered cap alias. `target` is a single node alias. There is no per-item marker in the syntax: the per-item map (`is_loop`) is **derived from cardinality** — a sequence source feeding a scalar-input cap maps per item (`Cap::needs_foreach`); the retired `LOOP` keyword authored nothing the cap shapes don't already determine.
 
 Examples:
 
 ```
 doc -> extract -> text
 text -> embed -> vectors
-pages -> LOOP extract -> texts
+pages -> extract -> texts
 (thumbnail, model_spec) -> describe -> description
 ```
 
@@ -294,10 +294,10 @@ Canonical re-serialization:
 [disbind cap:in="media:ext=pdf";disbind;out="media:page;enc=utf-8"]
 [make_decision cap:in="media:enc=utf-8";make-decision;out="media:decision;fmt=json;record"]
 [doc -> disbind -> pages]
-[pages -> LOOP make_decision -> decisions]
+[pages -> make_decision -> decisions]
 ```
 
-One strand. The `LOOP` marker on the second wiring sets `is_loop = true` on the resolved edge — semantically, the cap runs once per item of the sequence. The cap definition declares `make_decision`'s input as `media:enc=utf-8`, but the source URN is the more-specific `media:page;enc=utf-8`; the resolver's matching accepts the conforming source and emits the binding `(media:enc=utf-8, page_node)`.
+One strand. `disbind` declares a **sequence output** and `make_decision` consumes a scalar, so the resolver derives `is_loop = true` on the second edge from cardinality alone — semantically, the cap runs once per item of the sequence. Nothing in the notation authors this. The cap definition declares `make_decision`'s input as `media:enc=utf-8`, but the source URN is the more-specific `media:page;enc=utf-8`; the resolver's matching accepts the conforming source and emits the binding `(media:enc=utf-8, page_node)`.
 
 ### 13.3 Fan-out
 
@@ -325,7 +325,34 @@ One strand. All three wirings share the source `doc`, so they are connected (one
 
 The `describe` cap declares two args in its definition: `media:ext=png;image` and `media:model-spec;enc=utf-8`. The fan-in wiring `(thumbnail, model_spec) -> describe -> description` provides two source URNs. The resolver's bipartite matching pairs `thumbnail` (URN: `media:ext=png;image;thumbnail`) with the `media:ext=png;image` arg (it conforms) and `model_spec` (URN: `media:model-spec;enc=utf-8`) with the `media:model-spec;enc=utf-8` arg. The resulting edge has two `EdgeAssignmentBinding`s.
 
-If the `describe` cap had declared only one arg, the resolver would fail with `UnmatchedSourceInCapArgs` for the second source.
+This is the **product** interpretation of fan-in: each source claims a *distinct* arg. Whenever a valid one-to-one assignment exists, it wins.
+
+If the `describe` cap had declared only one *scalar* arg, the resolver would fail with `UnmatchedSourceInCapArgs` for the second source — a scalar arg absorbs exactly one source.
+
+### 13.5 Fan-in gather (the implicit Collect)
+
+When no one-to-one assignment exists, a **sequence** cap-arg (`is_sequence = true` in the cap definition) absorbs **multiple** conforming sources:
+
+```
+[extract_pdf cap:in="media:ext=pdf";extract;out="media:enc=utf-8;page"]
+[extract_md  cap:in="media:ext=md";extract;out="media:enc=utf-8;page"]
+[concat      cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;ext=txt"]
+[doc_a -> extract_pdf -> t1]
+[doc_b -> extract_md  -> t2]
+[(t1, t2) -> concat -> combined]
+```
+
+`concat` declares a single arg whose `is_sequence` is true. Both `t1` and `t2` conform to it and cannot claim distinct args, so the resolver **gathers** them: the edge carries one `EdgeAssignmentBinding` per source on the *same* arg, in source-declaration order (which fixes the gathered sequence's item order). Plan construction synthesizes a real `Collect` node from the N bindings — the producers wire into the Collect, the Collect feeds the arg as one sequence — and execution concatenates the N scalar producer outputs into one sequence stream.
+
+Like the per-item map, the gather is **cardinality-driven, never authored**: the notation stays fully abstract ("N producers of a type feed a consumer whose arg is a sequence of that type"), and how many producers actually feed the slot is a property of the wiring, not the grammar. This is the mechanism by which multi-source machines converge — legs from heterogeneous sources meet at a common intermediate type and a sequence-consuming cap folds them.
+
+Rules, enforced hard:
+
+- The **product interpretation takes precedence**: sources that can claim distinct args one-to-one do so; the gather only activates when no such assignment exists.
+- Only a **sequence arg** gathers. A scalar arg with two conforming sources is `UnmatchedSourceInCapArgs` (the illegal "two stdins" case).
+- Members may be scalar **or sequence**: the gather **flattens deterministically** — each member contributes its item(s) to the gathered sequence in binding (source-declaration) order; a scalar member contributes one item, a sequence member its items. This is the batch-plus-single convergence shape (a leg that maps a sequence folds together with a leg that produces one item).
+- The minimum-cost assignment must be **unique** in whichever phase decides; ties are `AmbiguousMachineNotation`.
+- The element type of the gathered sequence is the **join ∨** (least common generalization, `MediaUrn::least_upper_bound`) of the members' runtime media.
 
 ---
 

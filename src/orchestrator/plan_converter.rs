@@ -123,9 +123,15 @@ pub async fn plan_to_resolved_graph(
     }
 
     // Build a map from standalone Collect nodes to their input predecessors.
-    // Standalone Collect is a pass-through: data at the predecessor flows through unchanged.
-    // When an edge's from_node is a standalone Collect, we resolve it to the actual data source.
-    let mut collect_predecessors: HashMap<String, String> = HashMap::new();
+    // A single-predecessor Collect (scalar→list) is a pass-through: data at the
+    // predecessor flows through unchanged. A multi-predecessor Collect is a
+    // GATHER (N distinct producers → one sequence arg): each predecessor
+    // becomes its own ResolvedEdge into the consumer, all carrying the same
+    // arg URN — the segment executor concatenates them into one sequence
+    // stream (send_group_input), gated on the consuming arg being a sequence
+    // arg. Predecessor order is the plan's edge insertion order, which is the
+    // resolver's gather (source-declaration) order — the sequence's item order.
+    let mut collect_predecessors: HashMap<String, Vec<String>> = HashMap::new();
     for edge in &plan.edges {
         if let Some(to_node) = plan.nodes.get(&edge.to_node) {
             if let ExecutionNodeType::Collect {
@@ -133,7 +139,10 @@ pub async fn plan_to_resolved_graph(
                 ..
             } = &to_node.node_type
             {
-                collect_predecessors.insert(edge.to_node.clone(), edge.from_node.clone());
+                collect_predecessors
+                    .entry(edge.to_node.clone())
+                    .or_default()
+                    .push(edge.from_node.clone());
             }
         }
     }
@@ -166,25 +175,38 @@ pub async fn plan_to_resolved_graph(
             let out_media = cap.urn.out_spec().to_string();
 
             // If the source is a standalone Collect node, resolve through to the
-            // actual data source. Standalone Collect is transparent — data at the
-            // predecessor flows unchanged through it.
-            let from = if collect_predecessors.contains_key(&edge.from_node) {
-                collect_predecessors[&edge.from_node].clone()
-            } else {
-                edge.from_node.clone()
+            // actual data source(s). A single-predecessor Collect is transparent
+            // (data flows unchanged); a multi-predecessor Collect (gather) fans
+            // into one ResolvedEdge per predecessor, all with the same arg URN —
+            // the executor gathers them into one sequence stream.
+            let froms: Vec<String> = match collect_predecessors.get(&edge.from_node) {
+                Some(preds) => {
+                    if preds.is_empty() {
+                        return Err(ParseOrchestrationError::InvalidGraph {
+                            message: format!(
+                                "Collect node '{}' has no input edges",
+                                edge.from_node
+                            ),
+                        });
+                    }
+                    preds.clone()
+                }
+                None => vec![edge.from_node.clone()],
             };
 
             // The cap's output is stored at the cap node itself
             // This allows the next edge (cap_0 → cap_1) to find data at cap_0
-            resolved_edges.push(ResolvedEdge {
-                token_id: token_id.clone(),
-                from,
-                to: edge.to_node.clone(), // Store output at the cap node
-                cap_urn: cap_urn.clone(),
-                cap: cap.clone(),
-                in_media,
-                out_media,
-            });
+            for from in froms {
+                resolved_edges.push(ResolvedEdge {
+                    token_id: token_id.clone(),
+                    from,
+                    to: edge.to_node.clone(), // Store output at the cap node
+                    cap_urn: cap_urn.clone(),
+                    cap: cap.clone(),
+                    in_media: in_media.clone(),
+                    out_media: out_media.clone(),
+                });
+            }
         }
     }
 
@@ -434,6 +456,84 @@ mod tests {
             result.err()
         );
         assert_eq!(result.unwrap().edges.len(), 1);
+    }
+
+    // TEST955: A multi-predecessor (gather) Collect fans into one ResolvedEdge
+    // per predecessor, all carrying the same arg URN — the segment executor
+    // concatenates them into the consumer's sequence stream. Predecessor order
+    // (= resolver source-declaration order) is preserved in the edge order.
+    #[tokio::test]
+    async fn test955_gather_collect_expands_to_per_producer_edges() {
+        let registry = build_test_registry(&[
+            r#"cap:in="media:ext=pdf";op-a;out="media:enc=utf-8;page""#,
+            r#"cap:in="media:ext=md";op-b;out="media:enc=utf-8;page""#,
+            r#"cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;ext=txt""#,
+        ]);
+
+        let mut plan = MachinePlan::new("gather_plan");
+        plan.add_node(MachineNode::input_slot(
+            "in_a",
+            "input",
+            "media:ext=pdf",
+            InputCardinality::Single,
+        ));
+        plan.add_node(MachineNode::input_slot(
+            "in_b",
+            "input",
+            "media:ext=md",
+            InputCardinality::Single,
+        ));
+        plan.add_node(MachineNode::cap(
+            "cap_a",
+            r#"cap:in="media:ext=pdf";op-a;out="media:enc=utf-8;page""#,
+        ));
+        plan.add_node(MachineNode::cap(
+            "cap_b",
+            r#"cap:in="media:ext=md";op-b;out="media:enc=utf-8;page""#,
+        ));
+        let mut collect_node =
+            MachineNode::collect("collect_0", vec!["cap_a".to_string(), "cap_b".to_string()]);
+        collect_node.node_type = ExecutionNodeType::Collect {
+            input_nodes: vec!["cap_a".to_string(), "cap_b".to_string()],
+            output_media_urn: Some("media:enc=utf-8;page".to_string()),
+        };
+        plan.add_node(collect_node);
+        plan.add_node(MachineNode::cap(
+            "cap_cat",
+            r#"cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;ext=txt""#,
+        ));
+        plan.add_node(MachineNode::output("output", "result", "cap_cat"));
+
+        plan.add_edge(MachinePlanEdge::direct("in_a", "cap_a"));
+        plan.add_edge(MachinePlanEdge::direct("in_b", "cap_b"));
+        plan.add_edge(MachinePlanEdge::collection("cap_a", "collect_0"));
+        plan.add_edge(MachinePlanEdge::collection("cap_b", "collect_0"));
+        plan.add_edge(MachinePlanEdge::direct("collect_0", "cap_cat"));
+        plan.add_edge(MachinePlanEdge::direct("cap_cat", "output"));
+
+        let graph = plan_to_resolved_graph(&plan, &registry)
+            .await
+            .expect("gather plan must convert");
+
+        // Edges: in_a→cap_a, in_b→cap_b, cap_a→cap_cat, cap_b→cap_cat.
+        // The Collect resolves through into one edge per predecessor.
+        assert_eq!(graph.edges.len(), 4, "collect expands to one edge per producer");
+        let into_cat: Vec<&ResolvedEdge> =
+            graph.edges.iter().filter(|e| e.to == "cap_cat").collect();
+        assert_eq!(into_cat.len(), 2, "both producers feed concat");
+        let froms: Vec<&str> = into_cat.iter().map(|e| e.from.as_str()).collect();
+        assert_eq!(
+            froms,
+            vec!["cap_a", "cap_b"],
+            "gather member order must be the plan's Collection-edge order"
+        );
+        // Both carry the SAME in_media (concat's stdin) — the executor's gather
+        // discriminator.
+        assert_eq!(into_cat[0].in_media, into_cat[1].in_media);
+        assert!(
+            !graph.edges.iter().any(|e| e.from == "collect_0" || e.to == "collect_0"),
+            "the Collect node itself must not appear as an edge endpoint"
+        );
     }
 
     // TEST954: Standalone Collect nodes are handled as pass-through

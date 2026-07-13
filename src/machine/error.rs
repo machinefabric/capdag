@@ -118,6 +118,54 @@ pub enum MachineAbstractionError {
     /// (an unreachable edge, or a source whose producer never becomes available).
     #[error("strand {strand_index}: edges do not form a connected data-flow graph")]
     DisconnectedStrand { strand_index: usize },
+
+    /// Anchor binding: the number of run-supplied sources does not equal the number
+    /// of input anchors. A run binds exactly one source per input anchor — no
+    /// positional guessing, no partial binding.
+    #[error("strand {strand_index}: {sources} source(s) supplied for {anchors} input anchor(s) — a run binds exactly one source per input anchor")]
+    SourceAnchorCountMismatch {
+        strand_index: usize,
+        sources: usize,
+        anchors: usize,
+    },
+
+    /// Anchor binding: a source cannot be bound — either it conforms to no input
+    /// anchor, or no assignment exists in which every source claims a distinct
+    /// conforming anchor.
+    #[error("strand {strand_index}: source '{source_urn}' cannot be bound to a distinct conforming input anchor")]
+    UnbindableAnchorSource {
+        strand_index: usize,
+        source_urn: String,
+    },
+
+    /// Anchor binding: the minimum-cost source-to-input-anchor assignment is not
+    /// unique. Two distinct assignments tie; binding cannot be decided
+    /// deterministically and source order is never used as a tiebreaker.
+    #[error("strand {strand_index}: source-to-input-anchor binding is ambiguous (multiple minimum-cost assignments exist)")]
+    AmbiguousAnchorBinding { strand_index: usize },
+
+    /// Realization: an input anchor has no bound source. Every input anchor must
+    /// receive exactly one concrete source media before the strand can realize.
+    #[error("strand {strand_index}: input anchor {anchor_id} ('{anchor_urn}') has no bound source")]
+    MissingAnchorSource {
+        strand_index: usize,
+        anchor_id: u32,
+        anchor_urn: String,
+    },
+
+    /// Realization: a source was bound to a node that is not an input anchor of the
+    /// strand — a caller bug, exposed hard.
+    #[error("strand {strand_index}: a source is bound to node {node_id}, which is not an input anchor of the strand")]
+    SourceBoundToNonAnchor { strand_index: usize, node_id: u32 },
+
+    /// Realization: a bound source does not conform to its input anchor's declared
+    /// media URN. Realization never coerces — the binding is invalid.
+    #[error("strand {strand_index}: bound source '{source_urn}' does not conform to input anchor '{anchor_urn}'")]
+    AnchorSourceMismatch {
+        strand_index: usize,
+        anchor_urn: String,
+        source_urn: String,
+    },
 }
 
 /// Errors raised during lexical / grammatical parsing of machine
