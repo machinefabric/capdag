@@ -1270,3 +1270,76 @@ fn item_preview_snippet(bytes: &[u8]) -> Option<String> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::planner::MachineNode;
+
+    /// Structural fixture: input → mapper (inside a ForEach region) → fold →
+    /// sink, plus an independent pre-trunk cap off the same input.
+    fn plan_with_region_and_fold() -> (MachinePlan, HashSet<String>) {
+        let mut plan = MachinePlan::new("region+fold");
+        plan.add_node(MachineNode::input_slot(
+            "input",
+            "input",
+            "media:ext=pdf",
+            crate::planner::InputCardinality::Single,
+        ));
+        plan.add_node(MachineNode::cap("render", "cap:in=\"media:ext=pdf\";render;out=\"media:ext=png;image\""));
+        plan.add_node(MachineNode::cap("mapper", "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\""));
+        plan.add_node(MachineNode::for_each("fe", "render", "mapper", "mapper"));
+        plan.add_node(MachineNode::cap("fold", "cap:in=\"media:ext=png;image\";animate;out=\"media:ext=gif;image\""));
+        plan.add_node(MachineNode::cap("meta", "cap:in=\"media:ext=pdf\";meta;out=\"media:enc=utf-8;record\""));
+        plan.add_node(MachineNode::output("out_gif", "result", "fold"));
+        plan.add_node(MachineNode::output("out_meta", "result", "meta"));
+
+        plan.add_edge(MachinePlanEdge::direct("input", "render"));
+        plan.add_edge(MachinePlanEdge::direct("render", "fe"));
+        plan.add_edge(MachinePlanEdge::iteration("fe", "mapper"));
+        plan.add_edge(MachinePlanEdge::direct("mapper", "fold"));
+        plan.add_edge(MachinePlanEdge::direct("input", "meta"));
+        plan.add_edge(MachinePlanEdge::direct("fold", "out_gif"));
+        plan.add_edge(MachinePlanEdge::direct("meta", "out_meta"));
+
+        let region_nodes: HashSet<String> = ["mapper".to_string()].into_iter().collect();
+        (plan, region_nodes)
+    }
+
+    // TEST1431: the post-region partition is exactly the transitive consumers
+    // of region output — the fold, NOT the independent pre-trunk cap. The
+    // pre-trunk subplan excludes both region and post caps; the post subplan
+    // carries the fold with its external-producer edge intact.
+    #[test]
+    fn test1431_post_region_partition() {
+        let (plan, region_nodes) = plan_with_region_and_fold();
+
+        let post = compute_post_region_caps(&plan, &region_nodes);
+        assert!(post.contains("fold"), "the fold consumes region output → post");
+        assert!(!post.contains("meta"), "an independent cap stays pre-trunk");
+        assert!(!post.contains("mapper"), "region caps are never post");
+        assert_eq!(post.len(), 1);
+
+        let mut excluded = region_nodes.clone();
+        excluded.extend(post.iter().cloned());
+        let trunk = build_trunk_subplan(&plan, &excluded);
+        assert!(trunk.nodes.contains_key("render"));
+        assert!(trunk.nodes.contains_key("meta"));
+        assert!(trunk.nodes.contains_key("input"));
+        assert!(!trunk.nodes.contains_key("mapper"));
+        assert!(!trunk.nodes.contains_key("fold"));
+
+        let post_plan = build_post_subplan(&plan, &post);
+        assert!(post_plan.nodes.contains_key("fold"));
+        assert_eq!(post_plan.nodes.len(), 1);
+        // The external-producer edge (mapper → fold) survives so the segment
+        // can seed 'mapper' as a materialised root.
+        assert!(
+            post_plan
+                .edges
+                .iter()
+                .any(|e| e.from_node == "mapper" && e.to_node == "fold"),
+            "the post subplan keeps the edge from its external root"
+        );
+    }
+}
