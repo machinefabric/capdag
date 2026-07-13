@@ -54,5 +54,6 @@ pub use parser::{
     parse_machine, parse_machine_async, parse_machine_with_node_names,
     parse_machine_with_node_names_async, StrandNodeNames,
 };
-pub use realize::realize_strand;
+pub use realize::{realize_strand, realize_strand_with_anchor_sources};
+pub use resolve::assign_sources_to_anchors;
 pub use serializer::NotationFormat;

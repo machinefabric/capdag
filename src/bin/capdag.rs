@@ -274,6 +274,7 @@ fn print_usage(program: &str) {
         "Usage:\n\
            {p} <cap-alias-or-urn> [cap args] [inputs...] [options]   Run one cap\n\
            {p} run <machine-file> [inputs...] [options]              Run a .machine file\n\
+           {p} plan <files...> [--to <t>]... [plan options]          Plan machines for a file set (multi-source aware)\n\
            {p} dag-viz <machine-file> [--mermaid|--dot]              Render the execution plan as a diagram\n\
            {p} find <cap-alias-or-urn>                               Show the providing cartridge(s)\n\
            {p} resolve [--no-cache] <cap-alias-or-urn>...            Print cap definition JSON (array for >1)\n\
@@ -299,6 +300,16 @@ fn print_usage(program: &str) {
            --dev-bins <binary> ...  Use local cartridge binaries\n\
            --trace <file.trace>     Write a per-segment bifaci protocol trace (JSONL)\n\
            --help                   Show this help\n\n\
+         Plan options (capdag plan — the unified configurable planner):\n\
+           --to <ext|media-urn>     Target (repeatable ⇒ multi-target). Omit to DISCOVER targets\n\
+           --converge <auto|combine|independent>\n\
+           --where <auto|earliest|latest|source|target|depth=N>   Convergence location\n\
+           --mechanism <any|generalize|collect|merge>\n\
+           --rank <intent|shortest|cost>\n\
+           --depth <N> / --max-paths <N> / --max <N>              Search bounds\n\
+           --pick <rank>            Choose a candidate (default 0, the magic pick)\n\
+           --save <file.machine>    Write the chosen candidate's notation\n\
+           --run                    Execute the chosen candidate on the input files\n\n\
          Utility subcommand: hash-cartridge-dir.\n\n\
          Examples:\n\
            {p} pdf2summary report.pdf\n\
@@ -367,6 +378,7 @@ async fn main() {
     // error, anything else is SINGLE-CAP MODE (alias or cap URN).
     match args[1].as_str() {
         "run" => cmd_run(&args).await,
+        "plan" => cmd_plan(&args).await,
         "dag-viz" => cmd_dag_viz(&args).await,
         "find" => cmd_find(&args).await,
         "resolve" => cmd_resolve(&args).await,
@@ -534,6 +546,37 @@ async fn cmd_run(args: &[String]) -> ! {
         }
     };
 
+    execute_notation(
+        notation,
+        machine_file,
+        &args[arg_idx..],
+        dev_binaries,
+        trace_file,
+        output_dir,
+        force_overwrite,
+    )
+    .await
+}
+
+/// Execute machine notation against a set of input files — the shared engine
+/// behind `capdag run <file.machine>` and `capdag plan --run`.
+///
+/// Single-input machines run once per input file (the historical behavior).
+/// A machine with a MULTI-anchor strand (a planner convergence candidate)
+/// binds the whole file set across its input slots by media type: each file's
+/// detected media must conform to exactly one slot at minimum specificity
+/// distance (ties are a hard error — never positional guessing), every slot
+/// must receive at least one file, and a slot receiving several files gets
+/// them as one sequence.
+async fn execute_notation(
+    notation: String,
+    machine_label: &str,
+    input_args: &[String],
+    dev_binaries: Vec<PathBuf>,
+    trace_file: Option<String>,
+    output_dir: Option<PathBuf>,
+    force_overwrite: bool,
+) -> ! {
     // Create the unified FabricRegistry. Holds cap definitions and media defs
     // together; consumed by `build_plans_from_notation` (for resolution) and the
     // runtime (for cap lookup and adapter dispatch during execution).
@@ -564,7 +607,7 @@ async fn cmd_run(args: &[String]) -> ! {
 
     // Collect all input paths and expand them
     let mut all_files: Vec<PathBuf> = Vec::new();
-    for arg in &args[arg_idx..] {
+    for arg in input_args {
         let expanded = expand_input_path(arg);
         all_files.extend(expanded);
     }
@@ -578,7 +621,7 @@ async fn cmd_run(args: &[String]) -> ! {
     all_files.sort();
 
     eprintln!("=== capdag: Machine Notation Execution ===\n");
-    eprintln!("Machine file: {}", machine_file);
+    eprintln!("Machine: {}", machine_label);
     eprintln!("Input node(s): {}", input_nodes.join(", "));
     eprintln!("Strands (plans): {}", plans.len());
     eprintln!("Input files: {}", all_files.len());
@@ -643,53 +686,154 @@ async fn cmd_run(args: &[String]) -> ! {
     let mut success_count = 0;
     let mut error_count = 0;
 
-    for file in &all_files {
-        eprintln!("--- Processing: {} ---", file.display());
+    let input_slots_of = |plan: &capdag::planner::MachinePlan| -> Vec<(String, capdag::MediaUrn)> {
+        let mut slots: Vec<(String, capdag::MediaUrn)> = plan
+            .nodes
+            .iter()
+            .filter_map(|(id, n)| match &n.node_type {
+                ExecutionNodeType::InputSlot { expected_media_urn, .. } => {
+                    match capdag::MediaUrn::from_string(expected_media_urn) {
+                        Ok(u) => Some((id.clone(), u)),
+                        Err(e) => {
+                            eprintln!(
+                                "input slot '{id}' declares an invalid media URN \
+                                 '{expected_media_urn}': {e}"
+                            );
+                            process::exit(1);
+                        }
+                    }
+                }
+                _ => None,
+            })
+            .collect();
+        slots.sort_by(|a, b| a.0.cmp(&b.0));
+        slots
+    };
+
+    let multi_anchor = plans.iter().any(|p| input_slots_of(p).len() > 1);
+
+    if multi_anchor {
+        // ── Multi-anchor machine: bind the WHOLE file set across all slots by
+        // media type, then run each plan exactly once. ──
+        eprintln!("--- Multi-anchor machine: binding {} files by media type ---", all_files.len());
         eprintln!("Run: {}", notation);
 
-        // The CLI feeds a single file as a scalar blob into each plan's single input
-        // slot. A ForEach inside the strand is driven by an intermediate cap's
-        // sequence output, never by this input.
-        let file_bytes = match fs::read(file) {
-            Ok(b) => b,
-            Err(e) => {
-                eprintln!("Error reading input file '{}': {}", file.display(), e);
-                error_count += 1;
-                continue;
-            }
-        };
-
-        // Each connected strand is its own plan; run them all against this file.
-        let mut file_failed = false;
-        for (idx, plan) in plans.iter().enumerate() {
-            // The plan's single input slot receives the file. A strand with more than
-            // one input anchor cannot be driven by one CLI file — fail hard rather than
-            // guess which input gets the data.
-            let input_slots: Vec<&String> = plan
-                .nodes
-                .iter()
-                .filter(|(_, n)| matches!(n.node_type, ExecutionNodeType::InputSlot { .. }))
-                .map(|(id, _)| id)
-                .collect();
-            let input_slot_id = match input_slots.as_slice() {
-                [single] => (*single).clone(),
-                other => {
-                    eprintln!(
-                        "strand {idx} has {} input anchors — a single CLI file drives a \
-                         single-input machine only (inputs: {:?})",
-                        other.len(),
-                        other
-                    );
-                    file_failed = true;
-                    continue;
+        // Detect each file's media once.
+        let mut file_media: Vec<(PathBuf, capdag::MediaUrn, Vec<u8>)> =
+            Vec::with_capacity(all_files.len());
+        for file in &all_files {
+            let resolved = match capdag::detect_file_with_fabric_registry(file, registry.clone()) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Failed to detect the media type of '{}': {e}", file.display());
+                    process::exit(1);
                 }
             };
+            let media = match capdag::MediaUrn::from_string(&resolved.media_urn) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Detected an invalid media URN '{}': {e}", resolved.media_urn);
+                    process::exit(1);
+                }
+            };
+            let bytes = match fs::read(file) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("Error reading input file '{}': {}", file.display(), e);
+                    process::exit(1);
+                }
+            };
+            file_media.push((file.clone(), media, bytes));
+        }
+
+        // All slots across all plans. Each file must bind to exactly one slot:
+        // the conforming slot at minimum specificity distance; a tie between
+        // distinct slots is ambiguous and fails hard.
+        let all_slots: Vec<(usize, String, capdag::MediaUrn)> = plans
+            .iter()
+            .enumerate()
+            .flat_map(|(pi, p)| {
+                input_slots_of(p).into_iter().map(move |(id, urn)| (pi, id, urn))
+            })
+            .collect();
+        let mut slot_files: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
+        for (file, media, bytes) in &file_media {
+            let mut best: Option<(usize, i64)> = None; // (slot index, distance)
+            let mut tied = false;
+            for (i, (_, _, slot_urn)) in all_slots.iter().enumerate() {
+                if !media.conforms_to(slot_urn).unwrap_or(false) {
+                    continue;
+                }
+                let dist = media.specificity() as i64 - slot_urn.specificity() as i64;
+                match &best {
+                    None => best = Some((i, dist)),
+                    Some((_, bd)) if dist < *bd => {
+                        best = Some((i, dist));
+                        tied = false;
+                    }
+                    Some((bi, bd)) if dist == *bd => {
+                        // Same slot media on two plans would be distinct slots;
+                        // an equal-distance second slot is a real ambiguity.
+                        if *bi != i {
+                            tied = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let Some((slot_idx, _)) = best else {
+                eprintln!(
+                    "'{}' (detected {}) does not conform to any input anchor of this machine",
+                    file.display(),
+                    media
+                );
+                process::exit(1);
+            };
+            if tied {
+                eprintln!(
+                    "'{}' (detected {}) conforms to several input anchors at equal specificity \
+                     — the binding is ambiguous",
+                    file.display(),
+                    media
+                );
+                process::exit(1);
+            }
+            slot_files
+                .entry(all_slots[slot_idx].1.clone())
+                .or_default()
+                .push(bytes.clone());
+        }
+        for (_, slot_id, slot_urn) in &all_slots {
+            if !slot_files.contains_key(slot_id) {
+                eprintln!(
+                    "input anchor '{slot_id}' ({slot_urn}) received no file — every anchor \
+                     of a multi-anchor machine needs an input"
+                );
+                process::exit(1);
+            }
+        }
+
+        let mut run_failed = false;
+        for (idx, plan) in plans.iter().enumerate() {
             let mut initial_inputs: HashMap<String, Vec<u8>> = HashMap::new();
-            initial_inputs.insert(input_slot_id.clone(), file_bytes.clone());
-            // The executor requires every input node to carry an explicit sequence
-            // flag — a default would hide a wiring mismatch. This one is scalar.
             let mut initial_is_sequence: HashMap<String, bool> = HashMap::new();
-            initial_is_sequence.insert(input_slot_id, false);
+            for (slot_id, _) in input_slots_of(plan) {
+                let files = slot_files.get(&slot_id).expect("verified above");
+                if files.len() == 1 {
+                    initial_inputs.insert(slot_id.clone(), files[0].clone());
+                    initial_is_sequence.insert(slot_id, false);
+                } else {
+                    let seq = match capdag::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(files) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("failed to assemble the {}-file sequence for '{slot_id}': {e}", files.len());
+                            process::exit(1);
+                        }
+                    };
+                    initial_inputs.insert(slot_id.clone(), seq);
+                    initial_is_sequence.insert(slot_id, true);
+                }
+            }
 
             match execute_plan(
                 plan,
@@ -706,27 +850,17 @@ async fn cmd_run(args: &[String]) -> ! {
             .await
             {
                 Ok(result) => {
-                    // Real output emission (pipe discipline; see cli_output).
-                    // The stdout fast-path only applies when this execution
-                    // can produce exactly one scalar result overall — with
-                    // several strands or several input files, force file
-                    // mode so results never interleave on stdout.
-                    let effective_dir = if plans.len() > 1 || all_files.len() > 1 {
-                        Some(output_dir.clone().unwrap_or_else(|| PathBuf::from(".")))
-                    } else {
-                        output_dir.clone()
-                    };
-                    let stem = file
+                    let stem = all_files[0]
                         .file_stem()
                         .map(|s| s.to_string_lossy().into_owned())
                         .unwrap_or_else(|| "input".to_string());
                     let options = capdag::orchestrator::EmitOptions {
-                        output_dir: effective_dir,
+                        output_dir: Some(output_dir.clone().unwrap_or_else(|| PathBuf::from("."))),
                         force: force_overwrite,
                         input_stem: if plans.len() > 1 {
-                            format!("{stem}.strand{idx}")
+                            format!("{stem}.combined.strand{idx}")
                         } else {
-                            stem
+                            format!("{stem}.combined")
                         },
                     };
                     let mut stdout = std::io::stdout();
@@ -734,25 +868,121 @@ async fn cmd_run(args: &[String]) -> ! {
                         capdag::orchestrator::emit_terminals(&result, &options, &mut stdout)
                     {
                         eprintln!("{e}");
-                        file_failed = true;
+                        run_failed = true;
                     }
                 }
                 Err(e) => {
                     eprintln!("{}", e);
-                    file_failed = true;
+                    run_failed = true;
                 }
             }
         }
-
-        if file_failed {
+        if run_failed {
             error_count += 1;
         } else {
             success_count += 1;
         }
+    } else {
+        for file in &all_files {
+            eprintln!("--- Processing: {} ---", file.display());
+            eprintln!("Run: {}", notation);
+
+            // The CLI feeds a single file as a scalar blob into each plan's single input
+            // slot. A ForEach inside the strand is driven by an intermediate cap's
+            // sequence output, never by this input.
+            let file_bytes = match fs::read(file) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("Error reading input file '{}': {}", file.display(), e);
+                    error_count += 1;
+                    continue;
+                }
+            };
+
+            // Each connected strand is its own plan; run them all against this file.
+            let mut file_failed = false;
+            for (idx, plan) in plans.iter().enumerate() {
+                let input_slot_id = input_slots_of(plan)
+                    .first()
+                    .map(|(id, _)| id.clone())
+                    .unwrap_or_else(|| {
+                        eprintln!("strand {idx} has no input anchor");
+                        process::exit(1);
+                    });
+                let mut initial_inputs: HashMap<String, Vec<u8>> = HashMap::new();
+                initial_inputs.insert(input_slot_id.clone(), file_bytes.clone());
+                // The executor requires every input node to carry an explicit sequence
+                // flag — a default would hide a wiring mismatch. This one is scalar.
+                let mut initial_is_sequence: HashMap<String, bool> = HashMap::new();
+                initial_is_sequence.insert(input_slot_id, false);
+
+                match execute_plan(
+                    plan,
+                    runtime.clone(),
+                    initial_inputs,
+                    initial_is_sequence,
+                    &cap_arguments,
+                    Some(&progress),
+                    None,
+                    Some(&log_fn),
+                    None,
+                    None,
+                )
+                .await
+                {
+                    Ok(result) => {
+                        // Real output emission (pipe discipline; see cli_output).
+                        // The stdout fast-path only applies when this execution
+                        // can produce exactly one scalar result overall — with
+                        // several strands or several input files, force file
+                        // mode so results never interleave on stdout.
+                        let effective_dir = if plans.len() > 1 || all_files.len() > 1 {
+                            Some(output_dir.clone().unwrap_or_else(|| PathBuf::from(".")))
+                        } else {
+                            output_dir.clone()
+                        };
+                        let stem = file
+                            .file_stem()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "input".to_string());
+                        let options = capdag::orchestrator::EmitOptions {
+                            output_dir: effective_dir,
+                            force: force_overwrite,
+                            input_stem: if plans.len() > 1 {
+                                format!("{stem}.strand{idx}")
+                            } else {
+                                stem
+                            },
+                        };
+                        let mut stdout = std::io::stdout();
+                        if let Err(e) =
+                            capdag::orchestrator::emit_terminals(&result, &options, &mut stdout)
+                        {
+                            eprintln!("{e}");
+                            file_failed = true;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        file_failed = true;
+                    }
+                }
+            }
+
+            if file_failed {
+                error_count += 1;
+            } else {
+                success_count += 1;
+            }
+        }
     }
 
     eprintln!("=== Summary ===");
-    eprintln!("Processed: {}", all_files.len());
+    if multi_anchor {
+        eprintln!("Bound files: {}", all_files.len());
+    } else {
+        eprintln!("Processed: {}", all_files.len());
+    }
     eprintln!("Success: {}", success_count);
     eprintln!("Errors: {}", error_count);
 
@@ -862,6 +1092,345 @@ async fn resolve_cap_or_dev_or_exit(
 /// Parse a `--to` target into a media URN. A value containing ':' is taken as a
 /// full media URN; a bare token (e.g. `png`) is the file-extension shorthand
 /// `media:ext=<token>`. Exits on a malformed value.
+/// `capdag plan <files...> [--to <t>]... [options]` — the unified configurable
+/// planner over a file set (docs/planner-configuration-space.md).
+///
+/// Without `--to`, DISCOVERS the reachable targets for the set (convergent
+/// targets first, tagged with their apex). With one or more `--to`, plans
+/// ranked candidate machines; `--pick`/`--save`/`--run` choose, persist, and
+/// execute a candidate through the same execution engine as `capdag run`.
+async fn cmd_plan(args: &[String]) -> ! {
+    use capdag::planner as p;
+
+    let mut to_targets: Vec<String> = Vec::new();
+    let mut converge = "auto".to_string();
+    let mut location = "auto".to_string();
+    let mut mechanism = "any".to_string();
+    let mut rank = "intent".to_string();
+    let mut max_depth = p::PlanRequest::DEFAULT_MAX_DEPTH;
+    let mut max_paths = p::PlanRequest::DEFAULT_MAX_PATHS;
+    let mut max_candidates = p::PlanRequest::DEFAULT_MAX_CANDIDATES;
+    let mut pick: usize = 0;
+    let mut save: Option<String> = None;
+    let mut run_after = false;
+    let mut output_dir: Option<PathBuf> = None;
+    let mut force = false;
+    let mut dev_binaries: Vec<PathBuf> = Vec::new();
+    let mut trace_file: Option<String> = None;
+    let mut file_args: Vec<String> = Vec::new();
+    let mut configured = false; // any explicitly-set knob ⇒ Configured mode
+
+    let take_value = |args: &[String], i: &mut usize, flag: &str| -> String {
+        *i += 1;
+        match args.get(*i) {
+            Some(v) => v.clone(),
+            None => {
+                eprintln!("{flag} requires a value");
+                process::exit(2);
+            }
+        }
+    };
+
+    let mut i = 2;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--to" => to_targets.push(take_value(args, &mut i, "--to")),
+            "--converge" => {
+                converge = take_value(args, &mut i, "--converge");
+                configured = true;
+            }
+            "--where" => {
+                location = take_value(args, &mut i, "--where");
+                configured = true;
+            }
+            "--mechanism" => {
+                mechanism = take_value(args, &mut i, "--mechanism");
+                configured = true;
+            }
+            "--rank" => rank = take_value(args, &mut i, "--rank"),
+            "--depth" => {
+                max_depth = parse_usize_or_exit(&take_value(args, &mut i, "--depth"), "--depth")
+            }
+            "--max-paths" => {
+                max_paths =
+                    parse_usize_or_exit(&take_value(args, &mut i, "--max-paths"), "--max-paths")
+            }
+            "--max" => {
+                max_candidates = parse_usize_or_exit(&take_value(args, &mut i, "--max"), "--max")
+            }
+            "--pick" => pick = parse_usize_or_exit(&take_value(args, &mut i, "--pick"), "--pick"),
+            "--save" => save = Some(take_value(args, &mut i, "--save")),
+            "--run" => run_after = true,
+            "-o" | "--output" => output_dir = Some(PathBuf::from(take_value(args, &mut i, "--output"))),
+            "--force" => force = true,
+            "--trace" => trace_file = Some(take_value(args, &mut i, "--trace")),
+            "--dev-bins" => {
+                i += 1;
+                while i < args.len() && !args[i].starts_with("--") {
+                    let expanded = expand_dev_binary_path(&args[i]);
+                    if expanded.is_empty() {
+                        eprintln!("No executables found in: {}", args[i]);
+                        process::exit(1);
+                    }
+                    dev_binaries.extend(expanded);
+                    i += 1;
+                }
+                continue;
+            }
+            "--help" | "-h" => {
+                print_usage(&args[0]);
+                process::exit(0);
+            }
+            tok if tok.starts_with('-') => {
+                eprintln!("Unknown plan option '{tok}'.");
+                process::exit(2);
+            }
+            tok => file_args.push(tok.to_string()),
+        }
+        i += 1;
+    }
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    for f in &file_args {
+        files.extend(expand_input_path(f));
+    }
+    if files.is_empty() {
+        eprintln!("capdag plan needs at least one input file");
+        process::exit(2);
+    }
+    files.sort();
+
+    let registry = match FabricRegistry::new().await {
+        Ok(reg) => Arc::new(reg),
+        Err(e) => {
+            eprintln!("Error creating FabricRegistry: {}", e);
+            process::exit(1);
+        }
+    };
+
+    // Detect each file's media and group equal types: N same-typed files form
+    // ONE sequence anchor; distinct types are distinct anchors.
+    let mut groups: Vec<(capdag::MediaUrn, usize)> = Vec::new();
+    for file in &files {
+        let resolved = match capdag::detect_file_with_fabric_registry(file, registry.clone()) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Failed to detect the media type of '{}': {e}", file.display());
+                process::exit(1);
+            }
+        };
+        let media = match capdag::MediaUrn::from_string(&resolved.media_urn) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Detected an invalid media URN '{}': {e}", resolved.media_urn);
+                process::exit(1);
+            }
+        };
+        match groups.iter_mut().find(|(m, _)| m.is_equivalent(&media).unwrap_or(false)) {
+            Some((_, count)) => *count += 1,
+            None => groups.push((media, 1)),
+        }
+    }
+    let sources: Vec<p::SourceSpec> = groups
+        .iter()
+        .map(|(media, count)| {
+            if *count > 1 {
+                p::SourceSpec::sequence(media.clone())
+            } else {
+                p::SourceSpec::single(media.clone())
+            }
+        })
+        .collect();
+    eprintln!("Sources ({} files):", files.len());
+    for (media, count) in &groups {
+        eprintln!("  - {media}  ×{count}");
+    }
+
+    // Build the live cap graph from the fabric cache: all caps + the bookend
+    // set (media defs with at least one file extension).
+    let caps = match registry.get_cached_caps().await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to load caps from the fabric cache: {e}");
+            process::exit(1);
+        }
+    };
+    let media_defs = match registry.get_cached_media_defs().await {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Failed to load media defs from the fabric cache: {e}");
+            process::exit(1);
+        }
+    };
+    let bookends: std::collections::HashSet<capdag::MediaUrn> = media_defs
+        .iter()
+        .filter(|d| !d.extensions.is_empty())
+        .filter_map(|d| capdag::MediaUrn::from_string(&d.urn).ok())
+        .collect();
+    let mut fab = capdag::planner::LiveCapFab::new();
+    fab.sync_from_caps(&caps, &bookends);
+
+    // ── Discover mode: no --to ──
+    if to_targets.is_empty() {
+        let targets = match fab.discover_convergent_targets(&sources, max_depth) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("{e}");
+                process::exit(1);
+            }
+        };
+        if targets.is_empty() {
+            eprintln!("No reachable targets for this file set.");
+            process::exit(1);
+        }
+        println!("Reachable targets:");
+        for t in &targets {
+            let title = registry
+                .get_cached_media_def(&t.media_def.to_string())
+                .map(|d| d.title)
+                .unwrap_or_else(|| t.display_name.clone());
+            match &t.apex {
+                Some(apex) => println!(
+                    "  combine all → {title}  [{}]  (via {} at depth {}, ~{} steps)",
+                    t.media_def, apex.media_urn, apex.depth, t.min_total_steps
+                ),
+                None => println!(
+                    "  convert each → {title}  [{}]  (~{} steps)",
+                    t.media_def, t.min_total_steps
+                ),
+            }
+        }
+        eprintln!("\nPick one with: capdag plan <files...> --to <target>");
+        process::exit(0);
+    }
+
+    // ── Plan mode ──
+    let target_urns: Vec<capdag::MediaUrn> =
+        to_targets.iter().map(|t| parse_target_media_or_exit(t)).collect();
+
+    let presence = match converge.as_str() {
+        "auto" => p::ConvergencePresence::Auto,
+        "combine" => p::ConvergencePresence::Converged,
+        "independent" => p::ConvergencePresence::Independent,
+        other => {
+            eprintln!("--converge must be auto|combine|independent, got '{other}'");
+            process::exit(2);
+        }
+    };
+    let location = match location.as_str() {
+        "auto" => p::ConvergenceLocation::Auto,
+        "earliest" => p::ConvergenceLocation::Earliest,
+        "latest" => p::ConvergenceLocation::Latest,
+        "source" => p::ConvergenceLocation::AtSource,
+        "target" => p::ConvergenceLocation::AtTarget,
+        other => match other.strip_prefix("depth=") {
+            Some(n) => p::ConvergenceLocation::AtDepth(parse_usize_or_exit(n, "--where depth=")),
+            None => {
+                eprintln!("--where must be auto|earliest|latest|source|target|depth=N, got '{other}'");
+                process::exit(2);
+            }
+        },
+    };
+    let mechanism = match mechanism.as_str() {
+        "any" => p::ConvergenceMechanism::Any,
+        "generalize" => p::ConvergenceMechanism::Generalize,
+        "collect" => p::ConvergenceMechanism::Collect,
+        "merge" => p::ConvergenceMechanism::Merge,
+        other => {
+            eprintln!("--mechanism must be any|generalize|collect|merge, got '{other}'");
+            process::exit(2);
+        }
+    };
+    let ranking = match rank.as_str() {
+        "intent" => p::RankPolicy::Intent,
+        "shortest" => p::RankPolicy::Shortest,
+        "cost" => p::RankPolicy::Cost,
+        other => {
+            eprintln!("--rank must be intent|shortest|cost, got '{other}'");
+            process::exit(2);
+        }
+    };
+
+    let request = p::PlanRequest {
+        sources,
+        targets: p::TargetSpec::Exact(target_urns),
+        convergence: p::ConvergencePolicy {
+            presence,
+            location,
+            mechanism,
+            at_type: None,
+            arity: p::ConvergenceArity::Auto,
+        },
+        divergence: p::DivergencePolicy::default(),
+        ranking,
+        search: p::SearchDirection::Auto,
+        mode: if configured { p::PlanMode::Configured } else { p::PlanMode::Auto },
+        max_depth,
+        max_paths,
+        max_candidates,
+    };
+
+    let candidates = match fab.plan(&request, registry.as_ref()) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+    };
+
+    println!("Candidates ({}):", candidates.len());
+    for c in &candidates {
+        println!(
+            "  [{}] {}  ({} steps{}{})",
+            c.rank,
+            c.label,
+            c.cost.cap_steps,
+            if c.profile.converged { ", combined result" } else { "" },
+            if c.profile.diverged { ", fan-out" } else { "" },
+        );
+        println!("      {}", c.notation);
+    }
+
+    let Some(chosen) = candidates.iter().find(|c| c.rank == pick) else {
+        eprintln!("--pick {pick} is out of range (0..{})", candidates.len());
+        process::exit(2);
+    };
+
+    if let Some(path) = &save {
+        if let Err(e) = fs::write(path, &chosen.notation) {
+            eprintln!("Failed to write '{path}': {e}");
+            process::exit(1);
+        }
+        eprintln!("Saved candidate [{pick}] to {path}");
+    }
+
+    if run_after {
+        let file_strings: Vec<String> =
+            files.iter().map(|f| f.to_string_lossy().into_owned()).collect();
+        execute_notation(
+            chosen.notation.clone(),
+            &format!("plan candidate [{pick}]"),
+            &file_strings,
+            dev_binaries,
+            trace_file,
+            output_dir,
+            force,
+        )
+        .await
+    }
+    process::exit(0);
+}
+
+fn parse_usize_or_exit(value: &str, flag: &str) -> usize {
+    match value.parse::<usize>() {
+        Ok(v) => v,
+        Err(_) => {
+            eprintln!("{flag} requires a non-negative integer, got '{value}'");
+            process::exit(2);
+        }
+    }
+}
+
 fn parse_target_media_or_exit(t: &str) -> capdag::MediaUrn {
     let s = if t.contains(':') {
         t.to_string()

@@ -1696,10 +1696,17 @@ fn decompose_group_chains(groups: &[EdgeGroup], group_order: &[usize]) -> Vec<Ve
         }
     }
 
-    // A group continues its producer's chain iff it has exactly one producer group
-    // and that producer feeds only this group.
+    // A group continues its producer's chain iff it is a SINGLE-edge group with
+    // exactly one producer group that feeds only this group. A multi-edge group
+    // (fan-in: several args, or a gather of several producers into one sequence
+    // arg) always heads a chain — mid-chain streaming forwards exactly one
+    // producer stream, so a multi-input invocation must be fed from
+    // materialised node_data via `send_group_input`. This also covers the group
+    // whose extra input is an InputSlot (not a producer group): counting only
+    // producer groups would otherwise misclassify it as a linear continuation
+    // and silently drop the slot's stream.
     let continues_producer = |i: usize| -> bool {
-        if input_sources[i].len() == 1 {
+        if groups[i].edges.len() == 1 && input_sources[i].len() == 1 {
             let src = *input_sources[i].iter().next().unwrap();
             return consumers[src].len() == 1;
         }
@@ -1716,10 +1723,14 @@ fn decompose_group_chains(groups: &[EdgeGroup], group_order: &[usize]) -> Vec<Ve
         assigned.insert(start);
         let mut tail = start;
         // Extend while the tail feeds exactly one consumer that is its linear
-        // continuation (its only producer is the tail).
+        // continuation (a single-edge group whose only producer is the tail —
+        // a multi-edge group heads its own chain, see `continues_producer`).
         while consumers[tail].len() == 1 {
             let next = *consumers[tail].iter().next().unwrap();
-            if input_sources[next].len() == 1 && input_sources[next].contains(&tail) {
+            if groups[next].edges.len() == 1
+                && input_sources[next].len() == 1
+                && input_sources[next].contains(&tail)
+            {
                 chain.push(next);
                 assigned.insert(next);
                 tail = next;
@@ -2104,7 +2115,24 @@ async fn send_group_input(
     max_chunk: usize,
     credit: Option<(&crate::bifaci::credit::CreditRouter, u64)>,
 ) -> Result<(), ExecutionError> {
-    let mut inputs: Vec<(&[u8], &str, Option<&crate::StreamMeta>, bool)> = Vec::new();
+    // One incoming payload per edge, grouped by arg URN (tagged-URN
+    // equivalence). The cartridge demuxes incoming streams by URN, so exactly
+    // ONE stream per distinct URN may go out:
+    //  - a single-edge group sends as-is (the historical path);
+    //  - an N-edge group is a GATHER into a sequence arg (N distinct producers
+    //    feeding one arg — the resolver's implicit Collect). Legal ONLY when
+    //    the cap's matching arg declares `is_sequence` and every member payload
+    //    is scalar; the N scalar payloads then concatenate — in edge order,
+    //    which is the resolver's source-declaration order — into one CBOR
+    //    sequence sent with is_sequence=true. A scalar arg receiving two
+    //    streams (the illegal "two stdins" case) or a sequence member inside a
+    //    gather is a malformed graph — fail hard, never silently double-send.
+    struct UrnGroup<'a> {
+        urn: crate::MediaUrn,
+        urn_str: &'a str,
+        members: Vec<(&'a [u8], Option<&'a crate::StreamMeta>, bool)>,
+    }
+    let mut urn_groups: Vec<UrnGroup> = Vec::new();
     for edge in &group.edges {
         let data = node_data.get(&edge.from).ok_or_else(|| {
             ExecutionError::HostError(format!(
@@ -2121,22 +2149,33 @@ async fn send_group_input(
                 edge.from, edge.cap_urn,
             ))
         })?;
-        inputs.push((data.as_slice(), edge.in_media.as_str(), meta, is_seq));
+        let urn = crate::MediaUrn::from_string(&edge.in_media).map_err(|e| {
+            ExecutionError::HostError(format!(
+                "input arg URN '{}' for cap '{}' is not a valid media URN: {e}",
+                edge.in_media, edge.cap_urn
+            ))
+        })?;
+        match urn_groups
+            .iter_mut()
+            .find(|g| g.urn.is_equivalent(&urn).unwrap_or(false))
+        {
+            Some(g) => g.members.push((data.as_slice(), meta, is_seq)),
+            None => urn_groups.push(UrnGroup {
+                urn,
+                urn_str: edge.in_media.as_str(),
+                members: vec![(data.as_slice(), meta, is_seq)],
+            }),
+        }
     }
 
     let extra_args = cap_arguments.get(&group.to).map(|v| v.as_slice()).unwrap_or(&[]);
 
-    // Every input stream into one cap must carry a DISTINCT arg URN — the cartridge
-    // demuxes incoming streams by URN, so two streams sharing a URN (e.g. two mains,
-    // the illegal "two stdins" case) collide. Compare by tagged-URN equivalence, never
-    // strings; fail hard on a collision (a malformed graph), never silently double-send.
+    // Extra-arg streams must not collide with each other or with any input
+    // stream URN — they are value-channel deliveries, never gathered.
     {
-        let mut seen_urns: Vec<crate::MediaUrn> = Vec::new();
-        let all_urns = inputs
-            .iter()
-            .map(|(_, u, _, _)| *u)
-            .chain(extra_args.iter().map(|(u, _)| u.as_str()));
-        for urn_str in all_urns {
+        let mut seen_urns: Vec<crate::MediaUrn> =
+            urn_groups.iter().map(|g| g.urn.clone()).collect();
+        for (urn_str, _) in extra_args {
             let urn = crate::MediaUrn::from_string(urn_str).map_err(|e| {
                 ExecutionError::HostError(format!(
                     "input arg URN '{urn_str}' for cap '{}' is not a valid media URN: {e}",
@@ -2158,14 +2197,88 @@ async fn send_group_input(
         }
     }
 
-    for (data, in_media, meta, is_seq) in &inputs {
+    // The full cap definition rides on every edge of the group; a group is one
+    // cap invocation, so the first edge's definition is the group's.
+    let cap_def = &group
+        .edges
+        .first()
+        .expect("an edge group is non-empty by construction")
+        .cap;
+
+    for urn_group in &urn_groups {
+        if urn_group.members.len() == 1 {
+            let (data, meta, is_seq) = urn_group.members[0];
+            super::stream_io::send_one_stream(
+                switch,
+                rid,
+                urn_group.urn_str,
+                data,
+                meta.cloned(),
+                is_seq,
+                max_chunk,
+                credit,
+            )
+            .await
+            .map_err(|e| ExecutionError::HostError(e.to_string()))?;
+            continue;
+        }
+
+        // Gather: verify the receiving arg is a sequence arg.
+        let arg_def = cap_def
+            .args
+            .iter()
+            .find(|a| {
+                crate::MediaUrn::from_string(a.stream_urn())
+                    .map(|u| u.is_equivalent(&urn_group.urn).unwrap_or(false))
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| {
+                ExecutionError::HostError(format!(
+                    "cap '{}' receives {} input streams on arg URN '{}', but no cap arg \
+                     declares that stream URN — malformed graph",
+                    group.cap_urn,
+                    urn_group.members.len(),
+                    urn_group.urn_str
+                ))
+            })?;
+        if !arg_def.is_sequence {
+            return Err(ExecutionError::HostError(format!(
+                "cap '{}' receives {} input streams with the same arg URN '{}', but that \
+                 arg is not a sequence arg; each scalar input must carry a distinct arg \
+                 URN — a cap has one main input, and convergence args have distinct URNs",
+                group.cap_urn,
+                urn_group.members.len(),
+                urn_group.urn_str
+            )));
+        }
+        // Flatten deterministically, in edge (= source-declaration) order: a
+        // scalar member contributes one item (CBOR-wrapped here); a sequence
+        // member's bytes are already an RFC 8742 CBOR sequence and append
+        // as-is, contributing its items.
+        let mut gathered: Vec<u8> = Vec::new();
+        for (data, _, member_is_seq) in &urn_group.members {
+            if *member_is_seq {
+                gathered.extend_from_slice(data);
+            } else {
+                let wrapped = crate::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(
+                    &[data.to_vec()],
+                )
+                .map_err(|e| {
+                    ExecutionError::HostError(format!(
+                        "gather into '{}' for cap '{}': {e}",
+                        urn_group.urn_str, group.cap_urn
+                    ))
+                })?;
+                gathered.extend_from_slice(&wrapped);
+            }
+        }
         super::stream_io::send_one_stream(
             switch,
             rid,
-            in_media,
-            data,
-            (*meta).cloned(),
-            *is_seq,
+            urn_group.urn_str,
+            &gathered,
+            None,
+            true,
             max_chunk,
             credit,
         )

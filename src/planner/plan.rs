@@ -587,6 +587,111 @@ impl MachinePlan {
         Ok(result)
     }
 
+    /// Merge N per-strand plans (disjoint DAGs — one plan per `MachineStrand`, as
+    /// built by [`MachinePlanBuilder::build_plan_from_machine_strand`]) into ONE
+    /// executable plan, so a multi-strand machine runs as a single task with its
+    /// outputs merged.
+    ///
+    /// Node-id discipline:
+    /// - **Cap nodes keep their ids** — a cap node's id IS its strand step's stable
+    ///   `token_id`, the identity argument values and progress updates are keyed by.
+    ///   Token ids are minted per step and unique across a machine; a collision is a
+    ///   hard error, never renamed.
+    /// - **Every non-cap node id is namespaced** with an `s{index}_` prefix (input
+    ///   slots, outputs, ForEach, Collect, …): those ids are synthesized per strand
+    ///   from strand-local indices and WOULD collide across strands. All references
+    ///   (edges, output lists, ForEach body extents, Collect members, Output sources)
+    ///   are rewritten consistently.
+    ///
+    /// A single plan passes through unchanged (only renamed to `name`).
+    pub fn merge_disjoint(name: &str, plans: Vec<MachinePlan>) -> Result<Self, PlannerError> {
+        if plans.is_empty() {
+            return Err(PlannerError::InvalidPath(
+                "cannot merge zero strand plans into a machine plan".to_string(),
+            ));
+        }
+        if plans.len() == 1 {
+            let mut plan = plans.into_iter().next().expect("checked len == 1");
+            plan.name = name.to_string();
+            return Ok(plan);
+        }
+
+        let mut merged = MachinePlan::new(name);
+        for (strand_index, plan) in plans.into_iter().enumerate() {
+            // Build this strand's rename map: every non-cap node gets namespaced.
+            let mut rename: HashMap<String, String> = HashMap::new();
+            for (id, node) in &plan.nodes {
+                if !node.is_cap() {
+                    rename.insert(id.clone(), format!("s{strand_index}_{id}"));
+                }
+            }
+            let map_id = |id: &str| -> NodeId {
+                rename
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_else(|| id.to_string())
+            };
+
+            // Nodes, with intra-node references rewritten. `add_node` re-derives the
+            // entry/output tracking lists from the node types.
+            for (old_id, mut node) in plan.nodes {
+                let new_id = map_id(&old_id);
+                if merged.nodes.contains_key(&new_id) {
+                    return Err(PlannerError::InvalidPath(format!(
+                        "strand plan {strand_index}: node id '{new_id}' collides with a node \
+                         from an earlier strand — cap token ids must be unique per machine"
+                    )));
+                }
+                node.id = new_id;
+                match &mut node.node_type {
+                    ExecutionNodeType::ForEach {
+                        input_node,
+                        body_entry,
+                        body_exit,
+                        ..
+                    } => {
+                        *input_node = map_id(input_node);
+                        *body_entry = map_id(body_entry);
+                        *body_exit = map_id(body_exit);
+                    }
+                    ExecutionNodeType::Collect { input_nodes, .. }
+                    | ExecutionNodeType::Merge { input_nodes, .. } => {
+                        for n in input_nodes.iter_mut() {
+                            *n = map_id(n);
+                        }
+                    }
+                    ExecutionNodeType::Split { input_node, .. } => {
+                        *input_node = map_id(input_node);
+                    }
+                    ExecutionNodeType::Output { source_node, .. } => {
+                        *source_node = map_id(source_node);
+                    }
+                    ExecutionNodeType::Cap { .. } | ExecutionNodeType::InputSlot { .. } => {}
+                }
+                merged.add_node(node);
+            }
+
+            // Edges, endpoints rewritten.
+            for mut edge in plan.edges {
+                edge.from_node = map_id(&edge.from_node);
+                edge.to_node = map_id(&edge.to_node);
+                merged.add_edge(edge);
+            }
+        }
+
+        // Node maps iterate in hash order; the entry/output lists rebuilt by
+        // `add_node` must not inherit that nondeterminism — sort them so the merged
+        // plan (and its representative first output) is stable.
+        merged.entry_nodes.sort();
+        merged.output_nodes.sort();
+
+        merged.validate()?;
+        merged.topological_order().map_err(|e| {
+            PlannerError::InvalidPath(format!("merged multi-strand plan is cyclic: {e}"))
+        })?;
+        Ok(merged)
+    }
+
     /// Create a plan for a single cap execution.
     /// `file_path_arg_name` is the name of the argument that receives the input file path.
     pub fn single_cap(

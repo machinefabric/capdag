@@ -681,7 +681,7 @@ impl LiveCapFab {
     ///   The media URN does not change — ForEach is a shape transition, not a type transition.
     /// - **Collect** (is_sequence=false → true): gather items into a sequence.
     ///   The media URN does not change — Collect is a shape transition, not a type transition.
-    fn get_outgoing_edges(
+    pub(crate) fn get_outgoing_edges(
         &self,
         source: &MediaUrn,
         is_sequence: bool,
@@ -784,7 +784,7 @@ impl LiveCapFab {
     /// This deliberately avoids checking only registered literal graph nodes,
     /// because `effect=none` and `effect=patch` can materialize concrete runtime
     /// outputs that do not appear verbatim as stored edge endpoints.
-    fn has_reachable_exact_target(
+    pub(crate) fn has_reachable_exact_target(
         &self,
         source: &MediaUrn,
         target: &MediaUrn,
@@ -819,6 +819,20 @@ impl LiveCapFab {
     /// Get statistics about the graph.
     pub fn stats(&self) -> (usize, usize) {
         (self.nodes.len(), self.edges.len())
+    }
+
+    /// The bookend-eligible node set (see `is_bookend`). Used by the unified
+    /// plan engine (`plan_engine.rs`) to restrict discovered targets.
+    pub(crate) fn bookends(&self) -> &HashSet<MediaUrn> {
+        &self.bookend_nodes
+    }
+
+    /// The distinct cap URNs in the graph, for registry-backed lookups by the
+    /// unified plan engine (e.g. multi-input Merge-cap discovery).
+    pub(crate) fn cap_urns(&self) -> Vec<CapUrn> {
+        let mut urns: Vec<CapUrn> = self.cap_to_edges.keys().cloned().collect();
+        urns.sort();
+        urns
     }
 
     // =========================================================================

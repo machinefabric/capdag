@@ -201,26 +201,139 @@ impl MachinePlanBuilder {
                     stdin_arg.media_urn
                 ))
             })?;
-            let primary = edge
-                .assignment
+            // Group this edge's bindings per arg slot (URN equivalence). A slot
+            // with N≥2 bindings is a GATHER — the resolver's implicit Collect: N
+            // distinct producers feeding one SEQUENCE arg. The plan materializes
+            // it as a real `Collect{input_nodes}` node so the executable plan
+            // never carries an unexplained multi-bound arg.
+            let mut slot_groups: Vec<(MediaUrn, Vec<&crate::machine::graph::EdgeAssignmentBinding>)> =
+                Vec::new();
+            for b in &edge.assignment {
+                match slot_groups.iter_mut().find(|(u, _)| {
+                    u.is_equivalent(&b.cap_arg_media_urn).unwrap_or(false)
+                }) {
+                    Some((_, v)) => v.push(b),
+                    None => slot_groups.push((b.cap_arg_media_urn.clone(), vec![b])),
+                }
+            }
+
+            let primary_group: &[&crate::machine::graph::EdgeAssignmentBinding] = slot_groups
                 .iter()
-                .find(|b| {
-                    b.cap_arg_media_urn
-                        .is_equivalent(&stdin_arg_urn)
-                        .unwrap_or(false)
-                })
+                .find(|(u, _)| u.is_equivalent(&stdin_arg_urn).unwrap_or(false))
+                .map(|(_, v)| v.as_slice())
                 .ok_or_else(|| {
                     PlannerError::InvalidPath(format!(
                         "strand '{name}': cap '{cap_urn_str}' has no source bound to its stdin arg"
                     ))
                 })?;
-            let src = primary.source;
-            let in_media = node_runtime.get(&src).cloned().ok_or_else(|| {
-                PlannerError::Internal(format!("no runtime media at source node {src}"))
-            })?;
-            let prev_node_id = producer.get(&src).cloned().expect("producer set with runtime");
-            let src_is_input_anchor = input_anchors.contains(&src);
-            let src_region = node_region.get(&src).cloned();
+
+            // Synthesize a Collect for a gathered slot: producers wire into the
+            // Collect via `Collection` edges; the Collect feeds the cap. Fails
+            // hard unless the arg is a sequence arg and every gathered producer
+            // is a top-level (non-ForEach-region) node — gathering per-item
+            // ForEach output through this path would silently mis-order the
+            // region machinery, and a scalar arg with N bindings is a resolver
+            // invariant violation.
+            let synthesize_gather_collect =
+                |plan: &mut MachinePlan,
+                 group: &[&crate::machine::graph::EdgeAssignmentBinding],
+                 arg_def: &crate::cap::definition::CapArg,
+                 collect_id: &str,
+                 producer: &HashMap<NodeId, String>,
+                 node_runtime: &HashMap<NodeId, MediaUrn>,
+                 node_region: &HashMap<NodeId, String>|
+                 -> PlannerResult<MediaUrn> {
+                    if !arg_def.is_sequence {
+                        return Err(PlannerError::InvalidPath(format!(
+                            "strand '{name}': cap '{cap_urn_str}' arg '{}' carries {} bindings \
+                             but is not a sequence arg — a gather is only legal into a sequence \
+                             arg (resolver invariant violated)",
+                            arg_def.media_urn,
+                            group.len()
+                        )));
+                    }
+                    let mut input_producer_ids: Vec<String> = Vec::with_capacity(group.len());
+                    let mut member_media: Vec<MediaUrn> = Vec::with_capacity(group.len());
+                    for b in group {
+                        if let Some(region) = node_region.get(&b.source) {
+                            return Err(PlannerError::InvalidPath(format!(
+                                "strand '{name}': cap '{cap_urn_str}' gathers node {} which is \
+                                 produced inside ForEach region '{region}' — gathering per-item \
+                                 ForEach output into a sequence arg is not supported; the region \
+                                 machinery owns that collection",
+                                b.source
+                            )));
+                        }
+                        let pid = producer.get(&b.source).cloned().ok_or_else(|| {
+                            PlannerError::Internal(format!(
+                                "gathered source node {} has no producer",
+                                b.source
+                            ))
+                        })?;
+                        let media = node_runtime.get(&b.source).cloned().ok_or_else(|| {
+                            PlannerError::Internal(format!(
+                                "no runtime media at gathered source node {}",
+                                b.source
+                            ))
+                        })?;
+                        input_producer_ids.push(pid);
+                        member_media.push(media);
+                    }
+                    // The gathered sequence's element type is the join ∨ of the
+                    // member runtime medias — the most specific type every
+                    // member conforms to.
+                    let item_media = MediaUrn::least_upper_bound(&member_media);
+                    let mut collect_node =
+                        MachineNode::collect(collect_id, input_producer_ids.clone());
+                    collect_node.node_type = ExecutionNodeType::Collect {
+                        input_nodes: input_producer_ids.clone(),
+                        output_media_urn: Some(item_media.to_string()),
+                    };
+                    collect_node.description = Some(format!(
+                        "Gather {} producers into a sequence of {}",
+                        input_producer_ids.len(),
+                        item_media
+                    ));
+                    plan.add_node(collect_node);
+                    for pid in &input_producer_ids {
+                        plan.add_edge(MachinePlanEdge::collection(pid, collect_id));
+                    }
+                    Ok(item_media)
+                };
+
+            // Primary (stdin) input: a single binding threads the producer
+            // directly (today's path); a gather threads a synthesized Collect.
+            let src: NodeId;
+            let in_media: MediaUrn;
+            let prev_node_id: String;
+            let src_is_input_anchor: bool;
+            let src_region: Option<String>;
+            if primary_group.len() == 1 {
+                let primary = primary_group[0];
+                src = primary.source;
+                in_media = node_runtime.get(&src).cloned().ok_or_else(|| {
+                    PlannerError::Internal(format!("no runtime media at source node {src}"))
+                })?;
+                prev_node_id = producer.get(&src).cloned().expect("producer set with runtime");
+                src_is_input_anchor = input_anchors.contains(&src);
+                src_region = node_region.get(&src).cloned();
+            } else {
+                let collect_id = format!("collect_{}", edge.token_id);
+                let item_media = synthesize_gather_collect(
+                    &mut plan,
+                    primary_group,
+                    stdin_arg,
+                    &collect_id,
+                    &producer,
+                    &node_runtime,
+                    &node_region,
+                )?;
+                src = primary_group[0].source;
+                in_media = item_media;
+                prev_node_id = collect_id;
+                src_is_input_anchor = false;
+                src_region = None;
+            }
             // The cap node's id IS the strand step's stable identity (StrandStep.token_id,
             // a UUID minted at parse and threaded through resolved_strand → proto →
             // run graph). Using it as the node id makes it the single execution key: the
@@ -322,25 +435,32 @@ impl MachinePlanBuilder {
                 region_exit.insert(fe_id.clone(), cap_node_id.clone());
                 node_region.insert(tgt, fe_id);
             } else if let Some(region) = src_region {
-                // Scalar cap extending an existing ForEach body — chain onto the producer
-                // and extend the region's exit.
-                plan.add_edge(MachinePlanEdge::direct(&prev_node_id, &cap_node_id));
-                region_exit.insert(region.clone(), cap_node_id.clone());
-                node_region.insert(tgt, region);
+                if cap_input_is_seq {
+                    // A SEQUENCE-consuming cap fed from inside a ForEach region
+                    // CLOSES the region: it consumes the region's collected
+                    // per-item output as one sequence (the fold). It is wired
+                    // like any downstream consumer and does NOT extend the
+                    // region — the executor runs it in the post-region segment.
+                    plan.add_edge(MachinePlanEdge::direct(&prev_node_id, &cap_node_id));
+                } else {
+                    // Scalar cap extending an existing ForEach body — chain onto the
+                    // producer and extend the region's exit.
+                    plan.add_edge(MachinePlanEdge::direct(&prev_node_id, &cap_node_id));
+                    region_exit.insert(region.clone(), cap_node_id.clone());
+                    node_region.insert(tgt, region);
+                }
             } else {
                 // Top-level scalar cap.
                 plan.add_edge(MachinePlanEdge::direct(&prev_node_id, &cap_node_id));
             }
 
-            // Convergence edges: each non-main binding wires its producer's output into
-            // the named non-main arg of this cap. The producer is already emitted
-            // (emittability requires every source produced); the runtime streams it as
-            // this cap's arg, keyed by the arg URN.
-            for b in &edge.assignment {
-                if b.cap_arg_media_urn
-                    .is_equivalent(&stdin_arg_urn)
-                    .unwrap_or(false)
-                {
+            // Convergence edges: each non-main slot group wires producer output into
+            // the named non-main arg of this cap. A single-binding group wires its
+            // producer directly (the historical path); a gathered group (N≥2, a
+            // sequence arg) wires through a synthesized Collect. The runtime streams
+            // it as this cap's arg, keyed by the arg URN.
+            for (group_idx, (slot_urn, group)) in slot_groups.iter().enumerate() {
+                if slot_urn.is_equivalent(&stdin_arg_urn).unwrap_or(false) {
                     continue;
                 }
                 // The stream URN the cartridge demuxes this arg by is the arg's STDIN
@@ -351,24 +471,37 @@ impl MachinePlanBuilder {
                     .iter()
                     .find(|a| {
                         MediaUrn::from_string(&a.media_urn)
-                            .map(|u| u.is_equivalent(&b.cap_arg_media_urn).unwrap_or(false))
+                            .map(|u| u.is_equivalent(slot_urn).unwrap_or(false))
                             .unwrap_or(false)
                     })
                     .ok_or_else(|| {
                         PlannerError::InvalidPath(format!(
-                            "cap '{cap_urn_str}': convergence arg '{}' is not in the cap definition",
-                            b.cap_arg_media_urn
+                            "cap '{cap_urn_str}': convergence arg '{slot_urn}' is not in the cap definition"
                         ))
                     })?;
                 // The stream URN the cartridge demuxes this arg by: its stdin source
                 // URN if it declares one, else its declared URN (a producer-fed arg
                 // need not use stdin).
                 let stream_urn = arg_def.stream_urn().to_string();
-                let producer_node = producer
-                    .get(&b.source)
-                    .cloned()
-                    .expect("emittable: every source has a producer");
-                plan.add_edge(MachinePlanEdge::arg(&producer_node, &cap_node_id, &stream_urn));
+                if group.len() == 1 {
+                    let producer_node = producer
+                        .get(&group[0].source)
+                        .cloned()
+                        .expect("emittable: every source has a producer");
+                    plan.add_edge(MachinePlanEdge::arg(&producer_node, &cap_node_id, &stream_urn));
+                } else {
+                    let collect_id = format!("collect_{}_{group_idx}", edge.token_id);
+                    synthesize_gather_collect(
+                        &mut plan,
+                        group,
+                        arg_def,
+                        &collect_id,
+                        &producer,
+                        &node_runtime,
+                        &node_region,
+                    )?;
+                    plan.add_edge(MachinePlanEdge::arg(&collect_id, &cap_node_id, &stream_urn));
+                }
             }
 
             let out_media = edge.cap_urn.apply_to_runtime_input_media(&in_media).map_err(|e| {

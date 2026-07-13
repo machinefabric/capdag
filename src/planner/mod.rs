@@ -30,6 +30,8 @@ pub mod live_cap_fab;
 pub mod plan;
 pub mod plan_analysis;
 pub mod plan_builder;
+pub mod plan_engine;
+pub mod plan_space;
 pub mod viz;
 
 // Re-exports - Shape types (cardinality + structure)
@@ -60,6 +62,12 @@ pub use plan_analysis::{
 pub use live_cap_fab::{
     ArgSourceRef, CapInput, LiveCapFab, LiveMachinePlanEdge, LiveMachinePlanEdgeType,
     PathFindingEvent, ReachableTargetInfo, Strand, StrandStep, StrandStepType,
+};
+pub use plan_space::{
+    ConvergenceArity, ConvergenceLocation, ConvergenceMechanism, ConvergencePolicy,
+    ConvergencePresence, ConvergentTargetInfo, DivergenceLocation, DivergencePolicy,
+    DivergencePresence, PlanApex, PlanCandidate, PlanCost, PlanError, PlanMode, PlanProfile,
+    PlanRequest, RankPolicy, SearchDirection, SourceCardinality, SourceSpec, TargetSpec,
 };
 pub use plan::{
     BodyOutcome, EdgeType, ExecutionNodeType, MachineNode, MachinePlan, MachinePlanEdge,
