@@ -88,7 +88,7 @@ mod tests {
 
     /// A registry cap. `output_is_sequence` models a cap that emits a sequence
     /// (render-page-image → many pages) — the driver of ForEach.
-    fn cap(urn: &str, output_is_sequence: bool) -> Cap {
+    pub(crate) fn cap(urn: &str, output_is_sequence: bool) -> Cap {
         let cap_urn = CapUrn::from_string(urn).unwrap();
         let in_spec = cap_urn.in_spec().to_string();
         let out_spec = cap_urn.out_spec().to_string();
@@ -116,7 +116,7 @@ mod tests {
         }
     }
 
-    fn registry(caps: Vec<Cap>) -> Arc<FabricRegistry> {
+    pub(crate) fn registry(caps: Vec<Cap>) -> Arc<FabricRegistry> {
         let r = FabricRegistry::new_for_test();
         r.add_caps_to_cache(caps);
         Arc::new(r)
@@ -402,5 +402,101 @@ mod tests {
             result.is_err(),
             "two data sources into one cap must be rejected (no second stdin)"
         );
+    }
+}
+
+#[cfg(test)]
+mod anchor_cardinality_tests {
+    use super::tests::{cap, registry};
+    use crate::machine::{parse_machine_with_node_names_async, Machine};
+    use crate::planner::{ExecutionNodeType, InputCardinality, MachinePlanBuilder};
+    use std::collections::HashMap;
+
+    // TEST1446: per-anchor cardinality — a Sequence anchor feeding a scalar
+    // entry cap gets its per-file ForEach; a Single anchor beside it does not.
+    #[tokio::test]
+    async fn test1446_per_anchor_cardinality_drives_foreach() {
+        let mut concat = cap(
+            r#"cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;ext=txt""#,
+            false,
+        );
+        concat.args[0].is_sequence = true;
+        let reg = registry(vec![
+            cap(r#"cap:in="media:ext=pdf";op-a;out="media:enc=utf-8;page""#, false),
+            cap(r#"cap:in="media:ext=md";op-b;out="media:enc=utf-8;page""#, false),
+            concat,
+        ]);
+        let notation = concat!(
+            r#"[a cap:in="media:ext=pdf";op-a;out="media:enc=utf-8;page"]"#,
+            r#"[b cap:in="media:ext=md";op-b;out="media:enc=utf-8;page"]"#,
+            r#"[cat cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;ext=txt"]"#,
+            "[doc_a -> a -> x]",
+            "[doc_b -> b -> y]",
+            "[(x, y) -> cat -> z]",
+        );
+        let (machine, _) = parse_machine_with_node_names_async(notation, &reg)
+            .await
+            .expect("machine parses");
+        let _: &Machine = &machine;
+        let strand = &machine.strands()[0];
+
+        // pdf anchor: Sequence (a 3-file batch); md anchor: Single.
+        let mut cardinalities: HashMap<crate::machine::NodeId, InputCardinality> = HashMap::new();
+        for &anchor in strand.input_anchor_ids() {
+            let urn = strand.node_urn(anchor).to_string();
+            let cardinality = if urn.contains("pdf") {
+                InputCardinality::Sequence
+            } else {
+                InputCardinality::Single
+            };
+            cardinalities.insert(anchor, cardinality);
+        }
+
+        let builder = MachinePlanBuilder::new(reg.clone());
+        let plan = builder
+            .build_plan_from_machine_strand_with_anchor_cardinalities(
+                "mixed anchors",
+                strand,
+                &cardinalities,
+            )
+            .await
+            .expect("mixed-cardinality plan builds");
+
+        // Exactly ONE ForEach, and its body is op-a (the pdf leg's entry).
+        let foreach_bodies: Vec<String> = plan
+            .nodes
+            .values()
+            .filter_map(|n| match &n.node_type {
+                ExecutionNodeType::ForEach { body_entry, .. } => Some(body_entry.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(foreach_bodies.len(), 1, "only the Sequence anchor maps per file");
+        let body_cap = plan
+            .nodes
+            .get(&foreach_bodies[0])
+            .and_then(|n| n.cap_urn())
+            .expect("body entry is a cap");
+        assert!(body_cap.contains("op-a"), "the pdf leg maps per file, got {body_cap}");
+
+        // Slot cardinalities recorded per anchor.
+        let slot_cardinalities: Vec<(String, InputCardinality)> = plan
+            .nodes
+            .values()
+            .filter_map(|n| match &n.node_type {
+                ExecutionNodeType::InputSlot { expected_media_urn, cardinality, .. } => {
+                    Some((expected_media_urn.clone(), *cardinality))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(slot_cardinalities.len(), 2);
+        for (urn, cardinality) in slot_cardinalities {
+            if urn.contains("pdf") {
+                assert_eq!(cardinality, InputCardinality::Sequence);
+            } else {
+                assert_eq!(cardinality, InputCardinality::Single);
+            }
+        }
     }
 }

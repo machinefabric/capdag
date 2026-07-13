@@ -106,6 +106,33 @@ impl MachinePlanBuilder {
         strand: &crate::machine::graph::MachineStrand,
         input_cardinality: InputCardinality,
     ) -> PlannerResult<MachinePlan> {
+        // Uniform cardinality across every anchor — the historical single-anchor
+        // shape (and the multi-anchor shape where every anchor binds alike).
+        let anchor_cardinality: HashMap<crate::machine::graph::NodeId, InputCardinality> = strand
+            .input_anchor_ids()
+            .iter()
+            .map(|&a| (a, input_cardinality))
+            .collect();
+        self.build_plan_from_machine_strand_with_anchor_cardinalities(
+            name,
+            strand,
+            &anchor_cardinality,
+        )
+        .await
+    }
+
+    /// [`build_plan_from_machine_strand`] with PER-ANCHOR cardinality — the
+    /// multi-anchor (convergence-machine) run shape: each input anchor binds its
+    /// own file set, so a 3-file anchor feeding a scalar entry cap needs its
+    /// per-file ForEach while a 1-file anchor beside it does not. The map must
+    /// cover every input anchor; a missing anchor is a hard error (a run never
+    /// guesses cardinality).
+    pub async fn build_plan_from_machine_strand_with_anchor_cardinalities(
+        &self,
+        name: &str,
+        strand: &crate::machine::graph::MachineStrand,
+        anchor_cardinality: &HashMap<crate::machine::graph::NodeId, InputCardinality>,
+    ) -> PlannerResult<MachinePlan> {
         use crate::machine::graph::NodeId;
 
         let mut plan = MachinePlan::new(name);
@@ -135,12 +162,18 @@ impl MachinePlanBuilder {
         let input_anchors: Vec<NodeId> = strand.input_anchor_ids().to_vec();
         for &anchor in &input_anchors {
             let media = strand.node_urn(anchor).clone();
+            let cardinality = *anchor_cardinality.get(&anchor).ok_or_else(|| {
+                PlannerError::InvalidInput(format!(
+                    "input anchor {anchor} ('{media}') has no declared cardinality — a run \
+                     never guesses; supply one entry per input anchor"
+                ))
+            })?;
             let slot_id = format!("input_slot_{anchor}");
             plan.add_node(MachineNode::input_slot(
                 &slot_id,
                 "input",
                 &media.to_string(),
-                input_cardinality,
+                cardinality,
             ));
             node_runtime.insert(anchor, media);
             producer.insert(anchor, slot_id);
@@ -342,14 +375,19 @@ impl MachinePlanBuilder {
             let cap_node_id = edge.token_id.clone();
 
             // A ForEach wraps this cap when the edge maps per-item (`is_loop`, from
-            // notation cardinality) OR when N>1 runtime inputs make the strand input a
-            // sequence feeding a scalar-input entry cap (multi-file execution — the
-            // machine is scalar→scalar but iterates once per file).
+            // notation cardinality) OR when THIS cap's anchor binds a sequence
+            // feeding a scalar-input entry cap (multi-file execution — the
+            // machine is scalar→scalar but iterates once per file). Per-anchor:
+            // a 3-file anchor maps per item while a 1-file anchor beside it
+            // does not.
             let (cap_input_is_seq, _) = cap.sequence_shape();
-            let needs_foreach = edge.is_loop
-                || (src_is_input_anchor
-                    && matches!(input_cardinality, InputCardinality::Sequence)
-                    && !cap_input_is_seq);
+            let src_anchor_is_sequence = src_is_input_anchor
+                && matches!(
+                    anchor_cardinality.get(&src),
+                    Some(InputCardinality::Sequence)
+                );
+            let needs_foreach =
+                edge.is_loop || (src_anchor_is_sequence && !cap_input_is_seq);
 
             // Nested ForEach — a sequence produced inside a body being re-mapped — is
             // out of scope; fail hard rather than silently mis-execute.
