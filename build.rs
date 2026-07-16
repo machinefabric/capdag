@@ -48,8 +48,27 @@ fn main() {
         "schemas/cartridge-registry/registry-version.txt",
     );
 
+    bake_capdag_version();
     generate_bundled_provider_hashes(&out_dir);
     enforce_signing_pubkey_pairing();
+}
+
+/// Bake `capdag/version.txt` as the `CAPDAG_VERSION` compile-time env so
+/// `capdag --version` reports the published RELEASE version. `version.txt` is the
+/// single source of truth for the shipped version (Cargo.toml's crate `version`
+/// is an unrelated, un-bumped value); read it straight from the crate dir so no
+/// dx env plumbing is required.
+fn bake_capdag_version() {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by cargo");
+    let path = Path::new(&manifest_dir).join("version.txt");
+    println!("cargo:rerun-if-changed={}", path.display());
+    let raw = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
+    let version = raw.trim();
+    if version.is_empty() {
+        panic!("{} is empty — it must hold the capdag release version", path.display());
+    }
+    println!("cargo:rustc-env=CAPDAG_VERSION={version}");
 }
 
 /// Bake a `pub const <const_name>: u32` into `<out_file>` in OUT_DIR from the

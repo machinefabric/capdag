@@ -55,10 +55,29 @@ fn user_cartridge_dir() -> PathBuf {
 /// Bundled providers shipped beside this CLI binary (the executor's own
 /// `providers/` tree, staged by `dx capdag-bundle` with baked content
 /// hashes). Present only in a packaged build; absent for a bare `cargo run`.
+///
+/// `current_exe()` is canonicalized so a launcher SYMLINK resolves to the real
+/// binary before we look for `providers/` beside it. OS package installs put the
+/// whole bundle under a prefix (`/opt/capdag`, Homebrew `libexec`,
+/// `%ProgramFiles%\capdag`) and expose only a symlink on PATH
+/// (`/usr/bin/capdag`, `bin/capdag`); without canonicalization the providers
+/// tree would be searched beside the symlink (e.g. `/usr/bin/providers`) and
+/// discovery — hence baked-hash verification — would fail. Linux already
+/// resolves `/proc/self/exe`, but macOS/Windows need the explicit canonicalize.
 fn bundled_providers_dir() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("providers")))
+        .and_then(|exe| providers_dir_for_exe(&exe))
+}
+
+/// Resolve the `providers/` tree beside a launcher path, following symlinks.
+/// Split out from `bundled_providers_dir` so the symlink-resolution invariant
+/// every OS package depends on is unit-testable without mutating the process's
+/// real `current_exe()`.
+fn providers_dir_for_exe(exe: &std::path::Path) -> Option<PathBuf> {
+    std::fs::canonicalize(exe)
+        .ok()
+        .and_then(|real| real.parent().map(|dir| dir.join("providers")))
         .filter(|dir| dir.is_dir())
 }
 
@@ -388,6 +407,13 @@ async fn main() {
         "dev-install" => cmd_dev_install(&args).await,
         "--help" | "-h" | "help" => {
             print_usage(&args[0]);
+            process::exit(0);
+        }
+        // The RELEASE version (capdag/version.txt), baked by build.rs — this is
+        // what the OS packages and the Homebrew `test` assert against, not the
+        // unrelated Cargo crate version.
+        "--version" | "-V" | "version" => {
+            println!("capdag {}", env!("CAPDAG_VERSION"));
             process::exit(0);
         }
         token if token.ends_with(".machine") => {
@@ -2154,5 +2180,46 @@ async fn cmd_dev_install(args: &[String]) -> ! {
             eprintln!("{e}");
             process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod packaging_tests {
+    //! Invariants the OS packages (deb/rpm/Homebrew) depend on.
+    use super::providers_dir_for_exe;
+    use std::fs;
+
+    /// TEST1902: a launcher SYMLINK — the packaging pattern (`/usr/bin/capdag`
+    /// → `/opt/capdag/capdag`, Homebrew `bin/capdag` → `libexec/capdag`) — must
+    /// resolve to the REAL bundle's `providers/`, not a `providers/` beside the
+    /// symlink. This fails if `providers_dir_for_exe` stops canonicalizing.
+    #[cfg(unix)]
+    #[test]
+    fn test1902_providers_resolve_through_launcher_symlink() {
+        use std::os::unix::fs::symlink;
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("opt/capdag");
+        fs::create_dir_all(real.join("providers")).unwrap();
+        fs::write(real.join("capdag"), b"binary").unwrap();
+        let bindir = tmp.path().join("usr/bin");
+        fs::create_dir_all(&bindir).unwrap();
+        let link = bindir.join("capdag");
+        symlink(real.join("capdag"), &link).unwrap();
+
+        let got = providers_dir_for_exe(&link)
+            .expect("providers/ must resolve through the launcher symlink");
+        assert_eq!(
+            fs::canonicalize(&got).unwrap(),
+            fs::canonicalize(real.join("providers")).unwrap(),
+        );
+    }
+
+    /// TEST1903: no `providers/` beside the binary ⇒ `None` (a bare `cargo`
+    /// build / unpackaged binary — not an error, discovery just skips it).
+    #[test]
+    fn test1903_no_providers_dir_when_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("capdag"), b"binary").unwrap();
+        assert!(providers_dir_for_exe(&tmp.path().join("capdag")).is_none());
     }
 }

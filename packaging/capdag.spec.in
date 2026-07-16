@@ -1,0 +1,57 @@
+# capdag.spec.in — rpm spec for the prebuilt capdag CLI bundle.
+#
+# Rendered by `dx capdag-dist rpm` (@VERSION@ substituted), which passes the
+# staged payload root via --define "capdag_payload <dir>". The payload already
+# contains the whole bundle under opt/capdag/{capdag,providers}; this spec only
+# packages it and wires the /usr/bin/capdag launcher symlink. There is no compile
+# step here — the binary is built + baked-hash-staged by `dx capdag-bundle`.
+
+# Prebuilt binary: no debuginfo extraction, no auto-generated deps.
+%global debug_package %{nil}
+%global __brp_check_rpaths %{nil}
+AutoReqProv: no
+
+Name:           capdag
+Version:        @VERSION@
+Release:        1%{?dist}
+Summary:        Machine-notation and single-cap executor CLI
+License:        Proprietary
+URL:            https://capdag.com
+
+%description
+The capdag CLI runs machine-notation pipelines and individual capability
+executions, shipping its bundled providers (data/fetch/model cartridges) with
+baked content-hash verification. The bundle installs under /opt/capdag with a
+/usr/bin/capdag launcher.
+
+%install
+rm -rf %{buildroot}
+mkdir -p %{buildroot}
+# %{capdag_payload} is <stage>/opt/capdag/... — copy its whole tree into the
+# buildroot. Undefined macro → rpmbuild errors (fail hard), which is intended.
+cp -a %{capdag_payload}/. %{buildroot}/
+
+%files
+%dir /opt/capdag
+/opt/capdag/capdag
+/opt/capdag/providers
+
+%post
+# /usr/bin/capdag MUST be a symlink (capdag resolves providers/ relative to its
+# canonicalized real path; a copy on PATH would break discovery + hash checks).
+if command -v update-alternatives >/dev/null 2>&1; then
+    update-alternatives --install /usr/bin/capdag capdag /opt/capdag/capdag 100 \
+        || ln -sf /opt/capdag/capdag /usr/bin/capdag
+else
+    ln -sf /opt/capdag/capdag /usr/bin/capdag
+fi
+
+%postun
+# $1 == 0 on final uninstall (not on upgrade).
+if [ "$1" = 0 ]; then
+    if command -v update-alternatives >/dev/null 2>&1; then
+        update-alternatives --remove capdag /opt/capdag/capdag || rm -f /usr/bin/capdag
+    else
+        rm -f /usr/bin/capdag
+    fi
+fi
