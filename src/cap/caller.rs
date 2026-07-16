@@ -4,7 +4,7 @@
 //! an in-process direct-dispatch execution model. That stack is gone: cap
 //! invocation now goes through the bifaci relay (`RelaySwitch::execute_cap`)
 //! for out-of-process cartridges and through in-process `FrameHandler`
-//! implementations for any engine-built providers. The remaining types below
+//! implementations for any engine-built cartridges. The remaining types below
 //! are the argument/return shape both paths share.
 
 use crate::bifaci::frame::{Frame, MessageId};
@@ -17,7 +17,7 @@ use anyhow::Result;
 /// bytes over the wire.
 #[derive(Debug, Clone)]
 pub enum StdinSource {
-    /// Raw byte data - used for providers (in-process) or small inline data
+    /// Raw byte data - used for cartridges (in-process) or small inline data
     Data(Vec<u8>),
     /// File reference - used for cartridges to read files locally on Mac side
     FileReference {

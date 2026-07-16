@@ -8,7 +8,7 @@
 //! copy of the model into GPU memory.
 //!
 //! Where the cartridges come from — dev binaries, installed cartridges, or bundled
-//! providers — is orthogonal to how they are hosted and called; this runtime resolves
+//! cartridges — is orthogonal to how they are hosted and called; this runtime resolves
 //! them lazily on first need and hosts each exactly once (deduped by binary path).
 //!
 //! Reference-regime specifics vs the engine: terminal output stays in memory (the CLI
@@ -29,7 +29,7 @@ use crate::bifaci::relay_switch::RelaySwitch;
 use crate::cap::registry::FabricRegistry;
 use crate::orchestrator::execute_plan::EngineRuntime;
 use crate::orchestrator::executor::{
-    discover_bundled_provider_cartridges, segment_activity_timeout, CartridgeManager,
+    discover_bundled_cartridges, segment_activity_timeout, CartridgeManager,
     ExecutionContext,
 };
 use crate::orchestrator::types::ResolvedGraph;
@@ -44,7 +44,7 @@ pub struct CliRuntime {
     channel: CartridgeChannel,
     fabric_manifest_version: u32,
     dev_binaries: Vec<PathBuf>,
-    bundled_providers_dir: Option<PathBuf>,
+    bundled_cartridges_dir: Option<PathBuf>,
     fabric_registry: Arc<FabricRegistry>,
     /// Optional per-segment protocol trace. When set, the shared `run_segment` samples
     /// the switch's L8 snapshot live (250ms) and once at teardown, appending one JSONL
@@ -69,7 +69,7 @@ struct CliHost {
     registered_caps: HashSet<String>,
     /// Cartridge binaries already hosted — a binary serving several caps is hosted once.
     registered_paths: HashSet<PathBuf>,
-    /// Bundled providers are discovered and registered exactly once.
+    /// Bundled cartridges are discovered and registered exactly once.
     bundled_registered: bool,
 }
 
@@ -81,7 +81,7 @@ impl CliRuntime {
         channel: CartridgeChannel,
         fabric_manifest_version: u32,
         dev_binaries: Vec<PathBuf>,
-        bundled_providers_dir: Option<PathBuf>,
+        bundled_cartridges_dir: Option<PathBuf>,
         fabric_registry: Arc<FabricRegistry>,
         trace_sink: Option<Arc<ProtocolTraceSink>>,
     ) -> Self {
@@ -91,7 +91,7 @@ impl CliRuntime {
             channel,
             fabric_manifest_version,
             dev_binaries,
-            bundled_providers_dir,
+            bundled_cartridges_dir,
             fabric_registry,
             trace_sink,
             host: Mutex::new(CliHost {
@@ -145,12 +145,12 @@ impl CliHost {
             manager.resolve_cartridges(&cap_urns).await?
         };
 
-        // Bundled providers are hosted once, on the first segment, beside the resolved
+        // Bundled cartridges are hosted once, on the first segment, beside the resolved
         // dev/registry cartridges.
         if !self.bundled_registered {
-            if let Some(dir) = &rt.bundled_providers_dir {
+            if let Some(dir) = &rt.bundled_cartridges_dir {
                 resolved.extend(
-                    discover_bundled_provider_cartridges(
+                    discover_bundled_cartridges(
                         dir,
                         rt.channel,
                         rt.registry_url.as_deref(),

@@ -335,7 +335,7 @@ struct ManagedCartridge {
     path: PathBuf,
     /// Version directory for directory-based cartridges.
     /// When set, identity hashing uses the full directory tree.
-    /// When None, this is a legacy probe-based registration (providers path).
+    /// When None, this is a legacy probe-based registration (cartridges path).
     cartridge_dir: Option<PathBuf>,
     /// Child process handle (None for attached cartridges).
     process: Option<tokio::process::Child>,
@@ -478,8 +478,8 @@ impl ManagedCartridge {
                         attachment_error: None,
                         runtime_stats: None,
                         // Engine-bundled / engine-spawned external
-                        // providers are operational by construction:
-                        // the engine walked its own `providers/`
+                        // cartridges are operational by construction:
+                        // the engine walked its own `bundled-cartridges/`
                         // tree, validated the install context, and
                         // probed the cartridge synchronously before
                         // calling this constructor. There is no
@@ -599,7 +599,7 @@ impl ManagedCartridge {
 
     /// True for a cartridge registered from a version directory (the lazily-
     /// spawned, dir-backed kind). Distinguishes roster-managed installs from
-    /// attached/internal providers during a `SyncRoster`.
+    /// attached/internal cartridges during a `SyncRoster`.
     fn is_registered_dir(&self) -> bool {
         self.cartridge_dir.is_some()
     }
@@ -2347,10 +2347,10 @@ impl CartridgeHostRuntime {
                 continue;
             }
             let Some(rec) = self.cartridges[idx].installed_cartridge_record() else {
-                continue; // no resolvable identity (e.g. internal provider) — leave it
+                continue; // no resolvable identity (e.g. internal cartridge) — leave it
             };
             // Only retire dir-registered cartridges (those carry a version_dir);
-            // attached/internal providers are not part of a dir roster sync.
+            // attached/internal cartridges are not part of a dir roster sync.
             if !self.cartridges[idx].is_registered_dir() {
                 continue;
             }
@@ -2701,13 +2701,13 @@ impl CartridgeHostRuntime {
 
     /// Find which cartridge handles a given cap URN.
     ///
-    /// Uses `is_dispatchable(provider, request)` to find cartridges that can
+    /// Uses `is_dispatchable(candidate, request)` to find cartridges that can
     /// legally handle the request, then ranks by specificity.
     ///
     /// Ranking prefers:
     /// 1. Equivalent matches (distance 0)
-    /// 2. More specific providers (positive distance) - refinements
-    /// 3. More generic providers (negative distance) - fallbacks
+    /// 2. More specific candidates (positive distance) - refinements
+    /// 3. More generic candidates (negative distance) - fallbacks
     fn find_cartridge_for_cap(&self, cap_urn: &str) -> Option<usize> {
         let request_urn = match crate::CapUrn::from_string(cap_urn) {
             Ok(u) => u,
@@ -2721,7 +2721,7 @@ impl CartridgeHostRuntime {
 
         for (registered_cap, cartridge_idx) in &self.cap_table {
             if let Ok(registered_urn) = crate::CapUrn::from_string(registered_cap) {
-                // Use is_dispatchable: can this provider handle this request?
+                // Use is_dispatchable: can this candidate handle this request?
                 if registered_urn.is_dispatchable(&request_urn) {
                     let specificity = registered_urn.specificity();
                     let signed_distance = specificity as isize - request_specificity as isize;

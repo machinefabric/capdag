@@ -207,7 +207,7 @@
         "go",
         "py"
       ],
-      "canonical_desc": "TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old isText/isBinary delegates on the resolved media def are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text \u2014 has enc, is not JSON.",
+      "canonical_desc": "TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old isText/isBinary delegates on the resolved media def are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text — has enc, is not JSON.",
       "ref": {
         "rust": {
           "num": 104,
@@ -1101,7 +1101,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word (\"release\" / \"nightly\"). CapManifest rejects unknown channel values \u2014 the closed enum is {release, nightly}. A missing or unrecognized channel is a hard parse error \u2014 no defaults.",
+      "canonical_desc": "TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word (\"release\" / \"nightly\"). CapManifest rejects unknown channel values — the closed enum is {release, nightly}. A missing or unrecognized channel is a hard parse error — no defaults.",
       "ref": {
         "rust": {
           "num": 117,
@@ -1124,7 +1124,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST118: A dev manifest carries registry_url: null and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) \u2014 so an old SDK can't accidentally pass for a dev build.",
+      "canonical_desc": "TEST118: A dev manifest carries registry_url: null and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build.",
       "ref": {
         "rust": {
           "num": 118,
@@ -1337,7 +1337,7 @@
         "go",
         "py"
       ],
-      "canonical_desc": "/ Contract #2 \u2014 the GC drops the OLDEST entries by / `touchedAt`, not arbitrary keys. We seed a known age / distribution and recompute the expected victim set / independently of the production code, then assert that / the post-GC table contains exactly the entries the test / computed should survive. / / A regression where the GC e.g. iterates the dictionary and / drops the first N entries (dictionary iteration order is / arbitrary in Swift) would still pass contract #1 but fail / this one \u2014 so this is the assertion that catches a \"wrong / victims\" bug, which is the more dangerous one (silently / drops in-flight continuation frames).",
+      "canonical_desc": "/ Contract #2 — the GC drops the OLDEST entries by / `touchedAt`, not arbitrary keys. We seed a known age / distribution and recompute the expected victim set / independently of the production code, then assert that / the post-GC table contains exactly the entries the test / computed should survive. / / A regression where the GC e.g. iterates the dictionary and / drops the first N entries (dictionary iteration order is / arbitrary in Swift) would still pass contract #1 but fail / this one — so this is the assertion that catches a \"wrong / victims\" bug, which is the more dangerous one (silently / drops in-flight continuation frames).",
       "ref": {
         "rust": {
           "num": 129,
@@ -1383,21 +1383,21 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BundledProviderHashes (the slice is empty under a plain build) is rejected as BadInstallation \u2014 the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.",
+      "canonical_desc": "TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BundledCartridgeHashes (the slice is empty under a plain build) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe.",
       "ref": {
         "rust": {
           "num": 1878,
-          "fn": "test1878_bundled_provider_without_baked_hash_is_rejected",
+          "fn": "test1878_bundled_cartridge_without_baked_hash_is_rejected",
           "loc": "src/cartridge_discovery.rs:722"
         },
         "go": {
           "num": 1878,
-          "fn": "Test1878_bundled_provider_without_baked_hash_is_rejected",
+          "fn": "Test1878_bundled_cartridge_without_baked_hash_is_rejected",
           "loc": "bifaci/cartridge_discovery_test.go:185"
         },
         "py": {
           "num": 1878,
-          "fn": "test_1878_bundled_provider_without_baked_hash_is_rejected",
+          "fn": "test_1878_bundled_cartridge_without_baked_hash_is_rejected",
           "loc": "tests/test_cartridge_discovery.py:191"
         }
       }
@@ -1462,7 +1462,7 @@
       "missing": [
         "rust"
       ],
-      "canonical_desc": "Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index \u2014 preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.",
+      "canonical_desc": "Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.",
       "ref": {
         "go": {
           "num": 6276,
@@ -2924,7 +2924,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate \u2014 not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent.",
+      "canonical_desc": "TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate — not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent.",
       "ref": {
         "rust": {
           "num": 329,
@@ -2947,7 +2947,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST326: get_cartridge_by_id requires a (channel, id). Same id in the wrong channel must miss \u2014 channels are independent namespaces.",
+      "canonical_desc": "TEST326: get_cartridge_by_id requires a (channel, id). Same id in the wrong channel must miss — channels are independent namespaces.",
       "ref": {
         "rust": {
           "num": 326,
@@ -3816,7 +3816,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST489: Full path identity verification: engine \u2192 host (attach_cartridge) \u2192 cartridge",
+      "canonical_desc": "TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge",
       "ref": {
         "rust": {
           "num": 489,
@@ -4511,7 +4511,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no \"array\" variant \u2014 cardinality is carried by is_sequence on the wire, not by URN tags.",
+      "canonical_desc": "TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no \"array\" variant — cardinality is carried by is_sequence on the wire, not by URN tags.",
       "ref": {
         "rust": {
           "num": 551,
@@ -5292,7 +5292,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST593: registered_by lifecycle \u2014 set, get, clear",
+      "canonical_desc": "TEST593: registered_by lifecycle — set, get, clear",
       "ref": {
         "rust": {
           "num": 593,
@@ -5320,7 +5320,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST594: metadata_json lifecycle \u2014 set, get, clear",
+      "canonical_desc": "TEST594: metadata_json lifecycle — set, get, clear",
       "ref": {
         "rust": {
           "num": 594,
@@ -5404,7 +5404,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST598: CapOutput lifecycle \u2014 set_output, set/clear metadata",
+      "canonical_desc": "TEST598: CapOutput lifecycle — set_output, set/clear metadata",
       "ref": {
         "rust": {
           "num": 598,
@@ -6709,7 +6709,7 @@
       "missing": [
         "go"
       ],
-      "canonical_desc": "TEST662: rebuild_capabilities includes non-running cartridges' caps. cap_groups is the source of truth and advertisement does not gate on `running` \u2014 only on identity (cartridge.json present) and on `helloFailed`.",
+      "canonical_desc": "TEST662: rebuild_capabilities includes non-running cartridges' caps. cap_groups is the source of truth and advertisement does not gate on `running` — only on identity (cartridge.json present) and on `helloFailed`.",
       "ref": {
         "rust": {
           "num": 662,
@@ -6765,7 +6765,7 @@
       "missing": [
         "go"
       ],
-      "canonical_desc": "TEST665: Cap table aggregates caps from every healthy cartridge \u2014 attached/running cartridges contribute their post-HELLO cap_groups; registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view derived from cap_groups.",
+      "canonical_desc": "TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups; registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view derived from cap_groups.",
       "ref": {
         "rust": {
           "num": 665,
@@ -6931,7 +6931,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST677: build_request_frames with BASE URN \u2192 find_stream with FULL URN FAILS This documents the root cause of the cartridge_client.rs bug: sender used \"media:llm-generation-request\" (base), receiver looked for \"media:fmt=json;llm-generation-request;record\" (full). is_equivalent requires exact tag set match, so base != full.",
+      "canonical_desc": "TEST677: build_request_frames with BASE URN → find_stream with FULL URN FAILS This documents the root cause of the cartridge_client.rs bug: sender used \"media:llm-generation-request\" (base), receiver looked for \"media:fmt=json;llm-generation-request;record\" (full). is_equivalent requires exact tag set match, so base != full.",
       "ref": {
         "rust": {
           "num": 677,
@@ -6954,7 +6954,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST676: Full round-trip: build_request_frames \u2192 extract streams \u2192 find_stream succeeds",
+      "canonical_desc": "TEST676: Full round-trip: build_request_frames → extract streams → find_stream succeeds",
       "ref": {
         "rust": {
           "num": 676,
@@ -7413,7 +7413,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST734: Tests topological sort detects self-referencing cycles (A\u2192A) Verifies that self-loops are recognized as cycles and produce an error",
+      "canonical_desc": "TEST734: Tests topological sort detects self-referencing cycles (A→A) Verifies that self-loops are recognized as cycles and produce an error",
       "ref": {
         "rust": {
           "num": 734,
@@ -7441,7 +7441,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST735: Tests topological sort handles graphs with multiple independent starting nodes Verifies that parallel entry points (A\u2192C, B\u2192C) both precede their merge point in ordering",
+      "canonical_desc": "TEST735: Tests topological sort handles graphs with multiple independent starting nodes Verifies that parallel entry points (A→C, B→C) both precede their merge point in ordering",
       "ref": {
         "rust": {
           "num": 735,
@@ -8063,7 +8063,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST758: extract_suffix_from extracts collect \u2192 cap_post \u2192 output",
+      "canonical_desc": "TEST758: extract_suffix_from extracts collect → cap_post → output",
       "ref": {
         "rust": {
           "num": 758,
@@ -8119,7 +8119,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST760: Full decomposition roundtrip \u2014 prefix + body + suffix cover all cap nodes",
+      "canonical_desc": "TEST760: Full decomposition roundtrip — prefix + body + suffix cover all cap nodes",
       "ref": {
         "rust": {
           "num": 760,
@@ -8601,7 +8601,7 @@
         "py",
         "objc"
       ],
-      "canonical_desc": "TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items. getOutgoingEdges(source, true) \u2192 ForEach edge present, next_is_seq=false.",
+      "canonical_desc": "TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items. getOutgoingEdges(source, true) → ForEach edge present, next_is_seq=false.",
       "ref": {
         "rust": {
           "num": 1115,
@@ -8703,7 +8703,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request)",
+      "canonical_desc": "TEST1103: Tests that is_dispatchable has correct directionality The available cap (candidate) must be dispatchable for the requested cap (request)",
       "ref": {
         "rust": {
           "num": 1103,
@@ -8726,7 +8726,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request",
+      "canonical_desc": "TEST1104: Tests that is_dispatchable rejects when candidate cannot dispatch request",
       "ref": {
         "rust": {
           "num": 1104,
@@ -9477,7 +9477,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST891: Semantic direction specificity \u2014 more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.",
+      "canonical_desc": "TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.",
       "ref": {
         "rust": {
           "num": 891,
@@ -9801,7 +9801,7 @@
         "go",
         "py"
       ],
-      "canonical_desc": "TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario \u2014 verifies computation stays bounded)",
+      "canonical_desc": "TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded)",
       "ref": {
         "rust": {
           "num": 917,
@@ -10301,7 +10301,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST954: Standalone Collect nodes are handled as pass-through Plan: input \u2192 cap_0 \u2192 Collect \u2192 cap_1 \u2192 output The standalone Collect is transparent \u2014 the resolved edge from Collect to cap_1 should be rewritten to go from cap_0 to cap_1 directly.",
+      "canonical_desc": "TEST954: Standalone Collect nodes are handled as pass-through Plan: input → cap_0 → Collect → cap_1 → output The standalone Collect is transparent — the resolved edge from Collect to cap_1 should be rewritten to go from cap_0 to cap_1 directly.",
       "ref": {
         "rust": {
           "num": 954,
@@ -10352,7 +10352,7 @@
         "go",
         "py"
       ],
-      "canonical_desc": "/ Contract #3 \u2014 the secondary \"hard cap\" pass kicks in if / the table somehow exceeds `hardCap` (e.g. a seed that goes / over, simulating an extreme runaway). Without the / secondary pass, a single GC at the soft watermark would / not be enough to recover headroom and the table could / grow without bound between bursts.",
+      "canonical_desc": "/ Contract #3 — the secondary \"hard cap\" pass kicks in if / the table somehow exceeds `hardCap` (e.g. a seed that goes / over, simulating an extreme runaway). Without the / secondary pass, a single GC at the soft watermark would / not be enough to recover headroom and the table could / grow without bound between bursts.",
       "ref": {
         "rust": {
           "num": 987,
@@ -10375,7 +10375,7 @@
         "go",
         "py"
       ],
-      "canonical_desc": "/ Contract #1 \u2014 the GC keeps the table strictly below the / hard cap. We seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame-burst) / and call the production GC entry point. The post-state / must be at most `softWatermark` entries because the GC / drops at least `evictionFraction \u00d7 pre-state` entries in / one pass and the pre-state is below `hardCap` (i.e. one / pass is enough; the secondary \"hard cap\" pass would only / kick in if pre-state crossed the hard cap before insertion / completed, which production prevents by gc-ing on every / insert).",
+      "canonical_desc": "/ Contract #1 — the GC keeps the table strictly below the / hard cap. We seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame-burst) / and call the production GC entry point. The post-state / must be at most `softWatermark` entries because the GC / drops at least `evictionFraction × pre-state` entries in / one pass and the pre-state is below `hardCap` (i.e. one / pass is enough; the secondary \"hard cap\" pass would only / kick in if pre-state crossed the hard cap before insertion / completed, which production prevents by gc-ing on every / insert).",
       "ref": {
         "rust": {
           "num": 988,
@@ -11065,7 +11065,7 @@
       "missing": [
         "go"
       ],
-      "canonical_desc": "TEST1090: 1 file \u2192 is_sequence=false",
+      "canonical_desc": "TEST1090: 1 file → is_sequence=false",
       "ref": {
         "rust": {
           "num": 1090,
@@ -11093,7 +11093,7 @@
       "missing": [
         "go"
       ],
-      "canonical_desc": "TEST1092: 2 files \u2192 is_sequence=true",
+      "canonical_desc": "TEST1092: 2 files → is_sequence=true",
       "ref": {
         "rust": {
           "num": 1092,
@@ -11121,7 +11121,7 @@
       "missing": [
         "go"
       ],
-      "canonical_desc": "TEST1093: 1 dir with 1 file \u2192 is_sequence=false",
+      "canonical_desc": "TEST1093: 1 dir with 1 file → is_sequence=false",
       "ref": {
         "rust": {
           "num": 1093,
@@ -11149,7 +11149,7 @@
       "missing": [
         "go"
       ],
-      "canonical_desc": "TEST1094: 1 dir with 3 files \u2192 is_sequence=true",
+      "canonical_desc": "TEST1094: 1 dir with 3 files → is_sequence=true",
       "ref": {
         "rust": {
           "num": 1094,
@@ -11317,7 +11317,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST1109: Slot key uses node_id, NOT cap_urn \u2014 a slot_value keyed by cap_urn must not match.",
+      "canonical_desc": "TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match.",
       "ref": {
         "rust": {
           "num": 1109,
@@ -11345,7 +11345,7 @@
         "py",
         "objc"
       ],
-      "canonical_desc": "TEST1111: ForEach works for user-provided list sources not in the graph. User provides media:list;txt;enc=utf-8 with is_sequence=true \u2192 ForEach+cap path found.",
+      "canonical_desc": "TEST1111: ForEach works for user-provided list sources not in the graph. User provides media:list;txt;enc=utf-8 with is_sequence=true → ForEach+cap path found.",
       "ref": {
         "rust": {
           "num": 1111,
@@ -11414,7 +11414,7 @@
         "py",
         "objc"
       ],
-      "canonical_desc": "TEST1113: Multi-cap path without Collect \u2014 Collect is not synthesized. PDF\u2192disbind\u2192page\u2192summarize\u2192summary. CapStepCount=2.",
+      "canonical_desc": "TEST1113: Multi-cap path without Collect — Collect is not synthesized. PDF→disbind→page→summarize→summary. CapStepCount=2.",
       "ref": {
         "rust": {
           "num": 1113,
@@ -11483,7 +11483,7 @@
         "py",
         "objc"
       ],
-      "canonical_desc": "TEST1127: Documentation field round-trips through JSON serialize/deserialize. The body must survive multi-line markdown with CRLF, backticks, double quotes, and Unicode characters \u2014 every character must be preserved.",
+      "canonical_desc": "TEST1127: Documentation field round-trips through JSON serialize/deserialize. The body must survive multi-line markdown with CRLF, backticks, double quotes, and Unicode characters — every character must be preserved.",
       "ref": {
         "rust": {
           "num": 1127,
@@ -11552,7 +11552,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START \u2192 CHUNK(s) \u2192 STREAM_END \u2192 END",
+      "canonical_desc": "TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END",
       "ref": {
         "rust": {
           "num": 1140,
@@ -13280,17 +13280,17 @@
       "ref": {
         "rust": {
           "num": 1275,
-          "fn": "test1275_adapter_selection_dispatchable_by_specific_provider",
+          "fn": "test1275_adapter_selection_dispatchable_by_specific_candidate",
           "loc": "src/standard/caps.rs:1359"
         },
         "go": {
           "num": 1275,
-          "fn": "Test1275_adapter_selection_dispatchable_by_specific_provider",
+          "fn": "Test1275_adapter_selection_dispatchable_by_specific_candidate",
           "loc": "standard/caps_test.go:171"
         },
         "py": {
           "num": 1275,
-          "fn": "test_1275_adapter_selection_dispatchable_by_specific_provider",
+          "fn": "test_1275_adapter_selection_dispatchable_by_specific_candidate",
           "loc": "tests/test_standard_caps.py:166"
         }
       }
@@ -13702,7 +13702,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A\u2192B and B\u2192A means A is reachable from A (via A\u2192B\u2192A).",
+      "canonical_desc": "TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A).",
       "ref": {
         "rust": {
           "num": 1289,
@@ -13979,7 +13979,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST1800: Identity classifier \u2014 only explicit effect=none qualifies.",
+      "canonical_desc": "TEST1800: Identity classifier — only explicit effect=none qualifies.",
       "ref": {
         "rust": {
           "num": 1800,
@@ -14007,7 +14007,7 @@
         "rust",
         "py"
       ],
-      "canonical_desc": "TEST6728: Identity classifier \u2014 only explicit effect=none qualifies. `cap:effect=none` is the fully generic identity on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.",
+      "canonical_desc": "TEST6728: Identity classifier — only explicit effect=none qualifies. `cap:effect=none` is the fully generic identity on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.",
       "ref": {
         "go": {
           "num": 6728,
@@ -14031,7 +14031,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST1830: ?x \u2261 x? \u2261 x=? all canonicalize to ?x.",
+      "canonical_desc": "TEST1830: ?x ≡ x? ≡ x=? all canonicalize to ?x.",
       "ref": {
         "rust": {
           "num": 1830,
@@ -14065,7 +14065,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST1832: x \u2261 x=* both canonicalize to bare x.",
+      "canonical_desc": "TEST1832: x ≡ x=* both canonicalize to bare x.",
       "ref": {
         "rust": {
           "num": 1832,
@@ -14099,7 +14099,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST1835: !x \u2261 x! \u2261 x=! all canonicalize to !x.",
+      "canonical_desc": "TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x.",
       "ref": {
         "rust": {
           "num": 1835,
@@ -14166,7 +14166,7 @@
       "missing": [
         "objc"
       ],
-      "canonical_desc": "TEST1842: Full 6\u00d76 truth table \u2014 every cell must match the matrix in 04-PREDICATES.md \u00a72.5.",
+      "canonical_desc": "TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5.",
       "ref": {
         "rust": {
           "num": 1842,
@@ -14195,7 +14195,7 @@
         "go",
         "py"
       ],
-      "canonical_desc": "TEST6733: Full 6\u00d76 truth table.",
+      "canonical_desc": "TEST6733: Full 6×6 truth table.",
       "ref": {
         "js": {
           "num": 6733,
@@ -14247,7 +14247,7 @@
       "missing": [
         "go"
       ],
-      "canonical_desc": "TEST1849: latest version has a host build \u2192 Compatible, resolving to the latest version and that platform's native-format package.",
+      "canonical_desc": "TEST1849: latest version has a host build → Compatible, resolving to the latest version and that platform's native-format package.",
       "ref": {
         "rust": {
           "num": 1849,
@@ -14281,7 +14281,7 @@
       "missing": [
         "go"
       ],
-      "canonical_desc": "TEST1850: the latest version lacks a host build but an older version has one \u2192 CompatibleOutdated, resolving to the NEWEST older version with a host build (not the oldest), with a reason naming both the latest and the resolved.",
+      "canonical_desc": "TEST1850: the latest version lacks a host build but an older version has one → CompatibleOutdated, resolving to the NEWEST older version with a host build (not the oldest), with a reason naming both the latest and the resolved.",
       "ref": {
         "rust": {
           "num": 1850,
@@ -14315,7 +14315,7 @@
       "missing": [
         "go"
       ],
-      "canonical_desc": "TEST1851: no version ships a host build \u2192 Incompatible, no resolved version/package, reason states the host platform.",
+      "canonical_desc": "TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform.",
       "ref": {
         "rust": {
           "num": 1851,
@@ -14382,7 +14382,7 @@
         "go",
         "objc"
       ],
-      "canonical_desc": "TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 \u2014 the exact form the registry uses.",
+      "canonical_desc": "TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses.",
       "ref": {
         "rust": {
           "num": 1853,
@@ -14405,7 +14405,7 @@
       "missing": [
         "go"
       ],
-      "canonical_desc": "TEST1873: an unset env (nil) yields nil \u2014 a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only \"Primary \u00b7 built-in\" row.",
+      "canonical_desc": "TEST1873: an unset env (nil) yields nil — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only \"Primary · built-in\" row.",
       "ref": {
         "rust": {
           "num": 1873,
@@ -14669,7 +14669,7 @@
         "rust",
         "objc"
       ],
-      "canonical_desc": "TEST141: URL has the right shape \u2014 protocol, host, /caps/ prefix, 64 hex chars, no extension.",
+      "canonical_desc": "TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension.",
       "ref": {
         "go": {
           "num": 141,
@@ -14859,7 +14859,7 @@
         "rust",
         "py"
       ],
-      "canonical_desc": "TEST551: IsFilePath returns true for the single file-path media URN, false for everything else. There is no \"array\" variant \u2014 cardinality is carried by is_sequence on the wire, not by URN tags.",
+      "canonical_desc": "TEST551: IsFilePath returns true for the single file-path media URN, false for everything else. There is no \"array\" variant — cardinality is carried by is_sequence on the wire, not by URN tags.",
       "ref": {
         "go": {
           "num": 551,
@@ -15002,7 +15002,7 @@
       "missing": [
         "rust"
       ],
-      "canonical_desc": "TEST1846: Decoded layout \u2014 10000*out + 100*in + y.",
+      "canonical_desc": "TEST1846: Decoded layout — 10000*out + 100*in + y.",
       "ref": {
         "go": {
           "num": 1846,
@@ -15268,7 +15268,7 @@
         "rust",
         "py"
       ],
-      "canonical_desc": "TEST6388: Per-cap URL is /caps/<sha256-hex> \u2014 no URN-grammar characters in the path, no percent-encoding gymnastics.",
+      "canonical_desc": "TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics.",
       "ref": {
         "go": {
           "num": 6388,
@@ -15457,7 +15457,7 @@
         "go",
         "py"
       ],
-      "canonical_desc": "TEST1853: hostPlatform() returns a normalized {os}-{arch} string with arch aarch64/arm64 mapped to arm64 \u2014 the exact form the registry uses.",
+      "canonical_desc": "TEST1853: hostPlatform() returns a normalized {os}-{arch} string with arch aarch64/arm64 mapped to arm64 — the exact form the registry uses.",
       "ref": {
         "js": {
           "num": 1853,

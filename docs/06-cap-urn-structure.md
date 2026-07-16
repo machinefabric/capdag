@@ -433,11 +433,11 @@ cap:in="media:bytes;ext=pdf";out="media:record"
 When matching direction specs, use Media URN matching:
 
 ```rust
-let provider_in = MediaUrn::from_string("media:bytes")?;
+let candidate_in = MediaUrn::from_string("media:bytes")?;
 let request_in = MediaUrn::from_string("media:bytes;ext=pdf")?;
 
-// For dispatch: request_in must conform to provider_in
-request_in.conforms_to(&provider_in)  // true
+// For dispatch: request_in must conform to candidate_in
+request_in.conforms_to(&candidate_in)  // true
 ```
 
 ---

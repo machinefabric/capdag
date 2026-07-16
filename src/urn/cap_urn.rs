@@ -796,31 +796,31 @@ impl CapUrn {
         self.accepts(other) && other.accepts(self)
     }
 
-    /// Check if this provider can dispatch (handle) the given request.
+    /// Check if this candidate can dispatch (handle) the given request.
     ///
     /// This is the PRIMARY predicate for routing/dispatch decisions.
     ///
-    /// A provider is dispatchable for a request iff:
-    /// 1. Input axis: provider can handle request's input (provider.in same or more specific)
-    /// 2. Output axis: provider meets request's output needs (provider.out same or more specific)
-    /// 3. Cap-tags: provider satisfies all explicit request tags, may add more
+    /// A candidate is dispatchable for a request iff:
+    /// 1. Input axis: candidate can handle request's input (candidate.in same or more specific)
+    /// 2. Output axis: candidate meets request's output needs (candidate.out same or more specific)
+    /// 3. Cap-tags: candidate satisfies all explicit request tags, may add more
     ///
-    /// Key insight: This is NOT symmetric. `provider.is_dispatchable(&request)` may be true
-    /// while `request.is_dispatchable(&provider)` is false.
+    /// Key insight: This is NOT symmetric. `candidate.is_dispatchable(&request)` may be true
+    /// while `request.is_dispatchable(&candidate)` is false.
     ///
     /// # Arguments
     /// * `request` - The request URN (partial specification, may have wildcards)
     ///
     /// # Returns
-    /// * `true` if this provider can legally handle the request
+    /// * `true` if this candidate can legally handle the request
     /// * `false` if there's a contradiction or incompatibility
     pub fn is_dispatchable(&self, request: &CapUrn) -> bool {
-        // Axis 1: Input - provider must handle at least what request specifies
+        // Axis 1: Input - candidate must handle at least what request specifies
         if !self.input_dispatchable(request) {
             return false;
         }
 
-        // Axis 2: Output - provider must produce at least what request needs
+        // Axis 2: Output - candidate must produce at least what request needs
         if !self.output_dispatchable(request) {
             return false;
         }
@@ -829,7 +829,7 @@ impl CapUrn {
             return false;
         }
 
-        // Axis 3: Cap-tags - provider must satisfy explicit request constraints
+        // Axis 3: Cap-tags - candidate must satisfy explicit request constraints
         if !self.cap_tags_dispatchable(request) {
             return false;
         }
@@ -837,28 +837,28 @@ impl CapUrn {
         true
     }
 
-    /// Check if provider's input is dispatchable for request's input.
+    /// Check if candidate's input is dispatchable for request's input.
     ///
-    /// Input is CONTRAVARIANT: provider with looser input constraint can handle
+    /// Input is CONTRAVARIANT: candidate with looser input constraint can handle
     /// request with stricter input. `media:` is the identity (top) and means
     /// "unconstrained" — vacuously true on either side.
     ///
-    /// - Request `in=media:` (unconstrained) + any provider -> YES (no constraint)
-    /// - Provider `in=media:` (accepts any) + Request `in=media:ext=pdf` -> YES (provider accepts any)
-    /// - Both specific -> request input must conform to provider's accepted input
+    /// - Request `in=media:` (unconstrained) + any candidate -> YES (no constraint)
+    /// - Candidate `in=media:` (accepts any) + Request `in=media:ext=pdf` -> YES (candidate accepts any)
+    /// - Both specific -> request input must conform to candidate's accepted input
     fn input_dispatchable(&self, request: &CapUrn) -> bool {
-        // Request wildcard: any provider input is fine (request doesn't constrain what it sends)
+        // Request wildcard: any candidate input is fine (request doesn't constrain what it sends)
         if request.in_urn == "media:" {
             return true;
         }
 
-        // Provider wildcard: provider accepts any input, including request's specific input
+        // Candidate wildcard: candidate accepts any input, including request's specific input
         if self.in_urn == "media:" {
             return true;
         }
 
-        // Both specific: request input must conform to provider's input requirement
-        // (request sends something the provider can handle)
+        // Both specific: request input must conform to candidate's input requirement
+        // (request sends something the candidate can handle)
         let req_in = match MediaUrn::from_string(&request.in_urn) {
             Ok(u) => u,
             Err(_) => return false,
@@ -868,29 +868,29 @@ impl CapUrn {
             Err(_) => return false,
         };
 
-        // Request input conforms to provider input = request sends what provider can handle
+        // Request input conforms to candidate input = request sends what candidate can handle
         req_in.conforms_to(&prov_in).unwrap_or(false)
     }
 
-    /// Check if provider's output is dispatchable for request's output.
+    /// Check if candidate's output is dispatchable for request's output.
     ///
     /// Rules:
-    /// - Request wildcard (media:): any provider output is acceptable
-    /// - Otherwise: provider output must conform to (be same or more specific than) request output
+    /// - Request wildcard (media:): any candidate output is acceptable
+    /// - Otherwise: candidate output must conform to (be same or more specific than) request output
     fn output_dispatchable(&self, request: &CapUrn) -> bool {
-        // Request wildcard: any provider output is fine
+        // Request wildcard: any candidate output is fine
         if request.out_urn == "media:" {
             return true;
         }
 
-        // Provider wildcard: cannot guarantee specific output request needs
+        // Candidate wildcard: cannot guarantee specific output request needs
         // This is asymmetric with input! Generic output doesn't satisfy specific requirement.
         if self.out_urn == "media:" {
             return false;
         }
 
-        // Both specific: provider output must conform to request output
-        // (provider can be same or more specific - providing more is OK)
+        // Both specific: candidate output must conform to request output
+        // (candidate can be same or more specific - providing more is OK)
         let req_out = match MediaUrn::from_string(&request.out_urn) {
             Ok(u) => u,
             Err(_) => return false,
@@ -900,11 +900,11 @@ impl CapUrn {
             Err(_) => return false,
         };
 
-        // Provider output conforms to request output = provider guarantees at least what request needs
+        // Candidate output conforms to request output = candidate guarantees at least what request needs
         prov_out.conforms_to(&req_out).unwrap_or(false)
     }
 
-    /// Check if provider's effect satisfies request's requested effect.
+    /// Check if candidate's effect satisfies request's requested effect.
     ///
     /// Omitted `effect` means `declared`, not unconstrained. Unconstrained
     /// matching must be requested explicitly via `?effect` / `effect=*`.
@@ -912,19 +912,19 @@ impl CapUrn {
         request.effect == "?" || self.effect == request.effect
     }
 
-    /// Check if provider's cap-tags are dispatchable for request's cap-tags.
+    /// Check if candidate's cap-tags are dispatchable for request's cap-tags.
     ///
     /// Rules:
-    /// - Every explicit request tag must be satisfied by provider
-    /// - Provider may have extra tags (refinement is OK)
+    /// - Every explicit request tag must be satisfied by candidate
+    /// - Candidate may have extra tags (refinement is OK)
     /// - Wildcard (*) in request means any value acceptable
-    /// - Wildcard (*) in provider means provider can handle any value
+    /// - Wildcard (*) in candidate means candidate can handle any value
     fn cap_tags_dispatchable(&self, request: &CapUrn) -> bool {
         // Every per-key match runs through the six-form truth table
         // (TaggedUrn::values_match). For dispatch, the request is the
-        // pattern (declares constraints the provider must satisfy)
-        // and the provider is the instance. Walk the union of keys
-        // so absent-on-provider cells against present-on-request
+        // pattern (declares constraints the candidate must satisfy)
+        // and the candidate is the instance. Walk the union of keys
+        // so absent-on-candidate cells against present-on-request
         // patterns are evaluated correctly.
         let all_keys: std::collections::HashSet<&String> =
             self.tags.keys().chain(request.tags.keys()).collect();
@@ -2465,7 +2465,7 @@ mod tests {
         );
     }
 
-    // TEST890: Semantic direction matching - generic provider matches specific request
+    // TEST890: Semantic direction matching - generic candidate matches specific request
     #[test]
     fn test890_direction_semantic_matching() {
         // A cap accepting media: (generic wildcard) should match a request with media:ext=pdf (specific)
@@ -2480,7 +2480,7 @@ mod tests {
         .unwrap();
         assert!(
             generic_cap.accepts(&pdf_request),
-            "Generic wildcard provider must match specific pdf request"
+            "Generic wildcard candidate must match specific pdf request"
         );
 
         // Generic cap also matches epub (any media subtype)
@@ -2490,7 +2490,7 @@ mod tests {
         .unwrap();
         assert!(
             generic_cap.accepts(&epub_request),
-            "Generic wildcard provider must match epub request"
+            "Generic wildcard candidate must match epub request"
         );
 
         // Reverse: specific cap does NOT match generic request
@@ -2582,7 +2582,7 @@ mod tests {
         assert_eq!(
             best.in_spec(),
             "media:ext=pdf",
-            "CapMatcher must prefer the more specific pdf provider"
+            "CapMatcher must prefer the more specific pdf candidate"
         );
     }
 }
@@ -2807,11 +2807,11 @@ fn test0127_invalid_effect_none_fails_hard() {
 // TEST0128: omitted effect means declared; unconstrained effect must be explicit
 #[test]
 fn test0128_effect_dispatch_requires_explicit_wildcard() {
-    let none_provider = CapUrn::from_string("cap:effect=none").unwrap();
+    let none_candidate = CapUrn::from_string("cap:effect=none").unwrap();
     let declared_request = CapUrn::from_string("cap:raw").unwrap();
     let any_request = CapUrn::from_string("cap:?effect").unwrap();
-    assert!(!none_provider.is_dispatchable(&declared_request));
-    assert!(none_provider.is_dispatchable(&any_request));
+    assert!(!none_candidate.is_dispatchable(&declared_request));
+    assert!(none_candidate.is_dispatchable(&any_request));
 }
 
 #[cfg(test)]
@@ -3023,8 +3023,8 @@ mod tier_tests {
     // TEST568: is_dispatchable with different tag order in output spec
     #[test]
     fn test568_dispatch_output_tag_order() {
-        // Provider has: enc=utf-8;record
-        let provider = CapUrn::from_string(
+        // Candidate has: enc=utf-8;record
+        let candidate = CapUrn::from_string(
             r#"cap:in="media:enc=utf-8;model-spec";download-model;out="media:enc=utf-8;download-result;record""#
         ).unwrap();
         // Request has: record;enc=utf-8 (same tags, different order)
@@ -3034,81 +3034,81 @@ mod tier_tests {
 
         // After parsing, both should be normalized to same canonical form
         assert_eq!(
-            provider.out_spec(),
+            candidate.out_spec(),
             request.out_spec(),
             "Output specs should be normalized to same canonical form"
         );
 
         // And dispatch should work
         assert!(
-            provider.is_dispatchable(&request),
-            "Provider should dispatch request with same tags in different order"
+            candidate.is_dispatchable(&request),
+            "Candidate should dispatch request with same tags in different order"
         );
     }
 
-    // TEST823: is_dispatchable — exact match provider dispatches request
+    // TEST823: is_dispatchable — exact match candidate dispatches request
     #[test]
     fn test823_dispatch_exact_match() {
-        let provider =
+        let candidate =
             CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out="media:enc=utf-8;record""#).unwrap();
         let request =
             CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out="media:enc=utf-8;record""#).unwrap();
-        assert!(provider.is_dispatchable(&request));
+        assert!(candidate.is_dispatchable(&request));
     }
 
-    // TEST824: is_dispatchable — provider with broader input handles specific request (contravariance)
+    // TEST824: is_dispatchable — candidate with broader input handles specific request (contravariance)
     #[test]
     fn test824_dispatch_contravariant_input() {
-        let provider =
+        let candidate =
             CapUrn::from_string(r#"cap:analyze;in=media:;out="media:enc=utf-8;record""#).unwrap();
         let request =
             CapUrn::from_string(r#"cap:analyze;in="media:ext=pdf";out="media:enc=utf-8;record""#).unwrap();
-        assert!(provider.is_dispatchable(&request));
+        assert!(candidate.is_dispatchable(&request));
     }
 
-    // TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider
+    // TEST825: is_dispatchable — request with unconstrained input dispatches to specific candidate
     // media: on the request input axis means "unconstrained" — vacuously true
     #[test]
     fn test825_dispatch_request_unconstrained_input() {
-        let provider =
+        let candidate =
             CapUrn::from_string(r#"cap:analyze;in="media:ext=pdf";out="media:enc=utf-8;record""#).unwrap();
         let request =
             CapUrn::from_string(r#"cap:analyze;in=media:;out="media:enc=utf-8;record""#).unwrap();
         assert!(
-            provider.is_dispatchable(&request),
+            candidate.is_dispatchable(&request),
             "Request in=media: is unconstrained — axis is vacuously true"
         );
     }
 
-    // TEST826: is_dispatchable — provider output must satisfy request output (covariance)
+    // TEST826: is_dispatchable — candidate output must satisfy request output (covariance)
     #[test]
     fn test826_dispatch_covariant_output() {
-        let provider =
+        let candidate =
             CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out="media:enc=utf-8;record""#).unwrap();
         let request =
             CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out="media:enc=utf-8""#).unwrap();
         assert!(
-            provider.is_dispatchable(&request),
-            "Provider output enc=utf-8;record conforms to request output enc=utf-8"
+            candidate.is_dispatchable(&request),
+            "Candidate output enc=utf-8;record conforms to request output enc=utf-8"
         );
     }
 
-    // TEST827: is_dispatchable — provider with generic output cannot satisfy specific request
+    // TEST827: is_dispatchable — candidate with generic output cannot satisfy specific request
     #[test]
     fn test827_dispatch_generic_output_fails() {
-        let provider = CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out=media:"#).unwrap();
+        let candidate = CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out=media:"#).unwrap();
         let request =
             CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out="media:enc=utf-8;record""#).unwrap();
         assert!(
-            !provider.is_dispatchable(&request),
-            "Provider out=media: cannot guarantee specific output"
+            !candidate.is_dispatchable(&request),
+            "Candidate out=media: cannot guarantee specific output"
         );
     }
 
-    // TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject
+    // TEST828: is_dispatchable — wildcard * tag in request, candidate missing tag → reject
     #[test]
     fn test828_dispatch_wildcard_requires_tag_presence() {
-        let provider = CapUrn::from_string(
+        let candidate = CapUrn::from_string(
             r#"cap:in=media:model-spec;out="media:enc=utf-8;record";run-inference"#,
         )
         .unwrap();
@@ -3117,15 +3117,15 @@ mod tier_tests {
         )
         .unwrap();
         assert!(
-            !provider.is_dispatchable(&request),
-            "Wildcard * means tag must be present — provider has no candle tag"
+            !candidate.is_dispatchable(&request),
+            "Wildcard * means tag must be present — candidate has no candle tag"
         );
     }
 
-    // TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept
+    // TEST829: is_dispatchable — wildcard * tag in request, candidate has tag → accept
     #[test]
     fn test829_dispatch_wildcard_with_tag_present() {
-        let provider = CapUrn::from_string(
+        let candidate = CapUrn::from_string(
             r#"cap:candle=metal;in=media:model-spec;out="media:enc=utf-8;record";run-inference"#,
         )
         .unwrap();
@@ -3134,15 +3134,15 @@ mod tier_tests {
         )
         .unwrap();
         assert!(
-            provider.is_dispatchable(&request),
-            "Provider has candle=metal, request has candle=* — tag present, any value OK"
+            candidate.is_dispatchable(&request),
+            "Candidate has candle=metal, request has candle=* — tag present, any value OK"
         );
     }
 
-    // TEST830: is_dispatchable — provider extra tags are refinement, always OK
+    // TEST830: is_dispatchable — candidate extra tags are refinement, always OK
     #[test]
-    fn test830_dispatch_provider_extra_tags() {
-        let provider = CapUrn::from_string(
+    fn test830_dispatch_candidate_extra_tags() {
+        let candidate = CapUrn::from_string(
             r#"cap:candle=metal;in=media:model-spec;out="media:enc=utf-8;record";run-inference"#,
         )
         .unwrap();
@@ -3151,15 +3151,15 @@ mod tier_tests {
         )
         .unwrap();
         assert!(
-            provider.is_dispatchable(&request),
-            "Provider extra tag candle=metal is refinement — always OK"
+            candidate.is_dispatchable(&request),
+            "Candidate extra tag candle=metal is refinement — always OK"
         );
     }
 
     // TEST831: is_dispatchable — cross-backend mismatch prevented
     #[test]
     fn test831_dispatch_cross_backend_mismatch() {
-        let gguf_provider = CapUrn::from_string(
+        let gguf_candidate = CapUrn::from_string(
             r#"cap:gguf=q4_k_m;in=media:model-spec;out="media:enc=utf-8;record";run-inference"#,
         )
         .unwrap();
@@ -3168,8 +3168,8 @@ mod tier_tests {
         )
         .unwrap();
         assert!(
-            !gguf_provider.is_dispatchable(&candle_request),
-            "GGUF provider has no candle tag — cross-backend mismatch"
+            !gguf_candidate.is_dispatchable(&candle_request),
+            "GGUF candidate has no candle tag — cross-backend mismatch"
         );
     }
 
@@ -3179,13 +3179,13 @@ mod tier_tests {
         let broad =
             CapUrn::from_string(r#"cap:in=media:;out="media:enc=utf-8;record";process"#).unwrap();
         let narrow = CapUrn::from_string(r#"cap:in="media:ext=pdf";out="media:enc=utf-8";process"#).unwrap();
-        // broad provider CAN dispatch narrow request:
-        //   input:  provider in=media: accepts anything → OK
-        //   output: provider out=media:enc=utf-8;record conforms to request out=media:enc=utf-8 → OK
+        // broad candidate CAN dispatch narrow request:
+        //   input:  candidate in=media: accepts anything → OK
+        //   output: candidate out=media:enc=utf-8;record conforms to request out=media:enc=utf-8 → OK
         assert!(broad.is_dispatchable(&narrow));
-        // narrow provider CANNOT dispatch broad request:
+        // narrow candidate CANNOT dispatch broad request:
         //   input:  request in=media: unconstrained → OK
-        //   output: provider out=media:enc=utf-8, request out=media:enc=utf-8;record
+        //   output: candidate out=media:enc=utf-8, request out=media:enc=utf-8;record
         //           enc=utf-8 does NOT conform to enc=utf-8;record → FAIL
         assert!(!narrow.is_dispatchable(&broad));
     }
@@ -3234,23 +3234,23 @@ mod tier_tests {
     // TEST837: is_dispatchable — op tag mismatch rejects
     #[test]
     fn test837_dispatch_op_mismatch() {
-        let provider =
+        let candidate =
             CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out="media:enc=utf-8;record""#).unwrap();
         let request =
             CapUrn::from_string(r#"cap:in="media:ext=pdf";out="media:enc=utf-8;record";summarize"#)
                 .unwrap();
-        assert!(!provider.is_dispatchable(&request));
+        assert!(!candidate.is_dispatchable(&request));
     }
 
-    // TEST838: is_dispatchable — request with wildcard output accepts any provider output
+    // TEST838: is_dispatchable — request with wildcard output accepts any candidate output
     #[test]
     fn test838_dispatch_request_wildcard_output() {
-        let provider =
+        let candidate =
             CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out="media:enc=utf-8;record""#).unwrap();
         let request = CapUrn::from_string(r#"cap:extract;in="media:ext=pdf";out=media:"#).unwrap();
         assert!(
-            provider.is_dispatchable(&request),
-            "Request out=media: is unconstrained — any provider output accepted"
+            candidate.is_dispatchable(&request),
+            "Request out=media: is unconstrained — any candidate output accepted"
         );
     }
 

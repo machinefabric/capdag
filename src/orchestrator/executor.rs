@@ -418,7 +418,7 @@ pub struct CartridgeManager {
     /// `{cartridge_dir}/{channel}/{cartridge_id}/{version}/`.
     cartridge_dir: PathBuf,
     /// The cartridge registry this manager installs from. `None` = a build
-    /// with no baked registry (dev): only dev binaries and bundled providers
+    /// with no baked registry (dev): only dev binaries and bundled cartridges
     /// exist, and any cap that would need a registry download hard-errors.
     registry_url: Option<String>,
     /// Signing trust anchors (baked roots + environment). Required for every
@@ -569,7 +569,7 @@ impl CartridgeManager {
         self.registry_url.as_deref().ok_or_else(|| {
             ExecutionError::CartridgeDownloadFailed(format!(
                 "{context}: this build bakes no cartridge registry — registry installs and \
-                 downloads are disabled in dev builds (use --dev-bins or a bundled provider)"
+                 downloads are disabled in dev builds (use --dev-bins or a bundled cartridge)"
             ))
         })
     }
@@ -741,7 +741,7 @@ impl CartridgeManager {
         // "Resolution vs. dispatch: which predicate?".
         for (bin_path, manifest) in &self.dev_cartridges {
             for cap in manifest.all_caps() {
-                // cap.urn is the declared provider cap; requested_urn is the
+                // cap.urn is the declared candidate cap; requested_urn is the
                 // resolved cap we must run.
                 if cap.urn.is_equivalent(&requested_urn) {
                     return Ok((bin_path.clone(), format!("dev:{}", bin_path.display())));
@@ -1871,7 +1871,7 @@ async fn run_group_chain(
             return Err(ExecutionError::HostError(format!(
                 "execute_cap '{}': no master advertised a cap dispatchable for \
                  this request within {}s — RelayNotify never arrived, the \
-                 identity probe failed, or no provider conforms to this cap",
+                 identity probe failed, or no candidate conforms to this cap",
                 cap_urn,
                 CAP_DISPATCH_READY_TIMEOUT.as_secs(),
             )));
@@ -2815,14 +2815,14 @@ pub(crate) type HostableCartridge = (
     Vec<crate::bifaci::manifest::CapGroup>,
 );
 
-/// Discover the host's BUNDLED providers (shipped beside the executor, e.g. the capdag
-/// CLI's own `providers/` tree) as hostable cartridges. Uses the shared
+/// Discover the host's BUNDLED cartridges (shipped beside the executor, e.g. the capdag
+/// CLI's own `bundled-cartridges/` tree) as hostable cartridges. Uses the shared
 /// `discover_cartridges`, so they pass the same identity + bundled-hash integrity checks
 /// the engine applies. Each `Incompatible` entry is logged and skipped (discovery
 /// already surfaced the reason). An absent directory yields an empty list. Shared by
 /// [`execute_dag`] and the CLI runtime.
-pub(crate) async fn discover_bundled_provider_cartridges(
-    providers_dir: &std::path::Path,
+pub(crate) async fn discover_bundled_cartridges(
+    bundled_cartridges_dir: &std::path::Path,
     channel: crate::bifaci::cartridge_repo::CartridgeChannel,
     registry_url: Option<&str>,
     fabric_manifest_version: u32,
@@ -2834,9 +2834,9 @@ pub(crate) async fn discover_bundled_provider_cartridges(
         cartridge_registry_version: crate::CARTRIDGE_REGISTRY_VERSION,
     };
     let mut out = Vec::new();
-    for discovered in crate::cartridge_discovery::discover_cartridges(providers_dir, &identity)
+    for discovered in crate::cartridge_discovery::discover_cartridges(bundled_cartridges_dir, &identity)
         .await
-        .map_err(|e| ExecutionError::HostError(format!("bundled provider discovery failed: {e}")))?
+        .map_err(|e| ExecutionError::HostError(format!("bundled cartridge discovery failed: {e}")))?
     {
         match discovered {
             crate::cartridge_discovery::DiscoveredCartridge::Directory {
@@ -2853,8 +2853,8 @@ pub(crate) async fn discover_bundled_provider_cartridges(
                 id, version, error, ..
             } => {
                 tracing::error!(
-                    provider = %id, version = %version, reason = %error.message,
-                    "bundled provider rejected at discovery — not hosted"
+                    cartridge = %id, version = %version, reason = %error.message,
+                    "bundled cartridge rejected at discovery — not hosted"
                 );
             }
         }
@@ -2871,7 +2871,7 @@ pub async fn execute_dag(
     initial_inputs: HashMap<String, NodeData>,
     initial_is_sequence: HashMap<String, bool>,
     dev_binaries: Vec<PathBuf>,
-    bundled_providers_dir: Option<PathBuf>,
+    bundled_cartridges_dir: Option<PathBuf>,
     fabric_registry: Arc<FabricRegistry>,
     progress_fn: Option<&CapProgressFn>,
     log_fn: &PipelineLogFn,
@@ -2901,13 +2901,13 @@ pub async fn execute_dag(
     let cap_urns: Vec<&str> = graph.edges.iter().map(|e| e.cap_urn.as_str()).collect();
     let mut cartridges = cartridge_manager.resolve_cartridges(&cap_urns).await?;
 
-    // 1b. Register the host's BUNDLED providers (shipped beside the executor) alongside
+    // 1b. Register the host's BUNDLED cartridges (shipped beside the executor) alongside
     // the dev/registry cartridges. Shared discovery + integrity checks live in
-    // `discover_bundled_provider_cartridges`. Absent dir ⇒ no bundled providers.
-    if let Some(providers_dir) = bundled_providers_dir {
+    // `discover_bundled_cartridges`. Absent dir ⇒ no bundled cartridges.
+    if let Some(bundled_cartridges_dir) = bundled_cartridges_dir {
         cartridges.extend(
-            discover_bundled_provider_cartridges(
-                &providers_dir,
+            discover_bundled_cartridges(
+                &bundled_cartridges_dir,
                 channel,
                 registry_url.as_deref(),
                 fabric_manifest_version,

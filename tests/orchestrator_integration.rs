@@ -455,7 +455,7 @@ async fn test889_execute_single_edge_dag() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        None, // no bundled providers in these unit fixtures
+        None, // no bundled cartridges in these unit fixtures
         fabric_registry,
         None,
         &test_pipeline_log_fn(),
@@ -505,7 +505,7 @@ async fn test888_execute_edge1_to_edge2_chain() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        None, // no bundled providers in these unit fixtures
+        None, // no bundled cartridges in these unit fixtures
         fabric_registry,
         None,
         &test_pipeline_log_fn(),
@@ -556,7 +556,7 @@ async fn test887_execute_with_file_input() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        None, // no bundled providers in these unit fixtures
+        None, // no bundled cartridges in these unit fixtures
         create_test_fabric_registry(),
         None,
         &test_pipeline_log_fn(),
@@ -603,7 +603,7 @@ async fn test952_execute_large_payload() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        None, // no bundled providers in these unit fixtures
+        None, // no bundled cartridges in these unit fixtures
         create_test_fabric_registry(),
         None,
         &test_pipeline_log_fn(),
@@ -818,7 +818,7 @@ async fn test946_four_machine() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        None, // no bundled providers in these unit fixtures
+        None, // no bundled cartridges in these unit fixtures
         create_test_fabric_registry(),
         None,
         &test_pipeline_log_fn(),
@@ -878,7 +878,7 @@ async fn test945_five_machine() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        None, // no bundled providers in these unit fixtures
+        None, // no bundled cartridges in these unit fixtures
         create_test_fabric_registry(),
         None,
         &test_pipeline_log_fn(),
@@ -938,7 +938,7 @@ async fn test944_six_machine() {
         initial_inputs,
         initial_is_sequence,
         dev_binaries,
-        None, // no bundled providers in these unit fixtures
+        None, // no bundled cartridges in these unit fixtures
         create_test_fabric_registry(),
         None,
         &test_pipeline_log_fn(),

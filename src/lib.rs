@@ -30,7 +30,7 @@
 
 pub mod bifaci;
 pub mod cap;
-pub mod bundled_provider_hashes;
+pub mod bundled_cartridge_hashes;
 pub mod cartridge_discovery;
 pub mod cartridge_registry_version;
 pub mod dev;
@@ -78,7 +78,7 @@ pub use fabric::alias::{
 // Build-time-baked fabric manifest version (see capdag/build.rs).
 pub use cartridge_registry_version::CARTRIDGE_REGISTRY_VERSION;
 pub use fabric_manifest_version::FABRIC_MANIFEST_VERSION;
-pub use bundled_provider_hashes::BUNDLED_PROVIDER_HASHES;
+pub use bundled_cartridge_hashes::BUNDLED_CARTRIDGE_HASHES;
 
 // Cartridge binary + manifest signing (minisign / ed25519): runtime
 // verification of registry-downloaded pure-binary artifacts and signed

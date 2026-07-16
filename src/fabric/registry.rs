@@ -1200,7 +1200,7 @@ impl FabricRegistry {
     /// concrete cap can handle THIS input?") with `is_dispatchable`.
     ///
     /// The request is the abstract cap specialized on `input_media` (and, if
-    /// given, `target` as the output). A concrete provider matches iff its
+    /// given, `target` as the output). A concrete candidate matches iff its
     /// declared cap URN `is_dispatchable` for that request. Exactly one match →
     /// that cap; zero → `NoHandler`; more than one → `Ambiguous`.
     pub async fn narrow_abstract_cap(
@@ -1222,7 +1222,7 @@ impl FabricRegistry {
             .await
             .map_err(|e| CapNarrowError::Registry(e.to_string()))?;
 
-        // Concrete providers whose declared cap can legally handle the request.
+        // Concrete candidates whose declared cap can legally handle the request.
         // Dedup by canonical URN string (a cap could appear once per cartridge).
         let mut seen = std::collections::BTreeSet::new();
         let mut matches: Vec<crate::CapUrn> = Vec::new();

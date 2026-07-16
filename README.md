@@ -8,11 +8,11 @@ CapDAG provides a formal system for defining, matching, and managing capabilitie
 
 - **Required direction specifiers** (`in`/`out`) for input/output media types
 - **Media URN validation** for type-safe capability contracts
-- **Capability registries** for provider discovery and selection
+- **Capability registries** for candidate discovery and selection
 - **Schema validation** for capability arguments and outputs
 
 The system is designed for scenarios where:
-- Multiple providers can implement the same capability
+- Multiple candidates can implement the same capability
 - Capability selection should prioritize specificity
 - Runtime capability discovery and validation is required
 - Cross-language compatibility is needed
@@ -132,14 +132,14 @@ Capabilities match requests based on per-tag value semantics:
 | `K=v` | Must-have, exact value | NO | OK | NO |
 
 ```rust
-let provider = CapUrn::from_string(
+let candidate = CapUrn::from_string(
     "cap:in=\"media:binary\";extract;out=\"media:object\";ext=pdf")?;
 let request = CapUrn::from_string(
     "cap:in=\"media:binary\";extract;out=\"media:object\"")?;
 
 // For dispatch/routing, use is_dispatchable
-if provider.is_dispatchable(&request) {
-    println!("Provider can dispatch this request");
+if candidate.is_dispatchable(&request) {
+    println!("Candidate can dispatch this request");
 }
 ```
 
@@ -167,26 +167,26 @@ Common capability patterns:
 
 ## Integration
 
-### Provider Registration
+### Candidate Registration
 
 ```rust
 let cap = CapUrn::from_string("cap:in=...;extract;out=...;ext=pdf")?;
-provider_registry.register("pdf-provider", cap);
+candidate_registry.register("pdf-candidate", cap);
 
-// Find best provider
-let caller = provider_registry.can("cap:in=...;extract;out=...")?;
+// Find best candidate
+let caller = candidate_registry.can("cap:in=...;extract;out=...")?;
 let result = caller.call(args).await?;
 ```
 
-### CapBlock (Multi-Provider)
+### CapBlock (Multi-Candidate)
 
 ```rust
 let cube = CapBlock::new();
-cube.register_cap_set("provider-a", caps_a);
-cube.register_cap_set("provider-b", caps_b);
+cube.register_cap_set("candidate-a", caps_a);
+cube.register_cap_set("candidate-b", caps_b);
 
-// Automatically selects best provider by specificity
-let (provider, cap) = cube.find_best_match(&request)?;
+// Automatically selects best candidate by specificity
+let (candidate, cap) = cube.find_best_match(&request)?;
 ```
 
 ## Documentation

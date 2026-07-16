@@ -28,7 +28,7 @@ This specification defines the semantic foundations, runtime protocol, execution
 |---|----------|---------|--------------|
 | 6 | [Cap URN Structure](/docs/06-cap-urn-structure) | Cap URN as product C = U x U x U | 3, 5 |
 | 7 | [Dispatch](/docs/07-dispatch) | The dispatch predicate | 3, 4, 6 |
-| 8 | [Ranking](/docs/08-ranking) | Selection among valid providers | 5, 7 |
+| 8 | [Ranking](/docs/08-ranking) | Selection among valid candidates | 5, 7 |
 
 ### Machine Notation and Data Types (9-11)
 
@@ -108,7 +108,7 @@ This specification defines the semantic foundations, runtime protocol, execution
 4. **05 Specificity** — scoring
 5. **06 Cap URN Structure** — how Cap URNs compose four structural coordinates
 6. **07 Dispatch** — the central routing rule
-7. **08 Ranking** — selection among valid providers
+7. **08 Ranking** — selection among valid candidates
 8. **09 Machine Notation** — wire multiple caps into a data-flow graph
 9. **10 Validation Rules** — structural constraints
 10. **11 Media URNs** — media type details
@@ -131,9 +131,9 @@ This specification defines the semantic foundations, runtime protocol, execution
 | **Cap URN** | A Tagged URN with prefix `cap:` describing a capability |
 | **Pattern** | A URN used as a template or constraint |
 | **Instance** | A URN representing a concrete value or request |
-| **Provider** | A registered capability that can handle requests |
+| **Candidate** | A registered capability that can handle requests |
 | **Request** | A capability URN describing what is needed |
-| **Dispatch** | The act of routing a request to a valid provider |
+| **Dispatch** | The act of routing a request to a valid candidate |
 | **Specificity** | A numeric score measuring how constrained a URN is |
 | **Wildcard** | A special value (`*`, `?`, `!`) with matching semantics |
 | **Machine** | An ordered collection of MachineStrands wired into data-flow graphs |

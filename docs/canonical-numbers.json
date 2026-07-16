@@ -29,21 +29,21 @@
         "old": 104,
         "new": 7001,
         "function": "test104_resolved_is_text",
-        "description": "TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old is_text()/is_binary() delegates on ResolvedMediaDef are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text \u2014 has enc, is not JSON.",
+        "description": "TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old is_text()/is_binary() delegates on ResolvedMediaDef are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text — has enc, is not JSON.",
         "location": "src/media/spec.rs:884"
       },
       {
         "old": 133,
         "new": 7019,
         "function": "test0133_reattach_by_id_preserves_slot_index",
-        "description": "/ Reattach-by-id keeps the slot index stable. / / After a master at slot index 0 dies, a new socket added with / the same id MUST be placed into slot 0 (not appended at index 1). / Without this, request_routing entries keyed by `master_idx=0` / would dangle pointing at a permanently-unhealthy zombie slot / while the live caps came back at slot 1 \u2014 exactly the / observed bug.",
+        "description": "/ Reattach-by-id keeps the slot index stable. / / After a master at slot index 0 dies, a new socket added with / the same id MUST be placed into slot 0 (not appended at index 1). / Without this, request_routing entries keyed by `master_idx=0` / would dangle pointing at a permanently-unhealthy zombie slot / while the live caps came back at slot 1 — exactly the / observed bug.",
         "location": "src/bifaci/relay_switch.rs:5260"
       },
       {
         "old": 134,
         "new": 7020,
         "function": "test0134_add_master_with_duplicate_healthy_id_errors",
-        "description": "/ Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug \u2014 the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot.",
+        "description": "/ Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug — the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot.",
         "location": "src/bifaci/relay_switch.rs:5366"
       },
       {
@@ -225,7 +225,7 @@
         "old": 829,
         "new": 828,
         "function": "test829_dispatch_wildcard_with_tag_present",
-        "description": "TEST829: is_dispatchable \u2014 wildcard * tag in request, provider has tag \u2192 accept",
+        "description": "TEST829: is_dispatchable — wildcard * tag in request, candidate has tag → accept",
         "location": "src/urn/cap_urn.rs:3127"
       },
       {
@@ -239,7 +239,7 @@
         "old": 842,
         "new": 7066,
         "function": "test842_run_with_keepalive_returns_result",
-        "description": "TEST842: run_with_keepalive returns closure result (fast operation, no keepalive PROGRESS frames). `run_with_keepalive` emits two distinct families of Log frames: keepalive PROGRESS ticks (built via `Frame::progress`, `meta.level == \"progress\"`, fired only when the 5s ticker expires) and diagnostic ticker-lifecycle frames (built via the local `keepalive_log_frame` helper, `meta.level == \"debug\"`, ALWAYS fired once at start and once at stop \u2014 independent of how long the work took). For an instant operation we expect exactly the two diagnostic frames and zero progress frames. Filtering by `frame_type == Log` alone would also match the diagnostic frames and produce a false positive; the test must discriminate by the `level` meta field, not the frame type.",
+        "description": "TEST842: run_with_keepalive returns closure result (fast operation, no keepalive PROGRESS frames). `run_with_keepalive` emits two distinct families of Log frames: keepalive PROGRESS ticks (built via `Frame::progress`, `meta.level == \"progress\"`, fired only when the 5s ticker expires) and diagnostic ticker-lifecycle frames (built via the local `keepalive_log_frame` helper, `meta.level == \"debug\"`, ALWAYS fired once at start and once at stop — independent of how long the work took). For an instant operation we expect exactly the two diagnostic frames and zero progress frames. Filtering by `frame_type == Log` alone would also match the diagnostic frames and produce a false positive; the test must discriminate by the `level` meta field, not the frame type.",
         "location": "src/bifaci/cartridge_runtime.rs:8556"
       },
       {
@@ -281,21 +281,21 @@
         "old": 1094,
         "new": 1093,
         "function": "test1094_dir_multiple_files",
-        "description": "TEST1094: 1 dir with 3 files \u2192 is_sequence=true",
+        "description": "TEST1094: 1 dir with 3 files → is_sequence=true",
         "location": "src/input_resolver/resolver.rs:600"
       },
       {
         "old": 1128,
         "new": 7084,
         "function": "test1128_cap_documentation_omitted_when_none",
-        "description": "TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's \"if present\" semantics \u2014 there is no null sentinel, only absence. A bug here would silently start emitting `\"documentation\":null` and break consumers that distinguish between absent and explicit null.",
+        "description": "TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's \"if present\" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `\"documentation\":null` and break consumers that distinguish between absent and explicit null.",
         "location": "src/cap/definition.rs:1293"
       },
       {
         "old": 1130,
         "new": 7085,
         "function": "test1130_cap_documentation_set_and_clear_lifecycle",
-        "description": "TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field \u2014 for example, set_documentation accidentally writing to cap_description.",
+        "description": "TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field — for example, set_documentation accidentally writing to cap_description.",
         "location": "src/cap/definition.rs:1343"
       },
       {
@@ -337,14 +337,14 @@
         "old": 1833,
         "new": 1831,
         "function": "test1833_canonicalize_present_not_value",
-        "description": "TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier \u2014 a value starting with `!` is just an exact value beginning with a `!` character.",
+        "description": "TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character.",
         "location": "src/urn/cap_urn.rs:3584"
       },
       {
         "old": 1835,
         "new": 1830,
         "function": "test1835_canonicalize_must_not_have",
-        "description": "TEST1835: !x \u2261 x! \u2261 x=! all canonicalize to !x.",
+        "description": "TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x.",
         "location": "src/urn/cap_urn.rs:3613"
       },
       {
@@ -365,7 +365,7 @@
         "old": 1885,
         "new": 7113,
         "function": "test1885_cap_position_alias_to_media_is_error",
-        "description": "TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error \u2014 the cap position requires a cap. This proves the type-correct enforcement in notation: a media alias cannot stand in for a cap.",
+        "description": "TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error — the cap position requires a cap. This proves the type-correct enforcement in notation: a media alias cannot stand in for a cap.",
         "location": "src/machine/parser.rs:1076"
       },
       {
@@ -393,7 +393,7 @@
         "old": 6588,
         "new": 7117,
         "function": "test6588_file_path_array_empty_array",
-        "description": "TEST6588: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array \u2014 no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only.",
+        "description": "TEST6588: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array — no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only.",
         "location": "src/bifaci/cartridge_runtime.rs:6349"
       },
       {
@@ -556,7 +556,7 @@
         "old": 339,
         "new": 7042,
         "function": "Test339_FilePathArrayGlobExpansion",
-        "description": "TEST339: file-path arg with is_sequence=true expands a glob to N files and the runtime delivers them as a CBOR Array of Bytes \u2014 one array item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion.",
+        "description": "TEST339: file-path arg with is_sequence=true expands a glob to N files and the runtime delivers them as a CBOR Array of Bytes — one array item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion.",
         "location": "bifaci/cartridge_runtime_test.go:1026"
       },
       {
@@ -605,7 +605,7 @@
         "old": 489,
         "new": 7052,
         "function": "Test489_FullPathIdentityVerification",
-        "description": "TEST489: Full path identity verification: engine \u2192 host (AttachCartridge) \u2192 cartridge In both the Rust and Go mirrors, attach_cartridge runs identity verification end-to-end (simulateCartridge answers the identity REQ during attach); this then verifies that after attach the cartridge is live and handles a real request through the full relay path.",
+        "description": "TEST489: Full path identity verification: engine → host (AttachCartridge) → cartridge In both the Rust and Go mirrors, attach_cartridge runs identity verification end-to-end (simulateCartridge answers the identity REQ during attach); this then verifies that after attach the cartridge is live and handles a real request through the full relay path.",
         "location": "bifaci/integration_test.go:2496"
       },
       {
@@ -759,7 +759,7 @@
         "old": 829,
         "new": 828,
         "function": "Test829_dispatch_wildcard_with_tag_present",
-        "description": "TEST829: is_dispatchable \u2014 wildcard * tag in request, provider has tag \u2192 accept",
+        "description": "TEST829: is_dispatchable — wildcard * tag in request, candidate has tag → accept",
         "location": "urn/cap_urn_test.go:1343"
       },
       {
@@ -843,28 +843,28 @@
         "old": 1094,
         "new": 1093,
         "function": "Test1094_DirMultipleFiles",
-        "description": "TEST1094: 1 dir with 3 files \u2192 is_sequence=true",
+        "description": "TEST1094: 1 dir with 3 files → is_sequence=true",
         "location": "input_resolver/resolver_test.go:144"
       },
       {
         "old": 1103,
         "new": 7077,
         "function": "Test1103_is_dispatchable_uses_correct_directionality",
-        "description": "TEST1103: Tests that IsDispatchable has correct directionality A specific provider is dispatchable for a general request; the reverse is false.",
+        "description": "TEST1103: Tests that IsDispatchable has correct directionality A specific candidate is dispatchable for a general request; the reverse is false.",
         "location": "planner/plan_builder_test.go:321"
       },
       {
         "old": 1111,
         "new": 7078,
         "function": "Test1111_foreach_for_user_provided_list_source",
-        "description": "TEST1111: ForEach works for user-provided list sources not in the graph. User provides media:list;txt;enc=utf-8 with is_sequence=true \u2192 ForEach+cap path found.",
+        "description": "TEST1111: ForEach works for user-provided list sources not in the graph. User provides media:list;txt;enc=utf-8 with is_sequence=true → ForEach+cap path found.",
         "location": "planner/live_cap_fab_test.go:247"
       },
       {
         "old": 1127,
         "new": 7082,
         "function": "Test1127_cap_documentation_round_trip_with_markdown_body",
-        "description": "TEST1127: Documentation field round-trips through JSON serialize/deserialize. The body must survive multi-line markdown with CRLF, backticks, double quotes, and Unicode characters \u2014 every character must be preserved.",
+        "description": "TEST1127: Documentation field round-trips through JSON serialize/deserialize. The body must survive multi-line markdown with CRLF, backticks, double quotes, and Unicode characters — every character must be preserved.",
         "location": "cap/definition_test.go:535"
       },
       {
@@ -941,21 +941,21 @@
         "old": 1800,
         "new": 7106,
         "function": "Test1800_kind_identity_only_for_bare_cap",
-        "description": "TEST1800: Identity classifier \u2014 only explicit effect=none qualifies. `cap:effect=none` is the fully generic identity on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.",
+        "description": "TEST1800: Identity classifier — only explicit effect=none qualifies. `cap:effect=none` is the fully generic identity on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.",
         "location": "urn/cap_urn_test.go:1606"
       },
       {
         "old": 1833,
         "new": 1831,
         "function": "Test1833_canonicalize_present_not_value",
-        "description": "TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier \u2014 a value starting with `!` is just an exact value beginning with a `!` character.",
+        "description": "TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character.",
         "location": "urn/cap_urn_test.go:1850"
       },
       {
         "old": 1835,
         "new": 1830,
         "function": "Test1835_canonicalize_must_not_have",
-        "description": "TEST1835: !x \u2261 x! \u2261 x=! all canonicalize to !x.",
+        "description": "TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x.",
         "location": "urn/cap_urn_test.go:1877"
       },
       {
@@ -1048,7 +1048,7 @@
         "old": 141,
         "new": 7021,
         "function": "test_141_per_cap_url_shape",
-        "description": "TEST141: URL has the right shape \u2014 protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number.",
+        "description": "TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number.",
         "location": "tests/test_registry.py:192"
       },
       {
@@ -1069,7 +1069,7 @@
         "old": 329,
         "new": 7034,
         "function": "test_329_cartridge_repo_server_get_by_cap",
-        "description": "TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate \u2014 not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent.",
+        "description": "TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate — not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent.",
         "location": "tests/test_cartridge_repo.py:336"
       },
       {
@@ -1125,7 +1125,7 @@
         "old": 489,
         "new": 7053,
         "function": "test_489_full_path_identity_verification",
-        "description": "TEST489: Full path identity verification: engine \u2192 host (attach_cartridge) \u2192 cartridge",
+        "description": "TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge",
         "location": "tests/test_cartridge_host.py:203"
       },
       {
@@ -1279,7 +1279,7 @@
         "old": 829,
         "new": 828,
         "function": "test_829_dispatch_wildcard_with_tag_present",
-        "description": "TEST829: is_dispatchable \u2014 wildcard * tag in request, provider has tag \u2192 accept",
+        "description": "TEST829: is_dispatchable — wildcard * tag in request, candidate has tag → accept",
         "location": "tests/test_cap_urn.py:1187"
       },
       {
@@ -1349,7 +1349,7 @@
         "old": 1094,
         "new": 1093,
         "function": "test_1094_dir_multiple_files",
-        "description": "TEST1094: 1 dir with 3 files \u2192 is_sequence=true",
+        "description": "TEST1094: 1 dir with 3 files → is_sequence=true",
         "location": "tests/test_input_resolver.py:256"
       },
       {
@@ -1426,14 +1426,14 @@
         "old": 1833,
         "new": 1831,
         "function": "test_1833_canonicalize_present_not_value",
-        "description": "TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier \u2014 a value starting with `!` is just an exact value beginning with a `!` character.",
+        "description": "TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character.",
         "location": "tests/test_cap_urn.py:1699"
       },
       {
         "old": 1835,
         "new": 1830,
         "function": "test_1835_canonicalize_must_not_have",
-        "description": "TEST1835: !x \u2261 x! \u2261 x=! all canonicalize to !x.",
+        "description": "TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x.",
         "location": "tests/test_cap_urn.py:1721"
       },
       {
@@ -1447,7 +1447,7 @@
         "old": 6215,
         "new": 372,
         "function": "test_6215_cap_version_nonzero_round_trip",
-        "description": "TEST6215: Cap.version nonzero round-trip \u2014 emitted in dict and restored on deserialization",
+        "description": "TEST6215: Cap.version nonzero round-trip — emitted in dict and restored on deserialization",
         "location": "tests/test_cap.py:420"
       },
       {
@@ -1461,7 +1461,7 @@
         "old": 6388,
         "new": 7116,
         "function": "test_6388_per_cap_url_uses_sha256",
-        "description": "TEST6388: Per-cap URLs use SHA-256 of the canonical URN as the path key. The path scheme is /caps/<sha256-hex> \u2014 no colons, no quotes, no percent-encoding gymnastics. Same hash function across every capdag implementation guarantees a single bucket key per equivalence class.",
+        "description": "TEST6388: Per-cap URLs use SHA-256 of the canonical URN as the path key. The path scheme is /caps/<sha256-hex> — no colons, no quotes, no percent-encoding gymnastics. Same hash function across every capdag implementation guarantees a single bucket key per equivalence class.",
         "location": "tests/test_registry.py:123"
       },
       {
@@ -1547,7 +1547,7 @@
         "old": 330,
         "new": 7004,
         "function": "test330_cartridgeRepoClientUpdateCache",
-        "description": "TEST330: CartridgeRepoClient updates its local cache keyed by \"<channel>:<id>\". The cache holds release and nightly entries independently \u2014 the same id is allowed in both.",
+        "description": "TEST330: CartridgeRepoClient updates its local cache keyed by \"<channel>:<id>\". The cache holds release and nightly entries independently — the same id is allowed in both.",
         "location": "capdag.test.js:2247"
       },
       {
@@ -1645,35 +1645,35 @@
         "old": 1801,
         "new": 7007,
         "function": "test1801_kindSourceWhenInputIsVoid",
-        "description": "TEST1801: Source classifier \u2014 in=media:void, out non-void.",
+        "description": "TEST1801: Source classifier — in=media:void, out non-void.",
         "location": "capdag.test.js:6003"
       },
       {
         "old": 1833,
         "new": 1831,
         "function": "test1833_canonicalizePresentNotValue",
-        "description": "TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier \u2014 a value starting with `!` is just an exact value beginning with a `!` character.",
+        "description": "TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character.",
         "location": "capdag.test.js:6200"
       },
       {
         "old": 1835,
         "new": 1830,
         "function": "test1835_canonicalizeMustNotHave",
-        "description": "TEST1835: !x \u2261 x! \u2261 x=! all canonicalize to !x.",
+        "description": "TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x.",
         "location": "capdag.test.js:6222"
       },
       {
         "old": 1842,
         "new": 7008,
         "function": "test1842_truthTableFullCrossProduct",
-        "description": "TEST1842: Full 6\u00d76 truth table.",
+        "description": "TEST1842: Full 6×6 truth table.",
         "location": "capdag.test.js:6232"
       },
       {
         "old": 1872,
         "new": 7109,
         "function": "test1872_registryUrlFromBuildEnvPassesThroughNonempty",
-        "description": "TEST1872: a non-empty MFR_CARTRIDGE_REGISTRY_URL passes through verbatim \u2014 a published build reports exactly the URL it was compiled with.",
+        "description": "TEST1872: a non-empty MFR_CARTRIDGE_REGISTRY_URL passes through verbatim — a published build reports exactly the URL it was compiled with.",
         "location": "capdag.test.js:2548"
       },
       {
@@ -1710,7 +1710,7 @@
         "old": 104,
         "new": 7001,
         "function": "test104_resolved_is_text",
-        "description": "TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old is_text()/is_binary() delegates on ResolvedMediaDef are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text \u2014 has enc, is not JSON.",
+        "description": "TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old is_text()/is_binary() delegates on ResolvedMediaDef are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text — has enc, is not JSON.",
         "location": "Tests/CapDAGTests/CSMediaDefTests.m:311"
       },
       {
@@ -1738,7 +1738,7 @@
         "old": 129,
         "new": 7018,
         "function": "test129_GcEvictsOldestEntriesByTouchedAt",
-        "description": "/ Contract #2 \u2014 the GC drops the OLDEST entries by / `touchedAt`, not arbitrary keys. We seed a known age / distribution and recompute the expected victim set / independently of the production code, then assert that / the post-GC table contains exactly the entries the test / computed should survive. / / A regression where the GC e.g. iterates the dictionary and / drops the first N entries (dictionary iteration order is / arbitrary in Swift) would still pass contract #1 but fail / this one \u2014 so this is the assertion that catches a \"wrong / victims\" bug, which is the more dangerous one (silently / drops in-flight continuation frames).",
+        "description": "/ Contract #2 — the GC drops the OLDEST entries by / `touchedAt`, not arbitrary keys. We seed a known age / distribution and recompute the expected victim set / independently of the production code, then assert that / the post-GC table contains exactly the entries the test / computed should survive. / / A regression where the GC e.g. iterates the dictionary and / drops the first N entries (dictionary iteration order is / arbitrary in Swift) would still pass contract #1 but fail / this one — so this is the assertion that catches a \"wrong / victims\" bug, which is the more dangerous one (silently / drops in-flight continuation frames).",
         "location": "Tests/BifaciTests/CartridgeHostRoutingTableGCTests.swift:108"
       },
       {
@@ -1759,7 +1759,7 @@
         "old": 151,
         "new": 7025,
         "function": "test151_capManifestRequiredFields",
-        "description": "TEST151: Manifest deserialization fails when any required field is missing \u2014 including channel, which is part of the cartridge's identity. There is no fallback default; missing means broken.",
+        "description": "TEST151: Manifest deserialization fails when any required field is missing — including channel, which is part of the cartridge's identity. There is no fallback default; missing means broken.",
         "location": "Tests/BifaciTests/ManifestTests.swift:138"
       },
       {
@@ -1794,14 +1794,14 @@
         "old": 339,
         "new": 7043,
         "function": "test339_file_path_array_glob_expansion",
-        "description": "TEST339: A sequence-declared file-path arg (isSequence=true) expands a glob into N files and the runtime delivers them as a CBOR Array of bytes \u2014 one item per matched file. List-ness comes from the arg declaration, NOT from any `;list` URN tag. TEST339: A sequence-declared file-path arg expands a glob to N files and the runtime delivers them as a CBOR Array of bytes \u2014 one item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion.",
+        "description": "TEST339: A sequence-declared file-path arg (isSequence=true) expands a glob into N files and the runtime delivers them as a CBOR Array of bytes — one item per matched file. List-ness comes from the arg declaration, NOT from any `;list` URN tag. TEST339: A sequence-declared file-path arg expands a glob to N files and the runtime delivers them as a CBOR Array of bytes — one item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion.",
         "location": "Tests/BifaciTests/CartridgeRuntimeTests.swift:795"
       },
       {
         "old": 347,
         "new": 7044,
         "function": "test347_empty_file_reads_as_empty_bytes",
-        "description": "TEST347: Empty file reads as empty bytes. Mirrors Rust test347_empty_file_reads_as_empty_bytes. The file is written non-atomically (`options: []`). The default `Data.write(to:)` overload uses an atomic save, which on macOS for a zero-byte Data on a fresh destination has been observed to throw NSCocoaErrorDomain Code=4 (\"couldn't be removed\", ENOENT) \u2014 Foundation tries to clean up a sibling temp file that was never created. The Rust reference uses `std::fs::write(...)` (non-atomic); matching that here keeps the cross-language test parity honest. Pre-removing any stale file from a prior aborted run keeps the create path clean.",
+        "description": "TEST347: Empty file reads as empty bytes. Mirrors Rust test347_empty_file_reads_as_empty_bytes. The file is written non-atomically (`options: []`). The default `Data.write(to:)` overload uses an atomic save, which on macOS for a zero-byte Data on a fresh destination has been observed to throw NSCocoaErrorDomain Code=4 (\"couldn't be removed\", ENOENT) — Foundation tries to clean up a sibling temp file that was never created. The Rust reference uses `std::fs::write(...)` (non-atomic); matching that here keeps the cross-language test parity honest. Pre-removing any stale file from a prior aborted run keeps the create path clean.",
         "location": "Tests/BifaciTests/CartridgeRuntimeTests.swift:1045"
       },
       {
@@ -1836,14 +1836,14 @@
         "old": 415,
         "new": 7050,
         "function": "test415_reqTriggersSpawnError",
-        "description": "TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error). Mirrors Rust test415_req_for_known_cap_triggers_spawn: production install layout \u2014 versioned cartridge directory with cartridge.json (carrying the channel) plus an entry-point binary that isn't executable, so spawn fails.",
+        "description": "TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error). Mirrors Rust test415_req_for_known_cap_triggers_spawn: production install layout — versioned cartridge directory with cartridge.json (carrying the channel) plus an entry-point binary that isn't executable, so spawn fails.",
         "location": "Tests/BifaciTests/RuntimeTests.swift:695"
       },
       {
         "old": 435,
         "new": 7051,
         "function": "test435_urn_matching_exact_and_accepts",
-        "description": "TEST435: URN matching (exact vs accepts()) Dispatch is contravariant on input (request input must conform to provider input \u2014 i.e. request can be more specific) and covariant on output (provider output must conform to request output \u2014 i.e. provider can be more specific). A request whose input is in a different type family than any registered provider has no handler.",
+        "description": "TEST435: URN matching (exact vs accepts()) Dispatch is contravariant on input (request input must conform to candidate input — i.e. request can be more specific) and covariant on output (candidate output must conform to request output — i.e. candidate can be more specific). A request whose input is in a different type family than any registered candidate has no handler.",
         "location": "Tests/BifaciTests/RelaySwitchTests.swift:588"
       },
       {
@@ -2010,8 +2010,8 @@
       {
         "old": 829,
         "new": 828,
-        "function": "test829_isDispatchable_wildcardRequestProviderHasTag",
-        "description": "TEST829: is_dispatchable \u2014 wildcard * tag in request, provider has tag \u2192 accept",
+        "function": "test829_isDispatchable_wildcardRequestCandidateHasTag",
+        "description": "TEST829: is_dispatchable — wildcard * tag in request, candidate has tag → accept",
         "location": "Tests/CapDAGTests/CSCapUrnTests.m:1192"
       },
       {
@@ -2060,14 +2060,14 @@
         "old": 1094,
         "new": 1093,
         "function": "test1094_dir_multiple_files",
-        "description": "TEST1094: 1 dir with 3 files \u2192 is_sequence=true",
+        "description": "TEST1094: 1 dir with 3 files → is_sequence=true",
         "location": "Tests/CapDAGTests/CSInputResolverTests.m:404"
       },
       {
         "old": 1122,
         "new": 7079,
         "function": "test1122_fullPathEngineReqToCartridgeResponse",
-        "description": "TEST1122: All cap input media defs that represent user files must have extensions. These are the entry points \u2014 the file types users can right-click on.",
+        "description": "TEST1122: All cap input media defs that represent user files must have extensions. These are the entry points — the file types users can right-click on.",
         "location": "Tests/BifaciTests/IntegrationTests.swift:636"
       },
       {
@@ -2123,21 +2123,21 @@
         "old": 1800,
         "new": 7107,
         "function": "test1800_kind_identity_only_for_bare_cap",
-        "description": "TEST1800: Identity classifier \u2014 only explicit effect=none qualifies. Adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.",
+        "description": "TEST1800: Identity classifier — only explicit effect=none qualifies. Adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.",
         "location": "Tests/CapDAGTests/CSCapUrnTests.m:1460"
       },
       {
         "old": 1801,
         "new": 7007,
         "function": "test1801_kind_source_when_input_is_void",
-        "description": "TEST1801: Source classifier \u2014 in=media:void, out non-void.",
+        "description": "TEST1801: Source classifier — in=media:void, out non-void.",
         "location": "Tests/CapDAGTests/CSCapUrnTests.m:1492"
       },
       {
         "old": 1833,
         "new": 1831,
         "function": "test1833_canonicalize_present_not_value",
-        "description": "TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier \u2014 a value starting with `!` is just an exact value beginning with a `!` character.",
+        "description": "TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character.",
         "location": "Tests/CapDAGTests/CSCapUrnTests.m:1765"
       },
       {
@@ -2151,20 +2151,20 @@
         "old": 1835,
         "new": 1830,
         "function": "test1835_canonicalize_must_not_have",
-        "description": "TEST1835: !x \u2261 x! \u2261 x=! all canonicalize to !x.",
+        "description": "TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x.",
         "location": "Tests/CapDAGTests/CSCapUrnTests.m:1792"
       },
       {
         "old": 1842,
         "new": 7008,
         "function": "test1842_truth_table_full_cross_product",
-        "description": "TEST1842: Full 6\u00d76 truth table.",
+        "description": "TEST1842: Full 6×6 truth table.",
         "location": "Tests/CapDAGTests/CSCapUrnTests.m:1804"
       },
       {
         "old": 1878,
         "new": 7110,
-        "function": "test1878_bundledProviderWithoutBakedHashIsRejected",
+        "function": "test1878_bundledCartridgeWithoutBakedHashIsRejected",
         "description": "",
         "location": "Tests/BifaciTests/CartridgeDiscoveryTests.swift:147"
       },

@@ -740,12 +740,12 @@ impl Cap {
         source_is_sequence && !input_is_sequence
     }
 
-    /// Check if this cap (provider) can dispatch the given request.
+    /// Check if this cap (candidate) can dispatch the given request.
     ///
     /// Uses `is_dispatchable` which correctly handles the 3-axis Cap URN matching:
-    /// - Input axis: provider can handle request's input (same or more specific)
-    /// - Output axis: provider meets request's output needs (same or more specific)
-    /// - Cap-tags axis: provider satisfies all explicit request constraints
+    /// - Input axis: candidate can handle request's input (same or more specific)
+    /// - Output axis: candidate meets request's output needs (same or more specific)
+    /// - Cap-tags axis: candidate satisfies all explicit request constraints
     pub fn accepts_request(&self, request: &str) -> bool {
         let request_urn = CapUrn::from_string(request).expect("Invalid cap URN in request");
         self.urn.is_dispatchable(&request_urn)

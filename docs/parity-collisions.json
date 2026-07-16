@@ -65,7 +65,7 @@
       "move_info": {
         "js": {
           "fn": "test021_builder",
-          "desc": "TEST021: Test builder creates cap URN with marker + keyed tags and direction specs. `op` is no longer a special key \u2014 operation names are markers (value-less tags).",
+          "desc": "TEST021: Test builder creates cap URN with marker + keyed tags and direction specs. `op` is no longer a special key — operation names are markers (value-less tags).",
           "loc": "capdag.test.js:417"
         }
       }
@@ -226,7 +226,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ `media:enc=utf-8;ext=txt;plain-text` conforms to itself \u2014 basic / reflexivity sanity. If this fails the canonical parser is broken.",
+      "keep_desc": "/ `media:enc=utf-8;ext=txt;plain-text` conforms to itself — basic / reflexivity sanity. If this fails the canonical parser is broken.",
       "move_info": {
         "go": {
           "fn": "Test0054_ResponseWrapperFromText",
@@ -240,12 +240,12 @@
         },
         "objc": {
           "fn": "test0054_NewHostInstancePerRelaySession",
-          "desc": "/ Contract #2 (well-behaved path): one host \u2192 one run() \u2192 / drop. The misuse path (calling run() twice) is enforced via / `precondition` and is not death-tested here \u2014 the well- / behaved path is sufficient because if the precondition were / silently disabled, the prior test (`testRunExitKills\u2026`) / would still pass on the first invocation but the second / call would race with itself and fail intermittently. This / test documents the contract by demonstrating that a fresh / `CartridgeHost` instance is the only correct way to start / a new relay session.",
+          "desc": "/ Contract #2 (well-behaved path): one host → one run() → / drop. The misuse path (calling run() twice) is enforced via / `precondition` and is not death-tested here — the well- / behaved path is sufficient because if the precondition were / silently disabled, the prior test (`testRunExitKills…`) / would still pass on the first invocation but the second / call would race with itself and fail intermittently. This / test documents the contract by demonstrating that a fresh / `CartridgeHost` instance is the only correct way to start / a new relay session.",
           "loc": "Tests/BifaciTests/CartridgeHostSessionLifecycleTests.swift:141"
         },
         "py": {
           "fn": "test_0054_cap_version_zero_round_trip",
-          "desc": "TEST0054: Cap.version=0 round-trip \u2014 zero is the default and must NOT appear in the serialized dict",
+          "desc": "TEST0054: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict",
           "loc": "tests/test_cap.py:400"
         }
       }
@@ -261,7 +261,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ A concrete plain-text URN refines bare textable. The relation is / directional \u2014 refinement, not equivalence \u2014 so a generic textable / CONSUMER cap declaring `in = media:enc=utf-8` would correctly / accept a plain-text producer's output (any subtype). This is fine / in the consumer direction; the regression we guard against below / is in the producer direction.",
+      "keep_desc": "/ A concrete plain-text URN refines bare textable. The relation is / directional — refinement, not equivalence — so a generic textable / CONSUMER cap declaring `in = media:enc=utf-8` would correctly / accept a plain-text producer's output (any subtype). This is fine / in the consumer direction; the regression we guard against below / is in the producer direction.",
       "move_info": {
         "go": {
           "fn": "Test0055_ResponseWrapperAsFloat",
@@ -280,7 +280,7 @@
         },
         "py": {
           "fn": "test_0055_cap_version_nonzero_round_trip",
-          "desc": "TEST0055: Cap.version nonzero round-trip \u2014 emitted in dict and restored on deserialization",
+          "desc": "TEST0055: Cap.version nonzero round-trip — emitted in dict and restored on deserialization",
           "loc": "tests/test_cap.py:417"
         }
       }
@@ -366,7 +366,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ Plain-text does NOT refine extracted-text \u2014 extracted-text is a / strict subset of plain-text (OCR-marker added). A consumer that / asked specifically for OCR output should NOT silently get any / other plain-text. This is the order-theoretic complement of the / previous test and catches a regression where the markers on / extracted-text get dropped.",
+      "keep_desc": "/ Plain-text does NOT refine extracted-text — extracted-text is a / strict subset of plain-text (OCR-marker added). A consumer that / asked specifically for OCR output should NOT silently get any / other plain-text. This is the order-theoretic complement of the / previous test and catches a regression where the markers on / extracted-text get dropped.",
       "move_info": {
         "go": {
           "fn": "Test0058_ResponseWrapperGetContentType",
@@ -401,7 +401,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ `media:enc=utf-8;ext=txt` (the dim-anchored composite without the / `plain-text` marker) is NOT a substitute for `media:enc=utf-8;ext=txt;plain-text`. / This catches a regression where a producer cap drops the / `plain-text` marker and only declares the file-type=txt narrowing / \u2014 that producer would suddenly satisfy save-as-txt's input / because the catalog defines `media:enc=utf-8;ext=txt`, but the / `plain-text` marker is what actually gates the persistence path.",
+      "keep_desc": "/ `media:enc=utf-8;ext=txt` (the dim-anchored composite without the / `plain-text` marker) is NOT a substitute for `media:enc=utf-8;ext=txt;plain-text`. / This catches a regression where a producer cap drops the / `plain-text` marker and only declares the file-type=txt narrowing / — that producer would suddenly satisfy save-as-txt's input / because the catalog defines `media:enc=utf-8;ext=txt`, but the / `plain-text` marker is what actually gates the persistence path.",
       "move_info": {
         "go": {
           "fn": "Test0059_ResponseWrapperMatchesOutputType",
@@ -461,7 +461,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ Vision describe caps emit `media:enc=utf-8;ext=txt;image-description;plain-text`. / The composite carries the vision-specific `image-description` marker so / downstream caption-aware tools can match on the narrower URN, AND the / `plain-text` marker so `cap:save-as-txt` accepts captions as a feeder. / This test pins the second relation \u2014 drop it and vision output stops / being savable to `.txt`, defeating the parity with OCR.",
+      "keep_desc": "/ Vision describe caps emit `media:enc=utf-8;ext=txt;image-description;plain-text`. / The composite carries the vision-specific `image-description` marker so / downstream caption-aware tools can match on the narrower URN, AND the / `plain-text` marker so `cap:save-as-txt` accepts captions as a feeder. / This test pins the second relation — drop it and vision output stops / being savable to `.txt`, defeating the parity with OCR.",
       "move_info": {
         "go": {
           "fn": "Test0069_ResponseWrapperValidateAgainstCap",
@@ -496,7 +496,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ Disbind-pdf emits `media:enc=utf-8;ext=txt;page;plain-text` per page. Each / page item must be persistable as `.txt` \u2014 that's the user-visible / reason for the marker (per-page save in the Finder). If a regression / drops the `plain-text` marker from the disbind output URN, this test / flips and the Finder loses its save-each-page-as-txt path.",
+      "keep_desc": "/ Disbind-pdf emits `media:enc=utf-8;ext=txt;page;plain-text` per page. Each / page item must be persistable as `.txt` — that's the user-visible / reason for the marker (per-page save in the Finder). If a regression / drops the `plain-text` marker from the disbind output URN, this test / flips and the Finder loses its save-each-page-as-txt path.",
       "move_info": {
         "go": {
           "fn": "Test0070_CapRequestHandling",
@@ -575,7 +575,7 @@
         "js",
         "objc"
       ],
-      "keep_desc": "/ Transcription is a JSON record (`{text, segments, \u2026}`), NOT finalised / plain prose despite carrying the `textable` coercion (the JSON is / representable as UTF-8). It must NOT refine plain-text \u2014 saving a / transcription record to a `.txt` file would dump JSON into a file / the user expects to be readable prose. The `record` marker is what / distinguishes structured-as-text from finalised-as-text. If this / test flips, transcription either acquired `plain-text` (a marker / bug) or the conformance relation regressed.",
+      "keep_desc": "/ Transcription is a JSON record (`{text, segments, …}`), NOT finalised / plain prose despite carrying the `textable` coercion (the JSON is / representable as UTF-8). It must NOT refine plain-text — saving a / transcription record to a `.txt` file would dump JSON into a file / the user expects to be readable prose. The `record` marker is what / distinguishes structured-as-text from finalised-as-text. If this / test flips, transcription either acquired `plain-text` (a marker / bug) or the conformance relation regressed.",
       "move_info": {
         "go": {
           "fn": "Test0079_CapDescription",
@@ -613,7 +613,7 @@
         },
         "js": {
           "fn": "test0080_JS_capDocumentationRoundTrip",
-          "desc": "JS round-trip for the documentation field on Cap. Mirrors TEST920 in capdag/src/cap/definition.rs \u2014 the body is non-trivial (newlines, backticks, embedded quotes, Unicode) so escaping mismatches between JSON.stringify on this side and the Rust serializer on the other side surface as failures here.",
+          "desc": "JS round-trip for the documentation field on Cap. Mirrors TEST920 in capdag/src/cap/definition.rs — the body is non-trivial (newlines, backticks, embedded quotes, Unicode) so escaping mismatches between JSON.stringify on this side and the Rust serializer on the other side surface as failures here.",
           "loc": "capdag.test.js:1759"
         },
         "objc": {
@@ -704,7 +704,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ The prompt-body catch-all uses `conforms_to(&BARE_TEXTABLE)` and the numeric / slots use `conforms_to(&BARE_NUMERIC)`. After the textable\u2192fmt/enc redesign / these are two SEPARATE greedy catch-alls: every UTF-8 text URN (system prompt, / model spec, page text, secrets) conforms to `media:enc=utf-8`, and every numeric / parameter URN conforms to `media:numeric` \u2014 but a numeric does NOT conform to / `media:enc=utf-8` and a text URN does NOT conform to `media:numeric`. That / separation is WHY the cartridge handler's if-chain must still check specific / patterns BEFORE either catch-all (each catch-all would otherwise swallow every / member of its own class).",
+      "keep_desc": "/ The prompt-body catch-all uses `conforms_to(&BARE_TEXTABLE)` and the numeric / slots use `conforms_to(&BARE_NUMERIC)`. After the textable→fmt/enc redesign / these are two SEPARATE greedy catch-alls: every UTF-8 text URN (system prompt, / model spec, page text, secrets) conforms to `media:enc=utf-8`, and every numeric / parameter URN conforms to `media:numeric` — but a numeric does NOT conform to / `media:enc=utf-8` and a text URN does NOT conform to `media:numeric`. That / separation is WHY the cartridge handler's if-chain must still check specific / patterns BEFORE either catch-all (each catch-all would otherwise swallow every / member of its own class).",
       "move_info": {
         "go": {
           "fn": "Test0083_CapJSONRoundTrip",
@@ -774,7 +774,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ The actual upstream prompt URN (PDF page text) does not conform / to any specific cap-arg pattern \u2014 it falls through to the / textable catch-all, where it correctly lands as the prompt body.",
+      "keep_desc": "/ The actual upstream prompt URN (PDF page text) does not conform / to any specific cap-arg pattern — it falls through to the / textable catch-all, where it correctly lands as the prompt body.",
       "move_info": {
         "go": {
           "fn": "Test0085_SchemaValidator_ValidateOutputWithSchema_Failure",
@@ -851,7 +851,7 @@
         },
         "objc": {
           "fn": "test0087_ReattachByIdPreservesSlotIndex",
-          "desc": "Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index \u2014 preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.",
+          "desc": "Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.",
           "loc": "Tests/BifaciTests/RelaySwitchTests.swift:901"
         }
       }
@@ -1136,7 +1136,7 @@
         },
         "objc": {
           "fn": "test0098_GcReducesTableBelowSoftWatermarkInOnePass",
-          "desc": "/ Contract #1 \u2014 the GC keeps the table strictly below the / hard cap. We seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame-burst) / and call the production GC entry point. The post-state / must be at most `softWatermark` entries because the GC / drops at least `evictionFraction \u00d7 pre-state` entries in / one pass and the pre-state is below `hardCap` (i.e. one / pass is enough; the secondary \"hard cap\" pass would only / kick in if pre-state crossed the hard cap before insertion / completed, which production prevents by gc-ing on every / insert).",
+          "desc": "/ Contract #1 — the GC keeps the table strictly below the / hard cap. We seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame-burst) / and call the production GC entry point. The post-state / must be at most `softWatermark` entries because the GC / drops at least `evictionFraction × pre-state` entries in / one pass and the pre-state is below `hardCap` (i.e. one / pass is enough; the secondary \"hard cap\" pass would only / kick in if pre-state crossed the hard cap before insertion / completed, which production prevents by gc-ing on every / insert).",
           "loc": "Tests/BifaciTests/CartridgeHostRoutingTableGCTests.swift:45"
         }
       }
@@ -1176,7 +1176,7 @@
         "js",
         "py"
       ],
-      "keep_desc": "TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old isText/isBinary delegates on the resolved media def are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text \u2014 has enc, is not JSON.",
+      "keep_desc": "TEST104: Text-representability is now carried by the orthogonal `enc=` tag. The old isText/isBinary delegates on the resolved media def are gone; a media is text iff its URN declares an encoding. `media:enc=utf-8` is plain UTF-8 text — has enc, is not JSON.",
       "move_info": {
         "go": {
           "fn": "Test104_resolved_is_text",
@@ -1210,7 +1210,7 @@
       "move_info": {
         "objc": {
           "fn": "test0105_GcEvictsOldestEntriesByTouchedAt",
-          "desc": "/ Contract #2 \u2014 the GC drops the OLDEST entries by / `touchedAt`, not arbitrary keys. We seed a known age / distribution and recompute the expected victim set / independently of the production code, then assert that / the post-GC table contains exactly the entries the test / computed should survive. / / A regression where the GC e.g. iterates the dictionary and / drops the first N entries (dictionary iteration order is / arbitrary in Swift) would still pass contract #1 but fail / this one \u2014 so this is the assertion that catches a \"wrong / victims\" bug, which is the more dangerous one (silently / drops in-flight continuation frames).",
+          "desc": "/ Contract #2 — the GC drops the OLDEST entries by / `touchedAt`, not arbitrary keys. We seed a known age / distribution and recompute the expected victim set / independently of the production code, then assert that / the post-GC table contains exactly the entries the test / computed should survive. / / A regression where the GC e.g. iterates the dictionary and / drops the first N entries (dictionary iteration order is / arbitrary in Swift) would still pass contract #1 but fail / this one — so this is the assertion that catches a \"wrong / victims\" bug, which is the more dangerous one (silently / drops in-flight continuation frames).",
           "loc": "Tests/BifaciTests/CartridgeHostRoutingTableGCTests.swift:108"
         }
       }
@@ -1230,7 +1230,7 @@
       "move_info": {
         "objc": {
           "fn": "test0106_GcSecondaryPassEnforcesHardCap",
-          "desc": "/ Contract #3 \u2014 the secondary \"hard cap\" pass kicks in if / the table somehow exceeds `hardCap` (e.g. a seed that goes / over, simulating an extreme runaway). Without the / secondary pass, a single GC at the soft watermark would / not be enough to recover headroom and the table could / grow without bound between bursts.",
+          "desc": "/ Contract #3 — the secondary \"hard cap\" pass kicks in if / the table somehow exceeds `hardCap` (e.g. a seed that goes / over, simulating an extreme runaway). Without the / secondary pass, a single GC at the soft watermark would / not be enough to recover headroom and the table could / grow without bound between bursts.",
           "loc": "Tests/BifaciTests/CartridgeHostRoutingTableGCTests.swift:172"
         }
       }
@@ -1335,7 +1335,7 @@
         },
         "objc": {
           "fn": "test0111_PressureAndKill",
-          "desc": "/ Single test: allocate 90% of RAM with incompressible CSPRNG data, monitor / memory, detect pressure (kernel or threshold), kill cartridge, verify death. / The goal is to overload the system \u2014 force the kernel into real pressure.",
+          "desc": "/ Single test: allocate 90% of RAM with incompressible CSPRNG data, monitor / memory, detect pressure (kernel or threshold), kill cartridge, verify death. / The goal is to overload the system — force the kernel into real pressure.",
           "loc": "testcartridge-host/Sources/TestcartridgeHost/main.swift:288"
         }
       }
@@ -1426,7 +1426,7 @@
         "js",
         "objc"
       ],
-      "keep_desc": "TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word (\"release\" / \"nightly\"). CapManifest rejects unknown channel values \u2014 the closed enum is {release, nightly}. A missing or unrecognized channel is a hard parse error \u2014 no defaults.",
+      "keep_desc": "TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word (\"release\" / \"nightly\"). CapManifest rejects unknown channel values — the closed enum is {release, nightly}. A missing or unrecognized channel is a hard parse error — no defaults.",
       "move_info": {
         "go": {
           "fn": "Test0117_ComplexNestedSchemaValidation",
@@ -1456,7 +1456,7 @@
         "js",
         "objc"
       ],
-      "keep_desc": "TEST118: A dev manifest carries registry_url: null and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) \u2014 so an old SDK can't accidentally pass for a dev build.",
+      "keep_desc": "TEST118: A dev manifest carries registry_url: null and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build.",
       "move_info": {
         "go": {
           "fn": "Test0118_MediaUrnResolutionWithRegistry",
@@ -1814,7 +1814,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ Contract #2 \u2014 the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one \u2014 / the more dangerous bug because it silently drops / in-flight continuation frames.",
+      "keep_desc": "/ Contract #2 — the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one — / the more dangerous bug because it silently drops / in-flight continuation frames.",
       "move_info": {
         "go": {
           "fn": "Test0129_Constructor",
@@ -1954,7 +1954,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ Reattach-by-id keeps the slot index stable. / / After a master at slot index 0 dies, a new socket added with / the same id MUST be placed into slot 0 (not appended at index 1). / Without this, request_routing entries keyed by `master_idx=0` / would dangle pointing at a permanently-unhealthy zombie slot / while the live caps came back at slot 1 \u2014 exactly the / observed bug.",
+      "keep_desc": "/ Reattach-by-id keeps the slot index stable. / / After a master at slot index 0 dies, a new socket added with / the same id MUST be placed into slot 0 (not appended at index 1). / Without this, request_routing entries keyed by `master_idx=0` / would dangle pointing at a permanently-unhealthy zombie slot / while the live caps came back at slot 1 — exactly the / observed bug.",
       "move_info": {
         "go": {
           "fn": "Test0133_CapManifestCompatibility",
@@ -1973,7 +1973,7 @@
         },
         "py": {
           "fn": "test_0133_reattach_by_id_preserves_slot_index",
-          "desc": "Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index \u2014 preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.",
+          "desc": "Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.",
           "loc": "tests/test_relay_switch.py:909"
         }
       }
@@ -1989,7 +1989,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug \u2014 the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot.",
+      "keep_desc": "/ Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug — the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot.",
       "move_info": {
         "go": {
           "fn": "Test0134_CartridgeAttachmentErrorKindMatchesProtoSnakeCase",
@@ -2148,7 +2148,7 @@
       "move_info": {
         "go": {
           "fn": "Test139_per_cap_url_uses_sha256",
-          "desc": "TEST139: Per-cap URL is /caps/<sha256-hex> \u2014 no URN-grammar characters in the path, no percent-encoding gymnastics.",
+          "desc": "TEST139: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics.",
           "loc": "cap/registry_test.go:136"
         },
         "js": {
@@ -2188,7 +2188,7 @@
         },
         "objc": {
           "fn": "test140_sameCapDifferentSpellingsSameURL",
-          "desc": "/ TEST140: Equivalent URNs (different tag order, etc.) hash to the / same key. This is the property that makes cross-language lookups / land at the same registry object regardless of which capdag / implementation issued the request. Inputs MUST quote any / multi-tag media URN value \u2014 the previous unquoted spelling / `out=media:task;id` was actually a different URN (the bare / `media:task` plus a separate `id` op tag), and treating those / two URNs as equivalent here masked a real spec violation.",
+          "desc": "/ TEST140: Equivalent URNs (different tag order, etc.) hash to the / same key. This is the property that makes cross-language lookups / land at the same registry object regardless of which capdag / implementation issued the request. Inputs MUST quote any / multi-tag media URN value — the previous unquoted spelling / `out=media:task;id` was actually a different URN (the bare / `media:task` plus a separate `id` op tag), and treating those / two URNs as equivalent here masked a real spec violation.",
           "loc": "Tests/CapDAGTests/CSFabricRegistryTests.m:87"
         }
       }
@@ -2204,7 +2204,7 @@
         "py",
         "rust"
       ],
-      "keep_desc": "TEST141: URL has the right shape \u2014 protocol, host, /caps/ prefix, 64 hex chars, no extension.",
+      "keep_desc": "TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension.",
       "move_info": {
         "js": {
           "fn": "test0141_Machine_rootSourcesLinearChain",
@@ -2213,7 +2213,7 @@
         },
         "py": {
           "fn": "test_141_per_cap_url_shape",
-          "desc": "TEST141: URL has the right shape \u2014 protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number.",
+          "desc": "TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number.",
           "loc": "tests/test_registry.py:171"
         },
         "rust": {
@@ -2234,7 +2234,7 @@
         "py",
         "rust"
       ],
-      "keep_desc": "TEST142: Different tag orders normalise to the same URL \u2014 the canonicaliser strips the variation before hashing.",
+      "keep_desc": "TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing.",
       "move_info": {
         "js": {
           "fn": "test0142_Machine_leafTargetsLinearChain",
@@ -2482,7 +2482,7 @@
         },
         "objc": {
           "fn": "test151_capManifestRequiredFields",
-          "desc": "TEST151: Manifest deserialization fails when any required field is missing \u2014 including channel, which is part of the cartridge's identity. There is no fallback default; missing means broken.",
+          "desc": "TEST151: Manifest deserialization fails when any required field is missing — including channel, which is part of the cartridge's identity. There is no fallback default; missing means broken.",
           "loc": "Tests/BifaciTests/ManifestTests.swift:138"
         }
       }
@@ -2602,7 +2602,7 @@
       "move_info": {
         "go": {
           "fn": "Test0156_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings",
-          "desc": "Test0156_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings is the engine\u2192Go-host (or Swift\u2192Go-host) decode path: incoming JSON uses the snake_case wire format, and the Go side must resolve each string into the matching variant. CartridgeAttachmentErrorKind is just `type ... string`, so this test is also a check that the JSON unmarshaller doesn't normalise/lowercase/etc the bytes behind our backs.",
+          "desc": "Test0156_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings is the engine→Go-host (or Swift→Go-host) decode path: incoming JSON uses the snake_case wire format, and the Go side must resolve each string into the matching variant. CartridgeAttachmentErrorKind is just `type ... string`, so this test is also a check that the JSON unmarshaller doesn't normalise/lowercase/etc the bytes behind our backs.",
           "loc": "bifaci/relay_switch_test.go:931"
         },
         "objc": {
@@ -2627,7 +2627,7 @@
       "move_info": {
         "go": {
           "fn": "Test0157_ReattachByIDPreservesSlotIndex",
-          "desc": "Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index \u2014 preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.",
+          "desc": "Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.",
           "loc": "bifaci/relay_switch_test.go:968"
         },
         "objc": {
@@ -2857,7 +2857,7 @@
         },
         "objc": {
           "fn": "test0166_PerCapURLUsesSHA256",
-          "desc": "/ Per-cap URLs use /caps/<sha256-hex> \u2014 no URN-grammar characters / in the path, so no percent-encoding gymnastics.",
+          "desc": "/ Per-cap URLs use /caps/<sha256-hex> — no URN-grammar characters / in the path, so no percent-encoding gymnastics.",
           "loc": "Tests/CapDAGTests/CSFabricRegistryTests.m:68"
         }
       }
@@ -4708,7 +4708,7 @@
         "go",
         "objc"
       ],
-      "keep_desc": "TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def \u2014 info panels, the cap navigator, the UI \u2014 so a regression here makes the new field invisible everywhere.",
+      "keep_desc": "TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere.",
       "move_info": {
         "go": {
           "fn": "Test0288_media_documentation_propagates_through_resolve",
@@ -5086,7 +5086,7 @@
         "js",
         "objc"
       ],
-      "keep_desc": "TEST326: get_cartridge_by_id requires a (channel, id). Same id in the wrong channel must miss \u2014 channels are independent namespaces.",
+      "keep_desc": "TEST326: get_cartridge_by_id requires a (channel, id). Same id in the wrong channel must miss — channels are independent namespaces.",
       "move_info": {
         "go": {
           "fn": "Test326_cartridge_repo_server_get_cartridge_by_id",
@@ -5095,7 +5095,7 @@
         },
         "js": {
           "fn": "test326_cartridgeRepoServerGetCartridgeById",
-          "desc": "TEST326: CartridgeRepoServer.getCartridgeById() requires (channel, id). Same id looked up in the wrong channel must miss \u2014 channels are independent namespaces.",
+          "desc": "TEST326: CartridgeRepoServer.getCartridgeById() requires (channel, id). Same id looked up in the wrong channel must miss — channels are independent namespaces.",
           "loc": "capdag.test.js:2181"
         },
         "objc": {
@@ -5176,7 +5176,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "TEST329: get_cartridges_by_cap parses the input URN and matches each cartridge cap via tagged-URN equivalence \u2014 not string ==. This proves a request URN whose tags appear in a different order than the cap's declared form still resolves.",
+      "keep_desc": "TEST329: get_cartridges_by_cap parses the input URN and matches each cartridge cap via tagged-URN equivalence — not string ==. This proves a request URN whose tags appear in a different order than the cap's declared form still resolves.",
       "move_info": {
         "go": {
           "fn": "Test329_cartridge_repo_server_get_by_cap",
@@ -5195,7 +5195,7 @@
         },
         "py": {
           "fn": "test_329_cartridge_repo_server_get_by_cap",
-          "desc": "TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate \u2014 not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent.",
+          "desc": "TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate — not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent.",
           "loc": "tests/test_cartridge_repo.py:341"
         }
       }
@@ -5220,7 +5220,7 @@
         },
         "js": {
           "fn": "test330_cartridgeRepoClientUpdateCache",
-          "desc": "TEST330: CartridgeRepoClient updates its local cache keyed by \"<channel>:<id>\". The cache holds release and nightly entries independently \u2014 the same id is allowed in both.",
+          "desc": "TEST330: CartridgeRepoClient updates its local cache keyed by \"<channel>:<id>\". The cache holds release and nightly entries independently — the same id is allowed in both.",
           "loc": "capdag.test.js:2271"
         },
         "objc": {
@@ -5366,7 +5366,7 @@
         "js",
         "objc"
       ],
-      "keep_desc": "TEST335: A v5.0 channel-partitioned registry round-trips through Server \u2192 CartridgeInfo, preserving the cap_groups structure, signed flag, and channel provenance.",
+      "keep_desc": "TEST335: A v5.0 channel-partitioned registry round-trips through Server → CartridgeInfo, preserving the cap_groups structure, signed flag, and channel provenance.",
       "move_info": {
         "go": {
           "fn": "Test335_cartridge_repo_server_client_integration",
@@ -5380,7 +5380,7 @@
         },
         "objc": {
           "fn": "test0335_CapDocumentationRoundTrip",
-          "desc": "Mirrors TEST920 in capdag/src/cap/definition.rs and the JS testJS_capDocumentationRoundTrip test. The body is non-trivial \u2014 multi-line, embedded backticks and double quotes, Unicode dingbat (\\u2605) \u2014 so any escaping mismatch between dictionary serialization here and the Rust / JS counterparts surfaces as a failed round-trip.",
+          "desc": "Mirrors TEST920 in capdag/src/cap/definition.rs and the JS testJS_capDocumentationRoundTrip test. The body is non-trivial — multi-line, embedded backticks and double quotes, Unicode dingbat (\\u2605) — so any escaping mismatch between dictionary serialization here and the Rust / JS counterparts surfaces as a failed round-trip.",
           "loc": "Tests/CapDAGTests/CSCapTests.m:922"
         }
       }
@@ -5456,12 +5456,12 @@
       "move_info": {
         "go": {
           "fn": "Test339_FilePathArrayGlobExpansion",
-          "desc": "TEST339: file-path arg with is_sequence=true expands a glob to N files and the runtime delivers them as a CBOR Array of Bytes \u2014 one array item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion.",
+          "desc": "TEST339: file-path arg with is_sequence=true expands a glob to N files and the runtime delivers them as a CBOR Array of Bytes — one array item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion.",
           "loc": "bifaci/cartridge_runtime_test.go:1026"
         },
         "objc": {
           "fn": "test339_file_path_array_glob_expansion",
-          "desc": "TEST339: A sequence-declared file-path arg (isSequence=true) expands a glob into N files and the runtime delivers them as a CBOR Array of bytes \u2014 one item per matched file. List-ness comes from the arg declaration, NOT from any `;list` URN tag. TEST339: A sequence-declared file-path arg expands a glob to N files and the runtime delivers them as a CBOR Array of bytes \u2014 one item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion.",
+          "desc": "TEST339: A sequence-declared file-path arg (isSequence=true) expands a glob into N files and the runtime delivers them as a CBOR Array of bytes — one item per matched file. List-ness comes from the arg declaration, NOT from any `;list` URN tag. TEST339: A sequence-declared file-path arg expands a glob to N files and the runtime delivers them as a CBOR Array of bytes — one item per matched file. List-ness comes from the arg declaration, not from any `;list` URN tag. Mirrors Rust test339_file_path_array_glob_expansion.",
           "loc": "Tests/BifaciTests/CartridgeRuntimeTests.swift:811"
         }
       }
@@ -5575,7 +5575,7 @@
       "move_info": {
         "objc": {
           "fn": "test347_empty_file_reads_as_empty_bytes",
-          "desc": "TEST347: Empty file reads as empty bytes. Mirrors Rust test347_empty_file_reads_as_empty_bytes. The file is written non-atomically (`options: []`). The default `Data.write(to:)` overload uses an atomic save, which on macOS for a zero-byte Data on a fresh destination has been observed to throw NSCocoaErrorDomain Code=4 (\"couldn't be removed\", ENOENT) \u2014 Foundation tries to clean up a sibling temp file that was never created. The Rust reference uses `std::fs::write(...)` (non-atomic); matching that here keeps the cross-language test parity honest. Pre-removing any stale file from a prior aborted run keeps the create path clean.",
+          "desc": "TEST347: Empty file reads as empty bytes. Mirrors Rust test347_empty_file_reads_as_empty_bytes. The file is written non-atomically (`options: []`). The default `Data.write(to:)` overload uses an atomic save, which on macOS for a zero-byte Data on a fresh destination has been observed to throw NSCocoaErrorDomain Code=4 (\"couldn't be removed\", ENOENT) — Foundation tries to clean up a sibling temp file that was never created. The Rust reference uses `std::fs::write(...)` (non-atomic); matching that here keeps the cross-language test parity honest. Pre-removing any stale file from a prior aborted run keeps the create path clean.",
           "loc": "Tests/BifaciTests/CartridgeRuntimeTests.swift:1065"
         }
       }
@@ -5613,7 +5613,7 @@
       "move_info": {
         "rust": {
           "fn": "test351_file_path_array_empty_array",
-          "desc": "TEST351: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array \u2014 no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only.",
+          "desc": "TEST351: sequence-declared file-path arg with empty input array (CBOR mode) passes through as an empty CBOR Array — no implicit expansion, no spurious error. Declaring `is_sequence = true` is what makes the runtime emit an Array shape; URN tags are semantic only.",
           "loc": "src/bifaci/cartridge_runtime.rs:6349"
         }
       }
@@ -5780,7 +5780,7 @@
       "move_info": {
         "objc": {
           "fn": "test415_reqTriggersSpawnError",
-          "desc": "TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error). Mirrors Rust test415_req_for_known_cap_triggers_spawn: production install layout \u2014 versioned cartridge directory with cartridge.json (carrying the channel) plus an entry-point binary that isn't executable, so spawn fails.",
+          "desc": "TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error). Mirrors Rust test415_req_for_known_cap_triggers_spawn: production install layout — versioned cartridge directory with cartridge.json (carrying the channel) plus an entry-point binary that isn't executable, so spawn fails.",
           "loc": "Tests/BifaciTests/RuntimeTests.swift:695"
         }
       }
@@ -5799,7 +5799,7 @@
       "move_info": {
         "objc": {
           "fn": "test435_urn_matching_exact_and_accepts",
-          "desc": "TEST435: URN matching (exact vs accepts()) Dispatch is contravariant on input (request input must conform to provider input \u2014 i.e. request can be more specific) and covariant on output (provider output must conform to request output \u2014 i.e. provider can be more specific). A request whose input is in a different type family than any registered provider has no handler.",
+          "desc": "TEST435: URN matching (exact vs accepts()) Dispatch is contravariant on input (request input must conform to candidate input — i.e. request can be more specific) and covariant on output (candidate output must conform to request output — i.e. candidate can be more specific). A request whose input is in a different type family than any registered candidate has no handler.",
           "loc": "Tests/BifaciTests/RelaySwitchTests.swift:588"
         }
       }
@@ -5814,11 +5814,11 @@
       "move": [
         "go"
       ],
-      "keep_desc": "TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in=\"media:ext=pdf\") because media: accepts any input type. With preference, can route to generic even when more specific exists.",
+      "keep_desc": "TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in=\"media:ext=pdf\") because media: accepts any input type. With preference, can route to generic even when more specific exists.",
       "move_info": {
         "go": {
-          "fn": "Test439_generic_provider_can_dispatch_specific_request",
-          "desc": "TEST439: Generic provider CAN dispatch specific request. With is_dispatchable: generic provider (in=media:) can handle specific request (in=\"media:ext=pdf\") because media: accepts any input type.",
+          "fn": "Test439_generic_candidate_can_dispatch_specific_request",
+          "desc": "TEST439: Generic candidate CAN dispatch specific request. With is_dispatchable: generic candidate (in=media:) can handle specific request (in=\"media:ext=pdf\") because media: accepts any input type.",
           "loc": "bifaci/relay_switch_test.go:797"
         }
       }
@@ -5907,7 +5907,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "TEST489: Full path identity verification: engine \u2192 host (attach_cartridge) \u2192 cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests.",
+      "keep_desc": "TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge This verifies that attach_cartridge completes identity verification end-to-end and the cartridge is ready to handle subsequent requests.",
       "move_info": {
         "objc": {
           "fn": "test489_addMasterDynamic",
@@ -5916,7 +5916,7 @@
         },
         "py": {
           "fn": "test_489_full_path_identity_verification",
-          "desc": "TEST489: Full path identity verification: engine \u2192 host (attach_cartridge) \u2192 cartridge",
+          "desc": "TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge",
           "loc": "tests/test_cartridge_host.py:203"
         }
       }
@@ -6046,12 +6046,12 @@
       "move_info": {
         "go": {
           "fn": "Test618_registry_creation",
-          "desc": "TEST618: A freshly constructed registry over a temp cache dir is operational: the cache directory exists on disk and the registry is usable. Inserting then reopening a registry on the same directory must load the persisted schema \u2014 this genuinely exercises the disk-cache round-trip (Rust new_with_cache_dir + load_all_cached_schemas), not just the in-memory map.",
+          "desc": "TEST618: A freshly constructed registry over a temp cache dir is operational: the cache directory exists on disk and the registry is usable. Inserting then reopening a registry on the same directory must load the persisted schema — this genuinely exercises the disk-cache round-trip (Rust new_with_cache_dir + load_all_cached_schemas), not just the in-memory map.",
           "loc": "media/profile_test.go:113"
         },
         "py": {
           "fn": "test_618_registry_creation",
-          "desc": "TEST618: A freshly constructed registry is operational and reports an empty cache. Schemas must be inserted explicitly \u2014 none are bundled.",
+          "desc": "TEST618: A freshly constructed registry is operational and reports an empty cache. Schemas must be inserted explicitly — none are bundled.",
           "loc": "tests/test_media_profile.py:103"
         }
       }
@@ -6302,7 +6302,7 @@
       "move_info": {
         "go": {
           "fn": "Test653_identity_routing_isolation",
-          "desc": "TEST653: Cap identity does not route as a declared-effect provider",
+          "desc": "TEST653: Cap identity does not route as a declared-effect candidate",
           "loc": "urn/cap_urn_test.go:1265"
         }
       }
@@ -6343,7 +6343,7 @@
       "move_info": {
         "objc": {
           "fn": "test662_rebuildCapabilitiesIncludesNonRunningCartridges",
-          "desc": "TEST662: rebuild_capabilities includes non-running cartridges' caps. cap_groups is the source of truth and advertisement does not gate on `running` \u2014 only on identity (cartridge.json present) and on `helloFailed`.",
+          "desc": "TEST662: rebuild_capabilities includes non-running cartridges' caps. cap_groups is the source of truth and advertisement does not gate on `running` — only on identity (cartridge.json present) and on `helloFailed`.",
           "loc": "Tests/BifaciTests/RuntimeTests.swift:1153"
         },
         "py": {
@@ -6548,7 +6548,7 @@
       "move_info": {
         "objc": {
           "fn": "test730_media_shape_from_urn_all_combinations",
-          "desc": "TEST730: Tests MediaShape correctly parses all four combinations Cardinality is always Single from URN \u2014 comes from context, not URN tags",
+          "desc": "TEST730: Tests MediaShape correctly parses all four combinations Cardinality is always Single from URN — comes from context, not URN tags",
           "loc": "Tests/CapDAGTests/CSCardinalityTests.m:250"
         }
       }
@@ -6602,7 +6602,7 @@
       "move_info": {
         "go": {
           "fn": "Test743_foreach_body_bounds_determine_extraction",
-          "desc": "TEST743: Tests that ForEach node's body range fields are used correctly by ExtractForEachBody The bodyEntry/bodyExit fields define which nodes are in scope. Verifies that wrong body bounds produce a different extraction than correct ones \u2014 body_exit determines what gets included.",
+          "desc": "TEST743: Tests that ForEach node's body range fields are used correctly by ExtractForEachBody The bodyEntry/bodyExit fields define which nodes are in scope. Verifies that wrong body bounds produce a different extraction than correct ones — body_exit determines what gets included.",
           "loc": "planner/plan_test.go:206"
         }
       }
@@ -6708,7 +6708,7 @@
       "move": [
         "objc"
       ],
-      "keep_desc": "TEST760: Full decomposition roundtrip \u2014 prefix + body + suffix cover all cap nodes",
+      "keep_desc": "TEST760: Full decomposition roundtrip — prefix + body + suffix cover all cap nodes",
       "move_info": {
         "objc": {
           "fn": "test760_decompositionCoversAllCaps",
@@ -7645,7 +7645,7 @@
       "move_info": {
         "rust": {
           "fn": "test842_run_with_keepalive_returns_result",
-          "desc": "TEST842: run_with_keepalive returns closure result (fast operation, no keepalive PROGRESS frames). `run_with_keepalive` emits two distinct families of Log frames: keepalive PROGRESS ticks (built via `Frame::progress`, `meta.level == \"progress\"`, fired only when the 5s ticker expires) and diagnostic ticker-lifecycle frames (built via the local `keepalive_log_frame` helper, `meta.level == \"debug\"`, ALWAYS fired once at start and once at stop \u2014 independent of how long the work took). For an instant operation we expect exactly the two diagnostic frames and zero progress frames. Filtering by `frame_type == Log` alone would also match the diagnostic frames and produce a false positive; the test must discriminate by the `level` meta field, not the frame type.",
+          "desc": "TEST842: run_with_keepalive returns closure result (fast operation, no keepalive PROGRESS frames). `run_with_keepalive` emits two distinct families of Log frames: keepalive PROGRESS ticks (built via `Frame::progress`, `meta.level == \"progress\"`, fired only when the 5s ticker expires) and diagnostic ticker-lifecycle frames (built via the local `keepalive_log_frame` helper, `meta.level == \"debug\"`, ALWAYS fired once at start and once at stop — independent of how long the work took). For an instant operation we expect exactly the two diagnostic frames and zero progress frames. Filtering by `frame_type == Log` alone would also match the diagnostic frames and produce a false positive; the test must discriminate by the `level` meta field, not the frame type.",
           "loc": "src/bifaci/cartridge_runtime.rs:8556"
         }
       }
@@ -7823,7 +7823,7 @@
       "move": [
         "py"
       ],
-      "keep_desc": "TEST954: Standalone Collect nodes are handled as pass-through Plan: input \u2192 cap_0 \u2192 Collect \u2192 cap_1 \u2192 output The standalone Collect is transparent \u2014 the resolved edge from Collect to cap_1 should be rewritten to go from cap_0 to cap_1 directly.",
+      "keep_desc": "TEST954: Standalone Collect nodes are handled as pass-through Plan: input → cap_0 → Collect → cap_1 → output The standalone Collect is transparent — the resolved edge from Collect to cap_1 should be rewritten to go from cap_0 to cap_1 directly.",
       "move_info": {
         "py": {
           "fn": "test_954_standalone_collect_passthrough",
@@ -7949,11 +7949,11 @@
       "move": [
         "rust"
       ],
-      "keep_desc": "TEST1103: Tests that IsDispatchable has correct directionality A specific provider is dispatchable for a general request; the reverse is false.",
+      "keep_desc": "TEST1103: Tests that IsDispatchable has correct directionality A specific candidate is dispatchable for a general request; the reverse is false.",
       "move_info": {
         "rust": {
           "fn": "test1103_is_dispatchable_uses_correct_directionality",
-          "desc": "TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request). This tests the directionality: provider.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder",
+          "desc": "TEST1103: Tests that is_dispatchable has correct directionality The available cap (candidate) must be dispatchable for the requested cap (request). This tests the directionality: candidate.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder",
           "loc": "src/planner/plan_builder.rs:1248"
         }
       }
@@ -7967,11 +7967,11 @@
       "move": [
         "go"
       ],
-      "keep_desc": "TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request",
+      "keep_desc": "TEST1104: Tests that is_dispatchable rejects when candidate cannot dispatch request",
       "move_info": {
         "go": {
           "fn": "Test1104_is_dispatchable_rejects_non_dispatchable",
-          "desc": "TEST1104: Tests that IsDispatchable rejects when provider is missing a required cap tag Provider without required=yes cannot handle a request that demands required=yes.",
+          "desc": "TEST1104: Tests that IsDispatchable rejects when candidate is missing a required cap tag Candidate without required=yes cannot handle a request that demands required=yes.",
           "loc": "planner/plan_builder_test.go:351"
         }
       }
@@ -7984,11 +7984,11 @@
       "move": [
         "go"
       ],
-      "keep_desc": "TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug \u2014 media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source.",
+      "keep_desc": "TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source.",
       "move_info": {
         "go": {
           "fn": "Test1111_foreach_for_user_provided_list_source",
-          "desc": "TEST1111: ForEach works for user-provided list sources not in the graph. User provides media:list;txt;enc=utf-8 with is_sequence=true \u2192 ForEach+cap path found.",
+          "desc": "TEST1111: ForEach works for user-provided list sources not in the graph. User provides media:list;txt;enc=utf-8 with is_sequence=true → ForEach+cap path found.",
           "loc": "planner/live_cap_fab_test.go:250"
         }
       }
@@ -8001,11 +8001,11 @@
       "move": [
         "go"
       ],
-      "keep_desc": "TEST1113: Multi-cap path without Collect \u2014 Collect is not synthesized",
+      "keep_desc": "TEST1113: Multi-cap path without Collect — Collect is not synthesized",
       "move_info": {
         "go": {
           "fn": "Test1113_multi_cap_path_no_collect",
-          "desc": "TEST1113: Multi-cap path without Collect \u2014 Collect is not synthesized. PDF\u2192disbind\u2192page\u2192summarize\u2192summary. CapStepCount=2.",
+          "desc": "TEST1113: Multi-cap path without Collect — Collect is not synthesized. PDF→disbind→page→summarize→summary. CapStepCount=2.",
           "loc": "planner/live_cap_fab_test.go:315"
         }
       }
@@ -8039,7 +8039,7 @@
       "move_info": {
         "go": {
           "fn": "Test1115_dynamic_foreach_with_is_sequence",
-          "desc": "TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items. getOutgoingEdges(source, true) \u2192 ForEach edge present, next_is_seq=false.",
+          "desc": "TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items. getOutgoingEdges(source, true) → ForEach edge present, next_is_seq=false.",
           "loc": "planner/live_cap_fab_test.go:358"
         }
       }
@@ -8086,11 +8086,11 @@
       "move": [
         "go"
       ],
-      "keep_desc": "TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character \u2014 including newlines, backticks, double quotes, and Unicode \u2014 because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capfab side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't.",
+      "keep_desc": "TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capfab side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't.",
       "move_info": {
         "go": {
           "fn": "Test1127_cap_documentation_round_trip_with_markdown_body",
-          "desc": "TEST1127: Documentation field round-trips through JSON serialize/deserialize. The body must survive multi-line markdown with CRLF, backticks, double quotes, and Unicode characters \u2014 every character must be preserved.",
+          "desc": "TEST1127: Documentation field round-trips through JSON serialize/deserialize. The body must survive multi-line markdown with CRLF, backticks, double quotes, and Unicode characters — every character must be preserved.",
           "loc": "cap/definition_test.go:535"
         }
       }
@@ -8103,11 +8103,11 @@
       "move": [
         "go"
       ],
-      "keep_desc": "TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's \"if present\" semantics \u2014 there is no null sentinel, only absence. A bug here would silently start emitting `\"documentation\":null` and break consumers that distinguish between absent and explicit null.",
+      "keep_desc": "TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's \"if present\" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `\"documentation\":null` and break consumers that distinguish between absent and explicit null.",
       "move_info": {
         "go": {
           "fn": "Test1128_cap_documentation_omitted_when_none",
-          "desc": "TEST1128: When Documentation is nil, the serializer must omit the field entirely. There must be no \"documentation\":null \u2014 only absence.",
+          "desc": "TEST1128: When Documentation is nil, the serializer must omit the field entirely. There must be no \"documentation\":null — only absence.",
           "loc": "cap/definition_test.go:557"
         }
       }
@@ -8120,7 +8120,7 @@
       "move": [
         "go"
       ],
-      "keep_desc": "TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape \u2014 not a synthetic round-trip \u2014 to catch a mismatch between the JSON schema and the Rust struct field naming.",
+      "keep_desc": "TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming.",
       "move_info": {
         "go": {
           "fn": "Test1129_cap_documentation_parses_from_capfab_json",
@@ -8137,7 +8137,7 @@
       "move": [
         "go"
       ],
-      "keep_desc": "TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field \u2014 for example, set_documentation accidentally writing to cap_description.",
+      "keep_desc": "TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field — for example, set_documentation accidentally writing to cap_description.",
       "move_info": {
         "go": {
           "fn": "Test1130_cap_documentation_set_and_clear_lifecycle",
@@ -8188,7 +8188,7 @@
       "move": [
         "py"
       ],
-      "keep_desc": "TEST1135: MachineStrand::node_urn(id) returns the MediaUrn at that NodeId. For a single-cap strand (pdf \u2192 extract \u2192 txt), there are exactly two nodes and each returns a valid URN.",
+      "keep_desc": "TEST1135: MachineStrand::node_urn(id) returns the MediaUrn at that NodeId. For a single-cap strand (pdf → extract → txt), there are exactly two nodes and each returns a valid URN.",
       "move_info": {
         "py": {
           "fn": "test_1135_strand_node_urn_accessor",
@@ -8273,11 +8273,11 @@
       "move": [
         "py"
       ],
-      "keep_desc": "TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START \u2192 CHUNK(s) \u2192 STREAM_END \u2192 END with correct frame types, stream_id, media_urn, and data integrity.",
+      "keep_desc": "TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END with correct frame types, stream_id, media_urn, and data integrity.",
       "move_info": {
         "py": {
           "fn": "test_1140_write_stream_chunked_reassembly",
-          "desc": "TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START \u2192 CHUNK(s) \u2192 STREAM_END \u2192 END",
+          "desc": "TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END",
           "loc": "tests/test_cbor_io.py:722"
         }
       }
@@ -8472,7 +8472,7 @@
         },
         "py": {
           "fn": "test_1181_match_two_sources_disambiguated_by_specificity",
-          "desc": "TEST1181: Two sources disambiguated by specificity \u2014 unique minimum-cost assignment.",
+          "desc": "TEST1181: Two sources disambiguated by specificity — unique minimum-cost assignment.",
           "loc": "tests/test_machine.py:898"
         }
       }
@@ -8776,7 +8776,7 @@
         "js",
         "py"
       ],
-      "keep_desc": "TEST1308: A wiring set that feeds a cap's output back into an ancestor forms a cycle and must fail hard with CyclicMachineStrand carrying the strand index. Cycle: node 0 \u2192 cap A \u2192 node 1 \u2192 cap B \u2192 node 0.",
+      "keep_desc": "TEST1308: A wiring set that feeds a cap's output back into an ancestor forms a cycle and must fail hard with CyclicMachineStrand carrying the strand index. Cycle: node 0 → cap A → node 1 → cap B → node 0.",
       "move_info": {
         "js": {
           "fn": "test1308_builderRejectsStructuralKeys",
@@ -8798,7 +8798,7 @@
       "move": [
         "objc"
       ],
-      "keep_desc": "/ TEST1500: The default central registry's URL hashes to a stable, / pre-computed slug. If this value ever changes silently it means / either the encoding rule shifted or the hashing algorithm / changed \u2014 either way every installed cartridge would land in / the wrong directory and stop being discovered. The slug is / pinned as a literal so a regression is loud.",
+      "keep_desc": "/ TEST1500: The default central registry's URL hashes to a stable, / pre-computed slug. If this value ever changes silently it means / either the encoding rule shifted or the hashing algorithm / changed — either way every installed cartridge would land in / the wrong directory and stop being discovered. The slug is / pinned as a literal so a regression is loud.",
       "move_info": {
         "objc": {
           "fn": "test1500_writeAfterCloseThrowsCleanly",
@@ -8815,11 +8815,11 @@
       "move": [
         "objc"
       ],
-      "keep_desc": "/ TEST1501: `None` (dev cartridge) maps to the literal `dev` and / never to a hex slug. The dev sentinel must remain / distinguishable from registry slugs by length alone \u2014 no / caller should ever hash the string \"dev\" to get this value.",
+      "keep_desc": "/ TEST1501: `None` (dev cartridge) maps to the literal `dev` and / never to a hex slug. The dev sentinel must remain / distinguishable from registry slugs by length alone — no / caller should ever hash the string \"dev\" to get this value.",
       "move_info": {
         "objc": {
           "fn": "test1501_doubleCloseIsIdempotent",
-          "desc": "TEST1501: Calling close() twice on a FrameWriter is a no-op \u2014 the second call must not throw, must not double-close the underlying fd, and must leave the writer in the closed state.",
+          "desc": "TEST1501: Calling close() twice on a FrameWriter is a no-op — the second call must not throw, must not double-close the underlying fd, and must leave the writer in the closed state.",
           "loc": "Tests/BifaciTests/FrameTests.swift:1816"
         }
       }
@@ -8832,11 +8832,11 @@
       "move": [
         "objc"
       ],
-      "keep_desc": "/ TEST1502: The URL is treated as raw bytes \u2014 adding a trailing / slash, changing case, or appending a query string yields a / different slug. Proves we are not normalizing the URL behind / the operator's back; if they typed two URLs that look \"the / same\" but differ byte-wise, those are two distinct registries.",
+      "keep_desc": "/ TEST1502: The URL is treated as raw bytes — adding a trailing / slash, changing case, or appending a query string yields a / different slug. Proves we are not normalizing the URL behind / the operator's back; if they typed two URLs that look \"the / same\" but differ byte-wise, those are two distinct registries.",
       "move_info": {
         "objc": {
           "fn": "test1502_flushAfterCloseThrowsCleanly",
-          "desc": "TEST1502: flush() on a closed FrameWriter \u2014 even with an empty buffer \u2014 must throw FrameError.ioError, not silently succeed. A flush call after close() is a programmer error and must surface, not be papered over.",
+          "desc": "TEST1502: flush() on a closed FrameWriter — even with an empty buffer — must throw FrameError.ioError, not silently succeed. A flush call after close() is a programmer error and must surface, not be papered over.",
           "loc": "Tests/BifaciTests/FrameTests.swift:1839"
         }
       }
@@ -8849,7 +8849,7 @@
       "move": [
         "objc"
       ],
-      "keep_desc": "/ TEST1503: Calling `slug_for` twice on the same URL returns the / same string. Determinism is the whole point of using a hash / here \u2014 if this fails, every install/restart would land in a / different folder and discovery would be permanently broken.",
+      "keep_desc": "/ TEST1503: Calling `slug_for` twice on the same URL returns the / same string. Determinism is the whole point of using a hash / here — if this fails, every install/restart would land in a / different folder and discovery would be permanently broken.",
       "move_info": {
         "objc": {
           "fn": "test1503_concurrentCloseAndWriteDoesNotCrash",
@@ -8866,11 +8866,11 @@
       "move": [
         "objc"
       ],
-      "keep_desc": "/ TEST1504: A 16-character hex slug can never equal the literal / `dev` \u2014 `dev` is 3 characters, so by-length comparison alone / rules out collision. This invariant is what lets us use the / folder name as a dev-vs-registry discriminator without / reading any file inside the directory.",
+      "keep_desc": "/ TEST1504: A 16-character hex slug can never equal the literal / `dev` — `dev` is 3 characters, so by-length comparison alone / rules out collision. This invariant is what lets us use the / folder name as a dev-vs-registry discriminator without / reading any file inside the directory.",
       "move_info": {
         "objc": {
           "fn": "test1504_closeShutsTheUnderlyingPipe",
-          "desc": "TEST1504: After FrameWriter.close(), the underlying FileHandle is closed. A subsequent read on the paired read end must observe EOF \u2014 proving that close() actually closes the pipe (not just marks the writer dead in software). This guards against the regression where close() flips the writer flag but leaves the pipe open, which would let buffered data still drain into a peer that's been told the writer is gone.",
+          "desc": "TEST1504: After FrameWriter.close(), the underlying FileHandle is closed. A subsequent read on the paired read end must observe EOF — proving that close() actually closes the pipe (not just marks the writer dead in software). This guards against the regression where close() flips the writer flag but leaves the pipe open, which would let buffered data still drain into a peer that's been told the writer is gone.",
           "loc": "Tests/BifaciTests/FrameTests.swift:1920"
         }
       }
@@ -8937,16 +8937,16 @@
         "go",
         "objc"
       ],
-      "keep_desc": "TEST1800: Identity classifier \u2014 only explicit effect=none qualifies.",
+      "keep_desc": "TEST1800: Identity classifier — only explicit effect=none qualifies.",
       "move_info": {
         "go": {
           "fn": "Test1800_kind_identity_only_for_bare_cap",
-          "desc": "TEST1800: Identity classifier \u2014 only explicit effect=none qualifies. `cap:effect=none` is the fully generic identity on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.",
+          "desc": "TEST1800: Identity classifier — only explicit effect=none qualifies. `cap:effect=none` is the fully generic identity on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.",
           "loc": "urn/cap_urn_test.go:1606"
         },
         "objc": {
           "fn": "test1800_kind_identity_only_for_bare_cap",
-          "desc": "TEST1800: Identity classifier \u2014 only explicit effect=none qualifies. Adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.",
+          "desc": "TEST1800: Identity classifier — only explicit effect=none qualifies. Adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic.",
           "loc": "Tests/CapDAGTests/CSCapUrnTests.m:1470"
         }
       }
@@ -8962,16 +8962,16 @@
         "js",
         "objc"
       ],
-      "keep_desc": "TEST1801: Source classifier \u2014 in=media:void, out non-void. The y dimension may carry any tags; void on the input alone is what matters.",
+      "keep_desc": "TEST1801: Source classifier — in=media:void, out non-void. The y dimension may carry any tags; void on the input alone is what matters.",
       "move_info": {
         "js": {
           "fn": "test1801_kindSourceWhenInputIsVoid",
-          "desc": "TEST1801: Source classifier \u2014 in=media:void, out non-void.",
+          "desc": "TEST1801: Source classifier — in=media:void, out non-void.",
           "loc": "capdag.test.js:6041"
         },
         "objc": {
           "fn": "test1801_kind_source_when_input_is_void",
-          "desc": "TEST1801: Source classifier \u2014 in=media:void, out non-void.",
+          "desc": "TEST1801: Source classifier — in=media:void, out non-void.",
           "loc": "Tests/CapDAGTests/CSCapUrnTests.m:1502"
         }
       }
@@ -9012,11 +9012,11 @@
       "move": [
         "rust"
       ],
-      "keep_desc": "TEST1810: media:void is atomic \u2014 refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency \u2014 the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail.",
+      "keep_desc": "TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail.",
       "move_info": {
         "rust": {
           "fn": "test1810_media_void_is_atomic",
-          "desc": "TEST1810: media:void is atomic \u2014 refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency \u2014 the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail. The bare `media:void` parses successfully; any combination with another tag (marker or key=value) MUST fail with VoidNotAtomic. This forecloses a fake taxonomy of unit values; reasons or labels for *why* void is used belong on the cap URN's non-directional tags or in cap args.",
+          "desc": "TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail. The bare `media:void` parses successfully; any combination with another tag (marker or key=value) MUST fail with VoidNotAtomic. This forecloses a fake taxonomy of unit values; reasons or labels for *why* void is used belong on the cap URN's non-directional tags or in cap args.",
           "loc": "src/urn/media_urn.rs:1532"
         }
       }
@@ -9052,7 +9052,7 @@
       "move": [
         "objc"
       ],
-      "keep_desc": "TEST1830: ?x \u2261 x? \u2261 x=? all canonicalize to ?x.",
+      "keep_desc": "TEST1830: ?x ≡ x? ≡ x=? all canonicalize to ?x.",
       "move_info": {
         "objc": {
           "fn": "test1830_canonicalize_no_constraint",
@@ -9072,7 +9072,7 @@
       "move": [
         "objc"
       ],
-      "keep_desc": "TEST1832: x \u2261 x=* both canonicalize to bare x.",
+      "keep_desc": "TEST1832: x ≡ x=* both canonicalize to bare x.",
       "move_info": {
         "objc": {
           "fn": "test1832_canonicalize_must_have_any",
@@ -9117,7 +9117,7 @@
       "move": [
         "objc"
       ],
-      "keep_desc": "TEST1835: !x \u2261 x! \u2261 x=! all canonicalize to !x.",
+      "keep_desc": "TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x.",
       "move_info": {
         "objc": {
           "fn": "test1835_canonicalize_must_not_have",
@@ -9137,21 +9137,21 @@
         "objc",
         "rust"
       ],
-      "keep_desc": "TEST1842: Full 6\u00d76 truth table \u2014 every cell must match the matrix in 04-PREDICATES.md \u00a72.5.",
+      "keep_desc": "TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5.",
       "move_info": {
         "js": {
           "fn": "test1842_truthTableFullCrossProduct",
-          "desc": "TEST1842: Full 6\u00d76 truth table.",
+          "desc": "TEST1842: Full 6×6 truth table.",
           "loc": "capdag.test.js:6285"
         },
         "objc": {
           "fn": "test1842_truth_table_full_cross_product",
-          "desc": "TEST1842: Full 6\u00d76 truth table.",
+          "desc": "TEST1842: Full 6×6 truth table.",
           "loc": "Tests/CapDAGTests/CSCapUrnTests.m:1824"
         },
         "rust": {
           "fn": "test1842_truth_table_full_cross_product",
-          "desc": "TEST1842: Full 6\u00d76 truth table \u2014 every cell must match the matrix in 04-PREDICATES.md \u00a72.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form.",
+          "desc": "TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form.",
           "loc": "src/urn/cap_urn.rs:3632"
         }
       }
@@ -9207,7 +9207,7 @@
       "move": [
         "rust"
       ],
-      "keep_desc": "TEST1846: Decoded layout \u2014 10000*out + 100*in + y.",
+      "keep_desc": "TEST1846: Decoded layout — 10000*out + 100*in + y.",
       "move_info": {
         "rust": {
           "fn": "test1846_axis_weighting_decoded_layout",
@@ -9250,7 +9250,7 @@
       "move_info": {
         "js": {
           "fn": "test1872_registryUrlFromBuildEnvPassesThroughNonempty",
-          "desc": "TEST1872: a non-empty MFR_CARTRIDGE_REGISTRY_URL passes through verbatim \u2014 a published build reports exactly the URL it was compiled with.",
+          "desc": "TEST1872: a non-empty MFR_CARTRIDGE_REGISTRY_URL passes through verbatim — a published build reports exactly the URL it was compiled with.",
           "loc": "capdag.test.js:2582"
         }
       }
@@ -9266,21 +9266,21 @@
         "js",
         "py"
       ],
-      "keep_desc": "TEST1873: an unset env (nil) yields nil \u2014 a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only \"Primary \u00b7 built-in\" row.",
+      "keep_desc": "TEST1873: an unset env (nil) yields nil — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only \"Primary · built-in\" row.",
       "move_info": {
         "go": {
           "fn": "Test1873_registry_url_from_build_env_none_for_dev",
-          "desc": "TEST1873: an unset build-env value (nil) yields nil \u2014 a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges (mirror of Rust test1873).",
+          "desc": "TEST1873: an unset build-env value (nil) yields nil — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges (mirror of Rust test1873).",
           "loc": "bifaci/manifest_test.go:392"
         },
         "js": {
           "fn": "test1873_registryUrlFromBuildEnvNoneForDev",
-          "desc": "TEST1873: an unset env (null/undefined) yields null \u2014 a dev build has no baked registry and loads only `dev/` cartridges.",
+          "desc": "TEST1873: an unset env (null/undefined) yields null — a dev build has no baked registry and loads only `dev/` cartridges.",
           "loc": "capdag.test.js:2589"
         },
         "py": {
           "fn": "test_1873_registry_url_from_build_env_none_for_dev",
-          "desc": "TEST1873: an unset env (None) yields None \u2014 a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges.",
+          "desc": "TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges.",
           "loc": "tests/test_manifest.py:337"
         }
       }
@@ -9305,7 +9305,7 @@
         },
         "objc": {
           "fn": "test1874_registryUrlFromBuildEnvRejectsEmptyString",
-          "desc": "TEST1874: an exported-but-empty env (the empty string) is neither a dev build nor a valid identity and MUST fail hard, so the build can never silently hash the empty string into a fake registry slug. We assert the failure AND its exact message \u2014 the catchable Swift analog of Rust's compile-time panic \u2014 so a regression that dropped the check (or replaced it with a silent fallback) is caught rather than passing on a bogus empty primary registry.",
+          "desc": "TEST1874: an exported-but-empty env (the empty string) is neither a dev build nor a valid identity and MUST fail hard, so the build can never silently hash the empty string into a fake registry slug. We assert the failure AND its exact message — the catchable Swift analog of Rust's compile-time panic — so a regression that dropped the check (or replaced it with a silent fallback) is caught rather than passing on a bogus empty primary registry.",
           "loc": "Tests/BifaciTests/ManifestTests.swift:331"
         },
         "rust": {
@@ -9325,10 +9325,10 @@
       "move": [
         "objc"
       ],
-      "keep_desc": "TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BundledProviderHashes (the slice is empty under a plain build) is rejected as BadInstallation \u2014 the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.",
+      "keep_desc": "TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BundledCartridgeHashes (the slice is empty under a plain build) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe.",
       "move_info": {
         "objc": {
-          "fn": "test1878_bundledProviderWithoutBakedHashIsRejected",
+          "fn": "test1878_bundledCartridgeWithoutBakedHashIsRejected",
           "desc": "",
           "loc": "Tests/BifaciTests/CartridgeDiscoveryTests.swift:157"
         }
@@ -9443,7 +9443,7 @@
       "move_info": {
         "rust": {
           "fn": "test1885_cap_position_alias_to_media_is_error",
-          "desc": "TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error \u2014 the cap position requires a cap. This proves the type-correct enforcement in notation: a media alias cannot stand in for a cap.",
+          "desc": "TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error — the cap position requires a cap. This proves the type-correct enforcement in notation: a media alias cannot stand in for a cap.",
           "loc": "src/machine/parser.rs:1076"
         }
       }

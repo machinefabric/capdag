@@ -4,7 +4,7 @@
 //! installed cartridge version directory as attachable (`Directory`) or
 //! `Incompatible`. This is the single source of truth used by BOTH:
 //!
-//! - the engine, for the bundled `providers/` tree next to its binary, and
+//! - the engine, for the bundled `bundled-cartridges/` tree next to its binary, and
 //! - `machfab-daemon`, for the user-installed cartridge tree.
 //!
 //! Keeping one implementation guarantees the two hosts accept exactly the same
@@ -48,7 +48,7 @@ impl DiscoveryIdentity {
     /// slug — it enumerates every slug folder on disk (full macOS parity) and
     /// validates each cartridge against the folder it sits under. Retained as a
     /// public helper for callers that need the host's own slug (e.g. to locate
-    /// where this build's bundled providers were staged).
+    /// where this build's bundled cartridges were staged).
     pub fn slug(&self) -> String {
         slug_for(self.registry_url.as_deref())
     }
@@ -163,7 +163,7 @@ pub async fn discover_cartridges(
     // sits under (the three-place rule in `read_from_dir`), so a registry-
     // installed cartridge (under its registry's slug), the reserved `dev/` slot
     // (unpublished user cartridges, null registry_url), and the engine's bundled
-    // providers (under the build's registry slug, `installed_from: "bundle"`,
+    // cartridges (under the build's registry slug, `installed_from: "bundle"`,
     // integrity-checked by baked hash) all coexist and load together. The
     // channel folder IS still pinned to the host's channel — release and nightly
     // artefacts never mix. Registry-listing validation (is this version listed
@@ -398,13 +398,13 @@ async fn scan_channel_root(
             continue;
         }
 
-        // Bundled-provider integrity. A cartridge marked `installed_from: bundle`
+        // Bundled-cartridge integrity. A cartridge marked `installed_from: bundle`
         // is shipped INSIDE this build (the engine/daemon/capdag-CLI's own
-        // providers/ tree), not user-installed, and has no upstream registry to
+        // bundled-cartridges/ tree), not user-installed, and has no upstream registry to
         // verify against — so it needs its own integrity proof. The mechanism is
         // platform-split by necessity:
         //
-        // - macOS: the OS code-signature IS the guard. Every bundled provider
+        // - macOS: the OS code-signature IS the guard. Every bundled cartridge
         //   binary is signed (hardened runtime, secure timestamp, launch
         //   constraints) and the whole .app is notarized; a tampered binary
         //   fails Gatekeeper before the engine ever runs. A content hash would
@@ -413,10 +413,10 @@ async fn scan_channel_root(
         //   — an explicit, visible rule, not a silent skip.
         // - Linux/Windows: binaries are unsigned, so the integrity proof is a
         //   content hash baked into the engine at build time
-        //   (BUNDLED_PROVIDER_HASHES, codegen'd by build.rs from
-        //   MFR_BUNDLED_PROVIDER_HASHES). The on-disk directory must hash to the
+        //   (BUNDLED_CARTRIDGE_HASHES, codegen'd by build.rs from
+        //   MFR_BUNDLED_CARTRIDGE_HASHES). The on-disk directory must hash to the
         //   baked value; a mismatch or an entry absent from the baked set means
-        //   the shipped provider was tampered with or the build failed to record
+        //   the shipped cartridge was tampered with or the build failed to record
         //   it — surfaced incompatible + logged, never hosted. This is additive
         //   to the slug/channel/scheme/fabric-version checks above.
         if cj.installed_from == Some(crate::bifaci::cartridge_json::CartridgeInstallSource::Bundle) {
@@ -424,13 +424,13 @@ async fn scan_channel_root(
             {
                 tracing::info!(
                     cartridge = %version_dir.display(), name = %cj.name, version = %cj.version,
-                    "bundled provider integrity on macOS is the OS code-signature (notarized .app); baked-hash verification is intentionally skipped"
+                    "bundled cartridge integrity on macOS is the OS code-signature (notarized .app); baked-hash verification is intentionally skipped"
                 );
             }
             #[cfg(not(target_os = "macos"))]
             {
-                if let Err(reason) = verify_bundled_provider_hash(&cj.name, &cj.version, version_dir) {
-                    error!(cartridge = %version_dir.display(), name = %cj.name, version = %cj.version, reason = %reason, "bundled provider hash verification failed — surfacing as incompatible");
+                if let Err(reason) = verify_bundled_cartridge_hash(&cj.name, &cj.version, version_dir) {
+                    error!(cartridge = %version_dir.display(), name = %cj.name, version = %cj.version, reason = %reason, "bundled cartridge hash verification failed — surfacing as incompatible");
                     discovered.push(DiscoveredCartridge::Incompatible {
                         version_dir: version_dir.clone(),
                         id: cj.name.clone(),
@@ -439,7 +439,7 @@ async fn scan_channel_root(
                         version: cj.version.clone(),
                         error: CartridgeAttachmentError {
                             kind: CartridgeAttachmentErrorKind::BadInstallation,
-                            message: format!("bundled provider integrity check failed: {}", reason),
+                            message: format!("bundled cartridge integrity check failed: {}", reason),
                             detected_at_unix_seconds: detected_at,
                         },
                     });
@@ -482,41 +482,41 @@ async fn scan_channel_root(
     Ok(())
 }
 
-/// Verify a bundled provider's on-disk content against the hash baked into this
+/// Verify a bundled cartridge's on-disk content against the hash baked into this
 /// binary at build time. `Ok(())` when the directory hashes to the expected
 /// value for `(name, version)`; `Err(reason)` when the pair is absent from the
 /// baked set or the hash differs (tamper / corruption / unrecorded build).
 ///
-/// Non-macOS only: macOS bundled-provider integrity is the OS code-signature
+/// Non-macOS only: macOS bundled-cartridge integrity is the OS code-signature
 /// (see the discovery call site), so the engine there neither bakes nor checks
 /// these hashes.
 #[cfg(not(target_os = "macos"))]
-fn verify_bundled_provider_hash(name: &str, version: &str, version_dir: &Path) -> Result<(), String> {
-    let expected = bundled_provider_expected_hash(name, version).ok_or_else(|| {
+fn verify_bundled_cartridge_hash(name: &str, version: &str, version_dir: &Path) -> Result<(), String> {
+    let expected = bundled_cartridge_expected_hash(name, version).ok_or_else(|| {
         format!(
-            "no baked hash for bundled provider {name} {version} — this build did not record it (MFR_BUNDLED_PROVIDER_HASHES)"
+            "no baked hash for bundled cartridge {name} {version} — this build did not record it (MFR_BUNDLED_CARTRIDGE_HASHES)"
         )
     })?;
     let actual = crate::bifaci::cartridge_json::hash_cartridge_directory(version_dir)
-        .map_err(|e| format!("failed to hash bundled provider directory: {e}"))?;
+        .map_err(|e| format!("failed to hash bundled cartridge directory: {e}"))?;
     if actual == expected {
         Ok(())
     } else {
         Err(format!(
-            "content hash mismatch — baked {expected}, on-disk {actual}; the shipped provider differs from what this build was compiled to ship"
+            "content hash mismatch — baked {expected}, on-disk {actual}; the shipped cartridge differs from what this build was compiled to ship"
         ))
     }
 }
 
-/// Look up the baked expected directory hash for a bundled provider, or `None`
+/// Look up the baked expected directory hash for a bundled cartridge, or `None`
 /// if `(name, version)` was not recorded at build time. Backed by the
-/// `BUNDLED_PROVIDER_HASHES` const codegen'd by `build.rs` from
-/// `MFR_BUNDLED_PROVIDER_HASHES` (empty when no providers were bundled).
+/// `BUNDLED_CARTRIDGE_HASHES` const codegen'd by `build.rs` from
+/// `MFR_BUNDLED_CARTRIDGE_HASHES` (empty when no cartridges were bundled).
 ///
-/// Non-macOS only (see `verify_bundled_provider_hash`).
+/// Non-macOS only (see `verify_bundled_cartridge_hash`).
 #[cfg(not(target_os = "macos"))]
-fn bundled_provider_expected_hash(name: &str, version: &str) -> Option<&'static str> {
-    crate::BUNDLED_PROVIDER_HASHES
+fn bundled_cartridge_expected_hash(name: &str, version: &str) -> Option<&'static str> {
+    crate::BUNDLED_CARTRIDGE_HASHES
         .iter()
         .find(|(n, v, _)| *n == name && *v == version)
         .map(|(_, _, h)| *h)
@@ -765,15 +765,15 @@ mod tests {
     }
 
     // TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in
-    // BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is
+    // BUNDLED_CARTRIDGE_HASHES (the const is empty under plain `cargo test`) is
     // rejected as BadInstallation — the bundled-integrity gate fires before the
     // probe. Proves the verify is wired into discovery; a real bundle build bakes
     // the hash so the matching directory passes. Non-macOS only: on macOS the
     // baked-hash path is intentionally absent (OS code-signature is the guard),
-    // so a bundled provider is accepted there and would instead end at the probe.
+    // so a bundled cartridge is accepted there and would instead end at the probe.
     #[cfg(not(target_os = "macos"))]
     #[tokio::test]
-    async fn test1878_bundled_provider_without_baked_hash_is_rejected() {
+    async fn test1878_bundled_cartridge_without_baked_hash_is_rejected() {
         let root = tempdir().unwrap();
         // Dev slug (null registry) but installed_from=bundle — placement is
         // self-consistent (null→dev), so it passes read_from_dir and reaches the
@@ -786,7 +786,7 @@ mod tests {
         expect_incompatible(&out, CartridgeAttachmentErrorKind::BadInstallation);
         if let DiscoveredCartridge::Incompatible { error, .. } = &out[0] {
             assert!(
-                error.message.contains("bundled provider integrity"),
+                error.message.contains("bundled cartridge integrity"),
                 "message should name the bundled-integrity failure: {}",
                 error.message
             );

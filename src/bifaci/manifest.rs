@@ -1,7 +1,7 @@
 //! Unified cap-based manifest interface
 //!
 //! This module defines the unified manifest interface with standardized cap-based declarations.
-//! This replaces the separate ProviderManifest and CartridgeManifest types with a single canonical format.
+//! This replaces the earlier separate per-language manifest types with a single canonical format.
 
 use crate::bifaci::cartridge_repo::CartridgeChannel;
 use crate::standard::caps::CAP_IDENTITY;
@@ -727,7 +727,7 @@ mod tests {
         );
     }
 
-    // TEST6371: Cap manifest compatibility — cartridge-style and provider-style
+    // TEST6371: Cap manifest compatibility — cartridge-style and legacy-style
     // manifests serialize to the same JSON shape (same keys).
     #[test]
     fn test6371_cap_manifest_compatibility() {
@@ -741,22 +741,22 @@ mod tests {
             "Cartridge-style component".to_string(),
             vec![default_group(vec![cap.clone()])],
         );
-        let provider = CapManifest::new(
-            "ProviderComponent".to_string(),
+        let legacy_cartridge = CapManifest::new(
+            "LegacyCartridgeComponent".to_string(),
             "0.1.0".to_string(),
             CartridgeChannel::Release,
             None,
-            "Provider-style component".to_string(),
+            "Legacy-style component".to_string(),
             vec![default_group(vec![cap])],
         );
         let cartridge_map: serde_json::Map<String, serde_json::Value> =
             serde_json::from_str(&serde_json::to_string(&cartridge).unwrap()).unwrap();
-        let provider_map: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(&serde_json::to_string(&provider).unwrap()).unwrap();
-        assert_eq!(cartridge_map.len(), provider_map.len());
+        let legacy_cartridge_map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&serde_json::to_string(&legacy_cartridge).unwrap()).unwrap();
+        assert_eq!(cartridge_map.len(), legacy_cartridge_map.len());
         for key in ["name", "version", "description", "cap_groups", "channel"] {
             assert!(cartridge_map.contains_key(key), "missing key {key}");
-            assert!(provider_map.contains_key(key), "missing key {key}");
+            assert!(legacy_cartridge_map.contains_key(key), "missing key {key}");
         }
     }
 }
