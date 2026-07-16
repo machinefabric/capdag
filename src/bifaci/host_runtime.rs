@@ -1460,9 +1460,12 @@ impl CartridgeHostRuntime {
                         Some(idx) => {
                             // Check if cartridge is usable
                             if self.cartridges[idx].hello_failed {
-                                let mut err = Frame::err(
+                                // Handshake failure is a broken runtime
+                                // deployment — Environment.
+                                let mut err = Frame::err_classified(
                                     frame.id.clone(),
                                     "CARTRIDGE_UNAVAILABLE",
+                                    crate::failure::FailureClass::Environment,
                                     &format!(
                                         "Cartridge '{}' failed handshake and cannot be spawned",
                                         target_id
@@ -1477,9 +1480,12 @@ impl CartridgeHostRuntime {
                             idx
                         }
                         None => {
-                            let mut err = Frame::err(
+                            // Missing cartridge on this host is a deployment
+                            // problem — Environment.
+                            let mut err = Frame::err_classified(
                                 frame.id.clone(),
                                 "CARTRIDGE_NOT_FOUND",
+                                crate::failure::FailureClass::Environment,
                                 &format!("Cartridge '{}' not found on this host", target_id),
                             );
                             err.routing_id = frame.routing_id.clone();
@@ -1501,9 +1507,12 @@ impl CartridgeHostRuntime {
                                 cap_table_sample = ?self.cap_table.iter().take(5).map(|(c, i)| (c.as_str(), *i)).collect::<Vec<_>>(),
                                 "[CartridgeHostRuntime] NO_HANDLER for incoming REQ — no cartridge in cap_table is dispatchable"
                             );
-                            let mut err = Frame::err(
+                            // No dispatchable cartridge for a planned cap is a
+                            // deployment/manifest mismatch — Environment.
+                            let mut err = Frame::err_classified(
                                 frame.id.clone(),
                                 "NO_HANDLER",
+                                crate::failure::FailureClass::Environment,
                                 &format!("no cartridge handles cap: {}", cap_urn),
                             );
                             err.routing_id = frame.routing_id.clone();
@@ -1657,7 +1666,14 @@ impl CartridgeHostRuntime {
                         .last_death_message
                         .as_deref()
                         .unwrap_or("Cartridge exited while processing request");
-                    let mut err = Frame::err(frame.id.clone(), "CARTRIDGE_DIED", death_msg);
+                    // A dead cartridge process is a runtime-environment
+                    // failure — Environment (docs/failure-taxonomy.md).
+                    let mut err = Frame::err_classified(
+                        frame.id.clone(),
+                        "CARTRIDGE_DIED",
+                        crate::failure::FailureClass::Environment,
+                        death_msg,
+                    );
                     err.routing_id = frame.routing_id.clone();
                     err.seq = next_seq;
                     let _ = outbound_tx.send(err);
@@ -2137,10 +2153,13 @@ impl CartridgeHostRuntime {
                 .remove(&(xid.clone(), rid.clone()));
         }
 
-        // Determine error code and message based on shutdown reason.
+        // Determine error code, failure class, and message based on shutdown
+        // reason — the class is DECLARED here at the emit source
+        // (docs/failure-taxonomy.md): a crash is an Environment problem, an
+        // OOM kill is a Resource problem, a cancel stays Internal.
         // Both unexpected deaths and OOM kills send ERR frames for pending work.
         // Only AppExit suppresses ERR frames (relay is closing, no callers left).
-        let err_info: Option<(&str, String)> = match reason {
+        let err_info: Option<(&str, crate::failure::FailureClass, String)> = match reason {
             None => {
                 // Unexpected death — genuine crash mid-flight
                 let exit_suffix = if exit_info.is_empty() {
@@ -2162,7 +2181,11 @@ impl CartridgeHostRuntime {
                         stderr_content
                     )
                 };
-                Some(("CARTRIDGE_DIED", error_message))
+                Some((
+                    "CARTRIDGE_DIED",
+                    crate::failure::FailureClass::Environment,
+                    error_message,
+                ))
             }
             Some(ShutdownReason::OomKill) => {
                 // OOM watchdog killed the cartridge — callers must be notified
@@ -2185,12 +2208,17 @@ impl CartridgeHostRuntime {
                         stderr_content
                     )
                 };
-                Some(("OOM_KILLED", error_message))
+                Some((
+                    "OOM_KILLED",
+                    crate::failure::FailureClass::Resource,
+                    error_message,
+                ))
             }
             Some(ShutdownReason::Cancelled) => {
                 // Cancel-triggered kill — ERR "CANCELLED" for all pending work
                 Some((
                     "CANCELLED",
+                    crate::failure::FailureClass::Internal,
                     format!(
                         "Cartridge {} killed by cancel request.",
                         self.cartridges[cartridge_idx].path.display()
@@ -2203,7 +2231,7 @@ impl CartridgeHostRuntime {
             }
         };
 
-        if let Some((error_code, error_message)) = err_info {
+        if let Some((error_code, failure_class, error_message)) = err_info {
             self.cartridges[cartridge_idx].last_death_message = Some(error_message.clone());
 
             // Surface the death (with the OS exit status / signal captured above)
@@ -2221,12 +2249,14 @@ impl CartridgeHostRuntime {
             );
 
             for (rid, next_seq) in &failed_outgoing {
-                let mut err_frame = Frame::err(rid.clone(), error_code, &error_message);
+                let mut err_frame =
+                    Frame::err_classified(rid.clone(), error_code, failure_class, &error_message);
                 err_frame.seq = *next_seq;
                 let _ = outbound_tx.send(err_frame);
             }
             for (xid, rid, next_seq) in &failed_incoming {
-                let mut err_frame = Frame::err(rid.clone(), error_code, &error_message);
+                let mut err_frame =
+                    Frame::err_classified(rid.clone(), error_code, failure_class, &error_message);
                 err_frame.routing_id = Some(xid.clone());
                 err_frame.seq = *next_seq;
                 let _ = outbound_tx.send(err_frame);
@@ -2778,9 +2808,12 @@ impl CartridgeHostRuntime {
                         .map(|s| s + 1)
                         .unwrap_or(0);
                     self.outgoing_max_seq_touched.remove(&flow_key);
-                    let mut err_frame = Frame::err(
+                    // A hung cartridge process is a runtime-environment
+                    // failure — Environment.
+                    let mut err_frame = Frame::err_classified(
                         rid.clone(),
                         "CARTRIDGE_UNHEALTHY",
+                        crate::failure::FailureClass::Environment,
                         "Cartridge stopped responding to heartbeats",
                     );
                     err_frame.routing_id = Some(xid.clone());
@@ -2806,9 +2839,10 @@ impl CartridgeHostRuntime {
                         .map(|s| s + 1)
                         .unwrap_or(0);
                     self.outgoing_max_seq_touched.remove(&flow_key);
-                    let mut err_frame = Frame::err(
+                    let mut err_frame = Frame::err_classified(
                         rid.clone(),
                         "CARTRIDGE_UNHEALTHY",
+                        crate::failure::FailureClass::Environment,
                         "Cartridge stopped responding to heartbeats",
                     );
                     err_frame.seq = next_seq;

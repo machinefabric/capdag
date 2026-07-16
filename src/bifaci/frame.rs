@@ -550,10 +550,31 @@ impl Frame {
         frame
     }
 
-    /// Create an ERR frame
+    /// Create an ERR frame. The class defaults to `Internal` — an error that
+    /// reaches the wire without a declared class is the emitter's problem by
+    /// definition; emitters with a classified error use
+    /// [`Frame::err_classified`].
     pub fn err(id: MessageId, code: &str, message: &str) -> Self {
+        Self::err_classified(id, code, crate::failure::FailureClass::Internal, message)
+    }
+
+    /// Create an ERR frame carrying the full failure identity: the emitter's
+    /// machine-readable `code` (e.g. `CONTEXT_OVERFLOW`), the failure CLASS
+    /// (whose problem it is — declared at the error's definition site, see
+    /// `capdag::FailureClass`), and the human message. ERR meta contract
+    /// (docs/12.2): `code` + `class` + `message`, all text.
+    pub fn err_classified(
+        id: MessageId,
+        code: &str,
+        class: crate::failure::FailureClass,
+        message: &str,
+    ) -> Self {
         let mut meta = BTreeMap::new();
         meta.insert("code".to_string(), ciborium::Value::Text(code.to_string()));
+        meta.insert(
+            "class".to_string(),
+            ciborium::Value::Text(class.as_str().to_string()),
+        );
         meta.insert(
             "message".to_string(),
             ciborium::Value::Text(message.to_string()),
@@ -850,6 +871,30 @@ impl Frame {
                 }
             })
         })
+    }
+
+    /// Get the failure class if this is an ERR frame. A frame without a
+    /// `class` entry (or with an unknown token) classifies as `Internal`:
+    /// unclassified means "the emitter's problem", never a guess about the
+    /// user's input.
+    pub fn error_class(&self) -> Option<crate::failure::FailureClass> {
+        if self.frame_type != FrameType::Err {
+            return None;
+        }
+        let token = self.meta.as_ref().and_then(|m| {
+            m.get("class").and_then(|v| {
+                if let ciborium::Value::Text(s) = v {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            })
+        });
+        Some(
+            token
+                .and_then(crate::failure::FailureClass::from_wire)
+                .unwrap_or(crate::failure::FailureClass::Internal),
+        )
     }
 
     /// Get error message if this is an ERR frame
@@ -1557,6 +1602,49 @@ mod tests {
         assert_eq!(frame.frame_type, FrameType::Err);
         assert_eq!(frame.error_code(), Some("NOT_FOUND"));
         assert_eq!(frame.error_message(), Some("Cap not found"));
+    }
+
+    // TEST1900: the ERR frame failure-class wire contract
+    // (docs/failure-taxonomy.md): err_classified writes meta
+    // code+class+message; plain err defaults class to internal; a missing or
+    // unknown class token reads as Internal (unclassified means "ours",
+    // never a guess); a known token round-trips exactly. Mirrored in the
+    // Go/Python/Swift runtimes (their TEST1734).
+    #[test]
+    fn test1900_err_frame_failure_class_wire_contract() {
+        use crate::failure::FailureClass;
+
+        let id = MessageId::new_uuid();
+        let classified = Frame::err_classified(
+            id.clone(),
+            "CONTEXT_OVERFLOW",
+            FailureClass::Input,
+            "prompt too large",
+        );
+        assert_eq!(classified.error_code(), Some("CONTEXT_OVERFLOW"));
+        assert_eq!(classified.error_class(), Some(FailureClass::Input));
+        assert_eq!(classified.error_message(), Some("prompt too large"));
+
+        let plain = Frame::err(id.clone(), "BOOM", "unclassified failure");
+        assert_eq!(
+            plain.error_class(),
+            Some(FailureClass::Internal),
+            "an unclassified ERR emit must declare itself internal on the wire"
+        );
+
+        // A frame from an older/foreign emitter: no class entry at all.
+        let mut legacy = Frame::err(id.clone(), "BOOM", "x");
+        legacy.meta.as_mut().unwrap().remove("class");
+        assert_eq!(legacy.error_class(), Some(FailureClass::Internal));
+
+        // An unknown token is a protocol anomaly, read as unclassified —
+        // never a guess.
+        let mut weird = Frame::err(id, "BOOM", "x");
+        weird.meta.as_mut().unwrap().insert(
+            "class".to_string(),
+            ciborium::Value::Text("user-error".to_string()),
+        );
+        assert_eq!(weird.error_class(), Some(FailureClass::Internal));
     }
 
     // TEST186: Test Frame::log stores level and message in metadata

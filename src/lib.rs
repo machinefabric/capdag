@@ -44,6 +44,12 @@ pub mod planner;
 pub mod standard;
 pub mod urn;
 
+// The failure taxonomy — declared at every error's definition site, carried
+// structurally through the ERR frame to the engine (docs/17.2). Defined in
+// the leaf `ops` crate; re-exported here as the cartridge-contract surface.
+pub use ops::failure;
+pub use ops::failure::FailureClass;
+
 // URN types
 pub use urn::cap_urn::*;
 pub use urn::media_urn::*;

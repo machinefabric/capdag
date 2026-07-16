@@ -195,8 +195,17 @@ pub enum ExecutionError {
     #[error("Cartridge download failed: {0}")]
     CartridgeDownloadFailed(String),
 
+    /// A cap invocation failed. `code`/`class` carry the failure identity
+    /// DECLARED at the emit source (docs/failure-taxonomy.md) — read from the
+    /// ERR frame, never re-derived from message text. Engine-detected
+    /// failures carry `None` + `Internal`.
     #[error("Cartridge execution failed for cap {cap_urn}: {details}")]
-    CartridgeExecutionFailed { cap_urn: String, details: String },
+    CartridgeExecutionFailed {
+        cap_urn: String,
+        code: Option<String>,
+        class: crate::failure::FailureClass,
+        details: String,
+    },
 
     #[error("Node {node} has no incoming data")]
     NoIncomingData { node: String },
@@ -209,6 +218,43 @@ pub enum ExecutionError {
 
     #[error("Registry error: {0}")]
     FabricRegistryError(String),
+}
+
+impl ExecutionError {
+    /// The failure class this error DECLARES (docs/failure-taxonomy.md).
+    /// `CartridgeExecutionFailed` carries the class the emit source declared;
+    /// every other variant declares its class here, at its definition:
+    /// missing/undownloadable cartridges and registry failures are deployment
+    /// problems (Environment); everything else is ours (Internal).
+    pub fn failure_class(&self) -> crate::failure::FailureClass {
+        use crate::failure::FailureClass;
+        match self {
+            ExecutionError::CartridgeExecutionFailed { class, .. } => *class,
+            ExecutionError::CartridgeNotFound { .. }
+            | ExecutionError::CartridgeDownloadFailed(_)
+            | ExecutionError::FabricRegistryError(_) => FailureClass::Environment,
+            ExecutionError::NoIncomingData { .. }
+            | ExecutionError::IoError(_)
+            | ExecutionError::HostError(_) => FailureClass::Internal,
+        }
+    }
+
+    /// The machine-readable code declared at the emit source, when carried.
+    pub fn failure_code(&self) -> Option<&str> {
+        match self {
+            ExecutionError::CartridgeExecutionFailed { code, .. } => code.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The LEAF human reason — the emit source's own message for cap
+    /// failures, the Display chain otherwise.
+    pub fn failure_reason(&self) -> String {
+        match self {
+            ExecutionError::CartridgeExecutionFailed { details, .. } => details.clone(),
+            other => other.to_string(),
+        }
+    }
 }
 
 // =============================================================================
@@ -349,8 +395,11 @@ fn topological_sort_groups(groups: &[EdgeGroup]) -> Result<Vec<usize>, Execution
     }
 
     if sorted.len() != n {
+        // A cyclic graph reached execution — planner bug, ours: Internal.
         return Err(ExecutionError::CartridgeExecutionFailed {
             cap_urn: String::new(),
+            code: None,
+            class: crate::failure::FailureClass::Internal,
             details: "Cycle detected in graph".to_string(),
         });
     }
@@ -544,6 +593,9 @@ impl CartridgeManager {
             .spawn()
             .map_err(|e| ExecutionError::CartridgeExecutionFailed {
                 cap_urn: "manifest-discovery".to_string(),
+                code: None,
+                // An unspawnable cartridge binary is a deployment problem.
+                class: crate::failure::FailureClass::Environment,
                 details: format!("Failed to spawn cartridge: {}", e),
             })?;
 
@@ -714,8 +766,11 @@ impl CartridgeManager {
         if let Some(dev_path) = cartridge_id.strip_prefix("dev:") {
             let path = PathBuf::from(dev_path);
             if !path.exists() {
+                // A missing dev binary is a deployment problem — Environment.
                 return Err(ExecutionError::CartridgeExecutionFailed {
                     cap_urn: cartridge_id.to_string(),
+                    code: None,
+                    class: crate::failure::FailureClass::Environment,
                     details: format!("Dev binary not found: {:?}", path),
                 });
             }
@@ -957,8 +1012,11 @@ impl CartridgeManager {
         let registry_url = self.registry_url_required(cartridge_id)?.to_string();
         let (_info, binary) = self.registry_binary_info(&registry_url, cartridge_id).await?;
         let bytes = fs::read(binary_path).map_err(|e| {
+            // An unreadable installed binary is a deployment problem.
             ExecutionError::CartridgeExecutionFailed {
                 cap_urn: cartridge_id.to_string(),
+                code: None,
+                class: crate::failure::FailureClass::Environment,
                 details: format!(
                     "failed to read installed binary {:?} for integrity verification: {}",
                     binary_path, e
@@ -969,6 +1027,10 @@ impl CartridgeManager {
             .await
             .map_err(|e| ExecutionError::CartridgeExecutionFailed {
                 cap_urn: cartridge_id.to_string(),
+                code: None,
+                // A tampered/mismatched installed binary is a deployment
+                // problem — Environment.
+                class: crate::failure::FailureClass::Environment,
                 details: format!(
                     "installed binary at {:?} failed integrity verification: {}",
                     binary_path, e
@@ -2019,7 +2081,22 @@ async fn run_group_chain(
         Some(&terminal_plumbing),
     )
     .await
-    .map_err(|e| ExecutionError::HostError(e.to_string()));
+    .map_err(|e| match e {
+        // The terminal cap failure keeps its declared identity
+        // (docs/failure-taxonomy.md) — never flattened into HostError.
+        super::stream_io::StreamIoError::Terminal {
+            cap_urn,
+            code,
+            class,
+            details,
+        } => ExecutionError::CartridgeExecutionFailed {
+            cap_urn,
+            code,
+            class,
+            details,
+        },
+        other => ExecutionError::HostError(other.to_string()),
+    });
 
     // ── Step 6: Terminal — release credit waiters (L13), stop pump, join ──
     for ((rid, _, _), router) in invocations.iter().zip(credit_routers.iter()) {
