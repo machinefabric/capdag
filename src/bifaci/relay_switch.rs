@@ -2994,9 +2994,12 @@ impl RelaySwitch {
                         "[RelaySwitch] NO_HANDLER for peer REQ cap='{}' rid={:?} from_master={} — sending ERR to caller",
                         cap_urn, frame.id, source_idx
                     );
-                    let mut err_frame = Frame::err(
+                    // No master serving this cap is a deployment/manifest
+                    // mismatch — Environment (docs/failure-taxonomy.md).
+                    let mut err_frame = Frame::err_classified(
                         frame.id.clone(),
                         "NO_HANDLER",
+                        crate::failure::FailureClass::Environment,
                         &format!("No handler found for cap: {}", cap_urn),
                     );
                     err_frame.routing_id = Some(xid.clone());
@@ -3431,9 +3434,12 @@ impl RelaySwitch {
             let (xid, rid) = &key;
 
             // Create ERR frame
-            let mut err_frame = Frame::err(
+            // A dead relay master is a runtime-environment failure —
+            // Environment (docs/failure-taxonomy.md).
+            let mut err_frame = Frame::err_classified(
                 rid.clone(),
                 "MASTER_DIED",
+                crate::failure::FailureClass::Environment,
                 &format!("Relay master {} connection closed: {}", master_idx, reason),
             );
             err_frame.routing_id = Some(xid.clone());

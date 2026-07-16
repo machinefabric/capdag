@@ -781,9 +781,12 @@ impl InProcessCartridgeHost {
                         match Self::find_handler_for_cap(&cap_table, &cap_urn) {
                             Some(idx) => Arc::clone(&handlers[idx].handler),
                             None => {
-                                let mut err = Frame::err(
+                                // No registered handler for a dispatched cap
+                                // is a deployment mismatch — Environment.
+                                let mut err = Frame::err_classified(
                                     rid,
                                     "NO_HANDLER",
+                                    crate::failure::FailureClass::Environment,
                                     &format!("no handler for cap: {}", cap_urn),
                                 );
                                 err.routing_id = xid;

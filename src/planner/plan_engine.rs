@@ -2397,13 +2397,13 @@ mod tests {
             label: label.to_string(),
             rank: 0,
         };
-        let mut observed = 0usize;
-        let mut observer = |_c: &PlanCandidate| observed += 1;
+        let observed = std::cell::Cell::new(0usize);
+        let mut observer = |_c: &PlanCandidate| observed.set(observed.get() + 1);
         let mut sink = CandidateSink::new(Some(&mut observer));
         sink.push(make("first"));
         sink.push(make("duplicate of first"));
         assert_eq!(sink.len(), 1, "identical notations collapse to one candidate");
-        assert_eq!(observed, 1, "the observer must not see the duplicate");
+        assert_eq!(observed.get(), 1, "the observer must not see the duplicate");
         assert_eq!(sink.candidates[0].label, "first", "the first emission wins");
     }
 }

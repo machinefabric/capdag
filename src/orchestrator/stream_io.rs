@@ -39,9 +39,17 @@ pub enum StreamIoError {
     /// Cap-level failure: the cartridge returned END without success, ERR frame,
     /// or the response channel closed without an END. `cap_urn` identifies the
     /// failing cap; `details` carries the cartridge's error message or the
-    /// protocol violation detail.
+    /// protocol violation detail. `code` and `class` carry the failure identity
+    /// DECLARED at the emit source (docs/failure-taxonomy.md): the ERR frame's
+    /// code + class when one arrived, `None` + `Internal` for engine-detected
+    /// protocol violations.
     #[error("Cap '{cap_urn}' failed: {details}")]
-    Terminal { cap_urn: String, details: String },
+    Terminal {
+        cap_urn: String,
+        code: Option<String>,
+        class: crate::failure::FailureClass,
+        details: String,
+    },
 
     /// Writer failure — the `IncrementalWriter` returned an error while
     /// persisting chunk data.
@@ -562,8 +570,12 @@ impl TerminalOutput {
                 Some(f) => f,
                 None => {
                     self.ended = true;
+                    // Engine-detected protocol violation — no source declared
+                    // an identity, so this is ours: Internal, no code.
                     return Some(Err(StreamIoError::Terminal {
                         cap_urn: self.cap_urn.clone(),
+                        code: None,
+                        class: crate::failure::FailureClass::Internal,
                         details: "response channel closed without END".to_string(),
                     }));
                 }
@@ -626,8 +638,12 @@ impl TerminalOutput {
                 FrameType::End => {
                     self.ended = true;
                     if frame.exit_code() != Some(0) {
+                        // Non-success END with no ERR frame — the source never
+                        // declared an identity: Internal, no code.
                         return Some(Err(StreamIoError::Terminal {
                             cap_urn: self.cap_urn.clone(),
+                            code: None,
+                            class: crate::failure::FailureClass::Internal,
                             details: format!(
                                 "END without success: exit_code={:?}",
                                 frame.exit_code()
@@ -644,8 +660,14 @@ impl TerminalOutput {
                 }
                 FrameType::Err => {
                     self.ended = true;
+                    // The ERR frame carries the failure identity DECLARED at
+                    // its emit source — read it structurally, never re-derive.
                     return Some(Err(StreamIoError::Terminal {
                         cap_urn: self.cap_urn.clone(),
+                        code: frame.error_code().map(str::to_string),
+                        class: frame
+                            .error_class()
+                            .unwrap_or(crate::failure::FailureClass::Internal),
                         details: frame
                             .error_message()
                             .unwrap_or("Unknown cartridge error")
@@ -788,8 +810,12 @@ pub async fn collect_terminal_output(
                             if let Some(lfn) = &log_fn {
                                 lfn(cap_urn, "error", &details, None, body_index);
                             }
+                            // Non-success END with no ERR frame — no source
+                            // declared an identity: Internal, no code.
                             return Err(StreamIoError::Terminal {
                                 cap_urn: cap_urn.to_string(),
+                                code: None,
+                                class: crate::failure::FailureClass::Internal,
                                 details,
                             });
                         }
@@ -864,8 +890,14 @@ pub async fn collect_terminal_output(
                         if let Some(lfn) = &log_fn {
                             lfn(cap_urn, "error", &msg, None, body_index);
                         }
+                        // The ERR frame carries the failure identity DECLARED
+                        // at its emit source — read it structurally.
                         return Err(StreamIoError::Terminal {
                             cap_urn: cap_urn.to_string(),
+                            code: frame.error_code().map(str::to_string),
+                            class: frame
+                                .error_class()
+                                .unwrap_or(crate::failure::FailureClass::Internal),
                             details: msg,
                         });
                     }
@@ -922,8 +954,11 @@ pub async fn collect_terminal_output(
                 if let Some(lfn) = &log_fn {
                     lfn(cap_urn, "error", &details, None, body_index);
                 }
+                // Engine-detected protocol violation — ours: Internal, no code.
                 return Err(StreamIoError::Terminal {
                     cap_urn: cap_urn.to_string(),
+                    code: None,
+                    class: crate::failure::FailureClass::Internal,
                     details,
                 });
             }
