@@ -2,7 +2,7 @@
 #
 # Rendered by `dx capdag-dist rpm` (@VERSION@ substituted), which passes the
 # staged payload root via --define "capdag_payload <dir>". The payload already
-# contains the whole bundle under opt/capdag/{capdag,providers}; this spec only
+# contains the whole bundle under opt/capdag/{capdag,bundled-cartridges}; this spec only
 # packages it and wires the /usr/bin/capdag launcher symlink. There is no compile
 # step here — the binary is built + baked-hash-staged by `dx capdag-bundle`.
 
@@ -20,7 +20,7 @@ URL:            https://capdag.com
 
 %description
 The capdag CLI runs machine-notation pipelines and individual capability
-executions, shipping its bundled providers (data/fetch/model cartridges) with
+executions, shipping its bundled cartridges (data/fetch/model cartridges) with
 baked content-hash verification. The bundle installs under /opt/capdag with a
 /usr/bin/capdag launcher.
 
@@ -34,10 +34,10 @@ cp -a %{capdag_payload}/. %{buildroot}/
 %files
 %dir /opt/capdag
 /opt/capdag/capdag
-/opt/capdag/providers
+/opt/capdag/bundled-cartridges
 
 %post
-# /usr/bin/capdag MUST be a symlink (capdag resolves providers/ relative to its
+# /usr/bin/capdag MUST be a symlink (capdag resolves bundled-cartridges/ relative to its
 # canonicalized real path; a copy on PATH would break discovery + hash checks).
 if command -v update-alternatives >/dev/null 2>&1; then
     update-alternatives --install /usr/bin/capdag capdag /opt/capdag/capdag 100 \

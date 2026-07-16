@@ -53,8 +53,8 @@ serial_test = "3.0"
 tempfile = "3.10"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# build.rs parses MFR_BUNDLED_PROVIDER_HASHES (a JSON map) to codegen the baked
-# bundled-provider hash table. serde_json only — no other build-time deps.
+# build.rs parses MFR_BUNDLED_CARTRIDGE_HASHES (a JSON map) to codegen the baked
+# bundled-cartridge hash table. serde_json only — no other build-time deps.
 [build-dependencies]
 serde_json = "1.0"
 

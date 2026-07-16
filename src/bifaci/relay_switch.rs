@@ -522,7 +522,7 @@ struct MasterConnection {
     /// Stable identity of this master across (re)connections.
     ///
     /// Each cardinality slot the engine wires up at startup gets a
-    /// caller-chosen id (e.g. `"in-process"`, `"bundled-providers"`,
+    /// caller-chosen id (e.g. `"in-process"`, `"bundled-cartridges"`,
     /// `"xpc-service"`). When a master dies and the host
     /// reconnects, [`RelaySwitch::add_master`] reattaches the new
     /// socket to the existing slot whose id matches — the slot
@@ -640,14 +640,14 @@ pub struct RelaySwitch {
     /// `all_masters_ready` only returns true once `masters.len() >=
     /// expected_master_count` AND every connected master is ready —
     /// this prevents a premature "ready" signal during boot when the
-    /// external-providers master is still spawning cartridges (and, in
+    /// external-cartridges master is still spawning cartridges (and, in
     /// Website, before the XPC-service relay has connected).
     ///
     /// Counts the cardinality slots the engine wires up at startup. The
-    /// engine hosts no in-process providers, so there is no internal slot:
+    /// engine hosts no in-process cartridges, so there is no internal slot:
     ///   - MAS edition (1 slot):
-    ///     * `MASTER_ID_EXTERNAL` — engine-spawned external providers
-    ///       (every cartridge ships embedded as an external provider
+    ///     * `MASTER_ID_EXTERNAL` — engine-spawned external cartridges
+    ///       (every cartridge ships embedded as an external cartridge
     ///       in MAS; there is no XPC-service slot)
     ///   - Website edition (2 slots):
     ///     * `MASTER_ID_EXTERNAL`
@@ -660,7 +660,7 @@ pub struct RelaySwitch {
     ///
     /// Set once via `set_expected_master_count` shortly after
     /// construction (RelaySwitch ctor doesn't take it because the
-    /// caller decides the count from edition + provider discovery).
+    /// caller decides the count from edition + cartridge discovery).
     /// Atomic so reads from the readiness predicate don't need to
     /// take the masters lock.
     expected_master_count: AtomicUsize,
@@ -1510,12 +1510,12 @@ impl RelaySwitch {
     /// returns true once `masters.len() >= expected` AND every
     /// connected master is ready. Without this an engine that has
     /// only finished registering its internal master would falsely
-    /// report ready before the external-providers master finished
+    /// report ready before the external-cartridges master finished
     /// spawning + HELLO + cap-probing its cartridges.
     ///
     /// Both editions expect 2 masters (internal + external/XPC).
     /// Set once at engine boot from the same call site that registers
-    /// the providers.
+    /// the cartridges.
     pub fn set_expected_master_count(&self, expected: usize) {
         self.expected_master_count.store(expected, Ordering::SeqCst);
     }
@@ -1561,9 +1561,9 @@ impl RelaySwitch {
     ///
     /// Editions differ only in the expected master count (see
     /// `set_expected_master_count`). The engine hosts no in-process
-    /// providers, so there is no internal-providers slot:
-    ///   - WEBSITE: 2 (engine external-providers, XPC service).
-    ///   - MAS: 1 (engine external-providers — no XPC service).
+    /// cartridges, so there is no internal-cartridges slot:
+    ///   - WEBSITE: 2 (engine external-cartridges, XPC service).
+    ///   - MAS: 1 (engine external-cartridges — no XPC service).
     ///
     /// The host app polls this (via
     /// `SendHeartbeatResponse.cartridges_ready`) to flip its own
@@ -2072,7 +2072,7 @@ impl RelaySwitch {
 
         // Each engine cardinality slot is wired up with a
         // caller-chosen stable id (`"in-process"`,
-        // `"bundled-providers"`, `"xpc-service"` for the website
+        // `"bundled-cartridges"`, `"xpc-service"` for the website
         // edition). When the host backing a slot dies and
         // reconnects, the new socket reattaches to the SAME slot
         // index — preserving the request-table / cap_table
@@ -2869,16 +2869,16 @@ impl RelaySwitch {
     ///
     /// ## Routing semantics
     ///
-    /// Uses `is_dispatchable(provider, request)` to find all masters that can
-    /// legally handle the request. A provider is dispatchable if:
+    /// Uses `is_dispatchable(candidate, request)` to find all masters that can
+    /// legally handle the request. A candidate is dispatchable if:
     /// - Its input handling is compatible with the request's input
     /// - Its output guarantees meet the request's output requirements
     /// - Its cap-tags satisfy all explicit request constraints
     ///
     /// Among dispatchable matches, ranking prefers:
     /// 1. Equivalent matches (distance 0)
-    /// 2. More specific providers (positive distance) - refinements
-    /// 3. More generic providers (negative distance) - fallbacks
+    /// 2. More specific candidates (positive distance) - refinements
+    /// 3. More generic candidates (negative distance) - fallbacks
     ///
     /// ## With preference (`preferred_cap = Some(cap_urn)`)
     ///
@@ -2907,7 +2907,7 @@ impl RelaySwitch {
         for (registered_cap, master_idx) in cap_table.iter() {
             if let Ok(registered_urn) = crate::CapUrn::from_string(registered_cap) {
                 let dispatchable = registered_urn.is_dispatchable(&request_urn);
-                // Use is_dispatchable: can this provider handle this request?
+                // Use is_dispatchable: can this candidate handle this request?
                 if dispatchable {
                     let specificity = registered_urn.specificity();
                     let signed_distance = specificity as isize - request_specificity as isize;
@@ -4725,8 +4725,8 @@ mod tests {
         assert_eq!(resp1.payload, Some(vec![42]));
 
         // Request with more specific input and less specific output SHOULD match
-        // Input (contravariant): request's `media:text;utf8;normalized` conforms to provider's `media:text;utf8`
-        // Output (covariant): provider's `media:text;utf8` conforms to request's `media:text`
+        // Input (contravariant): request's `media:text;utf8;normalized` conforms to candidate's `media:text;utf8`
+        // Output (covariant): candidate's `media:text;utf8` conforms to request's `media:text`
         let req2_id = MessageId::Uint(2);
         switch
             .send_to_master(
@@ -4769,7 +4769,7 @@ mod tests {
     // TEST437: find_master_for_cap with preferred_cap routes to generic handler
     //
     // With is_dispatchable semantics:
-    // - Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf")
+    // - Generic candidate (in=media:) CAN dispatch specific request (in="media:ext=pdf")
     //   because media: (wildcard) accepts any input type
     // - Preference routes to preferred among dispatchable candidates
     #[tokio::test]
@@ -4777,7 +4777,7 @@ mod tests {
         let (engine_sock0, slave_sock0) = UnixStream::pair().unwrap();
         let (engine_sock1, slave_sock1) = UnixStream::pair().unwrap();
 
-        // Master 0: generic thumbnail handler (like internal ThumbnailProvider)
+        // Master 0: generic thumbnail handler (like internal ThumbnailCartridge)
         let generic_cap = "cap:in=media:;generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
         tokio::spawn(async move {
             slave_notify_with_identity(
@@ -4864,14 +4864,14 @@ mod tests {
         );
     }
 
-    // TEST439: Generic provider CAN dispatch specific request
-    //          (but only matches if no more specific provider exists)
+    // TEST439: Generic candidate CAN dispatch specific request
+    //          (but only matches if no more specific candidate exists)
     //
-    // With is_dispatchable: generic provider (in=media:) CAN handle specific
+    // With is_dispatchable: generic candidate (in=media:) CAN handle specific
     // request (in="media:ext=pdf") because media: accepts any input type.
     // With preference, can route to generic even when more specific exists.
     #[tokio::test]
-    async fn test439_generic_provider_can_dispatch_specific_request() {
+    async fn test439_generic_candidate_can_dispatch_specific_request() {
         let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
 
         // Master 0: only generic handler (in=media: wildcard)
@@ -4893,19 +4893,19 @@ mod tests {
         .unwrap();
 
         // Specific PDF request — generic handler CAN dispatch it
-        // because provider's wildcard input (media:) accepts any input type
+        // because candidate's wildcard input (media:) accepts any input type
         let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
         assert_eq!(
             switch.find_master_for_cap(request, None).await,
             Some(0),
-            "Generic provider can dispatch specific request as fallback"
+            "Generic candidate can dispatch specific request as fallback"
         );
 
         // With preference for generic — routes to master 0
         assert_eq!(
             switch.find_master_for_cap(request, Some(generic_cap)).await,
             Some(0),
-            "Preference routes to generic provider"
+            "Preference routes to generic candidate"
         );
     }
 
@@ -5337,7 +5337,7 @@ mod tests {
         // Prove that snapshot is the live ROUTABLE set the only correct way —
         // via dispatch conformance, not string comparison of URNs. The
         // request cap is the pattern; find_master_for_cap parses it and
-        // checks each provider with is_dispatchable. A healthy, verified
+        // checks each candidate with is_dispatchable. A healthy, verified
         // master makes its advertised cap dispatchable.
         assert_eq!(
             switch
@@ -5719,7 +5719,7 @@ mod tests {
     // routing state keyed by index (cap_table, the request
     // table). The engine has at most a handful of cardinality
     // slots (3 in the website edition: in-process, bundled
-    // providers, XPC-service); accumulating zombie slots on each
+    // cartridges, XPC-service); accumulating zombie slots on each
     // reconnect was the bug class that left "Master 0 unhealthy"
     // permanently in the engine logs while masters 3, 4, 5, …
     // appeared as fresh slots holding the actual reconnected
@@ -6156,7 +6156,7 @@ mod tests {
     //   - Returns false when only some of the expected masters have
     //     connected. This is the bug we hit live: with the internal
     //     master alone connected (4 caps from t=0), the host saw
-    //     ready immediately, before external providers had spawned.
+    //     ready immediately, before external cartridges had spawned.
     //
     //   - Returns true exactly once the expected count is met AND
     //     every connected master is healthy with non-empty caps.
@@ -6209,7 +6209,7 @@ mod tests {
     async fn test0137_all_masters_ready_false_when_partially_connected() {
         // 1 master connected, 2 expected. This is the live regression
         // we shipped: the internal master had caps from t=0 but the
-        // external-providers master was still spawning cartridges.
+        // external-cartridges master was still spawning cartridges.
         // The host saw ready immediately and the bidi never started.
         let switch = build_switch_with_n_masters(1).await;
         switch.set_expected_master_count(2);

@@ -486,7 +486,7 @@ type CapTable = Vec<(String, usize)>;
 /// so the embedding application must supply the same four-tuple identity
 /// (`registry_url`, `channel`, `id`, `version`) it would have read
 /// from a cartridge.json — plus a content-derived `sha256` so the
-/// engine treats the in-process provider indistinguishably from any
+/// engine treats the in-process cartridge indistinguishably from any
 /// other installed cartridge.
 ///
 /// The fields propagate verbatim into the RelayNotify
@@ -637,13 +637,13 @@ impl InProcessCartridgeHost {
 
     /// Find the best handler for a cap URN.
     ///
-    /// Uses `is_dispatchable(provider, request)` to find handlers that can
+    /// Uses `is_dispatchable(candidate, request)` to find handlers that can
     /// legally handle the request, then ranks by specificity.
     ///
     /// Ranking prefers:
     /// 1. Equivalent matches (distance 0)
-    /// 2. More specific providers (positive distance) - refinements
-    /// 3. More generic providers (negative distance) - fallbacks
+    /// 2. More specific candidates (positive distance) - refinements
+    /// 3. More generic candidates (negative distance) - fallbacks
     fn find_handler_for_cap(cap_table: &CapTable, cap_urn: &str) -> Option<usize> {
         let request_urn = match CapUrn::from_string(cap_urn) {
             Ok(u) => u,
@@ -655,7 +655,7 @@ impl InProcessCartridgeHost {
 
         for (registered_cap, handler_idx) in cap_table {
             if let Ok(registered_urn) = CapUrn::from_string(registered_cap) {
-                // Use is_dispatchable: can this provider handle this request?
+                // Use is_dispatchable: can this candidate handle this request?
                 if registered_urn.is_dispatchable(&request_urn) {
                     let specificity = registered_urn.specificity();
                     let signed_distance = specificity as isize - request_specificity as isize;
@@ -1283,7 +1283,7 @@ mod tests {
                         break;
                     }
                 }
-                output.emit_error("PROVIDER_ERROR", "provider crashed");
+                output.emit_error("CARTRIDGE_ERROR", "cartridge crashed");
             }
         }
 
@@ -1323,11 +1323,11 @@ mod tests {
         let err_frame = reader.read().await.unwrap().unwrap();
         assert_eq!(err_frame.frame_type, FrameType::Err);
         assert_eq!(err_frame.id, rid);
-        assert_eq!(err_frame.error_code(), Some("PROVIDER_ERROR"));
+        assert_eq!(err_frame.error_code(), Some("CARTRIDGE_ERROR"));
         assert!(err_frame
             .error_message()
             .unwrap()
-            .contains("provider crashed"));
+            .contains("cartridge crashed"));
 
         drop(writer);
         drop(reader);

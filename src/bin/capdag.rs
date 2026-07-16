@@ -27,7 +27,7 @@ const BUILD_CHANNEL: CartridgeChannel =
 
 /// Cartridge registry identity — baked at build time exactly like the
 /// engine's (`MFR_CARTRIDGE_REGISTRY_URL` via option_env!): `None` = dev
-/// build (dev-bins + bundled providers only; registry downloads are
+/// build (dev-bins + bundled cartridges only; registry downloads are
 /// disabled), `Some(url)` = a product build bound to that registry. Never a
 /// hardcoded literal — the URL is part of the build identity.
 const BAKED_REGISTRY_URL: Option<&str> =
@@ -52,32 +52,32 @@ fn user_cartridge_dir() -> PathBuf {
     home.join(".capdag").join("cartridges")
 }
 
-/// Bundled providers shipped beside this CLI binary (the executor's own
-/// `providers/` tree, staged by `dx capdag-bundle` with baked content
+/// Bundled cartridges shipped beside this CLI binary (the executor's own
+/// `bundled-cartridges/` tree, staged by `dx capdag-bundle` with baked content
 /// hashes). Present only in a packaged build; absent for a bare `cargo run`.
 ///
 /// `current_exe()` is canonicalized so a launcher SYMLINK resolves to the real
-/// binary before we look for `providers/` beside it. OS package installs put the
+/// binary before we look for `bundled-cartridges/` beside it. OS package installs put the
 /// whole bundle under a prefix (`/opt/capdag`, Homebrew `libexec`,
 /// `%ProgramFiles%\capdag`) and expose only a symlink on PATH
-/// (`/usr/bin/capdag`, `bin/capdag`); without canonicalization the providers
-/// tree would be searched beside the symlink (e.g. `/usr/bin/providers`) and
+/// (`/usr/bin/capdag`, `bin/capdag`); without canonicalization the cartridges
+/// tree would be searched beside the symlink (e.g. `/usr/bin/bundled-cartridges`) and
 /// discovery — hence baked-hash verification — would fail. Linux already
 /// resolves `/proc/self/exe`, but macOS/Windows need the explicit canonicalize.
-fn bundled_providers_dir() -> Option<PathBuf> {
+fn bundled_cartridges_dir() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()
-        .and_then(|exe| providers_dir_for_exe(&exe))
+        .and_then(|exe| bundled_cartridges_dir_for_exe(&exe))
 }
 
-/// Resolve the `providers/` tree beside a launcher path, following symlinks.
-/// Split out from `bundled_providers_dir` so the symlink-resolution invariant
+/// Resolve the `bundled-cartridges/` tree beside a launcher path, following symlinks.
+/// Split out from `bundled_cartridges_dir` so the symlink-resolution invariant
 /// every OS package depends on is unit-testable without mutating the process's
 /// real `current_exe()`.
-fn providers_dir_for_exe(exe: &std::path::Path) -> Option<PathBuf> {
+fn bundled_cartridges_dir_for_exe(exe: &std::path::Path) -> Option<PathBuf> {
     std::fs::canonicalize(exe)
         .ok()
-        .and_then(|real| real.parent().map(|dir| dir.join("providers")))
+        .and_then(|real| real.parent().map(|dir| dir.join("bundled-cartridges")))
         .filter(|dir| dir.is_dir())
 }
 
@@ -303,7 +303,7 @@ fn print_usage(program: &str) {
            {p} dev-install <project-dir>                             Install/update a dev cartridge under the dev slug\n\n\
          Single-cap mode drives the cap's OWN declared interface — exactly like\n\
          invoking the cartridge directly, except the cap runs inside a full bifaci\n\
-         host with the bundled providers (data/fetch/model cartridges) registered,\n\
+         host with the bundled cartridges (data/fetch/model cartridges) registered,\n\
          so peer calls (e.g. model downloads) work:\n\
            - piped stdin, or input file paths, feed the cap's stdin arg\n\
            - the cap's declared --flags and positional args are accepted natively\n\
@@ -369,8 +369,8 @@ async fn main() {
     // `hash-cartridge-dir <dir>` — print the deterministic content hash of a
     // cartridge version directory and exit. This is the SINGLE source of truth
     // for cartridge-directory hashing: the bundle build scripts
-    // (build-engine-bundle.sh/.ps1) call this to compute the bundled-provider
-    // hashes they bake into the engine via MFR_BUNDLED_PROVIDER_HASHES, so the
+    // (build-engine-bundle.sh/.ps1) call this to compute the bundled-cartridge
+    // hashes they bake into the engine via MFR_BUNDLED_CARTRIDGE_HASHES, so the
     // build-time hash is byte-identical to what the engine's discovery computes
     // at runtime (capdag::hash_cartridge_directory). Never reimplement the walk
     // in bash/pwsh — it would silently drift.
@@ -659,7 +659,7 @@ async fn execute_notation(
 
     let registry_url: Option<String> = BAKED_REGISTRY_URL.map(str::to_string);
 
-    let bundled_providers_dir = bundled_providers_dir();
+    let bundled_cartridges_dir = bundled_cartridges_dir();
 
     // The executor speaks `cap_arguments` (raw per-node arg-stream bytes). A
     // `.machine` run supplies every argument through data-flow edges and input
@@ -701,7 +701,7 @@ async fn execute_notation(
         BUILD_CHANNEL,
         capdag::FABRIC_MANIFEST_VERSION,
         dev_binaries.clone(),
-        bundled_providers_dir.clone(),
+        bundled_cartridges_dir.clone(),
         registry.clone(),
         trace_sink,
     ));
@@ -1580,7 +1580,7 @@ async fn registry_manager_or_exit(dev_binaries: Vec<PathBuf>) -> capdag::orchest
 /// native flags, positional args — exactly as when the cartridge is invoked
 /// directly), but execution runs inside a full bifaci host: the providing
 /// cartridge is resolved from the signed registry (downloaded + verified if
-/// missing) and hosted on the shared switch BESIDE the bundled providers, so
+/// missing) and hosted on the shared switch BESIDE the bundled cartridges, so
 /// peer calls (e.g. an ML cap peer-invoking modelcartridge's download-model)
 /// route exactly as they do in the engine and the scenario harness.
 async fn cmd_cap(args: &[String]) -> ! {
@@ -1804,7 +1804,7 @@ async fn cmd_cap(args: &[String]) -> ! {
         BUILD_CHANNEL,
         capdag::FABRIC_MANIFEST_VERSION,
         dev_binaries,
-        bundled_providers_dir(),
+        bundled_cartridges_dir(),
         registry.clone(),
         trace_sink,
     ));
@@ -2186,40 +2186,40 @@ async fn cmd_dev_install(args: &[String]) -> ! {
 #[cfg(test)]
 mod packaging_tests {
     //! Invariants the OS packages (deb/rpm/Homebrew) depend on.
-    use super::providers_dir_for_exe;
+    use super::bundled_cartridges_dir_for_exe;
     use std::fs;
 
     /// TEST1902: a launcher SYMLINK — the packaging pattern (`/usr/bin/capdag`
     /// → `/opt/capdag/capdag`, Homebrew `bin/capdag` → `libexec/capdag`) — must
-    /// resolve to the REAL bundle's `providers/`, not a `providers/` beside the
-    /// symlink. This fails if `providers_dir_for_exe` stops canonicalizing.
+    /// resolve to the REAL bundle's `bundled-cartridges/`, not a `bundled-cartridges/` beside the
+    /// symlink. This fails if `bundled_cartridges_dir_for_exe` stops canonicalizing.
     #[cfg(unix)]
     #[test]
-    fn test1902_providers_resolve_through_launcher_symlink() {
+    fn test1902_cartridges_resolve_through_launcher_symlink() {
         use std::os::unix::fs::symlink;
         let tmp = tempfile::tempdir().unwrap();
         let real = tmp.path().join("opt/capdag");
-        fs::create_dir_all(real.join("providers")).unwrap();
+        fs::create_dir_all(real.join("bundled-cartridges")).unwrap();
         fs::write(real.join("capdag"), b"binary").unwrap();
         let bindir = tmp.path().join("usr/bin");
         fs::create_dir_all(&bindir).unwrap();
         let link = bindir.join("capdag");
         symlink(real.join("capdag"), &link).unwrap();
 
-        let got = providers_dir_for_exe(&link)
-            .expect("providers/ must resolve through the launcher symlink");
+        let got = bundled_cartridges_dir_for_exe(&link)
+            .expect("bundled-cartridges/ must resolve through the launcher symlink");
         assert_eq!(
             fs::canonicalize(&got).unwrap(),
-            fs::canonicalize(real.join("providers")).unwrap(),
+            fs::canonicalize(real.join("bundled-cartridges")).unwrap(),
         );
     }
 
-    /// TEST1903: no `providers/` beside the binary ⇒ `None` (a bare `cargo`
+    /// TEST1903: no `bundled-cartridges/` beside the binary ⇒ `None` (a bare `cargo`
     /// build / unpackaged binary — not an error, discovery just skips it).
     #[test]
-    fn test1903_no_providers_dir_when_absent() {
+    fn test1903_no_bundled_cartridges_dir_when_absent() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("capdag"), b"binary").unwrap();
-        assert!(providers_dir_for_exe(&tmp.path().join("capdag")).is_none());
+        assert!(bundled_cartridges_dir_for_exe(&tmp.path().join("capdag")).is_none());
     }
 }

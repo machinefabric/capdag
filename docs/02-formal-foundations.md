@@ -26,7 +26,7 @@ Capdag uses URNs as structured semantic descriptors, not merely names. The syste
 
 | Question | Predicate |
 |----------|-----------|
-| Can this provider handle this request? | Dispatch |
+| Can this candidate handle this request? | Dispatch |
 | Are these on the same specialization chain? | is_comparable |
 | Are these semantically identical? | is_equivalent |
 | Can output flow to input? | conforms_to |
@@ -283,7 +283,7 @@ details and worked examples.
 ## 10. The Dispatch Relation
 
 Let:
-- provider p = (i_p, o_p, y_p, e_p)
+- candidate p = (i_p, o_p, y_p, e_p)
 - request r = (i_r, o_r, y_r, e_r)
 
 Define the dispatch relation:
@@ -304,9 +304,9 @@ This is the **primary routing predicate**.
 i_r ⪯ i_p
 ```
 
-The request's input must be at least as specific as the provider's accepted input.
+The request's input must be at least as specific as the candidate's accepted input.
 
-**Type-theoretic view**: Function parameters are contravariant. Provider may accept more general inputs.
+**Type-theoretic view**: Function parameters are contravariant. Candidate may accept more general inputs.
 
 ### 11.2 Output Admissibility (Covariant)
 
@@ -314,9 +314,9 @@ The request's input must be at least as specific as the provider's accepted inpu
 o_p ⪯ o_r
 ```
 
-The provider's output must be at least as specific as the request's required output.
+The candidate's output must be at least as specific as the request's required output.
 
-**Type-theoretic view**: Function returns are covariant. Provider must guarantee at least what request demands.
+**Type-theoretic view**: Function returns are covariant. Candidate must guarantee at least what request demands.
 
 ### 11.3 Behavioral Refinement (Invariant + Refinement)
 
@@ -324,9 +324,9 @@ The provider's output must be at least as specific as the request's required out
 y_r ⪯ y_p
 ```
 
-The provider's non-direction tags must satisfy or refine the request's constraints.
+The candidate's non-direction tags must satisfy or refine the request's constraints.
 
-Provider may add tags (refinement) but cannot contradict explicit request constraints.
+Candidate may add tags (refinement) but cannot contradict explicit request constraints.
 
 ---
 
@@ -334,9 +334,9 @@ Provider may add tags (refinement) but cannot contradict explicit request constr
 
 | Dimension | Variance | Condition | Meaning |
 |-----------|----------|-----------|---------|
-| Input (i) | Contravariant | i_r ⪯ i_p | Provider may accept broader input |
-| Output (o) | Covariant | o_p ⪯ o_r | Provider must produce tighter output |
-| Cap-tags (y) | Invariant/Refinement | y_r ⪯ y_p | Provider must satisfy constraints |
+| Input (i) | Contravariant | i_r ⪯ i_p | Candidate may accept broader input |
+| Output (o) | Covariant | o_p ⪯ o_r | Candidate must produce tighter output |
+| Cap-tags (y) | Invariant/Refinement | y_r ⪯ y_p | Candidate must satisfy constraints |
 
 ---
 
@@ -350,7 +350,7 @@ Dispatch(p, r)  ⟹̸  Dispatch(r, p)
 
 Dispatch is **not symmetric**. This is intentional.
 
-A specific provider can handle a generic request, but a generic request cannot "handle" a specific provider.
+A specific candidate can handle a generic request, but a generic request cannot "handle" a specific candidate.
 
 ---
 
@@ -378,7 +378,7 @@ Useful for discovery, **not sufficient for dispatch**.
 
 | Purpose | Predicate |
 |---------|-----------|
-| Routing / execution | Dispatch(provider, request) |
+| Routing / execution | Dispatch(candidate, request) |
 | Exact lookup | CapEq(a, b) |
 | Discovery / family analysis | CapComparable(a, b) |
 | Pattern-instance checks | accepts, conforms_to |
@@ -405,7 +405,7 @@ dist(p, r) = spec_C(p) - spec_C(r)
 
 1. dist = 0 (equivalent) — most preferred
 2. Smallest positive dist (refinement)
-3. Negative dist only as fallback (generic provider)
+3. Negative dist only as fallback (generic candidate)
 
 This is **policy, not semantics**. Dispatch defines validity; ranking defines selection.
 
@@ -429,9 +429,9 @@ Follows from reflexivity of ⪯.
 
 Follows from transitivity of ⪯.
 
-### 17.3 Monotonicity of Provider Refinement
+### 17.3 Monotonicity of Candidate Refinement
 
-If provider p' refines p:
+If candidate p' refines p:
 - i_p ⪯ i_p' (more permissive input)
 - o_p' ⪯ o_p (more specific output)
 - y_p ⪯ y_p' (more specific y-tags)
@@ -482,8 +482,8 @@ Wrong: Cap URNs are structured product objects with mixed variance.
 
 The specification distinguishes:
 
-- **Semantic validity**: Whether a provider may legally serve a request (Dispatch)
-- **Selection preference**: Which valid provider should be chosen (Ranking)
+- **Semantic validity**: Whether a candidate may legally serve a request (Dispatch)
+- **Selection preference**: Which valid candidate should be chosen (Ranking)
 
 These must not be conflated.
 

@@ -1022,7 +1022,7 @@ impl CartridgeRepo {
     /// cap-to-cartridges index. Inside each candidate cartridge we walk
     /// its groups via `iter_caps()` and match on `conforms_to` so the
     /// requested cap (treated as the pattern) is checked against the
-    /// declared cap (the provider): cap dispatch is order-theoretic,
+    /// declared cap (the candidate): cap dispatch is order-theoretic,
     /// not string-equality, and the `op` tag has no functional role —
     /// only `in` and `out` are semantically meaningful, encoded by the
     /// parsed `CapUrn` predicates.
@@ -1060,7 +1060,7 @@ impl CartridgeRepo {
         // string-keyed index because two semantically-equivalent cap URNs can
         // serialize to different strings (an arbitrary tag, the position of the
         // op marker), so a string-keyed prefilter silently drops equivalent
-        // providers before equivalence is ever tested. The op marker and every
+        // candidates before equivalence is ever tested. The op marker and every
         // non-in/out/effect tag are arbitrary and carry no functional weight.
         for cache in caches.values() {
             for (key, cartridge) in &cache.cartridges {
@@ -1486,10 +1486,10 @@ impl CartridgeRepoServer {
     /// The requested URN is parsed via `CapUrn::from_string`; each
     /// declared cartridge cap is parsed too and matched via
     /// `is_dispatchable`, the dispatch predicate — "can this declared
-    /// provider cap legally handle the requested pattern?" (input
+    /// candidate cap legally handle the requested pattern?" (input
     /// contravariant, output covariant, tags invariant; see
     /// capdag/docs/07-dispatch.md). This is deliberately LOOSER than
-    /// the equivalence used to resolve an alias to its exact provider:
+    /// the equivalence used to resolve an alias to its exact candidate:
     /// here we enumerate everything capable, not the one exact match.
     /// The `op` tag has no functional role in matching — only the
     /// parsed predicate machinery is used, never string comparison. A

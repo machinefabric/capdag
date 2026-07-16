@@ -257,7 +257,7 @@ if urn_a.is_equivalent(&urn_b) {
 if registered.accepts(&request) { /* route here */ }
 ```
 
-**Problem**: A generic provider accepts a specific request, but may not meet the request's output requirements. Dispatch requires the full four-coordinate mixed-variance check over `(in, out, y, effect)` (see [07-DISPATCH](/docs/07-dispatch)).
+**Problem**: A generic candidate accepts a specific request, but may not meet the request's output requirements. Dispatch requires the full four-coordinate mixed-variance check over `(in, out, y, effect)` (see [07-DISPATCH](/docs/07-dispatch)).
 
 ### 5.2 Using `conforms_to` for dispatch
 
@@ -266,7 +266,7 @@ if registered.accepts(&request) { /* route here */ }
 if registered.conforms_to(&request) { /* route here */ }
 ```
 
-**Problem**: A specific provider conforms to a generic request, but the request may not provide what the provider needs as input.
+**Problem**: A specific candidate conforms to a generic request, but the request may not provide what the candidate needs as input.
 
 ### 5.3 Using `is_comparable` for dispatch
 
@@ -275,7 +275,7 @@ if registered.conforms_to(&request) { /* route here */ }
 if registered.is_comparable(&request) { /* route here */ }
 ```
 
-**Problem**: Being on the same chain doesn't mean the provider can handle the request. They might be comparable but in the wrong direction.
+**Problem**: Being on the same chain doesn't mean the candidate can handle the request. They might be comparable but in the wrong direction.
 
 ### 5.4 Confusing direction
 

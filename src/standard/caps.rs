@@ -1,7 +1,7 @@
 //! Standard capability definitions with arguments
 //!
 //! This module provides the standard capability definitions used across
-//! all MACHFAB providers, including their formal argument specifications.
+//! all MACHFAB cartridges, including their formal argument specifications.
 //! These definitions should match the TOML definitions in capfab/src/
 
 use crate::urn::media_urn::{
@@ -1445,13 +1445,13 @@ mod tests {
     // TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests;
     // identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement.
     #[test]
-    fn test1275_adapter_selection_dispatchable_by_specific_provider() {
+    fn test1275_adapter_selection_dispatchable_by_specific_candidate() {
         let adapter_request = adapter_selection_urn();
 
-        // A provider that outputs exactly adapter-selection media can dispatch the request
-        let specific_provider = CapUrn::from_string(CAP_ADAPTER_SELECTION).unwrap();
+        // A candidate that outputs exactly adapter-selection media can dispatch the request
+        let specific_candidate = CapUrn::from_string(CAP_ADAPTER_SELECTION).unwrap();
         assert!(
-            specific_provider.is_dispatchable(&adapter_request),
+            specific_candidate.is_dispatchable(&adapter_request),
             "A cap with adapter-selection output must be dispatchable for adapter-selection requests"
         );
 

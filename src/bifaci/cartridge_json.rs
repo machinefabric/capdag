@@ -34,11 +34,11 @@ pub enum CartridgeInstallSource {
     Registry,
     /// Built locally from the developer's source tree (`dx cartridge --install` with no registry).
     Dev,
-    /// Shipped pre-installed under the engine's `providers/` tree at app build time.
+    /// Shipped pre-installed under the engine's `bundled-cartridges/` tree at app build time.
     Bundle,
     /// Written by the macOS .pkg installer's release path
     /// (`scripts/commands/release.sh`). Distinct from `Bundle`
-    /// (engine-bundled providers) and `Registry` (remote-pulled).
+    /// (engine-bundled cartridges) and `Registry` (remote-pulled).
     AppInstaller,
 }
 

@@ -353,8 +353,8 @@ cap:in=*;convert;out=*
 
 For dispatch (see [05-DISPATCH](/docs/07-dispatch)):
 
-- **Input**: Request input must conform to provider input (contravariant)
-- **Output**: Provider output must conform to request output (covariant)
+- **Input**: Request input must conform to candidate input (contravariant)
+- **Output**: Candidate output must conform to request output (covariant)
 
 ---
 

@@ -9,12 +9,12 @@ permalink: /08-ranking/
 
 The system distinguishes two phases:
 
-1. **Dispatch Validity** — Is this provider legal for this request?
-2. **Ranking** — Among valid providers, which should be selected?
+1. **Dispatch Validity** — Is this candidate legal for this request?
+2. **Ranking** — Among valid candidates, which should be selected?
 
 This document covers ranking. Dispatch validity is defined in [05-DISPATCH](/docs/07-dispatch).
 
-**Critical**: Ranking applies ONLY to dispatch-valid providers. Never rank before validating.
+**Critical**: Ranking applies ONLY to dispatch-valid candidates. Never rank before validating.
 
 ---
 
@@ -34,7 +34,7 @@ Ranking is a total order over `Valid(r)`.
 
 ### 3.1 Definition
 
-For a provider `p` and request `r`:
+For a candidate `p` and request `r`:
 
 ```
 dist(p, r) = spec_C(p) - spec_C(r)
@@ -44,11 +44,11 @@ Where `spec_C` is Cap URN specificity (see [03-SPECIFICITY](/docs/05-specificity
 
 ### 3.2 Interpretation
 
-| Distance | Meaning | Provider Relationship |
+| Distance | Meaning | Candidate Relationship |
 |----------|---------|----------------------|
-| `dist = 0` | Equivalent | Provider matches request exactly |
-| `dist > 0` | Refinement | Provider is more specific |
-| `dist < 0` | Fallback | Provider is more generic |
+| `dist = 0` | Equivalent | Candidate matches request exactly |
+| `dist > 0` | Refinement | Candidate is more specific |
+| `dist < 0` | Fallback | Candidate is more generic |
 
 ---
 
@@ -59,14 +59,14 @@ Where `spec_C` is Cap URN specificity (see [03-SPECIFICITY](/docs/05-specificity
 The default ranking policy prefers:
 
 1. **Exact match** (`dist = 0`) — Most preferred
-2. **Refinement** (`dist > 0`) — Provider specializes request
-3. **Fallback** (`dist < 0`) — Provider is generic, last resort
+2. **Refinement** (`dist > 0`) — Candidate specializes request
+3. **Fallback** (`dist < 0`) — Candidate is generic, last resort
 
 Within each category, prefer smaller absolute distance.
 
 ### 4.2 Formal Ordering
 
-For providers `a` and `b` in `Valid(r)`:
+For candidates `a` and `b` in `Valid(r)`:
 
 ```
 a ≺ b  (a preferred over b)  iff:
@@ -78,7 +78,7 @@ a ≺ b  (a preferred over b)  iff:
 ### 4.3 Simplified Rule
 
 ```
-preferred = min(valid_providers, key=ranking_key)
+preferred = min(valid_candidates, key=ranking_key)
 
 def ranking_key(p, r):
     d = dist(p, r)
@@ -92,11 +92,11 @@ def ranking_key(p, r):
 
 ## 5. Tie-Breaking
 
-When multiple providers have the same distance:
+When multiple candidates have the same distance:
 
 ### 5.1 Default Policy
 
-**First registered wins** — The provider that was registered first is selected.
+**First registered wins** — The candidate that was registered first is selected.
 
 ### 5.2 Alternative Policies
 
@@ -126,7 +126,7 @@ Design caps to avoid ties by ensuring distinct specificities:
 Request: cap:in=media:pdf;extract;out=media:record
          spec = 3
 
-Valid providers:
+Valid candidates:
   A: cap:in=media:pdf;extract;out=media:record     spec=3, dist=0
   B: cap:in=media:pdf;extract;out=media:record;v=2 spec=4, dist=+1
   C: cap:extract;in=media:;out=media:                                    spec=1, dist=-2
@@ -141,7 +141,7 @@ Selected: A
 Request: cap:convert;in=media:;out=media:
          spec = 1
 
-Valid providers:
+Valid candidates:
   A: cap:in=media:pdf;convert;out=media:html   spec=3, dist=+2
   B: cap:in=media:image;convert;out=media:png  spec=3, dist=+2
   C: cap:convert;in=media:;out=media:                                spec=1, dist=0
@@ -160,7 +160,7 @@ Selected: First registered of A or B
 Request: cap:in=media:pdf;v=2.0;extract;out=media:record;format=json
          spec = 5
 
-Valid providers:
+Valid candidates:
   A: cap:in=media:pdf;extract;out=media:record  spec=3, dist=-2
   B: cap:extract;in=media:;out=media:                                 spec=1, dist=-4
 
@@ -181,15 +181,15 @@ RelaySwitch::route_request(request, preferred_cap: Option<&CapUrn>)
 ```
 
 When `preferred_cap` is provided:
-1. Find valid providers via `is_dispatchable`
-2. Among valid providers, check if any is `is_equivalent` to preferred
+1. Find valid candidates via `is_dispatchable`
+2. Among valid candidates, check if any is `is_equivalent` to preferred
 3. If found, select it regardless of specificity ranking
 4. Otherwise, fall back to normal ranking
 
 ### 7.2 Use Cases
 
 - User explicitly requests a specific capability version
-- Configuration specifies a particular provider
+- Configuration specifies a particular candidate
 - Testing with known handler
 
 ---
@@ -200,20 +200,20 @@ When `preferred_cap` is provided:
 
 Given the same:
 - Request
-- Set of registered providers
+- Set of registered candidates
 - Registration order
 
-The selected provider is deterministic.
+The selected candidate is deterministic.
 
 ### 8.2 Stability
 
-Adding a new provider P to the system:
+Adding a new candidate P to the system:
 - If P is not in `Valid(r)`, selection unchanged
 - If P is in `Valid(r)`, P may be selected only if it ranks higher
 
 ### 8.3 Monotonicity
 
-If provider `p` is selected for request `r`, then `p` remains selected for any request `r'` where:
+If candidate `p` is selected for request `r`, then `p` remains selected for any request `r'` where:
 - `r' ⪯ r` (r' is more specific than r)
 - `Dispatch(p, r')` still holds
 
@@ -223,13 +223,13 @@ If provider `p` is selected for request `r`, then `p` remains selected for any r
 
 ### 9.1 Efficient Selection
 
-For small provider sets, linear scan is sufficient:
+For small candidate sets, linear scan is sufficient:
 
 ```rust
-fn select_best(providers: &[CapUrn], request: &CapUrn) -> Option<&CapUrn> {
+fn select_best(candidates: &[CapUrn], request: &CapUrn) -> Option<&CapUrn> {
     let request_spec = request.specificity();
 
-    providers.iter()
+    candidates.iter()
         .filter(|p| p.is_dispatchable(request))
         .min_by_key(|p| {
             let dist = p.specificity() as isize - request_spec as isize;
@@ -247,9 +247,9 @@ fn select_best(providers: &[CapUrn], request: &CapUrn) -> Option<&CapUrn> {
 For frequently queried requests, cache:
 - The valid set `Valid(r)`
 - The sorted ranking
-- The selected provider
+- The selected candidate
 
-Invalidate on provider registration/unregistration.
+Invalidate on candidate registration/unregistration.
 
 ---
 
@@ -261,7 +261,7 @@ The `is_comparable` predicate from [02-PREDICATES](/docs/04-predicates) is somet
 is_comparable(p, r)  ⟹̸  Dispatch(p, r)
 ```
 
-Comparable providers may not be dispatchable. Always check `is_dispatchable` first.
+Comparable candidates may not be dispatchable. Always check `is_dispatchable` first.
 
 ---
 

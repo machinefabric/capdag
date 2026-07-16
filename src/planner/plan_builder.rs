@@ -1380,47 +1380,47 @@ mod tests {
     }
 
     // TEST1103: Tests that is_dispatchable has correct directionality
-    // The available cap (provider) must be dispatchable for the requested cap (request).
-    // This tests the directionality: provider.is_dispatchable(&request)
+    // The available cap (candidate) must be dispatchable for the requested cap (request).
+    // This tests the directionality: candidate.is_dispatchable(&request)
     // NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder
     #[test]
     fn test1103_is_dispatchable_uses_correct_directionality() {
-        // A more specific provider should be dispatchable for a general request
+        // A more specific candidate should be dispatchable for a general request
         let general_request =
             CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text").unwrap();
 
-        let specific_provider =
+        let specific_candidate =
             CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text;version=2").unwrap();
 
-        // provider.is_dispatchable(&request) should be true: specific provider refines general request
+        // candidate.is_dispatchable(&request) should be true: specific candidate refines general request
         assert!(
-            specific_provider.is_dispatchable(&general_request),
-            "Specific provider should be dispatchable for general request"
+            specific_candidate.is_dispatchable(&general_request),
+            "Specific candidate should be dispatchable for general request"
         );
 
-        // request.is_dispatchable(&provider) should be false: general request cannot handle specific provider's requirements
+        // request.is_dispatchable(&candidate) should be false: general request cannot handle specific candidate's requirements
         assert!(
-            !general_request.is_dispatchable(&specific_provider),
-            "General request should NOT be dispatchable for specific provider (missing version tag)"
+            !general_request.is_dispatchable(&specific_candidate),
+            "General request should NOT be dispatchable for specific candidate (missing version tag)"
         );
     }
 
-    // TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request
+    // TEST1104: Tests that is_dispatchable rejects when candidate cannot dispatch request
     #[test]
     fn test1104_is_dispatchable_rejects_non_dispatchable() {
-        // Request requires specific tag that provider doesn't have
+        // Request requires specific tag that candidate doesn't have
         let request =
             CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text;required=yes").unwrap();
 
-        let provider = CapUrn::from_string(
+        let candidate = CapUrn::from_string(
             "cap:in=\"media:ext=pdf\";extract;out=media:text", // missing required=yes
         )
         .unwrap();
 
-        // provider is NOT dispatchable for request (missing required tag that request needs)
+        // candidate is NOT dispatchable for request (missing required tag that request needs)
         assert!(
-            !provider.is_dispatchable(&request),
-            "Provider missing required tag should not be dispatchable for request"
+            !candidate.is_dispatchable(&request),
+            "Candidate missing required tag should not be dispatchable for request"
         );
     }
 }

@@ -489,7 +489,7 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6619 | py | `test_6619_wildcard_identity_forms_equivalent` | TEST6619: Explicit identity forms produce the same CapUrn | tests/test_cap_urn.py:1049 |
 | test6620 | js | `test6620_wildcardGenericFormsRejected` | TEST6620: Generic top-to-top spellings are all rejected. | capdag.test.js:3121 |
 | test6621 | js | `test6621_capIdentityConstantWorks` | TEST6621: CAP_IDENTITY constant names the true identity cap, not bare cap: | capdag.test.js:3142 |
-| test6622 | go | `Test6622_identity_routing_isolation` | TEST6622: Cap identity does not route as a declared-effect provider | urn/cap_urn_test.go:1265 |
+| test6622 | go | `Test6622_identity_routing_isolation` | TEST6622: Cap identity does not route as a declared-effect candidate | urn/cap_urn_test.go:1265 |
 | test6630 | go | `Test6630_cardinality_string` | TEST6630: Tests InputCardinality String() representation | planner/cardinality_test.go:135 |
 | test6632 | go | `Test6632_pattern_string` | TEST6632: Tests CardinalityPattern String() representation | planner/cardinality_test.go:142 |
 | test6634 | go | `Test6634_machine_result_primary_output` | TEST6634: Tests MachineResult PrimaryOutput returns populated output and nil when empty Verifies the PrimaryOutput() accessor distinguishes populated vs empty outputs maps | planner/plan_test.go:151 |
@@ -839,9 +839,9 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test434 | rust, go, py, objc | js | TEST434: Limits negotiation takes minimum |
 | test435 | rust, go, py, objc | js | TEST435: URN matching (exact vs accepts()) |
 | test436 | rust, go, py, objc | js | TEST436: Verify FNV-1a checksum function produces consistent results |
-| test437 | rust, go, py, objc | js | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates |
+| test437 | rust, go, py, objc | js | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic candidate (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates |
 | test438 | rust, go, py, objc | js | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set |
-| test439 | rust, go, py, objc | js | TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. |
+| test439 | rust, go, py, objc | js | TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. |
 | test440 | rust, go, py, objc | js | TEST440: CHUNK frame with chunk_index and checksum roundtrips through encode/decode |
 | test441 | rust, go, py, objc | js | TEST441: STREAM_END frame with chunk_count roundtrips through encode/decode |
 | test442 | rust, go, py, objc | js | TEST442: SeqAssigner assigns seq 0,1,2,3 for consecutive frames with same RID |
@@ -1151,14 +1151,14 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test820 | go, py, objc | rust, js | TEST820: Tests JSON path extraction correctly handles boolean values Verifies that true and false are extracted as proper boolean JSON values |
 | test821 | go, py, objc | rust, js | TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access) Verifies that nested array structures like "matrix[1]" correctly extract inner arrays |
 | test822 | go, py, objc | rust, js | TEST822: Tests error handling for non-numeric array indices Verifies that invalid indices like "items[abc]" return a descriptive parse error |
-| test823 | rust, go, py, objc | js | TEST823: is_dispatchable — exact match provider dispatches request |
-| test824 | rust, go, py, objc | js | TEST824: is_dispatchable — provider with broader input handles specific request (contravariance) |
-| test825 | rust, go, py, objc | js | TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider media: on the request input axis means "unconstrained" — vacuously true |
-| test826 | rust, go, py, objc | js | TEST826: is_dispatchable — provider output must satisfy request output (covariance) |
-| test827 | rust, go, py, objc | js | TEST827: is_dispatchable — provider with generic output cannot satisfy specific request |
-| test828 | rust, go, py, objc | js | TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject |
-| test829 | rust, go, py, objc | js | TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept |
-| test830 | rust, go, py, objc | js | TEST830: is_dispatchable — provider extra tags are refinement, always OK |
+| test823 | rust, go, py, objc | js | TEST823: is_dispatchable — exact match candidate dispatches request |
+| test824 | rust, go, py, objc | js | TEST824: is_dispatchable — candidate with broader input handles specific request (contravariance) |
+| test825 | rust, go, py, objc | js | TEST825: is_dispatchable — request with unconstrained input dispatches to specific candidate media: on the request input axis means "unconstrained" — vacuously true |
+| test826 | rust, go, py, objc | js | TEST826: is_dispatchable — candidate output must satisfy request output (covariance) |
+| test827 | rust, go, py, objc | js | TEST827: is_dispatchable — candidate with generic output cannot satisfy specific request |
+| test828 | rust, go, py, objc | js | TEST828: is_dispatchable — wildcard * tag in request, candidate missing tag → reject |
+| test829 | rust, go, py, objc | js | TEST829: is_dispatchable — wildcard * tag in request, candidate has tag → accept |
+| test830 | rust, go, py, objc | js | TEST830: is_dispatchable — candidate extra tags are refinement, always OK |
 | test831 | rust, go, py, objc | js | TEST831: is_dispatchable — cross-backend mismatch prevented |
 | test832 | rust, go, py, objc | js | TEST832: is_dispatchable is NOT symmetric |
 | test833 | rust, go, py, objc | js | TEST833: is_comparable — both directions checked |
@@ -1166,7 +1166,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test835 | rust, go, py, objc | js | TEST835: is_equivalent — identical caps |
 | test836 | rust, go, py, objc | js | TEST836: is_equivalent — non-equivalent comparable caps |
 | test837 | rust, go, py, objc | js | TEST837: is_dispatchable — op tag mismatch rejects |
-| test838 | rust, go, py, objc | js | TEST838: is_dispatchable — request with wildcard output accepts any provider output |
+| test838 | rust, go, py, objc | js | TEST838: is_dispatchable — request with wildcard output accepts any candidate output |
 | test839 | rust, go, py, objc | js | TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive. Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads. |
 | test840 | rust, go, py, objc | js | TEST840: PeerResponse::collect_bytes discards LOG frames |
 | test841 | rust, go, py, objc | js | TEST841: PeerResponse::collect_value discards LOG frames |
@@ -1306,8 +1306,8 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1094 | rust, go, py, objc | js | TEST1094: 1 dir with 3 files → is_sequence=true |
 | test1098 | rust, go, py, objc | js | TEST1098: Extension-based detection picks up pdf tag for .pdf files |
 | test1100 | rust, go, py | js, objc | TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry (e.g., "record;enc=utf-8" vs "enc=utf-8;record") |
-| test1103 | rust, go, py | js, objc | TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request). This tests the directionality: provider.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder |
-| test1104 | rust, go, py | js, objc | TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request |
+| test1103 | rust, go, py | js, objc | TEST1103: Tests that is_dispatchable has correct directionality The available cap (candidate) must be dispatchable for the requested cap (request). This tests the directionality: candidate.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder |
+| test1104 | rust, go, py | js, objc | TEST1104: Tests that is_dispatchable rejects when candidate cannot dispatch request |
 | test1105 | rust, go, py | js, objc | TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids. This is the core disambiguation scenario that step-index keying was designed to solve. |
 | test1106 | rust, go, py | js, objc | TEST1106: Slot resolution falls through to cap_settings when no slot_value exists. cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value. |
 | test1107 | rust, go, py | js, objc | TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback. |
@@ -1453,7 +1453,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1875 | rust, go, py, objc | js | TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe. |
 | test1876 | rust, go, py, objc | js | TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent). |
 | test1877 | rust, go, py, objc | js | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. |
-| test1878 | rust, go, py, objc | js | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. |
+| test1878 | rust, go, py, objc | js | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_CARTRIDGE_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe. |
 | test1879 | rust, go, py, objc | js | TEST1879: only the host's registry-VERSION subtree is scanned. A cartridge installed under `{slug}/v{N+1}/nightly/…` (a different registry regime) is invisible to a host that speaks v{N} — the version level is pinned exactly like the channel, so v1 and v2 cartridges of the same registry never mix. |
 | test1883 | rust, go, py | js, objc | TEST1883: a cap-position name with no local header is resolved as a fabric cap alias. The wiring uses `pdf2text` where a cap is expected; it must resolve to the aliased cap URN and produce a one-edge strand whose cap URN is the alias target. A broken resolver would either fail (treating it as undefined) or wire the wrong cap. |
 | test1884 | rust, go, py | js, objc | TEST1884: a local header alias shadows a fabric alias of the same name. If `pdf2text` is BOTH a header (bound to one cap) and a registered alias (pointing at another cap), the header wins. This pins the precedence rule: local definitions shadow registry aliases. |
@@ -1475,7 +1475,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test6317 | rust, go, py, objc | js | TEST6317: Media urn resolution with registry |
 | test6330 | go, py | rust, js, objc | Mirror-specific coverage: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload |
 | test6363 | rust, go, py, objc | js | TEST6363: Cap manifest with page_url — the optional page_url is carried and serialized as `page_url`. |
-| test6371 | rust, go, py, objc | js | TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys). |
+| test6371 | rust, go, py, objc | js | TEST6371: Cap manifest compatibility — differently-named component manifests serialize to the same JSON shape (same keys). |
 | test6382 | rust, go, py | js, objc | TEST6382: Test parsing registry JSON without stdin args verifies cap structure |
 | test6388 | rust, go, py, objc | js | TEST6388: Per-cap URL is /caps/<sha256-hex> — no URN-grammar characters in the path, no percent-encoding gymnastics. |
 | test6391 | rust, go, py, objc | js | TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. |
@@ -1910,7 +1910,7 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **rust**: TEST435: URN matching (exact vs accepts())
 - **go**: TEST435: URN matching (exact vs accepts())
 - **py**: TEST435: URN matching (exact vs accepts())
-- **objc**: TEST435: URN matching (exact vs accepts()) Dispatch is contravariant on input (request input must conform to provider input — i.e. request can be more specific) and covariant on output (provider output must conform to request output — i.e. provider can be more specific). A request whose input is in a different type family than any registered provider has no handler.
+- **objc**: TEST435: URN matching (exact vs accepts()) Dispatch is contravariant on input (request input must conform to candidate input — i.e. request can be more specific) and covariant on output (candidate output must conform to request output — i.e. candidate can be more specific). A request whose input is in a different type family than any registered candidate has no handler.
 
 ### test462
 
@@ -2212,9 +2212,9 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test1103
 
-- **rust**: TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request). This tests the directionality: provider.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder
-- **go**: TEST1103: Tests that IsDispatchable has correct directionality A specific provider is dispatchable for a general request; the reverse is false.
-- **py**: TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request). This tests the directionality: provider.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder
+- **rust**: TEST1103: Tests that is_dispatchable has correct directionality The available cap (candidate) must be dispatchable for the requested cap (request). This tests the directionality: candidate.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder
+- **go**: TEST1103: Tests that IsDispatchable has correct directionality A specific candidate is dispatchable for a general request; the reverse is false.
+- **py**: TEST1103: Tests that is_dispatchable has correct directionality The available cap (candidate) must be dispatchable for the requested cap (request). This tests the directionality: candidate.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder
 
 ### test1111
 
@@ -2537,10 +2537,10 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test1878
 
-- **rust**: TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.
-- **go**: TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.
-- **py**: TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.
-- **objc**: TEST1878: a cartridge marked `installed_from: bundle` with no baked hash is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.
+- **rust**: TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_CARTRIDGE_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe.
+- **go**: TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_CARTRIDGE_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe.
+- **py**: TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_CARTRIDGE_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe.
+- **objc**: TEST1878: a cartridge marked `installed_from: bundle` with no baked hash is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe.
 
 ### test1879
 
@@ -2629,9 +2629,9 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 
 ### test6371
 
-- **rust**: TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys).
+- **rust**: TEST6371: Cap manifest compatibility — differently-named component manifests serialize to the same JSON shape (same keys).
 - **go**: TEST6371: Cap manifest compatibility
-- **py**: TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys).
+- **py**: TEST6371: Cap manifest compatibility — differently-named component manifests serialize to the same JSON shape (same keys).
 - **objc**: TEST6371: Cap manifest compatibility
 
 ### test6388

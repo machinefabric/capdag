@@ -3955,13 +3955,13 @@ impl CartridgeRuntime {
     /// Find a handler for a cap URN.
     /// Returns the OpFactory if found, None otherwise.
     ///
-    /// Uses `is_dispatchable(provider, request)` to find handlers that can
+    /// Uses `is_dispatchable(candidate, request)` to find handlers that can
     /// legally handle the request, then ranks by specificity.
     ///
     /// Ranking prefers:
     /// 1. Equivalent matches (distance 0)
-    /// 2. More specific providers (positive distance) - refinements
-    /// 3. More generic providers (negative distance) - fallbacks
+    /// 2. More specific candidates (positive distance) - refinements
+    /// 3. More generic candidates (negative distance) - fallbacks
     pub fn find_handler(&self, cap_urn: &str) -> Option<OpFactory> {
         let request_urn = match CapUrn::from_string(cap_urn) {
             Ok(u) => u,
@@ -3974,7 +3974,7 @@ impl CartridgeRuntime {
 
         for (registered_cap_str, handler) in &self.handlers {
             if let Ok(registered_urn) = CapUrn::from_string(registered_cap_str) {
-                // Use is_dispatchable: can this provider handle this request?
+                // Use is_dispatchable: can this candidate handle this request?
                 if registered_urn.is_dispatchable(&request_urn) {
                     let specificity = registered_urn.specificity();
                     let signed_distance = specificity as isize - request_specificity as isize;
@@ -4381,7 +4381,7 @@ impl CartridgeRuntime {
         // inherited never-closing stdin. See `read_piped_stdin` for why the
         // read itself blocks to EOF.
         let mut stdin_cache: Option<Option<Vec<u8>>> = None;
-        let mut stdin_provider = || -> Result<Option<Vec<u8>>, RuntimeError> {
+        let mut stdin_source = || -> Result<Option<Vec<u8>>, RuntimeError> {
             if stdin_cache.is_none() {
                 stdin_cache = Some(Self::read_piped_stdin()?);
             }
@@ -4391,7 +4391,7 @@ impl CartridgeRuntime {
         // Process each cap argument
         for arg_def in cap.get_args() {
             let (value, came_from_stdin) =
-                self.extract_arg_value(&arg_def, cli_args, &mut stdin_provider)?;
+                self.extract_arg_value(&arg_def, cli_args, &mut stdin_source)?;
 
             if let Some(val) = value {
                 // Determine media_urn: if value came from stdin source, use stdin's media_urn
@@ -4424,7 +4424,7 @@ impl CartridgeRuntime {
 
         // If no arguments are defined but stdin data exists, use it as raw payload
         if cap.get_args().is_empty() {
-            if let Some(data) = stdin_provider()? {
+            if let Some(data) = stdin_source()? {
                 return Ok(data);
             }
             // No args and no stdin - return empty payload
@@ -4473,7 +4473,7 @@ impl CartridgeRuntime {
         // Try each source in order, returning RAW values (file paths, flags, etc.)
         // File-path auto-conversion happens later in extract_effective_payload()
         //
-        // `stdin` is a lazy provider so stdin is only consumed when an arg
+        // `stdin` is a lazy source so stdin is only consumed when an arg
         // actually reaches its Stdin source — and sources still take
         // precedence over the arg's default value (piped data must beat a
         // declared default).

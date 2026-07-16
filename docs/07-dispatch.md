@@ -8,12 +8,12 @@ permalink: /07-dispatch/
 ## 1. The Central Question
 
 Given:
-- A **provider** `p` (a registered capability)
+- A **candidate** `p` (a registered capability)
 - A **request** `r` (what the caller wants)
 
 The dispatch question is:
 
-> Can provider `p` legally handle request `r`?
+> Can candidate `p` legally handle request `r`?
 
 This is answered by the **dispatch predicate**.
 
@@ -21,7 +21,7 @@ The predicate is **kind-agnostic**. The
 [CapKind](/docs/06-cap-urn-structure#4-cap-kinds) classification
 (Identity / Source / Sink / Effect / Transform) is a logical taxonomy
 derived from the URN; it does not appear in the dispatch rule.
-Whether a provider is a Source matching a request whose `in` happens
+Whether a candidate is a Source matching a request whose `in` happens
 to be `media:void`, or a Transform matching a request whose `in` is a
 concrete type, is the same matching rule applied to the same four
 structural coordinates. Dispatch is one rule; kind is a description of the result.
@@ -33,7 +33,7 @@ structural coordinates. Dispatch is one rule; kind is a description of the resul
 ### 2.1 Definition
 
 Let:
-- `p = (i_p, o_p, y_p, e_p)` — provider
+- `p = (i_p, o_p, y_p, e_p)` — candidate
 - `r = (i_r, o_r, y_r, e_r)` — request
 
 Then:
@@ -45,7 +45,7 @@ Dispatch(p, r)  ⟺  (i_r = ⊤ ∨ i_r ⪯ i_p)  ∧  (o_r = ⊤ ∨ o_p ⪯ o_
 Where `⊤ = media:` (the identity/top of the media partial order). A request dimension
 set to `⊤` is **unconstrained** — the axis is vacuously true.
 
-Note: provider wildcards need no special case. `i_p = ⊤` passes because `∀x, x ⪯ ⊤`.
+Note: candidate wildcards need no special case. `i_p = ⊤` passes because `∀x, x ⪯ ⊤`.
 `o_p = ⊤` correctly fails for specific `o_r` because `⊤ ⪯ o_r` is false (top does not
 conform to a more specific type).
 
@@ -53,10 +53,10 @@ conform to a more specific type).
 
 | Axis | Condition | Variance | Meaning |
 |------|-----------|----------|---------|
-| Input | i_r = ⊤ ∨ i_r ⪯ i_p | Contravariant | Request unconstrained, or input conforms to provider |
-| Output | o_r = ⊤ ∨ o_p ⪯ o_r | Covariant | Request unconstrained, or provider output conforms |
-| Effect | e_r = ? ∨ e_p = e_r | Exact unless explicit wildcard | Provider satisfies requested runtime effect semantics |
-| Cap-tags | y_r ⪯ y_p | Invariant/Refinement | Provider satisfies request's constraints |
+| Input | i_r = ⊤ ∨ i_r ⪯ i_p | Contravariant | Request unconstrained, or input conforms to candidate |
+| Output | o_r = ⊤ ∨ o_p ⪯ o_r | Covariant | Request unconstrained, or candidate output conforms |
+| Effect | e_r = ? ∨ e_p = e_r | Exact unless explicit wildcard | Candidate satisfies requested runtime effect semantics |
+| Cap-tags | y_r ⪯ y_p | Invariant/Refinement | Candidate satisfies request's constraints |
 
 ---
 
@@ -68,14 +68,14 @@ conform to a more specific type).
 i_r ⪯ i_p
 ```
 
-**Meaning**: The provider may accept MORE input types than the request specifies.
+**Meaning**: The candidate may accept MORE input types than the request specifies.
 
 **Type-theoretic**: Function parameter types are contravariant.
 
 **Example**:
 ```
 Request:  in="media:bytes;ext=pdf"     (specific)
-Provider: in="media:bytes"         (more general)
+Candidate: in="media:bytes"         (more general)
 
 i_r = media:bytes;ext=pdf
 i_p = media:bytes
@@ -85,7 +85,7 @@ i_r ⪯ i_p? → Does pdf;bytes conform to bytes?
            → PASS ✓
 ```
 
-A provider accepting `media:bytes` can handle a request sending `media:bytes;ext=pdf`.
+A candidate accepting `media:bytes` can handle a request sending `media:bytes;ext=pdf`.
 
 ### 3.2 Output Axis (Covariant)
 
@@ -93,14 +93,14 @@ A provider accepting `media:bytes` can handle a request sending `media:bytes;ext
 o_p ⪯ o_r
 ```
 
-**Meaning**: The provider must produce AT LEAST as specific output as the request requires.
+**Meaning**: The candidate must produce AT LEAST as specific output as the request requires.
 
 **Type-theoretic**: Function return types are covariant.
 
 **Example**:
 ```
 Request:  out="media:record"                    (general requirement)
-Provider: out="media:fmt=json;record"     (more specific guarantee)
+Candidate: out="media:fmt=json;record"     (more specific guarantee)
 
 o_p = media:fmt=json;record
 o_r = media:record
@@ -110,7 +110,7 @@ o_p ⪯ o_r? → Does fmt=json;record conform to record?
            → PASS ✓
 ```
 
-A provider guaranteeing `media:fmt=json;record` satisfies a request needing `media:record`.
+A candidate guaranteeing `media:fmt=json;record` satisfies a request needing `media:record`.
 
 ### 3.3 Cap-Tags Axis (Invariant for Explicit, Wildcard for Omitted)
 
@@ -118,19 +118,19 @@ A provider guaranteeing `media:fmt=json;record` satisfies a request needing `med
 y_r ⪯ y_p
 ```
 
-**Meaning**: The provider must satisfy all explicit request constraints and may refine omitted ones.
+**Meaning**: The candidate must satisfy all explicit request constraints and may refine omitted ones.
 
 **Example**:
 ```
 Request:  op=extract                   (requires extract operation)
-Provider: extract;target=metadata   (provides extract with refinement)
+Candidate: extract;target=metadata   (provides extract with refinement)
 
 y_r = {op: "extract"}
 y_p = {op: "extract", target: "metadata"}
 
-y_r ⪯ y_p? → Does request conform to provider?
-           → Request has op=extract, provider has op=extract → match
-           → Request omits target, provider has target=metadata → OK (refinement)
+y_r ⪯ y_p? → Does request conform to candidate?
+           → Request has op=extract, candidate has op=extract → match
+           → Request omits target, candidate has target=metadata → OK (refinement)
            → PASS ✓
 ```
 
@@ -143,21 +143,21 @@ y_r ⪯ y_p? → Does request conform to provider?
 ### 4.1 The Rule
 
 The input condition `i_r ⪯ i_p` means:
-- Request's input must be **at least as specific** as provider's input
-- Equivalently: Provider's accepted input must **subsume** request's input
+- Request's input must be **at least as specific** as candidate's input
+- Equivalently: Candidate's accepted input must **subsume** request's input
 
 ### 4.2 Why Asymmetry Matters
 
 When request has `in=media:model-spec`:
 - Request says "I will send model-spec"
-- Provider with `in=media:bytes` says "I accept any bytes"
-- Can provider handle this? **YES** — model-spec conforms to bytes
+- Candidate with `in=media:bytes` says "I accept any bytes"
+- Can candidate handle this? **YES** — model-spec conforms to bytes
 - `media:model-spec ⪯ media:bytes` is TRUE
 
 When request has `in=media:bytes`:
 - Request says "I will send bytes"
-- Provider with `in=media:model-spec` says "I only accept model-spec"
-- Can provider handle this? **NO** — bytes does not conform to model-spec
+- Candidate with `in=media:model-spec` says "I only accept model-spec"
+- Can candidate handle this? **NO** — bytes does not conform to model-spec
 - `media:bytes ⪯ media:model-spec` is FALSE
 
 ### 4.3 Wildcard Handling
@@ -167,11 +167,11 @@ When request has `in=media:bytes`:
 
 For dispatch validity with wildcards:
 
-| Request Input | Provider Input | Dispatch? | Reason |
+| Request Input | Candidate Input | Dispatch? | Reason |
 |---------------|----------------|-----------|--------|
 | `media:` | `media:` | ✓ | Both unconstrained |
 | `media:` | `media:ext=pdf` | ✓ | Request unconstrained |
-| `media:ext=pdf` | `media:` | ✓ | Provider accepts any |
+| `media:ext=pdf` | `media:` | ✓ | Candidate accepts any |
 | `media:ext=pdf` | `media:bytes` | ✓ | pdf conforms to bytes |
 | `media:ext=pdf` | `media:image` | ✗ | pdf does not conform to image |
 
@@ -181,47 +181,47 @@ For dispatch validity with wildcards:
 
 ### 5.1 Input Axis
 
-| Request In | Provider In | Dispatchable? | Reason |
+| Request In | Candidate In | Dispatchable? | Reason |
 |------------|-------------|---------------|--------|
 | `media:` (any) | any | ✓ | Request unconstrained |
-| specific | `media:` (any) | ✓ | Provider accepts any |
+| specific | `media:` (any) | ✓ | Candidate accepts any |
 | specific | same | ✓ | Exact match |
-| more specific | less specific | ✓ | Provider accepts broader class |
+| more specific | less specific | ✓ | Candidate accepts broader class |
 | less specific | more specific | ✗ | Request might send unsupported |
 | incomparable | incomparable | ✗ | Different type families |
 
 ### 5.2 Output Axis
 
-| Provider Out | Request Out | Dispatchable? | Reason |
+| Candidate Out | Request Out | Dispatchable? | Reason |
 |--------------|-------------|---------------|--------|
 | any | `media:` (any) | ✓ | Request unconstrained |
-| `media:` (any) | specific | ✗ | Provider can't guarantee required |
+| `media:` (any) | specific | ✗ | Candidate can't guarantee required |
 | same | same | ✓ | Exact match |
-| more specific | less specific | ✓ | Provider exceeds requirement |
-| less specific | more specific | ✗ | Provider may not meet requirement |
+| more specific | less specific | ✓ | Candidate exceeds requirement |
+| less specific | more specific | ✗ | Candidate may not meet requirement |
 | incomparable | incomparable | ✗ | Different type families |
 
 ### 5.3 Cap-Tags Axis
 
-| Request Tag | Provider Tag | Dispatchable? | Reason |
+| Request Tag | Candidate Tag | Dispatchable? | Reason |
 |-------------|--------------|---------------|--------|
 | missing | missing | ✓ | No constraint |
-| missing | K=v | ✓ | Provider refines |
+| missing | K=v | ✓ | Candidate refines |
 | K=v | K=v | ✓ | Exact match |
 | K=v | K=w (w≠v) | ✗ | Contradiction |
-| K=v | missing | ✗ | Provider lacks required |
-| K=* | K=v | ✓ | Provider has a value |
-| K=* | missing | ✗ | Provider lacks required |
+| K=v | missing | ✗ | Candidate lacks required |
+| K=* | K=v | ✓ | Candidate has a value |
+| K=* | missing | ✗ | Candidate lacks required |
 
 ---
 
 ## 6. Examples
 
-### 6.1 Generic Request, Specific Provider
+### 6.1 Generic Request, Specific Candidate
 
 ```
 Request:  cap:in=media:;download-model;out=media:
-Provider: cap:in="media:model-spec";download-model;out="media:download-result"
+Candidate: cap:in="media:model-spec";download-model;out="media:download-result"
 
 Input:  i_r=media: (⊤), i_p=media:model-spec
         Request unconstrained → PASS ✓
@@ -230,16 +230,16 @@ Output: o_p=media:download-result, o_r=media: (⊤)
         Request unconstrained → PASS ✓
 
 Tags:   y_r={op:download-model}, y_p={op:download-model}
-        Provider has required op → PASS ✓
+        Candidate has required op → PASS ✓
 
 Result: DISPATCHABLE ✓
 ```
 
-### 6.2 Specific Request, Generic Provider (Fallback)
+### 6.2 Specific Request, Generic Candidate (Fallback)
 
 ```
 Request:  cap:in="media:ext=pdf";extract;out="media:record"
-Provider: cap:in="media:bytes";extract;out="media:"
+Candidate: cap:in="media:bytes";extract;out="media:"
 
 Input:  i_r=media:ext=pdf, i_p=media:bytes
         pdf ⪯ bytes? Yes → PASS ✓
@@ -255,7 +255,7 @@ Result: NOT DISPATCHABLE
 
 ```
 Request:  cap:in="media:ext=pdf";convert;out="media:ext=html"
-Provider: cap:in="media:image";convert;out="media:enc=utf-8"
+Candidate: cap:in="media:image";convert;out="media:enc=utf-8"
 
 Input:  i_r=media:ext=pdf, i_p=media:image
         pdf ⪯ image? No, different families → FAIL ✗
@@ -298,11 +298,11 @@ If a can handle b's requests, and b can handle c's requests, then a can handle c
 Dispatch(p, r) ⟹̸ Dispatch(r, p)
 ```
 
-A specific provider can dispatch a generic request, but not vice versa.
+A specific candidate can dispatch a generic request, but not vice versa.
 
 ### 7.4 Monotonicity
 
-If provider `p'` refines `p`:
+If candidate `p'` refines `p`:
 - Same or more general input (i_p ⪯ i_p')
 - Same or more specific output (o_p' ⪯ o_p)
 - Same or more specific y-tags (y_p ⪯ y_p')
@@ -328,8 +328,8 @@ impl CapUrn {
 
 Usage:
 ```rust
-if provider.is_dispatchable(&request) {
-    // provider can handle request
+if candidate.is_dispatchable(&request) {
+    // candidate can handle request
 }
 ```
 
@@ -349,11 +349,11 @@ fn is_dispatchable(&self, request: &CapUrn) -> bool {
 
     // Output axis (covariant)
     // Request media: = unconstrained (accept anything) → pass
-    // Provider media: = no guarantee → fail when request is specific
+    // Candidate media: = no guarantee → fail when request is specific
     if request.out_urn == "media:" {
         // Request unconstrained — pass
     } else if self.out_urn == "media:" {
-        return false; // Provider can't guarantee specific output
+        return false; // Candidate can't guarantee specific output
     } else {
         let prov_out = MediaUrn::from_string(&self.out_urn);
         let req_out = MediaUrn::from_string(&request.out_urn);
@@ -367,7 +367,7 @@ fn is_dispatchable(&self, request: &CapUrn) -> bool {
         return false;
     }
 
-    // Cap-tags axis: provider must satisfy request constraints
+    // Cap-tags axis: candidate must satisfy request constraints
     if !self.cap_tags_dispatchable(request) {
         return false;
     }
@@ -384,7 +384,7 @@ fn is_dispatchable(&self, request: &CapUrn) -> bool {
 
 **Wrong**:
 ```rust
-if provider.accepts(&request) { /* dispatch */ }
+if candidate.accepts(&request) { /* dispatch */ }
 ```
 
 This ignores the mixed-variance nature of Cap URNs.
@@ -393,7 +393,7 @@ This ignores the mixed-variance nature of Cap URNs.
 
 **Wrong**:
 ```rust
-if provider.conforms_to(&request) { /* dispatch */ }
+if candidate.conforms_to(&request) { /* dispatch */ }
 ```
 
 This also ignores mixed variance.
@@ -402,7 +402,7 @@ This also ignores mixed variance.
 
 **Wrong**:
 ```rust
-if provider.op == request.op { /* dispatch */ }
+if candidate.op == request.op { /* dispatch */ }
 ```
 
 All four structural coordinates must be checked.
@@ -417,7 +417,7 @@ on purpose:
 
 | Question | Predicate | Symmetry | Used for |
 |---|---|---|---|
-| "Can provider `p` *handle* request `r`?" | `p.is_dispatchable(r)` | directional | routing, planning, and "find **anything** that would match" |
+| "Can candidate `p` *handle* request `r`?" | `p.is_dispatchable(r)` | directional | routing, planning, and "find **anything** that would match" |
 | "Is declared cap `d` *the same cap* as resolved cap `c`?" | `d.is_equivalent(c)` | symmetric | **alias/cap resolution** — finding the cartridge that implements a specific cap |
 
 ### Why alias resolution uses `is_equivalent`, not dispatch
@@ -446,15 +446,15 @@ the other — identical lattice position), because:
   `cap:disbind;…;out="media:…;page;plain-text"` — a silent substitution of a
   different behavior than the alias named.
 - **No accidental widening.** Resolution must not "fall back" to a looser
-  provider; if nothing implements the exact resolved cap, that is a real
-  "no provider" answer the caller needs to see (and fix by publishing the right
+  candidate; if nothing implements the exact resolved cap, that is a real
+  "no candidate" answer the caller needs to see (and fix by publishing the right
   cartridge), not something to paper over by dispatching to a near‑match.
 
 Equivalence is decided on the parsed in/out/effect coordinates, **never** by
 string equality — two semantically identical cap URNs can serialize differently
 (tag order, the arbitrary `op` marker), so matching walks the parsed predicate,
 and resolution never prefilters through a string-keyed index (which would drop
-equivalent-but-differently-serialized providers before equivalence is tested).
+equivalent-but-differently-serialized candidates before equivalence is tested).
 
 ### Where each is used (keep them consistent)
 

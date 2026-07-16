@@ -5,9 +5,9 @@
   Built by `dx capdag-dist msi` (capdag-dist.ps1) with:
       wix build capdag.wxs -arch x64 -d Version=<v> -d PayloadDir=<staged bundle> -o capdag.msi
 
-  The MSI installs the WHOLE bundle (capdag.exe + providers\) under
+  The MSI installs the WHOLE bundle (capdag.exe + bundled-cartridges\) under
   %ProgramFiles%\capdag and adds that directory to the machine PATH. capdag.exe
-  sits directly beside providers\, so its providers-tree resolution (relative to
+  sits directly beside bundled-cartridges\, so its bundled-cartridges-tree resolution (relative to
   the canonicalized exe path) holds without any shim.
 
   UpgradeCode is the product's PERMANENT identity — never change it across
@@ -28,14 +28,14 @@
       <Directory Id="INSTALLFOLDER" Name="capdag" />
     </StandardDirectory>
 
-    <!-- Harvest the entire staged bundle (capdag.exe + providers\**) into
+    <!-- Harvest the entire staged bundle (capdag.exe + bundled-cartridges\**) into
          INSTALLFOLDER, preserving the tree. -->
     <ComponentGroup Id="CapdagBundle" Directory="INSTALLFOLDER">
       <Files Include="$(var.PayloadDir)\**" />
     </ComponentGroup>
 
     <!-- Put %ProgramFiles%\capdag on the machine PATH so `capdag` resolves and
-         the exe stays beside providers\. -->
+         the exe stays beside bundled-cartridges\. -->
     <Component Id="CapdagPathEntry" Directory="INSTALLFOLDER" Guid="7A1D3F60-9B84-4C2E-A5D7-6E0B1C4F2A99">
       <Environment Id="CapdagPath"
                    Name="PATH"

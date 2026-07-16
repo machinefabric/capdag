@@ -9,11 +9,11 @@ permalink: /05-specificity/
 
 Specificity is a numeric score measuring how constrained a URN is. It is used for:
 
-1. **Ranking** among dispatch-valid providers
-2. **Tie-breaking** when multiple providers match
+1. **Ranking** among dispatch-valid candidates
+2. **Tie-breaking** when multiple candidates match
 3. **Distance calculation** for preference ordering
 
-Specificity is **NOT** used for dispatch validity. A provider with higher specificity is not automatically dispatchable.
+Specificity is **NOT** used for dispatch validity. A candidate with higher specificity is not automatically dispatchable.
 
 ---
 
@@ -272,22 +272,22 @@ These have equal specificity but are NOT comparable (different branches).
 
 ### 5.1 Ranking
 
-After dispatch validity is established, rank providers by specificity distance:
+After dispatch validity is established, rank candidates by specificity distance:
 
 ```
-dist(provider, request) = spec_C(provider) - spec_C(request)
+dist(candidate, request) = spec_C(candidate) - spec_C(request)
 ```
 
 Interpretation:
 - `dist = 0`: Same numeric specificity score
-- `dist > 0`: Provider is more specific (refinement)
-- `dist < 0`: Provider is more generic (fallback)
+- `dist > 0`: Candidate is more specific (refinement)
+- `dist < 0`: Candidate is more generic (fallback)
 
 ### 5.2 Selection Priority
 
-1. **Exact score match** (dist = 0) — most preferred among equally scored dispatch-valid providers
-2. **Refinement** (dist > 0) — provider specializes request
-3. **Fallback** (dist < 0) — provider is generic, use as last resort
+1. **Exact score match** (dist = 0) — most preferred among equally scored dispatch-valid candidates
+2. **Refinement** (dist > 0) — candidate specializes request
+3. **Fallback** (dist < 0) — candidate is generic, use as last resort
 
 See [06-RANKING](/docs/08-ranking) for complete ranking policy.
 
@@ -351,8 +351,8 @@ specificity for absence/exclusion claims.
 |---------|------------|
 | Tagged URN spec | Σ score(tag) over six-form ladder (0–5) |
 | Cap URN spec   | `10000 * spec_U(out) + 100 * spec_U(in) + spec_U(y)` |
-| Distance | spec(provider) - spec(request) |
+| Distance | spec(candidate) - spec(request) |
 | Use | Ranking, not validity |
 
 Specificity measures how constrained a URN is. It enables ranking
-among valid providers but does not determine dispatch validity.
+among valid candidates but does not determine dispatch validity.
