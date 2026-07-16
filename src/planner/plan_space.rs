@@ -410,6 +410,35 @@ pub struct ConvergentTargetInfo {
     pub convergent: bool,
 }
 
+/// The result of one `plan()` call: the ranked candidates PLUS the sources the
+/// planner proved unroutable (dead ends). Dead ends are FIRST-CLASS, never
+/// silent: when some sources cannot reach any target within the search bounds,
+/// planning continues over the routable subset and every dead end is named
+/// here so clients indicate it explicitly. `dead_end_sources` is empty when
+/// every source is covered by the candidates.
+#[derive(Debug, Clone)]
+pub struct PlanOutcome {
+    /// Ranked candidates (rank 0 first). Their profiles cover exactly the
+    /// routable sources.
+    pub candidates: Vec<PlanCandidate>,
+    /// Sources (media URNs, request order) with no route to ANY requested
+    /// target within `max_depth`. Empty ⇒ full coverage.
+    pub dead_end_sources: Vec<MediaUrn>,
+}
+
+/// The result of target discovery for a source set: the reachable targets
+/// PLUS the sources that reach nothing (dead ends) — same fault-tolerance
+/// contract as [`PlanOutcome`]: discovery continues over the routable subset
+/// and names every dead end explicitly.
+#[derive(Debug, Clone)]
+pub struct ConvergentTargets {
+    /// Discovered targets over the routable sources, convergent-first.
+    pub targets: Vec<ConvergentTargetInfo>,
+    /// Sources (media URNs, request order) that reach NO bookend target at
+    /// all within `max_depth`. Empty ⇒ every source is routable.
+    pub dead_end_sources: Vec<MediaUrn>,
+}
+
 /// Errors from planning. Fail-hard: no silent partial results.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanError {

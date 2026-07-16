@@ -1367,19 +1367,36 @@ impl RelaySwitch {
     pub async fn plan(
         &self,
         request: &crate::planner::PlanRequest,
-    ) -> Result<Vec<crate::planner::PlanCandidate>, crate::planner::PlanError> {
+    ) -> Result<crate::planner::PlanOutcome, crate::planner::PlanError> {
         let graph = self.live_cap_fab.read().await;
         graph.plan(request, &self.fabric_registry)
     }
 
+    /// `plan` with a streaming observer: `on_candidate` fires per NEW
+    /// (deduplicated) candidate as it is assembled — the transport behind the
+    /// PlanMachinesStream RPC. The returned outcome carries the final ranked
+    /// list plus any dead-end sources.
+    pub async fn plan_with_observer<F>(
+        &self,
+        request: &crate::planner::PlanRequest,
+        on_candidate: F,
+    ) -> Result<crate::planner::PlanOutcome, crate::planner::PlanError>
+    where
+        F: FnMut(&crate::planner::PlanCandidate),
+    {
+        let graph = self.live_cap_fab.read().await;
+        graph.plan_with_observer(request, &self.fabric_registry, on_candidate)
+    }
+
     /// Discover the reachable targets for a (possibly heterogeneous) source
     /// set: convergent targets tagged with their apex, plus independent (map)
-    /// targets. The multi-source generalization of `get_reachable_targets`.
+    /// targets, plus any DEAD-END sources (no reachable target at all). The
+    /// multi-source generalization of `get_reachable_targets`.
     pub async fn discover_convergent_targets(
         &self,
         sources: &[crate::planner::SourceSpec],
         max_depth: usize,
-    ) -> Result<Vec<crate::planner::ConvergentTargetInfo>, crate::planner::PlanError> {
+    ) -> Result<crate::planner::ConvergentTargets, crate::planner::PlanError> {
         let graph = self.live_cap_fab.read().await;
         graph.discover_convergent_targets(sources, max_depth)
     }
