@@ -65,9 +65,10 @@ pub use live_cap_fab::{
 };
 pub use plan_space::{
     ConvergenceArity, ConvergenceLocation, ConvergenceMechanism, ConvergencePolicy,
-    ConvergencePresence, ConvergentTargetInfo, DivergenceLocation, DivergencePolicy,
-    DivergencePresence, PlanApex, PlanCandidate, PlanCost, PlanError, PlanMode, PlanProfile,
-    PlanRequest, RankPolicy, SearchDirection, SourceCardinality, SourceSpec, TargetSpec,
+    ConvergencePresence, ConvergentTargetInfo, ConvergentTargets, DivergenceLocation,
+    DivergencePolicy, DivergencePresence, PlanApex, PlanCandidate, PlanCost, PlanError,
+    PlanMode, PlanOutcome, PlanProfile, PlanRequest, RankPolicy, SearchDirection,
+    SourceCardinality, SourceSpec, TargetSpec,
 };
 pub use plan::{
     BodyOutcome, EdgeType, ExecutionNodeType, MachineNode, MachinePlan, MachinePlanEdge,

@@ -1272,13 +1272,17 @@ async fn cmd_plan(args: &[String]) -> ! {
 
     // ── Discover mode: no --to ──
     if to_targets.is_empty() {
-        let targets = match fab.discover_convergent_targets(&sources, max_depth) {
+        let discovered = match fab.discover_convergent_targets(&sources, max_depth) {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("{e}");
                 process::exit(1);
             }
         };
+        for dead in &discovered.dead_end_sources {
+            eprintln!("dead end: '{dead}' reaches no target — it will be left untouched");
+        }
+        let targets = discovered.targets;
         if targets.is_empty() {
             eprintln!("No reachable targets for this file set.");
             process::exit(1);
@@ -1370,13 +1374,17 @@ async fn cmd_plan(args: &[String]) -> ! {
         max_candidates,
     };
 
-    let candidates = match fab.plan(&request, registry.as_ref()) {
+    let outcome = match fab.plan(&request, registry.as_ref()) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("{e}");
             process::exit(1);
         }
     };
+    for dead in &outcome.dead_end_sources {
+        eprintln!("dead end: '{dead}' reaches no target — it will be left untouched");
+    }
+    let candidates = outcome.candidates;
 
     println!("Candidates ({}):", candidates.len());
     for c in &candidates {

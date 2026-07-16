@@ -43,8 +43,9 @@ use crate::urn::media_urn::MediaUrn;
 use super::live_cap_fab::{LiveCapFab, LiveMachinePlanEdgeType, Strand, StrandStepType};
 use super::plan_space::{
     ConvergenceArity, ConvergenceLocation, ConvergenceMechanism, ConvergencePresence,
-    ConvergentTargetInfo, DivergenceLocation, DivergencePresence, PlanApex, PlanCandidate,
-    PlanCost, PlanError, PlanMode, PlanProfile, PlanRequest, RankPolicy, SourceSpec, TargetSpec,
+    ConvergentTargetInfo, ConvergentTargets, DivergenceLocation, DivergencePresence, PlanApex,
+    PlanCandidate, PlanCost, PlanError, PlanMode, PlanOutcome, PlanProfile, PlanRequest,
+    RankPolicy, SourceSpec, TargetSpec,
 };
 
 /// Bound on distinct apex media considered per request (after the location
@@ -52,6 +53,52 @@ use super::plan_space::{
 const MAX_APEXES: usize = 8;
 /// Fold tails explored per apex.
 const MAX_FOLDS_PER_APEX: usize = 3;
+
+/// The candidate accumulator every strategy emits into.
+///
+/// Two responsibilities, both root-cause fixes:
+/// - **Dedup by notation**: two apexes / tails can assemble the SAME machine;
+///   emitting it twice presents duplicate rows and masks re-ranking. The first
+///   emission wins; later identical notations are dropped at the source.
+/// - **Streaming**: the optional observer fires the moment a NEW candidate is
+///   assembled — before ranking — so hosts can show plans as they are found
+///   (`plan_with_observer` / the PlanMachinesStream RPC). Final ranking still
+///   arrives with the completed outcome.
+struct CandidateSink<'a> {
+    candidates: Vec<PlanCandidate>,
+    seen_notations: HashSet<String>,
+    observer: Option<&'a mut dyn FnMut(&PlanCandidate)>,
+}
+
+impl<'a> CandidateSink<'a> {
+    fn new(observer: Option<&'a mut dyn FnMut(&PlanCandidate)>) -> Self {
+        Self { candidates: Vec::new(), seen_notations: HashSet::new(), observer }
+    }
+
+    /// A detached sink for strategy sub-searches whose results are inspected
+    /// before (possibly) being re-emitted into the main sink.
+    fn detached() -> Self {
+        Self::new(None)
+    }
+
+    fn push(&mut self, candidate: PlanCandidate) {
+        if !self.seen_notations.insert(candidate.notation.clone()) {
+            return; // same machine already emitted — a duplicate, not a new plan
+        }
+        if let Some(observer) = self.observer.as_mut() {
+            observer(&candidate);
+        }
+        self.candidates.push(candidate);
+    }
+
+    fn len(&self) -> usize {
+        self.candidates.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.candidates.is_empty()
+    }
+}
 
 // =============================================================================
 // Assembly: strand fragments → PreInternedWirings → Machine → notation
@@ -233,7 +280,24 @@ impl LiveCapFab {
         &self,
         request: &PlanRequest,
         registry: &FabricRegistry,
-    ) -> Result<Vec<PlanCandidate>, PlanError> {
+    ) -> Result<PlanOutcome, PlanError> {
+        self.plan_with_observer(request, registry, |_| {})
+    }
+
+    /// `plan()` with a streaming observer: `on_candidate` fires the moment a
+    /// NEW (deduplicated) candidate is assembled — before ranking — so hosts
+    /// can present plans as they are found. The returned outcome carries the
+    /// final ranked list (the observer's candidates re-ordered and truncated)
+    /// plus any dead-end sources.
+    pub fn plan_with_observer<F>(
+        &self,
+        request: &PlanRequest,
+        registry: &FabricRegistry,
+        mut on_candidate: F,
+    ) -> Result<PlanOutcome, PlanError>
+    where
+        F: FnMut(&PlanCandidate),
+    {
         if request.sources.is_empty() {
             return Err(PlanError::NoSources);
         }
@@ -262,7 +326,7 @@ impl LiveCapFab {
             )));
         }
 
-        let mut candidates: Vec<PlanCandidate> = Vec::new();
+        let mut sink = CandidateSink::new(Some(&mut on_candidate));
 
         // The degenerate |S|=1, |T|=1 region must be BYTE-IDENTICAL to the
         // historical single-source enumeration — including its canonical
@@ -271,11 +335,65 @@ impl LiveCapFab {
         let preserve_enumeration_order = request.sources.len() == 1 && targets.len() == 1;
 
         if request.sources.len() == 1 {
-            self.plan_single_source(request, &request.sources[0], &targets, registry, &mut candidates)?;
+            self.plan_single_source(request, &request.sources[0], &targets, registry, &mut sink)?;
         } else {
-            self.plan_multi_source(request, &targets, registry, &mut candidates)?;
+            self.plan_multi_source(request, &targets, registry, &mut sink)?;
         }
 
+        // Dead-end fault tolerance (Auto only — Configured demands stay hard
+        // errors): when NOTHING planned over the full multi-source set, the
+        // usual cause is a subset of sources with no route at all. Partition
+        // by per-source target reachability; if SOME sources are routable,
+        // plan over that subset and name every dead end in the outcome —
+        // continuity without silence. All-dead stays `NoPlan`.
+        let mut dead_end_sources: Vec<MediaUrn> = Vec::new();
+        if sink.is_empty() && request.sources.len() > 1 && request.mode == PlanMode::Auto {
+            let mut routable: Vec<SourceSpec> = Vec::new();
+            let mut dead: Vec<SourceSpec> = Vec::new();
+            for source in &request.sources {
+                if self.source_reaches_any_target(source, &targets, request.max_depth) {
+                    routable.push(source.clone());
+                } else {
+                    dead.push(source.clone());
+                }
+            }
+            if !dead.is_empty() && !routable.is_empty() {
+                let mut reduced = request.clone();
+                reduced.sources = routable;
+                let mut reduced_sink = CandidateSink::detached();
+                if reduced.sources.len() == 1 {
+                    let reduced_source = reduced.sources[0].clone();
+                    self.plan_single_source(
+                        &reduced,
+                        &reduced_source,
+                        &targets,
+                        registry,
+                        &mut reduced_sink,
+                    )?;
+                } else {
+                    self.plan_multi_source(&reduced, &targets, registry, &mut reduced_sink)?;
+                }
+                if !reduced_sink.is_empty() {
+                    dead_end_sources = dead.iter().map(|s| s.media_urn.clone()).collect();
+                    let dead_names = dead_end_sources
+                        .iter()
+                        .map(|m| m.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    for mut candidate in reduced_sink.candidates {
+                        candidate.label = format!(
+                            "{} · no route for {} ({} left untouched)",
+                            candidate.label,
+                            dead_names,
+                            dead.len()
+                        );
+                        sink.push(candidate);
+                    }
+                }
+            }
+        }
+
+        let mut candidates = sink.candidates;
         if candidates.is_empty() {
             return Err(PlanError::NoPlan {
                 detail: format!(
@@ -299,7 +417,27 @@ impl LiveCapFab {
         for (i, c) in candidates.iter_mut().enumerate() {
             c.rank = i;
         }
-        Ok(candidates)
+        Ok(PlanOutcome { candidates, dead_end_sources })
+    }
+
+    /// Whether `source` can reach ANY of `targets` (scalar or sequence state)
+    /// within `max_depth` — the routability test behind dead-end partitioning.
+    fn source_reaches_any_target(
+        &self,
+        source: &SourceSpec,
+        targets: &[MediaUrn],
+        max_depth: usize,
+    ) -> bool {
+        if targets
+            .iter()
+            .any(|t| source.media_urn.is_equivalent(t).unwrap_or(false))
+        {
+            return true;
+        }
+        let reach = self.forward_reach(&source.media_urn, source.cardinality.is_sequence(), max_depth);
+        reach.iter().any(|((media, _), _)| {
+            targets.iter().any(|t| media.is_equivalent(t).unwrap_or(false))
+        })
     }
 
     // =========================================================================
@@ -312,7 +450,7 @@ impl LiveCapFab {
         source: &SourceSpec,
         targets: &[MediaUrn],
         registry: &FabricRegistry,
-        out: &mut Vec<PlanCandidate>,
+        out: &mut CandidateSink<'_>,
     ) -> Result<(), PlanError> {
         let is_seq = source.cardinality.is_sequence();
 
@@ -441,7 +579,7 @@ impl LiveCapFab {
         request: &PlanRequest,
         targets: &[MediaUrn],
         registry: &FabricRegistry,
-        out: &mut Vec<PlanCandidate>,
+        out: &mut CandidateSink<'_>,
     ) -> Result<(), PlanError> {
         let presence = request.convergence.presence;
         let want_converged = presence != ConvergencePresence::Independent;
@@ -583,7 +721,7 @@ impl LiveCapFab {
         request: &PlanRequest,
         targets: &[MediaUrn],
         registry: &FabricRegistry,
-        out: &mut Vec<PlanCandidate>,
+        out: &mut CandidateSink<'_>,
     ) -> Result<(), PlanError> {
         // Arity: Staged builds a two-stage join tree when the sources cluster;
         // Single/Partial/Auto run the single-apex path (Partial additionally
@@ -642,7 +780,7 @@ impl LiveCapFab {
         targets: &[MediaUrn],
         apex: &ApexInfo,
         registry: &FabricRegistry,
-        out: &mut Vec<PlanCandidate>,
+        out: &mut CandidateSink<'_>,
     ) -> Result<(), PlanError> {
         // N anchors ⇒ the bound data enters as a sequence.
         let entry_seq = request.sources.len() > 1
@@ -726,7 +864,7 @@ impl LiveCapFab {
         apex: &ApexInfo,
         sources: &[SourceSpec],
         registry: &FabricRegistry,
-        out: &mut Vec<PlanCandidate>,
+        out: &mut CandidateSink<'_>,
     ) -> Result<(), PlanError> {
         // Best leg per source (paths are canonically sorted; take the first).
         let mut legs: Vec<Option<Strand>> = Vec::with_capacity(sources.len());
@@ -831,7 +969,7 @@ impl LiveCapFab {
         request: &PlanRequest,
         targets: &[MediaUrn],
         registry: &FabricRegistry,
-        out: &mut Vec<PlanCandidate>,
+        out: &mut CandidateSink<'_>,
     ) -> Result<(), PlanError> {
         let sources = &request.sources;
         let n = sources.len();
@@ -1001,7 +1139,7 @@ impl LiveCapFab {
         request: &PlanRequest,
         targets: &[MediaUrn],
         registry: &FabricRegistry,
-        out: &mut Vec<PlanCandidate>,
+        out: &mut CandidateSink<'_>,
         convergence_exists: bool,
     ) -> Result<(), PlanError> {
         let mut strands: Vec<MachineStrand> = Vec::new();
@@ -1059,7 +1197,7 @@ impl LiveCapFab {
         request: &PlanRequest,
         targets: &[MediaUrn],
         registry: &FabricRegistry,
-        out: &mut Vec<PlanCandidate>,
+        out: &mut CandidateSink<'_>,
     ) -> Result<(), PlanError> {
         let n = request.sources.len();
         if n < 3 {
@@ -1084,9 +1222,9 @@ impl LiveCapFab {
             else {
                 continue;
             };
-            let mut sub_out: Vec<PlanCandidate> = Vec::new();
+            let mut sub_out = CandidateSink::detached();
             self.collect_candidates(&sub_req, targets, apex, &subset, registry, &mut sub_out)?;
-            let Some(converged) = sub_out.into_iter().next() else { continue };
+            let Some(converged) = sub_out.candidates.into_iter().next() else { continue };
 
             // The dropped source runs independent to the first target.
             let dropped = &request.sources[drop_idx];
@@ -1142,14 +1280,44 @@ impl LiveCapFab {
     /// (all sources combine through some apex; tagged with the shallowest
     /// apex) and independent targets (every source reaches it on its own).
     /// The multi-source generalization of `get_reachable_targets`.
+    ///
+    /// Fault tolerance: a source that reaches NO bookend target at all is a
+    /// DEAD END — it is named in the outcome and discovery continues over the
+    /// routable subset, so one unroutable input never blanks the whole target
+    /// list. All-dead returns an empty target list with every dead end named.
     pub fn discover_convergent_targets(
         &self,
         sources: &[SourceSpec],
         max_depth: usize,
-    ) -> Result<Vec<ConvergentTargetInfo>, PlanError> {
+    ) -> Result<ConvergentTargets, PlanError> {
         if sources.is_empty() {
             return Err(PlanError::NoSources);
         }
+        let mut routable: Vec<SourceSpec> = Vec::new();
+        let mut dead_end_sources: Vec<MediaUrn> = Vec::new();
+        for s in sources {
+            let reaches_anything = !self
+                .get_reachable_targets(&s.media_urn, s.cardinality.is_sequence(), max_depth)
+                .is_empty();
+            if reaches_anything {
+                routable.push(s.clone());
+            } else {
+                dead_end_sources.push(s.media_urn.clone());
+            }
+        }
+        if routable.is_empty() {
+            return Ok(ConvergentTargets { targets: Vec::new(), dead_end_sources });
+        }
+        let targets = self.discover_targets_for_routable(&routable, max_depth)?;
+        Ok(ConvergentTargets { targets, dead_end_sources })
+    }
+
+    /// The discovery enumeration proper, over sources already proven routable.
+    fn discover_targets_for_routable(
+        &self,
+        sources: &[SourceSpec],
+        max_depth: usize,
+    ) -> Result<Vec<ConvergentTargetInfo>, PlanError> {
         if sources.len() == 1 {
             let s = &sources[0];
             return Ok(self
@@ -1479,7 +1647,7 @@ mod tests {
             PlanRequest::DEFAULT_MAX_DEPTH,
             PlanRequest::DEFAULT_MAX_PATHS,
         );
-        let candidates = fab.plan(&request, &registry).expect("pdf → txt must plan");
+        let candidates = fab.plan(&request, &registry).expect("pdf → txt must plan").candidates;
         let historical = fab.find_paths_to_exact_target(
             &media("media:ext=pdf"),
             &txt(),
@@ -1515,7 +1683,7 @@ mod tests {
             ],
             TargetSpec::Exact(vec![txt()]),
         );
-        let candidates = fab.plan(&request, &registry).expect("pdf+md → txt must plan");
+        let candidates = fab.plan(&request, &registry).expect("pdf+md → txt must plan").candidates;
         assert!(candidates.len() >= 2, "expected converged AND independent candidates");
         let top = &candidates[0];
         assert!(top.profile.converged, "the magic pick must combine, got: {}", top.label);
@@ -1565,7 +1733,7 @@ mod tests {
             ],
             TargetSpec::Exact(vec![txt()]),
         );
-        let candidates = fab.plan(&request, &registry).expect("must plan");
+        let candidates = fab.plan(&request, &registry).expect("must plan").candidates;
         let generalized: Vec<&PlanCandidate> = candidates
             .iter()
             .filter(|c| {
@@ -1646,7 +1814,8 @@ mod tests {
                 ],
                 PlanRequest::DEFAULT_MAX_DEPTH,
             )
-            .expect("discovery must succeed");
+            .expect("discovery must succeed")
+            .targets;
         let txt_entry = targets
             .iter()
             .find(|t| t.media_def.is_equivalent(&txt()).unwrap())
@@ -1702,7 +1871,7 @@ mod tests {
             ],
             TargetSpec::Exact(vec![txt()]),
         );
-        let candidates = fab.plan(&request, &registry).expect("independent map must plan");
+        let candidates = fab.plan(&request, &registry).expect("independent map must plan").candidates;
         let top = &candidates[0];
         assert!(
             !top.profile.converged,
@@ -1731,7 +1900,7 @@ mod tests {
         );
         request.mode = PlanMode::Configured;
         request.convergence.presence = ConvergencePresence::Independent;
-        let candidates = fab.plan(&request, &registry).expect("independent must plan");
+        let candidates = fab.plan(&request, &registry).expect("independent must plan").candidates;
         assert!(
             candidates.iter().all(|c| !c.profile.converged),
             "Independent presence must exclude converged candidates"
@@ -1753,7 +1922,7 @@ mod tests {
         request.mode = PlanMode::Configured;
         request.convergence.presence = ConvergencePresence::Converged;
         request.convergence.mechanism = ConvergenceMechanism::Collect;
-        let candidates = fab.plan(&request, &registry).expect("collect convergence must plan");
+        let candidates = fab.plan(&request, &registry).expect("collect convergence must plan").candidates;
         let top = &candidates[0];
         assert!(top.profile.converged);
         assert!(
@@ -1806,7 +1975,7 @@ mod tests {
         request.mode = PlanMode::Configured;
         request.convergence.presence = ConvergencePresence::Converged;
         request.convergence.mechanism = ConvergenceMechanism::Merge;
-        let candidates = fab.plan(&request, &registry).expect("product assembly must plan");
+        let candidates = fab.plan(&request, &registry).expect("product assembly must plan").candidates;
         let top = &candidates[0];
         assert!(top.profile.converged);
         assert!(
@@ -1867,7 +2036,7 @@ mod tests {
                 media("media:enc=utf-8;ext=html"),
             ]),
         );
-        let candidates = fab.plan(&request, &registry).expect("fan-out must plan");
+        let candidates = fab.plan(&request, &registry).expect("fan-out must plan").candidates;
         let top = &candidates[0];
         assert!(top.profile.diverged, "a multi-target plan is a fan-out");
         assert_eq!(top.profile.target_media.len(), 2);
@@ -1894,7 +2063,7 @@ mod tests {
         at_source.mode = PlanMode::Configured;
         at_source.convergence.presence = ConvergencePresence::Converged;
         at_source.convergence.location = ConvergenceLocation::AtSource;
-        let candidates = fab.plan(&at_source, &registry).expect("AtSource must plan");
+        let candidates = fab.plan(&at_source, &registry).expect("AtSource must plan").candidates;
         assert!(
             candidates
                 .iter()
@@ -1907,7 +2076,7 @@ mod tests {
         at_depth.mode = PlanMode::Configured;
         at_depth.convergence.presence = ConvergencePresence::Converged;
         at_depth.convergence.location = ConvergenceLocation::AtDepth(1);
-        let candidates = fab.plan(&at_depth, &registry).expect("AtDepth(1) must plan");
+        let candidates = fab.plan(&at_depth, &registry).expect("AtDepth(1) must plan").candidates;
         assert!(
             !candidates.is_empty()
                 && candidates
@@ -1933,7 +2102,7 @@ mod tests {
         request.mode = PlanMode::Configured;
         request.convergence.presence = ConvergencePresence::Converged;
         request.convergence.at_type = Some(media("media:page"));
-        let candidates = fab.plan(&request, &registry).expect("pinned apex must plan");
+        let candidates = fab.plan(&request, &registry).expect("pinned apex must plan").candidates;
         assert!(
             candidates.iter().flat_map(|c| c.profile.apexes.iter()).all(|a| {
                 a.media_urn.conforms_to(&media("media:page")).unwrap()
@@ -1959,7 +2128,7 @@ mod tests {
             let mut request =
                 PlanRequest::auto(sources.clone(), TargetSpec::Exact(vec![txt()]));
             request.ranking = policy;
-            let candidates = fab.plan(&request, &registry).expect("must plan");
+            let candidates = fab.plan(&request, &registry).expect("must plan").candidates;
             let min = candidates.iter().map(key).min().expect("non-empty");
             assert_eq!(
                 key(&candidates[0]),
@@ -1982,7 +2151,8 @@ mod tests {
                 &[SourceSpec::single(media("media:ext=pdf"))],
                 PlanRequest::DEFAULT_MAX_DEPTH,
             )
-            .expect("single-source discovery must succeed");
+            .expect("single-source discovery must succeed")
+            .targets;
         assert!(
             targets.iter().any(|t| t.media_def.is_equivalent(&txt()).unwrap()),
             "txt must be discovered for a single pdf"
@@ -2008,7 +2178,7 @@ mod tests {
             TargetSpec::Exact(vec![txt()]),
         );
         request.max_candidates = 1;
-        let candidates = fab.plan(&request, &registry).expect("must plan");
+        let candidates = fab.plan(&request, &registry).expect("must plan").candidates;
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].rank, 0);
     }
@@ -2056,7 +2226,7 @@ mod tests {
             ]),
         );
         request.divergence.location = DivergenceLocation::AtSource;
-        let candidates = fab.plan(&request, &registry).expect("must plan");
+        let candidates = fab.plan(&request, &registry).expect("must plan").candidates;
         assert_eq!(
             candidates[0].notation.matches("extract").count(),
             2,
@@ -2075,10 +2245,165 @@ mod tests {
             vec![SourceSpec::sequence(media("media:ext=pdf"))],
             TargetSpec::Exact(vec![txt()]),
         );
-        let candidates = fab.plan(&request, &registry).expect("pdf-batch → txt must plan");
+        let candidates = fab.plan(&request, &registry).expect("pdf-batch → txt must plan").candidates;
         assert!(
             candidates.iter().any(|c| c.profile.converged),
             "a sequence source folding through concat must yield a combined-result candidate"
         );
+    }
+
+    // TEST1426 (dead-end fault tolerance): pdf + md + audio → txt. Audio has
+    // no consumer in the fabric, which previously made the WHOLE plan fail
+    // (every strategy demands full coverage). Now the audio source is named a
+    // dead end, planning continues over pdf+md, and nothing is silent: the
+    // outcome lists the dead end and every candidate label names it.
+    #[test]
+    fn test1426_dead_end_source_is_named_and_planning_continues() {
+        let (fab, registry) = fabric();
+        let request = PlanRequest::auto(
+            vec![
+                SourceSpec::single(media("media:ext=pdf")),
+                SourceSpec::single(media("media:ext=md")),
+                SourceSpec::single(media("media:audio")),
+            ],
+            TargetSpec::Exact(vec![txt()]),
+        );
+        let outcome = fab.plan(&request, &registry).expect("pdf+md must still plan");
+        assert_eq!(
+            outcome.dead_end_sources,
+            vec![media("media:audio")],
+            "the unroutable source must be named a dead end"
+        );
+        assert!(!outcome.candidates.is_empty(), "routable sources must still get plans");
+        for candidate in &outcome.candidates {
+            assert!(
+                candidate.label.contains("media:audio"),
+                "a dead-end plan label must name what was left out, got: {}",
+                candidate.label
+            );
+            assert_eq!(
+                candidate.profile.source_media,
+                vec![media("media:ext=pdf"), media("media:ext=md")],
+                "candidate profiles cover exactly the routable sources"
+            );
+        }
+    }
+
+    // TEST1427 (all sources dead): nothing routable stays a hard NoPlan —
+    // fault tolerance never fabricates an empty success.
+    #[test]
+    fn test1427_all_dead_sources_still_no_plan() {
+        let (fab, registry) = fabric();
+        let request = PlanRequest::auto(
+            vec![
+                SourceSpec::single(media("media:audio")),
+                SourceSpec::single(media("media:video")),
+            ],
+            TargetSpec::Exact(vec![txt()]),
+        );
+        let err = fab.plan(&request, &registry).unwrap_err();
+        assert!(
+            matches!(err, PlanError::NoPlan { .. }),
+            "all-dead must remain NoPlan, got {err:?}"
+        );
+    }
+
+    // TEST1428 (full coverage ⇒ no dead ends): the ordinary pdf+md plan must
+    // not name any dead ends.
+    #[test]
+    fn test1428_full_coverage_has_no_dead_ends() {
+        let (fab, registry) = fabric();
+        let request = PlanRequest::auto(
+            vec![
+                SourceSpec::single(media("media:ext=pdf")),
+                SourceSpec::single(media("media:ext=md")),
+            ],
+            TargetSpec::Exact(vec![txt()]),
+        );
+        let outcome = fab.plan(&request, &registry).expect("must plan");
+        assert!(outcome.dead_end_sources.is_empty());
+    }
+
+    // TEST1429 (streaming observer): plan_with_observer fires per NEW
+    // candidate as assembled — the pre-rank stream the PlanMachinesStream RPC
+    // relays. Every final candidate was announced (by notation) and no
+    // notation is announced twice (the sink dedups at the source).
+    #[test]
+    fn test1429_observer_streams_deduplicated_candidates() {
+        let (fab, registry) = fabric();
+        let request = PlanRequest::auto(
+            vec![
+                SourceSpec::single(media("media:ext=pdf")),
+                SourceSpec::single(media("media:ext=md")),
+            ],
+            TargetSpec::Exact(vec![txt()]),
+        );
+        let mut streamed: Vec<String> = Vec::new();
+        let outcome = fab
+            .plan_with_observer(&request, &registry, |c| streamed.push(c.notation.clone()))
+            .expect("must plan");
+        assert!(!streamed.is_empty(), "the observer must see candidates during planning");
+        let unique: HashSet<&String> = streamed.iter().collect();
+        assert_eq!(unique.len(), streamed.len(), "no notation may be streamed twice");
+        for candidate in &outcome.candidates {
+            assert!(
+                streamed.contains(&candidate.notation),
+                "every ranked candidate must have been streamed first: {}",
+                candidate.label
+            );
+        }
+    }
+
+    // TEST1430 (dead ends in discovery): pdf + audio — discovery names the
+    // audio dead end and still returns pdf's targets instead of blanking the
+    // whole list (previously the audio source emptied the intersection).
+    #[test]
+    fn test1430_discovery_names_dead_ends_and_continues() {
+        let (fab, _registry) = fabric();
+        let discovered = fab
+            .discover_convergent_targets(
+                &[
+                    SourceSpec::single(media("media:ext=pdf")),
+                    SourceSpec::single(media("media:audio")),
+                ],
+                PlanRequest::DEFAULT_MAX_DEPTH,
+            )
+            .expect("discovery must succeed");
+        assert_eq!(discovered.dead_end_sources, vec![media("media:audio")]);
+        assert!(
+            discovered
+                .targets
+                .iter()
+                .any(|t| t.media_def.is_equivalent(&txt()).unwrap()),
+            "the routable source's targets must still be discovered"
+        );
+    }
+
+    // TEST1431 (sink dedup): two strategies assembling the SAME machine must
+    // present ONE row — the duplicate is dropped at the source, and the
+    // observer never sees it.
+    #[test]
+    fn test1431_candidate_sink_dedups_by_notation() {
+        let make = |label: &str| PlanCandidate {
+            notation: "[a cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;page\"][n0 -> a -> n1]".to_string(),
+            profile: PlanProfile {
+                source_media: vec![media("media:ext=pdf")],
+                target_media: vec![txt()],
+                apexes: Vec::new(),
+                converged: false,
+                diverged: false,
+            },
+            cost: PlanCost { cap_steps: 1, total_steps: 1, max_leg_depth: 0, intent_score: 0.5 },
+            label: label.to_string(),
+            rank: 0,
+        };
+        let mut observed = 0usize;
+        let mut observer = |_c: &PlanCandidate| observed += 1;
+        let mut sink = CandidateSink::new(Some(&mut observer));
+        sink.push(make("first"));
+        sink.push(make("duplicate of first"));
+        assert_eq!(sink.len(), 1, "identical notations collapse to one candidate");
+        assert_eq!(observed, 1, "the observer must not see the duplicate");
+        assert_eq!(sink.candidates[0].label, "first", "the first emission wins");
     }
 }
