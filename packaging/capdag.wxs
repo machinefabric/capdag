@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  capdag.wxs — WiX v4/v5 source for the capdag CLI MSI.
+
+  Built by `dx capdag-dist msi` (capdag-dist.ps1) with:
+      wix build capdag.wxs -arch x64 -d Version=<v> -d PayloadDir=<staged bundle> -o capdag.msi
+
+  The MSI installs the WHOLE bundle (capdag.exe + providers\) under
+  %ProgramFiles%\capdag and adds that directory to the machine PATH. capdag.exe
+  sits directly beside providers\, so its providers-tree resolution (relative to
+  the canonicalized exe path) holds without any shim.
+
+  UpgradeCode is the product's PERMANENT identity — never change it across
+  versions, or upgrades stop being detected.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="capdag"
+           Manufacturer="MachineFabric"
+           Version="$(var.Version)"
+           UpgradeCode="8C2B6A4E-1F5D-4E9A-9C3B-7D0E2A6F4B18"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of capdag is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="capdag" />
+    </StandardDirectory>
+
+    <!-- Harvest the entire staged bundle (capdag.exe + providers\**) into
+         INSTALLFOLDER, preserving the tree. -->
+    <ComponentGroup Id="CapdagBundle" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PayloadDir)\**" />
+    </ComponentGroup>
+
+    <!-- Put %ProgramFiles%\capdag on the machine PATH so `capdag` resolves and
+         the exe stays beside providers\. -->
+    <Component Id="CapdagPathEntry" Directory="INSTALLFOLDER" Guid="7A1D3F60-9B84-4C2E-A5D7-6E0B1C4F2A99">
+      <Environment Id="CapdagPath"
+                   Name="PATH"
+                   Value="[INSTALLFOLDER]"
+                   Permanent="no"
+                   Part="last"
+                   Action="set"
+                   System="yes" />
+    </Component>
+
+    <Feature Id="Main" Title="capdag" Level="1">
+      <ComponentGroupRef Id="CapdagBundle" />
+      <ComponentRef Id="CapdagPathEntry" />
+    </Feature>
+  </Package>
+</Wix>
