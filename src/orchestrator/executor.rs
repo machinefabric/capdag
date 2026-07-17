@@ -3086,12 +3086,12 @@ mod tests {
     }
 
 
-    // TEST1430: a multi-edge group (fan-in / gather) ALWAYS heads its own
+    // TEST1433: a multi-edge group (fan-in / gather) ALWAYS heads its own
     // chain — mid-chain streaming forwards exactly one producer stream, so a
     // multi-input invocation must be fed from materialised node_data. A
     // single-edge group with one dedicated producer still chains linearly.
     #[test]
-    fn test1430_multi_edge_group_heads_a_chain() {
+    fn test1433_multi_edge_group_heads_a_chain() {
         // Gather shape: in→A, in2→B, then (A, B) → C on one cap.
         let cap_c = "cap:in=\"media:enc=utf-8\";fold;out=\"media:enc=utf-8;ext=txt\"";
         let edges = vec![

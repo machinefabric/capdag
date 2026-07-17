@@ -1,3 +1,87 @@
 {
-  "renames": {}
+  "renames": {
+    "go": [
+      {
+        "old": 955,
+        "new": 951,
+        "function": "Test955_split_map_array",
+        "description": "TEST955: split_cbor_array with nested maps",
+        "location": "orchestrator/cbor_util_test.go:110"
+      },
+      {
+        "old": 1734,
+        "new": 1900,
+        "function": "Test1734_err_frame_failure_class_wire_contract",
+        "description": "TEST1734: the ERR frame's failure identity is a wire contract (docs/failure-taxonomy.md L2): NewErrClassified round-trips code + class + message through encode/decode; NewErr defaults the class to internal; a frame without a class entry (or with an unknown token) reads as internal \u2014 the receiver's unclassified-means-ours rule.",
+        "location": "bifaci/frame_test.go:2294"
+      },
+      {
+        "old": 1879,
+        "new": 1871,
+        "function": "Test1879_sync_roster_adds_and_removes_registered_dir_live",
+        "description": "TEST1879: SyncRoster updates the LIVE host inventory in place \u2014 the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.",
+        "location": "bifaci/host_roster_test.go:63"
+      }
+    ],
+    "py": [
+      {
+        "old": 955,
+        "new": 951,
+        "function": "test_955_split_map_array",
+        "description": "TEST955: split_cbor_array with nested maps",
+        "location": "tests/test_cbor_util.py:68"
+      },
+      {
+        "old": 1734,
+        "new": 1900,
+        "function": "test_1734_err_frame_failure_class_wire_contract",
+        "description": "TEST1734: the ERR frame failure-class wire contract (docs/failure-taxonomy.md): err_classified writes meta code+class+message; plain err defaults class to internal; a missing or unknown class token reads as INTERNAL (unclassified means \"ours\", never a guess); a known token round-trips exactly.",
+        "location": "tests/test_cbor_frame.py:1742"
+      },
+      {
+        "old": 1879,
+        "new": 1871,
+        "function": "test_1879_sync_roster_adds_and_removes_registered_dir_live",
+        "description": "TEST1879: SyncRoster updates the LIVE host inventory in place \u2014 the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.",
+        "location": "tests/test_cartridge_host.py:1185"
+      }
+    ],
+    "objc": [
+      {
+        "old": 138,
+        "new": 1897,
+        "function": "test0138_unhealthyMasterInventoryRetainedButNotRoutable",
+        "description": "TEST0138: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed runtime identity probe still has its cartridges visible in the aggregate inventory, even though its caps are excluded from ROUTING. Pins the deliberate asymmetry.",
+        "location": "Tests/BifaciTests/RelaySwitchTests.swift:1198"
+      },
+      {
+        "old": 144,
+        "new": 1899,
+        "function": "test0144_mediaDefResolvesToVersionedObjectPathUnderManifest",
+        "description": "TEST0144: a media def published under a manifest (v >= 1) resolves to the VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a registry that silently runs in v0 mode fetches it and 404s every lookup against a versioned registry \u2014 the exact regression where the app's media-title resolver hit `/media/<sha>` on a staging-v1 registry and logged \"Media def \u2026 not found (HTTP 404)\". This pins BOTH the URL rule and the manifest-driven defver resolution. Mirrors the Rust reference's test0144_media_def_resolves_to_versioned_object_path_under_manifest.",
+        "location": "Tests/CapDAGTests/CSFabricRegistryTests.m:66"
+      },
+      {
+        "old": 955,
+        "new": 951,
+        "function": "test955_splitMapArray",
+        "description": "TEST955: split_cbor_array with nested maps",
+        "location": "Tests/BifaciTests/CborSequenceTests.swift:250"
+      },
+      {
+        "old": 1734,
+        "new": 1900,
+        "function": "test1734_errFrameFailureClassWireContract",
+        "description": "TEST1734: the ERR frame failure-class wire contract (docs/failure-taxonomy.md): errClassified writes meta code+class+message; plain err defaults class to internal; a missing or unknown class token reads as .internal (unclassified means \"ours\", never a guess); a known token round-trips exactly.",
+        "location": "Tests/BifaciTests/FrameTests.swift:2005"
+      },
+      {
+        "old": 1879,
+        "new": 1871,
+        "function": "test1879_syncRosterAddsAndRemovesRegisteredDirLive",
+        "description": "TEST1879: SyncRoster updates the LIVE host inventory in place \u2014 the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.",
+        "location": "Tests/BifaciTests/SyncRosterTests.swift:36"
+      }
+    ]
+  }
 }

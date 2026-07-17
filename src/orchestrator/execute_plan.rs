@@ -1306,12 +1306,12 @@ mod tests {
         (plan, region_nodes)
     }
 
-    // TEST1431: the post-region partition is exactly the transitive consumers
+    // TEST1434: the post-region partition is exactly the transitive consumers
     // of region output — the fold, NOT the independent pre-trunk cap. The
     // pre-trunk subplan excludes both region and post caps; the post subplan
     // carries the fold with its external-producer edge intact.
     #[test]
-    fn test1431_post_region_partition() {
+    fn test1434_post_region_partition() {
         let (plan, region_nodes) = plan_with_region_and_fold();
 
         let post = compute_post_region_caps(&plan, &region_nodes);

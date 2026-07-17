@@ -3238,7 +3238,7 @@ mod parity_port_tests {
         assert_eq!(registry.config().registry_base_url, "https://example.test/registry");
     }
 
-    // TEST0144: a media def published under a manifest (v>=1) resolves to the
+    // TEST1899: a media def published under a manifest (v>=1) resolves to the
     // VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy
     // flat path `/media/<sha>`. The flat path is the pre-manifest (v0) layout;
     // a registry that silently runs in v0 mode fetches it and 404s every
@@ -3246,7 +3246,7 @@ mod parity_port_tests {
     // fabric-registry mirror defaulted its manifest version to 0. This pins
     // both the URL rule and the manifest-driven defver resolution.
     #[test]
-    fn test0144_media_def_resolves_to_versioned_object_path_under_manifest() {
+    fn test1899_media_def_resolves_to_versioned_object_path_under_manifest() {
         // 1. Object-path rule: defver >= 1 → versioned; defver 0 → flat.
         let config = RegistryConfig::new().with_registry_url("https://fabric.example.test");
         let cache = std::path::Path::new("/tmp/capdag-test-cache-0144");
