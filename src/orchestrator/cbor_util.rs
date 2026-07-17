@@ -192,9 +192,9 @@ mod tests {
         }
     }
 
-    // TEST955: split_cbor_array with nested maps
+    // TEST951: split_cbor_array with nested maps
     #[test]
-    fn test955_split_map_array() {
+    fn test951_split_map_array() {
         let map1 = ciborium::Value::Map(vec![(
             ciborium::Value::Text("name".to_string()),
             ciborium::Value::Text("Alice".to_string()),

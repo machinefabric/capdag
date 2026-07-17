@@ -2183,10 +2183,10 @@ mod tests {
         assert_eq!(candidates[0].rank, 0);
     }
 
-    // TEST1426 (axis I): divergence AtSource shares NOTHING — the common
+    // TEST1432 (axis I): divergence AtSource shares NOTHING — the common
     // pdf2text prefix is duplicated per branch instead of shared.
     #[test]
-    fn test1426_divergence_at_source_duplicates_prefix() {
+    fn test1432_divergence_at_source_duplicates_prefix() {
         let pdf2text = build_cap(
             "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;page\"",
             "pdf2text",

@@ -1,4 +1,4 @@
-# Rust Test Catalog
+# CapDag (Rust) Test Catalog
 
 **Total Tests:** 1290
 
@@ -10,10 +10,9 @@
 
 **Numbering Mismatches:** 1
 
-**⚠ Duplicate test numbers detected: 5 number(s) used more than once.**
-Unique numbered tests are listed first. Duplicate-number entries are grouped after them and marked with ⚠. Unnumbered tests are listed in their own group.
+All numbered test numbers are unique.
 
-This catalog lists all tests in the Rust codebase.
+This catalog lists all tests in the CapDag (Rust) codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -151,15 +150,12 @@ This catalog lists all tests in the Rust codebase.
 | test0135 | `test0135_runtime_identity_probe_success_makes_caps_routable` | TEST0135: the runtime identity probe SUCCESS path — a master that advertises caps AFTER connecting (empty→non-empty) and then passes the probe must flip healthy and its caps must become routable. This is the companion to test0131 (which covers probe FAILURE → stays unhealthy): together they pin both outcomes of the deferred-probe state machine. | src/bifaci/relay_switch.rs:5162 |
 | test0136 | `test0136_all_masters_ready_false_when_expected_count_unset` | TEST0136: All masters ready false when expected count unset | src/bifaci/relay_switch.rs:6191 |
 | test0137 | `test0137_all_masters_ready_false_when_partially_connected` | TEST0137: All masters ready false when partially connected | src/bifaci/relay_switch.rs:6209 |
-| test0138 | `test0138_unhealthy_master_inventory_retained_but_not_routable` | TEST0138: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed runtime identity probe still has its cartridges visible in the aggregate inventory (so a transient master flap does not make cartridges "disappear" from the engine's view), even though its caps are excluded from ROUTING. This pins the deliberate asymmetry between the inventory aggregate (unfiltered) and the cap table / routable set (health-filtered). | src/bifaci/relay_switch.rs:5223 |
 | test138 | `test138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | src/fabric/registry.rs:3449 |
 | test0139 | `test0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST0139: All masters ready true when masters connected but capless | src/bifaci/relay_switch.rs:6260 |
 | test0140 | `test0140_all_masters_ready_does_not_overshoot` | TEST0140: All masters ready does not overshoot | src/bifaci/relay_switch.rs:6283 |
-| test0141 | `test0141_subscribe_capabilities_delivers_routable_set` | TEST0141: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction — BEFORE any receiver existed (the channel must persist the value, i.e. use send_replace, not send, which drops the value when there are momentarily zero receivers). The delivered set must be the health-filtered routable cap URNs. This is the engine-readiness signal: a cap appears here only once its master is verified and routable. | src/bifaci/relay_switch.rs:5297 |
 | test141 | `test141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. | src/fabric/registry.rs:3469 |
 | test142 | `test142_normalize_handles_different_tag_orders` | TEST142: Different tag orders normalise to the same URL — the canonicaliser strips the variation before hashing. | src/fabric/registry.rs:3479 |
 | test143 | `test143_default_config` | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. | src/fabric/registry.rs:3488 |
-| test0144 | `test0144_media_def_resolves_to_versioned_object_path_under_manifest` | TEST0144: a media def published under a manifest (v>=1) resolves to the VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a registry that silently runs in v0 mode fetches it and 404s every lookup against a versioned registry — the exact regression where a fabric-registry mirror defaulted its manifest version to 0. This pins both the URL rule and the manifest-driven defver resolution. | src/fabric/registry.rs:3249 |
 | test144 | `test144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | src/fabric/registry.rs:3499 |
 | test145 | `test145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | src/fabric/registry.rs:3507 |
 | test146 | `test146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | src/fabric/registry.rs:3517 |
@@ -816,9 +812,11 @@ This catalog lists all tests in the Rust codebase.
 | test948 | `test948_invalid_cap_urn` | TEST948: Invalid cap URN in machine notation | tests/orchestrator_integration.rs:751 |
 | test949 | `test949_empty_graph` | TEST949: Empty machine notation (no edges) | tests/orchestrator_integration.rs:733 |
 | test950 | `test950_reject_cycles` | TEST950: Validate that cycles are rejected | tests/orchestrator_integration.rs:690 |
+| test951 | `test951_split_map_array` | TEST951: split_cbor_array with nested maps | src/orchestrator/cbor_util.rs:197 |
 | test952 | `test952_execute_large_payload` | TEST952: Execute large payload (test-large cap) | tests/orchestrator_integration.rs:579 |
 | test953 | `test953_linear_plan_still_works` | TEST953: Linear plans (no ForEach/Collect) still convert successfully | src/orchestrator/plan_converter.rs:433 |
 | test954 | `test954_standalone_collect_passthrough` | TEST954: Standalone Collect nodes are handled as pass-through Plan: input → cap_0 → Collect → cap_1 → output The standalone Collect is transparent — the resolved edge from Collect to cap_1 should be rewritten to go from cap_0 to cap_1 directly. | src/orchestrator/plan_converter.rs:544 |
+| test955 | `test955_gather_collect_expands_to_per_producer_edges` | TEST955: A multi-predecessor (gather) Collect fans into one ResolvedEdge per predecessor, all carrying the same arg URN — the segment executor concatenates them into the consumer's sequence stream. Predecessor order (= resolver source-declaration order) is preserved in the edge order. | src/orchestrator/plan_converter.rs:466 |
 | test956 | `test956_roundtrip_assemble_split` | TEST956: assemble then split roundtrip preserves data | src/orchestrator/cbor_util.rs:290 |
 | test957 | `test957_cap_input_file_new` | TEST957: Tests CapInputFile constructor creates file with correct path and media URN Verifies new() initializes file_path, media_urn and leaves metadata/source_id as None | src/planner/argument_binding.rs:578 |
 | test958 | `test958_cap_input_file_from_listing` | TEST958: Tests CapInputFile from_listing sets source metadata correctly Verifies from_listing() populates source_id and source_type as Listing | src/planner/argument_binding.rs:589 |
@@ -1080,9 +1078,15 @@ This catalog lists all tests in the Rust codebase.
 | test1423 | `test1423_rank_policies` | TEST1423 (axis K): Shortest ranks by cap steps, Cost by total steps — both deterministic and both must put a minimal candidate first. | src/planner/plan_engine.rs:2117 |
 | test1424 | `test1424_discover_single_source` | TEST1424 (discover, degenerate \|S\|=1): single-source discovery returns the reachable bookend targets, never internal media. | src/planner/plan_engine.rs:2147 |
 | test1425 | `test1425_max_candidates_truncation` | TEST1425 (bounds): max_candidates truncates AFTER ranking and ranks are re-assigned densely from 0. | src/planner/plan_engine.rs:2171 |
+| test1426 | `test1426_dead_end_source_is_named_and_planning_continues` | TEST1426 (dead-end fault tolerance): pdf + md + audio → txt. Audio has no consumer in the fabric, which previously made the WHOLE plan fail (every strategy demands full coverage). Now the audio source is named a dead end, planning continues over pdf+md, and nothing is silent: the outcome lists the dead end and every candidate label names it. | src/planner/plan_engine.rs:2261 |
 | test1427 | `test1427_all_dead_sources_still_no_plan` | TEST1427 (all sources dead): nothing routable stays a hard NoPlan — fault tolerance never fabricates an empty success. | src/planner/plan_engine.rs:2295 |
 | test1428 | `test1428_full_coverage_has_no_dead_ends` | TEST1428 (full coverage ⇒ no dead ends): the ordinary pdf+md plan must not name any dead ends. | src/planner/plan_engine.rs:2314 |
 | test1429 | `test1429_observer_streams_deduplicated_candidates` | TEST1429 (streaming observer): plan_with_observer fires per NEW candidate as assembled — the pre-rank stream the PlanMachinesStream RPC relays. Every final candidate was announced (by notation) and no notation is announced twice (the sink dedups at the source). | src/planner/plan_engine.rs:2332 |
+| test1430 | `test1430_discovery_names_dead_ends_and_continues` | TEST1430 (dead ends in discovery): pdf + audio — discovery names the audio dead end and still returns pdf's targets instead of blanking the whole list (previously the audio source emptied the intersection). | src/planner/plan_engine.rs:2361 |
+| test1431 | `test1431_candidate_sink_dedups_by_notation` | TEST1431 (sink dedup): two strategies assembling the SAME machine must present ONE row — the duplicate is dropped at the source, and the observer never sees it. | src/planner/plan_engine.rs:2386 |
+| test1432 | `test1432_divergence_at_source_duplicates_prefix` | TEST1432 (axis I): divergence AtSource shares NOTHING — the common pdf2text prefix is duplicated per branch instead of shared. | src/planner/plan_engine.rs:2189 |
+| test1433 | `test1433_multi_edge_group_heads_a_chain` | TEST1433: a multi-edge group (fan-in / gather) ALWAYS heads its own chain — mid-chain streaming forwards exactly one producer stream, so a multi-input invocation must be fed from materialised node_data. A single-edge group with one dedicated producer still chains linearly. | src/orchestrator/executor.rs:3094 |
+| test1434 | `test1434_post_region_partition` | TEST1434: the post-region partition is exactly the transitive consumers of region output — the fold, NOT the independent pre-trunk cap. The pre-trunk subplan excludes both region and post caps; the post subplan carries the fold with its external-producer edge intact. | src/orchestrator/execute_plan.rs:1314 |
 | test1446 | `test1446_per_anchor_cardinality_drives_foreach` | TEST1446: per-anchor cardinality — a Sequence anchor feeding a scalar entry cap gets its per-file ForEach; a Single anchor beside it does not. | src/orchestrator/machine_plan.rs:418 |
 | test1500 | `test1500_slug_for_central_registry_is_the_host` | / TEST1500: The central registry's URL maps to its readable authority. / The slug is the host verbatim (lowercased, path-safe) — no hash. If this / ever changes silently every installed cartridge lands in the wrong / directory and stops being discovered, so the value is pinned as a literal. | src/bifaci/cartridge_slug.rs:119 |
 | test1501 | `test1501_slug_for_none_is_dev` | / TEST1501: `None` (dev cartridge) maps to the literal `dev`, which is not / classified as a registry slug. | src/bifaci/cartridge_slug.rs:134 |
@@ -1131,6 +1135,7 @@ This catalog lists all tests in the Rust codebase.
 | test1851 | `test1851_resolve_for_host_incompatible` | TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform. | src/bifaci/cartridge_repo.rs:2162 |
 | test1852 | `test1852_resolve_for_host_skips_build_with_no_installer` | TEST1852: a host build whose packages[] is empty AND has no legacy `package` ships no installer; resolution must SKIP it (not resolve to an un-downloadable version) and fall through to an older usable version. | src/bifaci/cartridge_repo.rs:2186 |
 | test1853 | `test1853_host_platform_normalized_form` | TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses. | src/bifaci/cartridge_repo.rs:2210 |
+| test1871 | `test1871_sync_roster_adds_and_removes_registered_dir_live` | TEST1871: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | src/bifaci/host_runtime.rs:6179 |
 | test1872 | `test1872_registry_url_from_build_env_passes_through_nonempty` | TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with. | src/bifaci/manifest.rs:680 |
 | test1873 | `test1873_registry_url_from_build_env_none_for_dev` | TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row. | src/bifaci/manifest.rs:690 |
 | test1874 | `test1874_registry_url_from_build_env_rejects_empty_string` | TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship. | src/bifaci/manifest.rs:700 |
@@ -1138,6 +1143,7 @@ This catalog lists all tests in the Rust codebase.
 | test1876 | `test1876_other_channel_subtree_is_skipped` | TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent). | src/cartridge_discovery.rs:703 |
 | test1877 | `test1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | src/cartridge_discovery.rs:755 |
 | test1878 | `test1878_bundled_cartridge_without_baked_hash_is_rejected` | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_CARTRIDGE_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe. | src/cartridge_discovery.rs:776 |
+| test1879 | `test1879_other_registry_version_subtree_is_skipped` | TEST1879: only the host's registry-VERSION subtree is scanned. A cartridge installed under `{slug}/v{N+1}/nightly/…` (a different registry regime) is invisible to a host that speaks v{N} — the version level is pinned exactly like the channel, so v1 and v2 cartridges of the same registry never mix. | src/cartridge_discovery.rs:719 |
 | test1880 | `test1880_alias_name_normalization_rules` | TEST1880: alias name normalization lowercases and accepts the allowed character class; rejects colon, whitespace, and out-of-class chars with the right error. A broken validator would let a URN-shaped or whitespace name through, or mangle a valid name. | src/fabric/alias.rs:137 |
 | test1881 | `test1881_token_urn_vs_alias_detection` | TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact. | src/fabric/alias.rs:163 |
 | test1882 | `test1882_classify_alias_target_by_prefix` | TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. The typed-boundary enforcement in the registry depends on this. | src/fabric/alias.rs:175 |
@@ -1155,6 +1161,9 @@ This catalog lists all tests in the Rust codebase.
 | test1894 | `test1894_select_display_alias_ordering` | TEST1894: select_display_alias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders. | src/fabric/registry.rs:3142 |
 | test1895 | `test1895_display_alias_for_urn` | TEST1895: display_alias_for_urn reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns None, (4) a non-URN string returns None. | src/fabric/registry.rs:3165 |
 | test1896 | `test1896_cached_cap_aliases_filters_to_cap_targets` | TEST1896: cached_cap_aliases returns only CAP-targeted aliases as (name, target) pairs — media aliases are excluded. Drives the notation editor's registered-alias completions. | src/fabric/registry.rs:3211 |
+| test1897 | `test1897_unhealthy_master_inventory_retained_but_not_routable` | TEST1897: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed runtime identity probe still has its cartridges visible in the aggregate inventory (so a transient master flap does not make cartridges "disappear" from the engine's view), even though its caps are excluded from ROUTING. This pins the deliberate asymmetry between the inventory aggregate (unfiltered) and the cap table / routable set (health-filtered). | src/bifaci/relay_switch.rs:5223 |
+| test1898 | `test1898_subscribe_capabilities_delivers_routable_set` | TEST1898: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction — BEFORE any receiver existed (the channel must persist the value, i.e. use send_replace, not send, which drops the value when there are momentarily zero receivers). The delivered set must be the health-filtered routable cap URNs. This is the engine-readiness signal: a cap appears here only once its master is verified and routable. | src/bifaci/relay_switch.rs:5297 |
+| test1899 | `test1899_media_def_resolves_to_versioned_object_path_under_manifest` | TEST1899: a media def published under a manifest (v>=1) resolves to the VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a registry that silently runs in v0 mode fetches it and 404s every lookup against a versioned registry — the exact regression where a fabric-registry mirror defaulted its manifest version to 0. This pins both the URL rule and the manifest-driven defver resolution. | src/fabric/registry.rs:3249 |
 | test1900 | `test1900_err_frame_failure_class_wire_contract` | TEST1900: the ERR frame failure-class wire contract (docs/failure-taxonomy.md): err_classified writes meta code+class+message; plain err defaults class to internal; a missing or unknown class token reads as Internal (unclassified means "ours", never a guess); a known token round-trips exactly. Mirrored in the Go/Python/Swift runtimes (their TEST1734). | src/bifaci/frame.rs:1614 |
 | test1902 | `test1902_cartridges_resolve_through_launcher_symlink` | / TEST1902: a launcher SYMLINK — the packaging pattern (`/usr/bin/capdag` / → `/opt/capdag/capdag`, Homebrew `bin/capdag` → `libexec/capdag`) — must / resolve to the REAL bundle's `bundled-cartridges/`, not a `bundled-cartridges/` beside the / symlink. This fails if `bundled_cartridges_dir_for_exe` stops canonicalizing. | src/bin/capdag.rs:2198 |
 | test1903 | `test1903_no_bundled_cartridges_dir_when_absent` | / TEST1903: no `bundled-cartridges/` beside the binary ⇒ `None` (a bare `cargo` / build / unpackaged binary — not an error, discovery just skips it). | src/bin/capdag.rs:2220 |
@@ -1296,61 +1305,8 @@ This catalog lists all tests in the Rust codebase.
 | test8104 | `test8104_fabric_conflict_guard` | TEST8104: the fabric-conflict guard — a dev cap whose alias the fabric maps to a DIFFERENT cap is rejected; a brand-new alias, and a dev cap that matches an existing fabric cap exactly, are both accepted. | src/dev.rs:740 |
 | test8110 | `test8110_dev_cartridge_create_install_run_update` | TEST8110: the full cartridge-development loop through the real CLI and a real Python cartridge — scaffold, install under the dev slug, run the custom cap (never published to the fabric), edit its logic, re-install to update, and observe the changed behavior. | tests/dev_cartridge_e2e.rs:116 |
 | | | | |
-| test955 ⚠ | `test955_gather_collect_expands_to_per_producer_edges` | TEST955: A multi-predecessor (gather) Collect fans into one ResolvedEdge per predecessor, all carrying the same arg URN — the segment executor concatenates them into the consumer's sequence stream. Predecessor order (= resolver source-declaration order) is preserved in the edge order. | src/orchestrator/plan_converter.rs:466 |
-| test955 ⚠ | `test955_split_map_array` | TEST955: split_cbor_array with nested maps | src/orchestrator/cbor_util.rs:197 |
-| test1426 ⚠ | `test1426_dead_end_source_is_named_and_planning_continues` | TEST1426 (dead-end fault tolerance): pdf + md + audio → txt. Audio has no consumer in the fabric, which previously made the WHOLE plan fail (every strategy demands full coverage). Now the audio source is named a dead end, planning continues over pdf+md, and nothing is silent: the outcome lists the dead end and every candidate label names it. | src/planner/plan_engine.rs:2261 |
-| test1426 ⚠ | `test1426_divergence_at_source_duplicates_prefix` | TEST1426 (axis I): divergence AtSource shares NOTHING — the common pdf2text prefix is duplicated per branch instead of shared. | src/planner/plan_engine.rs:2189 |
-| test1430 ⚠ | `test1430_discovery_names_dead_ends_and_continues` | TEST1430 (dead ends in discovery): pdf + audio — discovery names the audio dead end and still returns pdf's targets instead of blanking the whole list (previously the audio source emptied the intersection). | src/planner/plan_engine.rs:2361 |
-| test1430 ⚠ | `test1430_multi_edge_group_heads_a_chain` | TEST1430: a multi-edge group (fan-in / gather) ALWAYS heads its own chain — mid-chain streaming forwards exactly one producer stream, so a multi-input invocation must be fed from materialised node_data. A single-edge group with one dedicated producer still chains linearly. | src/orchestrator/executor.rs:3094 |
-| test1431 ⚠ | `test1431_candidate_sink_dedups_by_notation` | TEST1431 (sink dedup): two strategies assembling the SAME machine must present ONE row — the duplicate is dropped at the source, and the observer never sees it. | src/planner/plan_engine.rs:2386 |
-| test1431 ⚠ | `test1431_post_region_partition` | TEST1431: the post-region partition is exactly the transitive consumers of region output — the fold, NOT the independent pre-trunk cap. The pre-trunk subplan excludes both region and post caps; the post subplan carries the fold with its external-producer edge intact. | src/orchestrator/execute_plan.rs:1314 |
-| test1879 ⚠ | `test1879_other_registry_version_subtree_is_skipped` | TEST1879: only the host's registry-VERSION subtree is scanned. A cartridge installed under `{slug}/v{N+1}/nightly/…` (a different registry regime) is invisible to a host that speaks v{N} — the version level is pinned exactly like the channel, so v1 and v2 cartridges of the same registry never mix. | src/cartridge_discovery.rs:719 |
-| test1879 ⚠ | `test1879_sync_roster_adds_and_removes_registered_dir_live` | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | src/bifaci/host_runtime.rs:6179 |
-| | | | |
 | unnumbered | `test853b_lub_disjoint_keys_is_universal` | TEST853b: LUB of URNs sharing NO keys at all is the universal type. | src/urn/media_urn.rs:1460 |
 | unnumbered | `test914b_progress_mapper_step_sink_reports_raw_child` | TEST914b: ProgressMapper.with_step_sink emits the RAW child (the cap's own fraction) to the step sink while the parent still receives the MAPPED overall. | src/orchestrator/executor.rs:3271 |
-
----
-
-## ⚠ Duplicate Test Numbers
-
-The following test numbers are assigned to more than one function. Keep the first occurrence at the existing number and renumber the rest using the suggested free numbers below.
-
-### test955 (2 occurrences)
-
-- `test955_gather_collect_expands_to_per_producer_edges` — src/orchestrator/plan_converter.rs:466
-- `test955_split_map_array` — src/orchestrator/cbor_util.rs:197
-
-**Suggested free number(s):** test951
-
-### test1426 (2 occurrences)
-
-- `test1426_dead_end_source_is_named_and_planning_continues` — src/planner/plan_engine.rs:2261
-- `test1426_divergence_at_source_duplicates_prefix` — src/planner/plan_engine.rs:2189
-
-**Suggested free number(s):** test1432
-
-### test1430 (2 occurrences)
-
-- `test1430_discovery_names_dead_ends_and_continues` — src/planner/plan_engine.rs:2361
-- `test1430_multi_edge_group_heads_a_chain` — src/orchestrator/executor.rs:3094
-
-**Suggested free number(s):** test1433
-
-### test1431 (2 occurrences)
-
-- `test1431_candidate_sink_dedups_by_notation` — src/planner/plan_engine.rs:2386
-- `test1431_post_region_partition` — src/orchestrator/execute_plan.rs:1314
-
-**Suggested free number(s):** test1434
-
-### test1879 (2 occurrences)
-
-- `test1879_other_registry_version_subtree_is_skipped` — src/cartridge_discovery.rs:719
-- `test1879_sync_roster_adds_and_removes_registered_dir_live` — src/bifaci/host_runtime.rs:6179
-
-**Suggested free number(s):** test1871
-
 ---
 
 ## Unnumbered Tests
@@ -1378,7 +1334,7 @@ These tests have a numbering disagreement between the function name and the auth
 
 ---
 
-*Generated from Rust source tree*
+*Generated from CapDag (Rust) source tree*
 *Total tests: 1290*
 *Total numbered tests: 1288*
 *Total unnumbered tests: 2*

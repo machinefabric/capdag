@@ -5212,7 +5212,7 @@ mod tests {
         );
     }
 
-    // TEST0138: the installed-cartridge INVENTORY is NOT health-filtered. A
+    // TEST1897: the installed-cartridge INVENTORY is NOT health-filtered. A
     // master held unhealthy by a failed runtime identity probe still has its
     // cartridges visible in the aggregate inventory (so a transient master
     // flap does not make cartridges "disappear" from the engine's view),
@@ -5220,7 +5220,7 @@ mod tests {
     // deliberate asymmetry between the inventory aggregate (unfiltered) and
     // the cap table / routable set (health-filtered).
     #[tokio::test]
-    async fn test0138_unhealthy_master_inventory_retained_but_not_routable() {
+    async fn test1897_unhealthy_master_inventory_retained_but_not_routable() {
         let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
 
         tokio::spawn(async move {
@@ -5285,7 +5285,7 @@ mod tests {
         );
     }
 
-    // TEST0141: the routable-capability watch (subscribe_capabilities). A
+    // TEST1898: the routable-capability watch (subscribe_capabilities). A
     // subscriber must receive the CURRENT routable cap set on subscribe even
     // though it was rebuilt during construction — BEFORE any receiver
     // existed (the channel must persist the value, i.e. use send_replace, not
@@ -5294,7 +5294,7 @@ mod tests {
     // is the engine-readiness signal: a cap appears here only once its master
     // is verified and routable.
     #[tokio::test]
-    async fn test0141_subscribe_capabilities_delivers_routable_set() {
+    async fn test1898_subscribe_capabilities_delivers_routable_set() {
         let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
 
         tokio::spawn(async move {
