@@ -788,6 +788,7 @@ impl InProcessCartridgeHost {
                                     "NO_HANDLER",
                                     crate::failure::FailureClass::Environment,
                                     &format!("no handler for cap: {}", cap_urn),
+                                    None,
                                 );
                                 err.routing_id = xid;
                                 let _ = write_tx.send(err);

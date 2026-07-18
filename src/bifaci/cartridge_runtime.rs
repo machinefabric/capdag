@@ -83,6 +83,12 @@ pub enum RuntimeError {
         code: String,
         class: crate::failure::FailureClass,
         message: String,
+        /// Media URN of the ARGUMENT the failure is attributed to, declared
+        /// by the emit source when — and only when — the failure is about one
+        /// argument (a malformed prompt, an oversized image). `None` means
+        /// "not about one argument"; no layer ever infers it downstream
+        /// (docs/failure-taxonomy.md).
+        arg_urn: Option<String>,
     },
 
     #[error("Cap URN parse error: {0}")]
@@ -144,6 +150,17 @@ impl RuntimeError {
         }
     }
 
+    /// Media URN of the argument the failure is attributed to, when the
+    /// emit source declared one. A remote peer error carries the peer
+    /// frame's own attribution. `None` everywhere else — never a guess.
+    pub fn failure_arg_urn(&self) -> Option<&str> {
+        match self {
+            RuntimeError::Classified { arg_urn, .. } => arg_urn.as_deref(),
+            RuntimeError::Stream(StreamError::RemoteError { arg_urn, .. }) => arg_urn.as_deref(),
+            _ => None,
+        }
+    }
+
     /// The LEAF human reason — the origin's own message for classified
     /// failures, the Display chain otherwise.
     pub fn failure_reason(&self) -> String {
@@ -152,6 +169,40 @@ impl RuntimeError {
             RuntimeError::Stream(StreamError::RemoteError { message, .. }) => message.clone(),
             other => other.to_string(),
         }
+    }
+
+    /// Construct a classified handler failure — the cartridge-author entry
+    /// point for typed errors: `code` from `error_code()`, `class` from
+    /// `failure_class()`, `message` for humans. No argument attribution;
+    /// chain [`RuntimeError::with_arg_urn`] when the failure IS about one
+    /// argument.
+    pub fn classified(
+        code: impl Into<String>,
+        class: crate::failure::FailureClass,
+        message: impl Into<String>,
+    ) -> Self {
+        RuntimeError::Classified {
+            code: code.into(),
+            class,
+            message: message.into(),
+            arg_urn: None,
+        }
+    }
+
+    /// Attribute a classified failure to the argument with the given media
+    /// URN — the emit-source declaration that this failure is about ONE
+    /// argument. Only classified variants carry the attribution channel;
+    /// calling this on any other variant is a contract violation and panics
+    /// (attribution without classification cannot reach the wire).
+    pub fn with_arg_urn(mut self, urn: impl Into<String>) -> Self {
+        match &mut self {
+            RuntimeError::Classified { arg_urn, .. } => *arg_urn = Some(urn.into()),
+            other => panic!(
+                "with_arg_urn on unclassified RuntimeError::{:?} — attribute at a classified emit source only",
+                other
+            ),
+        }
+        self
     }
 }
 
@@ -166,6 +217,7 @@ impl From<RuntimeError> for ops::OpError {
                 code: code.to_string(),
                 class: e.failure_class(),
                 message: e.failure_reason(),
+                arg_urn: e.failure_arg_urn().map(str::to_string),
             },
             None => ops::OpError::ExecutionFailed(e.to_string()),
         }
@@ -332,12 +384,14 @@ pub type StreamMeta = BTreeMap<String, ciborium::Value>;
 pub enum StreamError {
     /// The peer's ERR frame, kept STRUCTURAL: its machine-readable code, the
     /// failure class the peer's frame declared (docs/failure-taxonomy.md),
-    /// and its message — never folded into prose.
+    /// its message, and the peer's argument attribution when its frame
+    /// carried one — never folded into prose.
     #[error("Remote error [{code}]: {message}")]
     RemoteError {
         code: String,
         class: crate::failure::FailureClass,
         message: String,
+        arg_urn: Option<String>,
     },
 
     #[error("Stream closed")]
@@ -2063,6 +2117,7 @@ impl FrameSender for CliFrameSender {
                         .error_class()
                         .unwrap_or(crate::failure::FailureClass::Internal),
                     message: frame.error_message().unwrap_or("Unknown error").to_string(),
+                    arg_urn: frame.error_arg_urn().map(str::to_string),
                 })
             }
             _ => {
@@ -3347,16 +3402,23 @@ fn demux_multi_stream(
                         .error_class()
                         .unwrap_or(crate::failure::FailureClass::Internal);
                     let message = frame.error_message().unwrap_or("Unknown error").to_string();
+                    let arg_urn = frame.error_arg_urn().map(str::to_string);
                     // Error all open streams
                     for (_, tx) in &stream_channels {
                         let _ = tx.send(Err(StreamError::RemoteError {
                             code: code.clone(),
                             class,
                             message: message.clone(),
+                            arg_urn: arg_urn.clone(),
                         }));
                     }
                     stream_channels.clear();
-                    let _ = streams_tx.send(Err(StreamError::RemoteError { code, class, message }));
+                    let _ = streams_tx.send(Err(StreamError::RemoteError {
+                        code,
+                        class,
+                        message,
+                        arg_urn,
+                    }));
                     break;
                 }
 
@@ -3503,8 +3565,14 @@ fn demux_single_stream(
                         .error_class()
                         .unwrap_or(crate::failure::FailureClass::Internal);
                     let message = frame.error_message().unwrap_or("Unknown error").to_string();
+                    let arg_urn = frame.error_arg_urn().map(str::to_string);
                     let _ = item_tx.send(PeerResponseItem::Data(
-                        Err(StreamError::RemoteError { code, class, message }),
+                        Err(StreamError::RemoteError {
+                            code,
+                            class,
+                            message,
+                            arg_urn,
+                        }),
                         None,
                     ));
                     break;
@@ -3638,6 +3706,7 @@ async fn dispatch_op(
                 code: code.to_string(),
                 class: e.failure_class(),
                 message: e.failure_reason(),
+                arg_urn: e.failure_arg_urn().map(str::to_string),
             },
             None => RuntimeError::Handler(e.to_string()),
         }
@@ -3799,14 +3868,16 @@ fn spawn_handler(
                     e
                 );
                 // The ERR frame carries the failure's DECLARED identity
-                // (docs/failure-taxonomy.md): the code and class from the
-                // emit source when classified, HANDLER_ERROR/Internal when
-                // the handler never declared one.
+                // (docs/failure-taxonomy.md): the code, class, and argument
+                // attribution from the emit source when classified,
+                // HANDLER_ERROR/Internal/unattributed when the handler never
+                // declared one.
                 let mut err_frame = Frame::err_classified(
                     request_id.clone(),
                     e.failure_code().unwrap_or("HANDLER_ERROR"),
                     e.failure_class(),
                     &e.failure_reason(),
+                    e.failure_arg_urn(),
                 );
                 err_frame.routing_id = routing_id;
                 let _ = sender.send(&err_frame);
@@ -4957,6 +5028,7 @@ impl CartridgeRuntime {
                                 "NO_HANDLER",
                                 crate::failure::FailureClass::Environment,
                                 &format!("No handler registered for cap: {}", cap_urn),
+                                None,
                             );
                             err_frame.routing_id = routing_id;
                             let _ = output_tx.send(err_frame);

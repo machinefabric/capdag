@@ -318,7 +318,8 @@ fn print_usage(program: &str) {
            --arg <name>=<value>     Explicit cap argument (repeatable; single-cap mode)\n\
            --dev-bins <binary> ...  Use local cartridge binaries\n\
            --trace <file.trace>     Write a per-segment bifaci protocol trace (JSONL)\n\
-           --help                   Show this help\n\n\
+           --help                   Show this help; after a cap name, that cap's interface\n\
+                                    (input / required options / options)\n\n\
          Plan options (capdag plan — the unified configurable planner):\n\
            --to <ext|media-urn>     Target (repeatable ⇒ multi-target). Omit to DISCOVER targets\n\
            --converge <auto|combine|independent>\n\
@@ -1600,13 +1601,14 @@ async fn cmd_cap(args: &[String]) -> ! {
     // Target output for narrowing an ABSTRACT cap (e.g. `convert-image` needs a
     // target format). Ignored (and rejected) for concrete caps.
     let mut to_target: Option<String> = None;
+    // `capdag <cap> --help` shows THAT CAP's declared interface (input /
+    // required options / options), not the generic usage — deferred until the
+    // cap token is resolved below.
+    let mut show_cap_help = false;
     let mut idx = 2usize;
     while idx < args.len() {
         match args[idx].as_str() {
-            "--help" | "-h" => {
-                print_usage(&args[0]);
-                process::exit(0);
-            }
+            "--help" | "-h" => show_cap_help = true,
             "-o" | "--output" => {
                 idx += 1;
                 let Some(dir) = args.get(idx) else {
@@ -1669,6 +1671,22 @@ async fn cmd_cap(args: &[String]) -> ! {
     // resolves the entry point.
     if let Some(dir) = dev_dir {
         dev_binaries.push(dir);
+    }
+
+    // Per-cap help: the cap's own interface, structured by argument role
+    // (input / required options / options). An abstract cap is rendered
+    // as-is — narrowing needs an input, and help must work without one.
+    if show_cap_help {
+        match capdag::orchestrator::render_cap_interface(&resolved_cap) {
+            Ok(text) => {
+                eprint!("{text}");
+                process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                process::exit(1);
+            }
+        }
     }
 
     // Alias/URN resolution answered "which cap does this name mean?" (an

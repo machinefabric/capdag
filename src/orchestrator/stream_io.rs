@@ -42,13 +42,16 @@ pub enum StreamIoError {
     /// protocol violation detail. `code` and `class` carry the failure identity
     /// DECLARED at the emit source (docs/failure-taxonomy.md): the ERR frame's
     /// code + class when one arrived, `None` + `Internal` for engine-detected
-    /// protocol violations.
+    /// protocol violations. `arg_urn` is the emit source's argument
+    /// attribution — the ERR frame's `arg_urn` when it carried one, `None`
+    /// otherwise (never inferred here).
     #[error("Cap '{cap_urn}' failed: {details}")]
     Terminal {
         cap_urn: String,
         code: Option<String>,
         class: crate::failure::FailureClass,
         details: String,
+        arg_urn: Option<String>,
     },
 
     /// Writer failure — the `IncrementalWriter` returned an error while
@@ -577,6 +580,7 @@ impl TerminalOutput {
                         code: None,
                         class: crate::failure::FailureClass::Internal,
                         details: "response channel closed without END".to_string(),
+                        arg_urn: None,
                     }));
                 }
             };
@@ -648,6 +652,7 @@ impl TerminalOutput {
                                 "END without success: exit_code={:?}",
                                 frame.exit_code()
                             ),
+                            arg_urn: None,
                         }));
                     }
                     // Terminal metadata IS the final progress event (L5).
@@ -672,6 +677,7 @@ impl TerminalOutput {
                             .error_message()
                             .unwrap_or("Unknown cartridge error")
                             .to_string(),
+                        arg_urn: frame.error_arg_urn().map(str::to_string),
                     }));
                 }
                 _ => {}
@@ -817,6 +823,7 @@ pub async fn collect_terminal_output(
                                 code: None,
                                 class: crate::failure::FailureClass::Internal,
                                 details,
+                                arg_urn: None,
                             });
                         }
 
@@ -899,6 +906,7 @@ pub async fn collect_terminal_output(
                                 .error_class()
                                 .unwrap_or(crate::failure::FailureClass::Internal),
                             details: msg,
+                            arg_urn: frame.error_arg_urn().map(str::to_string),
                         });
                     }
                     FrameType::Log => {
@@ -960,6 +968,7 @@ pub async fn collect_terminal_output(
                     code: None,
                     class: crate::failure::FailureClass::Internal,
                     details,
+                    arg_urn: None,
                 });
             }
             Err(_timeout) => {

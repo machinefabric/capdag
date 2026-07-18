@@ -1555,4 +1555,116 @@ mod tests {
         // clearer must not touch cap_description
         assert_eq!(cap.cap_description.as_deref(), Some("short"));
     }
+
+    // ==========================================================================
+    // MAIN-INPUT CONTRACT (stream_urn / is_main_input) — TEST7100-7104
+    // ==========================================================================
+
+    use crate::urn::media_urn::MediaUrn;
+
+    /// TEST7100: stream_urn() returns the Stdin source's URN when it differs
+    /// from the declared slot media_urn — the runtime demuxes by the PIPED
+    /// media, not the slot type (e.g. a file-path slot fed pdf bytes).
+    #[test]
+    fn test7100_stream_urn_prefers_stdin_source_over_slot_urn() {
+        let arg = CapArg::new(
+            "media:enc=utf-8;file-path",
+            true,
+            vec![ArgSource::Stdin {
+                stdin: "media:ext=pdf".to_string(),
+            }],
+        );
+        assert_eq!(arg.stream_urn(), "media:ext=pdf");
+        assert_ne!(
+            arg.stream_urn(),
+            arg.media_urn,
+            "the stdin URN, not the slot URN, must win when they differ"
+        );
+    }
+
+    /// TEST7101: stream_urn() falls back to the declared slot media_urn when
+    /// the arg declares no Stdin source (producer-fed args are delivered by
+    /// their declared URN).
+    #[test]
+    fn test7101_stream_urn_falls_back_to_declared_urn_without_stdin() {
+        let arg = CapArg::new(
+            "media:enc=utf-8;model-spec",
+            true,
+            vec![
+                ArgSource::CliFlag {
+                    cli_flag: "--model-spec".to_string(),
+                },
+                ArgSource::Position { position: 0 },
+            ],
+        );
+        assert_eq!(arg.stream_urn(), "media:enc=utf-8;model-spec");
+    }
+
+    /// TEST7102: is_main_input() is true when the Stdin source URN is
+    /// order-theoretically equivalent to the cap's `in=` spec even with the
+    /// tags listed in a different string order — the comparison is tagged-URN
+    /// equivalence, never a string comparison.
+    #[test]
+    fn test7102_is_main_input_by_tagged_urn_equivalence_not_strings() {
+        let in_spec = MediaUrn::from_string("media:doc;ext=pdf").unwrap();
+        let stdin_urn = "media:ext=pdf;doc";
+        assert_ne!(
+            stdin_urn,
+            in_spec.to_string(),
+            "precondition: the raw strings must differ so string comparison would fail"
+        );
+        let arg = CapArg::new(
+            "media:enc=utf-8;file-path",
+            true,
+            vec![ArgSource::Stdin {
+                stdin: stdin_urn.to_string(),
+            }],
+        );
+        assert!(
+            arg.is_main_input(&in_spec),
+            "tag order must not matter — equivalence is order-independent"
+        );
+    }
+
+    /// TEST7103: is_main_input() is false for cli_flag-only and position-only
+    /// args (no Stdin source at all), and false when the arg's Stdin URN is
+    /// NOT equivalent to the cap's `in=` spec.
+    #[test]
+    fn test7103_is_main_input_false_without_matching_stdin() {
+        let in_spec = MediaUrn::from_string("media:ext=pdf").unwrap();
+
+        let flag_only = CapArg::new(
+            "media:ext=pdf",
+            true,
+            vec![ArgSource::CliFlag {
+                cli_flag: "--input".to_string(),
+            }],
+        );
+        assert!(
+            !flag_only.is_main_input(&in_spec),
+            "a cli_flag-only arg is never the main input, even with a matching slot URN"
+        );
+
+        let position_only = CapArg::new(
+            "media:ext=pdf",
+            true,
+            vec![ArgSource::Position { position: 0 }],
+        );
+        assert!(
+            !position_only.is_main_input(&in_spec),
+            "a position-only arg is never the main input"
+        );
+
+        let wrong_stdin = CapArg::new(
+            "media:ext=png",
+            true,
+            vec![ArgSource::Stdin {
+                stdin: "media:ext=png".to_string(),
+            }],
+        );
+        assert!(
+            !wrong_stdin.is_main_input(&in_spec),
+            "a Stdin source whose URN is not `in=` does not mark the main input"
+        );
+    }
 }

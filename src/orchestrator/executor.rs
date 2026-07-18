@@ -198,13 +198,17 @@ pub enum ExecutionError {
     /// A cap invocation failed. `code`/`class` carry the failure identity
     /// DECLARED at the emit source (docs/failure-taxonomy.md) — read from the
     /// ERR frame, never re-derived from message text. Engine-detected
-    /// failures carry `None` + `Internal`.
+    /// failures carry `None` + `Internal`. `arg_urn` is the emit source's
+    /// argument attribution (the media URN of the ONE argument the failure
+    /// is about), threaded from the ERR frame; `None` when the source did
+    /// not attribute — never inferred here.
     #[error("Cartridge execution failed for cap {cap_urn}: {details}")]
     CartridgeExecutionFailed {
         cap_urn: String,
         code: Option<String>,
         class: crate::failure::FailureClass,
         details: String,
+        arg_urn: Option<String>,
     },
 
     #[error("Node {node} has no incoming data")]
@@ -243,6 +247,16 @@ impl ExecutionError {
     pub fn failure_code(&self) -> Option<&str> {
         match self {
             ExecutionError::CartridgeExecutionFailed { code, .. } => code.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Media URN of the argument the failure is attributed to, when the
+    /// emit source declared one on the ERR frame. Every other variant is
+    /// not about one argument and returns `None` — never a guess.
+    pub fn failure_arg_urn(&self) -> Option<&str> {
+        match self {
+            ExecutionError::CartridgeExecutionFailed { arg_urn, .. } => arg_urn.as_deref(),
             _ => None,
         }
     }
@@ -401,6 +415,7 @@ fn topological_sort_groups(groups: &[EdgeGroup]) -> Result<Vec<usize>, Execution
             code: None,
             class: crate::failure::FailureClass::Internal,
             details: "Cycle detected in graph".to_string(),
+            arg_urn: None,
         });
     }
 
@@ -597,6 +612,7 @@ impl CartridgeManager {
                 // An unspawnable cartridge binary is a deployment problem.
                 class: crate::failure::FailureClass::Environment,
                 details: format!("Failed to spawn cartridge: {}", e),
+                arg_urn: None,
             })?;
 
         let stdin = child.stdin.take().unwrap();
@@ -772,6 +788,7 @@ impl CartridgeManager {
                     code: None,
                     class: crate::failure::FailureClass::Environment,
                     details: format!("Dev binary not found: {:?}", path),
+                    arg_urn: None,
                 });
             }
             return Ok(path);
@@ -1021,6 +1038,7 @@ impl CartridgeManager {
                     "failed to read installed binary {:?} for integrity verification: {}",
                     binary_path, e
                 ),
+                arg_urn: None,
             }
         })?;
         self.verify_binary_against_manifest(&registry_url, cartridge_id, &binary, &bytes)
@@ -1035,6 +1053,7 @@ impl CartridgeManager {
                     "installed binary at {:?} failed integrity verification: {}",
                     binary_path, e
                 ),
+                arg_urn: None,
             })
     }
 
@@ -2089,11 +2108,13 @@ async fn run_group_chain(
             code,
             class,
             details,
+            arg_urn,
         } => ExecutionError::CartridgeExecutionFailed {
             cap_urn,
             code,
             class,
             details,
+            arg_urn,
         },
         other => ExecutionError::HostError(other.to_string()),
     });

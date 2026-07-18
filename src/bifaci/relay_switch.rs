@@ -3001,6 +3001,7 @@ impl RelaySwitch {
                         "NO_HANDLER",
                         crate::failure::FailureClass::Environment,
                         &format!("No handler found for cap: {}", cap_urn),
+                        None,
                     );
                     err_frame.routing_id = Some(xid.clone());
                     let _ = self
@@ -3441,6 +3442,7 @@ impl RelaySwitch {
                 "MASTER_DIED",
                 crate::failure::FailureClass::Environment,
                 &format!("Relay master {} connection closed: {}", master_idx, reason),
+                None,
             );
             err_frame.routing_id = Some(xid.clone());
 
