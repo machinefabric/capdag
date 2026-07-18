@@ -343,6 +343,9 @@ pub trait EngineRuntime: Send + Sync {
 /// One ForEach region: the per-item body subgraph mapped over `input_node`'s sequence.
 struct Region {
     fe_id: String,
+    /// Stable identity of the originating ForEach strand step. `fe_id` is only
+    /// the planner-local node key and must never cross the run-state boundary.
+    step_token_id: String,
     /// The producer node whose sequence output this region iterates.
     input_node: String,
     /// The body's per-item entry cap (fed the single item).
@@ -374,7 +377,12 @@ async fn compute_regions(
 
     let mut regions = Vec::new();
     for (fe_id, node) in &plan.nodes {
-        let ExecutionNodeType::ForEach { input_node, body_entry, .. } = &node.node_type else {
+        let ExecutionNodeType::ForEach {
+            token_id,
+            input_node,
+            body_entry,
+            ..
+        } = &node.node_type else {
             continue;
         };
 
@@ -436,6 +444,7 @@ async fn compute_regions(
             })?;
         regions.push(Region {
             fe_id: fe_id.clone(),
+            step_token_id: token_id.clone(),
             input_node: input_node.clone(),
             body_entry: body_entry.clone(),
             body_input_id: format!("{fe_id}_body_input"),
@@ -1001,7 +1010,7 @@ async fn run_region_bodies(
 ) -> Result<Vec<(HashMap<String, Vec<Vec<u8>>>, HashMap<String, Vec<WriterResult>>)>, ExecutionError>
 {
     let item_count = input_items.len();
-    let fe_token_id = region.fe_id.clone();
+    let fe_token_id = region.step_token_id.clone();
 
     let body_progress_slots: Arc<Vec<AtomicU32>> =
         Arc::new((0..item_count).map(|_| AtomicU32::new(0f32.to_bits())).collect());
@@ -1277,7 +1286,90 @@ fn item_preview_snippet(bytes: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cap::definition::{ArgSource, Cap, CapArg, CapOutput};
     use crate::planner::MachineNode;
+    use crate::CapUrn;
+
+    fn test_cap(urn: &str, output_is_sequence: bool) -> Cap {
+        let cap_urn = CapUrn::from_string(urn).expect("valid test cap URN");
+        let input = cap_urn.in_spec().to_string();
+        let mut output = CapOutput::new(cap_urn.out_spec().to_string(), "output".to_string());
+        output.is_sequence = output_is_sequence;
+        Cap {
+            urn: cap_urn,
+            version: 1,
+            title: "Test capability".to_string(),
+            cap_description: None,
+            documentation: None,
+            metadata: HashMap::new(),
+            aliases: vec!["test".to_string()],
+            is_abstract: false,
+            args: vec![CapArg::new(
+                input.clone(),
+                true,
+                vec![ArgSource::Stdin { stdin: input }],
+            )],
+            output: Some(output),
+            metadata_json: None,
+            registered_by: None,
+            supported_model_types: Vec::new(),
+            default_model_spec: None,
+        }
+    }
+
+    struct RecordingRuntime {
+        registry: Arc<FabricRegistry>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for RecordingRuntime {
+        async fn segment_switch(
+            &self,
+            _graph: &ResolvedGraph,
+        ) -> Result<Arc<crate::bifaci::relay_switch::RelaySwitch>, ExecutionError> {
+            panic!("recording runtime overrides run_segment")
+        }
+
+        async fn activity_timeout_secs(
+            &self,
+            _graph: &ResolvedGraph,
+        ) -> Result<u64, ExecutionError> {
+            panic!("recording runtime overrides run_segment")
+        }
+
+        fn fabric_registry(&self) -> Arc<FabricRegistry> {
+            self.registry.clone()
+        }
+
+        async fn foreach_partial_failure_policy(&self) -> String {
+            "fail".to_string()
+        }
+
+        async fn run_segment(
+            &self,
+            graph: &ResolvedGraph,
+            _initial_inputs: HashMap<String, Vec<u8>>,
+            _initial_is_sequence: HashMap<String, bool>,
+            _cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
+            progress_fn: Option<&CapProgressFn>,
+            _step_progress_fn: Option<&CapStepProgressFn>,
+            _log_fn: Option<&PipelineLogFn>,
+            _item_index: Option<usize>,
+            _stall_tracker: Option<Arc<PipelineProgressTracker>>,
+            _persist_sinks: &HashSet<String>,
+        ) -> Result<SegmentOutput, ExecutionError> {
+            let edge = graph.edges.first().expect("body graph has a capability edge");
+            if let Some(progress) = progress_fn {
+                progress(1.0, &edge.cap_urn, "complete");
+            }
+            Ok(SegmentOutput {
+                node_data: HashMap::from([(edge.to.clone(), vec![b"result".to_vec()])]),
+                node_is_sequence: HashMap::from([(edge.to.clone(), false)]),
+                writer_results: HashMap::new(),
+                terminal_meta: HashMap::new(),
+            })
+        }
+    }
 
     /// Structural fixture: input → mapper (inside a ForEach region) → fold →
     /// sink, plus an independent pre-trunk cap off the same input.
@@ -1291,7 +1383,13 @@ mod tests {
         ));
         plan.add_node(MachineNode::cap("render", "cap:in=\"media:ext=pdf\";render;out=\"media:ext=png;image\""));
         plan.add_node(MachineNode::cap("mapper", "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\""));
-        plan.add_node(MachineNode::for_each("fe", "render", "mapper", "mapper"));
+        plan.add_node(MachineNode::for_each_token(
+            "fe",
+            "render",
+            "mapper",
+            "mapper",
+            "stable-foreach-token".to_string(),
+        ));
         plan.add_node(MachineNode::cap("fold", "cap:in=\"media:ext=png;image\";animate;out=\"media:ext=gif;image\""));
         plan.add_node(MachineNode::cap("meta", "cap:in=\"media:ext=pdf\";meta;out=\"media:enc=utf-8;record\""));
         plan.add_node(MachineNode::output("out_gif", "result", "fold"));
@@ -1344,5 +1442,79 @@ mod tests {
                 .any(|e| e.from_node == "mapper" && e.to_node == "fold"),
             "the post subplan keeps the edge from its external root"
         );
+    }
+
+    // Drive the actual ForEach body-progress path. This fails if execution leaks
+    // the structural node id (`fe`, or `foreach_1` in production) instead of the
+    // immutable strand token consumed by the rendered run graph.
+    #[tokio::test]
+    async fn foreach_progress_emits_the_stable_strand_token() {
+        let (plan, _) = plan_with_region_and_fold();
+        let registry = FabricRegistry::new_for_test();
+        registry.add_caps_to_cache(vec![
+            test_cap(
+                "cap:in=\"media:ext=pdf\";render;out=\"media:ext=png;image\"",
+                true,
+            ),
+            test_cap(
+                "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\"",
+                false,
+            ),
+            test_cap(
+                "cap:in=\"media:ext=png;image\";animate;out=\"media:ext=gif;image\"",
+                false,
+            ),
+            test_cap(
+                "cap:in=\"media:ext=pdf\";meta;out=\"media:enc=utf-8;record\"",
+                false,
+            ),
+        ]);
+        let registry = Arc::new(registry);
+        let regions = compute_regions(&plan, &registry)
+            .await
+            .expect("derive ForEach region");
+        let region = regions
+            .iter()
+            .find(|region| region.fe_id == "fe")
+            .expect("fixture region");
+        let body_plan = build_body_subplan(&plan, region);
+        let runtime: Arc<dyn EngineRuntime> = Arc::new(RecordingRuntime {
+            registry: registry.clone(),
+        });
+        let reported_tokens = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let token_sink = reported_tokens.clone();
+        let step_progress: CapStepProgressFn = Arc::new(move |_step, _cap_urn, token_id| {
+            token_sink
+                .lock()
+                .expect("token sink lock")
+                .push(token_id.to_string());
+        });
+        let overall_progress: CapProgressFn = Arc::new(|_, _, _| {});
+        let mut body_outcomes = Vec::new();
+
+        run_region_bodies(
+            &runtime,
+            &registry,
+            &body_plan,
+            &HashSet::new(),
+            region,
+            &[b"item".to_vec()],
+            &HashMap::new(),
+            Some(&overall_progress),
+            Some(&step_progress),
+            None,
+            None,
+            None,
+            0.0,
+            1.0,
+            &mut body_outcomes,
+        )
+        .await
+        .expect("execute ForEach body");
+
+        let tokens = reported_tokens.lock().expect("reported token lock");
+        assert!(!tokens.is_empty(), "ForEach aggregate progress must be emitted");
+        assert!(tokens.iter().all(|token| token == "stable-foreach-token"));
+        assert!(tokens.iter().all(|token| token != "fe"));
     }
 }

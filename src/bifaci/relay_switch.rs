@@ -1565,8 +1565,8 @@ impl RelaySwitch {
     ///   - WEBSITE: 2 (engine external-cartridges, XPC service).
     ///   - MAS: 1 (engine external-cartridges — no XPC service).
     ///
-    /// The host app polls this (via
-    /// `SendHeartbeatResponse.cartridges_ready`) to flip its own
+    /// The host app polls this through the engine's
+    /// `HealthStatus.cartridges_ready` field to flip its own
     /// readiness gate from `.configuring` to `.ready`. The name of
     /// that field is historical — what it actually signals is "all
     /// expected masters connected and healthy", which is decoupled
@@ -7071,4 +7071,3 @@ mod tests {
         assert_eq!(summary.rid, key.1.to_string());
     }
 }
-
