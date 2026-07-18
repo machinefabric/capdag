@@ -82,6 +82,128 @@ fn declared_position(arg: &CapArg) -> Option<usize> {
     arg.sources.iter().find_map(|s| s.position())
 }
 
+/// How a non-main arg is passed on the CLI: its first declared flag, else its
+/// declared position, else the universal `--arg` form. Shared by the cap
+/// interface rendering and the missing-required-options error so both name
+/// an option the same way.
+fn arg_invocation_form(arg: &CapArg) -> String {
+    if let Some(flag) = flag_names(arg).first() {
+        format!("--{flag} <value>")
+    } else if let Some(position) = declared_position(arg) {
+        format!("positional #{position}")
+    } else {
+        format!("--arg '{}=<value>'", arg.media_urn)
+    }
+}
+
+/// One rendered option line: how it's passed, its media URN, its description,
+/// plus a trailing qualifier (default value / optional / sequence).
+fn render_option_line(arg: &CapArg) -> String {
+    let mut line = format!("  {}  ({})", arg_invocation_form(arg), arg.media_urn);
+    if let Some(description) = arg.arg_description.as_deref().filter(|d| !d.trim().is_empty()) {
+        line.push_str(&format!(" — {}", description.trim()));
+    }
+    if arg.is_sequence {
+        line.push_str(" [sequence]");
+    }
+    match &arg.default_value {
+        Some(default) => line.push_str(&format!(" [default: {default}]")),
+        None if !arg.required => line.push_str(" [optional]"),
+        None => {}
+    }
+    line
+}
+
+/// Render a cap's declared interface for humans — the presentation the CLI
+/// (and every other front-end) uses, structured by argument ROLE rather than
+/// as a flat arg list:
+///
+/// - **Input** — the MAIN input (the arg whose `Stdin` source URN is the cap
+///   URN's `in=` spec, by tagged-URN equivalence — see
+///   [`CapArg::is_main_input`]): how the cap is fed, via piped stdin or input
+///   file path(s). Validation RULE11 guarantees every non-void cap declares it.
+/// - **Required options** — non-main args that are required and defaultless:
+///   these MUST be supplied on every invocation.
+/// - **Options** — the remaining non-main args, with their default values.
+pub fn render_cap_interface(cap: &Cap) -> Result<String, String> {
+    let in_spec = MediaUrn::from_string(cap.urn.in_spec()).map_err(|e| {
+        format!(
+            "cap {} in= URN '{}' is not a valid media URN: {e}",
+            cap.urn,
+            cap.urn.in_spec()
+        )
+    })?;
+
+    let mut out = String::new();
+    out.push_str(&format!("{}\n", cap.urn));
+    if !cap.title.is_empty() {
+        out.push_str(&format!("{}\n", cap.title));
+    }
+    let aliases = cap.get_aliases();
+    if !aliases.is_empty() {
+        out.push_str(&format!("Aliases: {}\n", aliases.join(", ")));
+    }
+
+    let (main_inputs, others): (Vec<&CapArg>, Vec<&CapArg>) = cap
+        .get_args()
+        .iter()
+        .partition(|arg| arg.is_main_input(&in_spec));
+    let (required, optional): (Vec<&CapArg>, Vec<&CapArg>) = others
+        .into_iter()
+        .partition(|arg| arg.required && arg.default_value.is_none());
+
+    out.push_str("\nInput (piped stdin, or input file path(s)):\n");
+    for arg in &main_inputs {
+        let mut line = format!("  {}", arg.stream_urn());
+        if let Some(description) = arg.arg_description.as_deref().filter(|d| !d.trim().is_empty()) {
+            line.push_str(&format!(" — {}", description.trim()));
+        }
+        if arg.is_sequence {
+            line.push_str(" [sequence]");
+        }
+        // The main input may ALSO be addressable by flag/position — stdin is
+        // the defining route, the rest are conveniences worth surfacing.
+        let mut extra_routes = flag_names(arg)
+            .into_iter()
+            .map(|flag| format!("--{flag}"))
+            .collect::<Vec<_>>();
+        if let Some(position) = declared_position(arg) {
+            extra_routes.push(format!("positional #{position}"));
+        }
+        if !extra_routes.is_empty() {
+            line.push_str(&format!(" (also: {})", extra_routes.join(", ")));
+        }
+        out.push_str(&line);
+        out.push('\n');
+    }
+
+    if !required.is_empty() {
+        out.push_str("\nRequired options (must be supplied):\n");
+        for arg in &required {
+            out.push_str(&render_option_line(arg));
+            out.push('\n');
+        }
+    }
+
+    if !optional.is_empty() {
+        out.push_str("\nOptions:\n");
+        for arg in &optional {
+            out.push_str(&render_option_line(arg));
+            out.push('\n');
+        }
+    }
+
+    if let Some(output) = &cap.output {
+        out.push_str(&format!(
+            "\nOutput: {}{}\n",
+            output.media_urn,
+            if output.is_sequence { " [sequence]" } else { "" }
+        ));
+    }
+
+    Ok(out)
+}
+
 /// Synthesize the one-edge machine notation around a resolved cap:
 ///
 /// ```text
@@ -240,28 +362,22 @@ pub fn map_invocation(
     }
 
     // Pre-flight: required, defaultless, unsupplied args are an error now,
-    // not a cartridge failure later.
+    // not a cartridge failure later. Only the REQUIRED OPTIONS (required,
+    // defaultless, non-main) are demanded — defaulted options are never
+    // mentioned; each missing one is named the way the interface rendering
+    // names it: invocation form, media URN, description.
     let missing: Vec<String> = non_stdin_args
         .iter()
         .filter(|arg| {
             arg.required && arg.default_value.is_none() && !supplied.contains(&arg.media_urn)
         })
-        .map(|arg| {
-            let flags = flag_names(arg);
-            if let Some(flag) = flags.first() {
-                format!("--{flag} <value> (media URN: {})", arg.media_urn)
-            } else if let Some(position) = declared_position(arg) {
-                format!("positional #{position} (media URN: {})", arg.media_urn)
-            } else {
-                format!("--arg '{}=<value>'", arg.media_urn)
-            }
-        })
+        .map(|arg| render_option_line(arg))
         .collect();
     if !missing.is_empty() {
         return Err(format!(
-            "cap {} requires argument(s) not supplied: {}",
+            "cap {} is missing required options:\n{}",
             cap.urn,
-            missing.join("; ")
+            missing.join("\n")
         ));
     }
 
@@ -521,8 +637,12 @@ mod tests {
         // the optional defaulted `--budget` and the optional positional are
         // NOT demanded.
         let err = map_invocation(&cap, &[], &[]).unwrap_err();
-        assert!(err.contains("requires argument(s) not supplied"), "{err}");
+        assert!(err.contains("missing required options"), "{err}");
         assert!(err.contains("--model-spec"), "{err}");
+        assert!(
+            err.contains("media:enc=utf-8;model-spec"),
+            "missing options are named with their media URN: {err}"
+        );
         assert!(!err.contains("budget"), "defaulted args not required: {err}");
         assert!(!err.contains("criterion"), "optional args not required: {err}");
 

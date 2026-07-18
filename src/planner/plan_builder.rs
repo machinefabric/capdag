@@ -629,6 +629,11 @@ pub struct ArgumentInfo {
     pub is_required: bool,
     /// Whether this argument carries a sequence of items
     pub is_sequence: bool,
+    /// Whether this is the cap's MAIN input — the arg whose `Stdin` source URN
+    /// is tagged-URN-equivalent to the cap URN's `in=` spec (see
+    /// `CapArg::is_main_input`). UIs present this arg as "how the cap is fed"
+    /// rather than as an option.
+    pub is_main_input: bool,
     /// Validation rules if any
     pub validation: Option<serde_json::Value>,
 }
@@ -709,6 +714,13 @@ impl MachinePlanBuilder {
 
             let in_spec = cap.urn.in_spec();
             let out_spec = cap.urn.out_spec();
+            // The cap's `in=` spec as a typed URN — main-input identification is
+            // a tagged-URN-equivalence question, never a string comparison.
+            let in_spec_urn = MediaUrn::from_string(in_spec).map_err(|e| {
+                PlannerError::InvalidPath(format!(
+                    "cap '{cap_urn_str}' in= URN '{in_spec}' invalid: {e}"
+                ))
+            })?;
 
             let mut arguments = Vec::new();
             let mut slots = Vec::new();
@@ -740,6 +752,7 @@ impl MachinePlanBuilder {
                     default_value: arg.default_value.clone(),
                     is_required: arg.required,
                     is_sequence: arg.is_sequence,
+                    is_main_input: arg.is_main_input(&in_spec_urn),
                     validation: Self::validation_to_json(validation.as_ref()),
                 };
 
@@ -1238,6 +1251,7 @@ mod tests {
             default_value: Some(serde_json::json!(200)),
             is_required: false,
             is_sequence: false,
+            is_main_input: false,
             validation: Some(serde_json::json!({"min": 50, "max": 2000})),
         };
 
@@ -1266,6 +1280,7 @@ mod tests {
                     default_value: None,
                     is_required: true,
                     is_sequence: false,
+                    is_main_input: true,
                     validation: None,
                 }],
                 slots: vec![],
@@ -1304,6 +1319,7 @@ mod tests {
                         default_value: None,
                         is_required: true,
                         is_sequence: false,
+                        is_main_input: true,
                         validation: None,
                     },
                     ArgumentInfo {
@@ -1314,6 +1330,7 @@ mod tests {
                         default_value: None,
                         is_required: true,
                         is_sequence: false,
+                        is_main_input: false,
                         validation: None,
                     },
                 ],
@@ -1325,6 +1342,7 @@ mod tests {
                     default_value: None,
                     is_required: true,
                     is_sequence: false,
+                    is_main_input: false,
                     validation: None,
                 }],
                 supported_model_types: Vec::new(),
@@ -1422,5 +1440,161 @@ mod tests {
             !candidate.is_dispatchable(&request),
             "Candidate missing required tag should not be dispatchable for request"
         );
+    }
+
+    /// TEST7104: over a realistic multi-arg cap (one stdin MAIN input whose
+    /// slot URN differs from its stdin URN, one required defaultless cli_flag
+    /// arg, several defaulted cli_flag args), exactly one arg is the main
+    /// input, and partitioning the rest by `required && default_value.is_none()`
+    /// yields the expected required-options vs defaulted-options sets. The
+    /// planner's real step-requirements assembly (`analyze_path_arguments`)
+    /// must set `ArgumentInfo.is_main_input` accordingly for every arg.
+    #[tokio::test]
+    async fn test7104_main_input_and_option_partition_through_step_requirements() {
+        use crate::cap::definition::{ArgSource, CapArg};
+        use crate::planner::live_cap_fab::{
+            ArgSourceRef, CapInput, StrandStep, StrandStepType,
+        };
+
+        // The main input's stdin URN spells `in=` with the tags in a DIFFERENT
+        // string order, and its slot URN differs from the stdin URN — only
+        // tagged-URN equivalence against the stdin source identifies it.
+        let urn = CapUrn::from_string(
+            r#"cap:in="media:doc;ext=pdf";summarize;out="media:enc=utf-8;summary""#,
+        )
+        .unwrap();
+        let mut cap = Cap::new(urn, "Summarize".to_string(), vec!["summarize".to_string()]);
+        cap.args = vec![
+            CapArg::with_full_definition(
+                "media:enc=utf-8;file-path",
+                true,
+                false,
+                vec![ArgSource::Stdin {
+                    stdin: "media:ext=pdf;doc".to_string(),
+                }],
+                Some("Document to summarize".to_string()),
+                None,
+                None,
+            ),
+            CapArg::with_full_definition(
+                "media:enc=utf-8;model-spec",
+                true,
+                false,
+                vec![ArgSource::CliFlag {
+                    cli_flag: "--model-spec".to_string(),
+                }],
+                Some("Model to run".to_string()),
+                None,
+                None,
+            ),
+            CapArg::with_full_definition(
+                "media:budget;numeric",
+                false,
+                false,
+                vec![ArgSource::CliFlag {
+                    cli_flag: "--budget".to_string(),
+                }],
+                Some("Token budget".to_string()),
+                Some(serde_json::json!(400)),
+                None,
+            ),
+            CapArg::with_full_definition(
+                "media:numeric;temperature",
+                false,
+                false,
+                vec![ArgSource::CliFlag {
+                    cli_flag: "--temperature".to_string(),
+                }],
+                Some("Sampling temperature".to_string()),
+                Some(serde_json::json!(0.7)),
+                None,
+            ),
+        ];
+
+        // The definition-level partition: exactly ONE main input; the rest
+        // split into required options vs defaulted options.
+        let in_spec = MediaUrn::from_string(cap.urn.in_spec()).unwrap();
+        let (main_inputs, others): (Vec<&CapArg>, Vec<&CapArg>) =
+            cap.args.iter().partition(|a| a.is_main_input(&in_spec));
+        assert_eq!(main_inputs.len(), 1, "exactly one arg is the main input");
+        assert_eq!(main_inputs[0].media_urn, "media:enc=utf-8;file-path");
+        let (required, defaulted): (Vec<&CapArg>, Vec<&CapArg>) = others
+            .into_iter()
+            .partition(|a| a.required && a.default_value.is_none());
+        assert_eq!(
+            required.iter().map(|a| a.media_urn.as_str()).collect::<Vec<_>>(),
+            vec!["media:enc=utf-8;model-spec"],
+            "required options = required && no default, excluding the main input"
+        );
+        let mut defaulted_urns: Vec<&str> =
+            defaulted.iter().map(|a| a.media_urn.as_str()).collect();
+        defaulted_urns.sort();
+        assert_eq!(
+            defaulted_urns,
+            vec!["media:budget;numeric", "media:numeric;temperature"],
+            "defaulted options carry their default values"
+        );
+
+        // The REAL step-requirements assembly must stamp is_main_input on
+        // every ArgumentInfo — via the registry-cached cap and a one-step
+        // strand, not a reimplementation of the partition.
+        let registry = FabricRegistry::new_for_test();
+        registry.add_caps_to_cache(vec![cap.clone()]);
+        let builder = MachinePlanBuilder::new(Arc::new(registry));
+        let source = MediaUrn::from_string("media:doc;ext=pdf").unwrap();
+        let target = MediaUrn::from_string("media:enc=utf-8;summary").unwrap();
+        let strand = Strand {
+            steps: vec![StrandStep::new(
+                StrandStepType::Cap {
+                    cap_urn: cap.urn.clone(),
+                    title: "Summarize".to_string(),
+                    specificity: 2,
+                    input_is_sequence: false,
+                    output_is_sequence: false,
+                    inputs: vec![CapInput {
+                        arg_urn: MediaUrn::from_string("media:enc=utf-8;file-path").unwrap(),
+                        source: ArgSourceRef::StrandInput,
+                    }],
+                },
+                source.clone(),
+                target.clone(),
+            )],
+            source_media_urn: source,
+            target_media_urn: target,
+            total_steps: 1,
+            cap_step_count: 1,
+            description: "Summarize a PDF".to_string(),
+        };
+
+        let requirements = builder
+            .analyze_path_arguments(&strand)
+            .await
+            .expect("step-requirements assembly must succeed");
+        assert_eq!(requirements.steps.len(), 1);
+        let arguments = &requirements.steps[0].arguments;
+        assert_eq!(arguments.len(), 4, "every declared arg is presented");
+
+        let main: Vec<&ArgumentInfo> =
+            arguments.iter().filter(|a| a.is_main_input).collect();
+        assert_eq!(
+            main.len(),
+            1,
+            "the assembly marks exactly one arg as the main input"
+        );
+        assert_eq!(main[0].media_urn, "media:enc=utf-8;file-path");
+        for info in arguments.iter().filter(|a| !a.is_main_input) {
+            match info.media_urn.as_str() {
+                "media:enc=utf-8;model-spec" => {
+                    assert!(info.is_required && info.default_value.is_none());
+                }
+                "media:budget;numeric" => {
+                    assert_eq!(info.default_value, Some(serde_json::json!(400)));
+                }
+                "media:numeric;temperature" => {
+                    assert_eq!(info.default_value, Some(serde_json::json!(0.7)));
+                }
+                other => panic!("unexpected non-main arg '{other}' in step requirements"),
+            }
+        }
     }
 }

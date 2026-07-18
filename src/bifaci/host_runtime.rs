@@ -1470,6 +1470,7 @@ impl CartridgeHostRuntime {
                                         "Cartridge '{}' failed handshake and cannot be spawned",
                                         target_id
                                     ),
+                                    None,
                                 );
                                 err.routing_id = frame.routing_id.clone();
                                 outbound_tx
@@ -1487,6 +1488,7 @@ impl CartridgeHostRuntime {
                                 "CARTRIDGE_NOT_FOUND",
                                 crate::failure::FailureClass::Environment,
                                 &format!("Cartridge '{}' not found on this host", target_id),
+                                None,
                             );
                             err.routing_id = frame.routing_id.clone();
                             outbound_tx
@@ -1514,6 +1516,7 @@ impl CartridgeHostRuntime {
                                 "NO_HANDLER",
                                 crate::failure::FailureClass::Environment,
                                 &format!("no cartridge handles cap: {}", cap_urn),
+                                None,
                             );
                             err.routing_id = frame.routing_id.clone();
                             outbound_tx
@@ -1673,6 +1676,7 @@ impl CartridgeHostRuntime {
                         "CARTRIDGE_DIED",
                         crate::failure::FailureClass::Environment,
                         death_msg,
+                        None,
                     );
                     err.routing_id = frame.routing_id.clone();
                     err.seq = next_seq;
@@ -2249,14 +2253,24 @@ impl CartridgeHostRuntime {
             );
 
             for (rid, next_seq) in &failed_outgoing {
-                let mut err_frame =
-                    Frame::err_classified(rid.clone(), error_code, failure_class, &error_message);
+                let mut err_frame = Frame::err_classified(
+                    rid.clone(),
+                    error_code,
+                    failure_class,
+                    &error_message,
+                    None,
+                );
                 err_frame.seq = *next_seq;
                 let _ = outbound_tx.send(err_frame);
             }
             for (xid, rid, next_seq) in &failed_incoming {
-                let mut err_frame =
-                    Frame::err_classified(rid.clone(), error_code, failure_class, &error_message);
+                let mut err_frame = Frame::err_classified(
+                    rid.clone(),
+                    error_code,
+                    failure_class,
+                    &error_message,
+                    None,
+                );
                 err_frame.routing_id = Some(xid.clone());
                 err_frame.seq = *next_seq;
                 let _ = outbound_tx.send(err_frame);
@@ -2815,6 +2829,7 @@ impl CartridgeHostRuntime {
                         "CARTRIDGE_UNHEALTHY",
                         crate::failure::FailureClass::Environment,
                         "Cartridge stopped responding to heartbeats",
+                        None,
                     );
                     err_frame.routing_id = Some(xid.clone());
                     err_frame.seq = next_seq;
@@ -2844,6 +2859,7 @@ impl CartridgeHostRuntime {
                         "CARTRIDGE_UNHEALTHY",
                         crate::failure::FailureClass::Environment,
                         "Cartridge stopped responding to heartbeats",
+                        None,
                     );
                     err_frame.seq = next_seq;
                     let _ = outbound_tx.send(err_frame);

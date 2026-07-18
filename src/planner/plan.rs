@@ -1167,6 +1167,10 @@ pub struct BodyOutcome {
     pub failed_cap: Option<String>,
     /// Error message if the body failed.
     pub error: Option<String>,
+    /// Media URN of the argument attributed by the failure's emit source.
+    /// Absent when the source did not name one; downstream layers never infer it.
+    #[serde(default)]
+    pub failed_arg_urn: Option<String>,
     /// Human-readable title for this body, from stream metadata.
     /// ForEach: per-item meta "title" from prefix output (e.g. "page_3").
     /// Linear: stream-level meta "title" from STREAM_START.

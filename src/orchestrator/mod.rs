@@ -44,8 +44,8 @@ pub use execute_plan::{
 };
 
 pub use cli_cap::{
-    classify_cap_token, map_invocation, synthesize_single_cap_notation, CapInvocation,
-    CapToken, SINGLE_CAP_INPUT_NODE, SINGLE_CAP_OUTPUT_NODE, SINGLE_CAP_STEP_NAME,
+    classify_cap_token, map_invocation, render_cap_interface, synthesize_single_cap_notation,
+    CapInvocation, CapToken, SINGLE_CAP_INPUT_NODE, SINGLE_CAP_OUTPUT_NODE, SINGLE_CAP_STEP_NAME,
 };
 pub use cli_output::{emit_terminals, extension_for_media, EmitOptions};
 pub use cli_runtime::CliRuntime;

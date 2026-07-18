@@ -555,19 +555,23 @@ impl Frame {
     /// definition; emitters with a classified error use
     /// [`Frame::err_classified`].
     pub fn err(id: MessageId, code: &str, message: &str) -> Self {
-        Self::err_classified(id, code, crate::failure::FailureClass::Internal, message)
+        Self::err_classified(id, code, crate::failure::FailureClass::Internal, message, None)
     }
 
     /// Create an ERR frame carrying the full failure identity: the emitter's
     /// machine-readable `code` (e.g. `CONTEXT_OVERFLOW`), the failure CLASS
     /// (whose problem it is — declared at the error's definition site, see
-    /// `capdag::FailureClass`), and the human message. ERR meta contract
-    /// (docs/12.2): `code` + `class` + `message`, all text.
+    /// `capdag::FailureClass`), the human message, and — when the emitter
+    /// attributed the failure to ONE argument — the media URN of that
+    /// argument. ERR meta contract (docs/12.2): `code` + `class` +
+    /// `message`, all text, plus optional `arg_urn`; the key is ABSENT when
+    /// unattributed, never an empty string.
     pub fn err_classified(
         id: MessageId,
         code: &str,
         class: crate::failure::FailureClass,
         message: &str,
+        arg_urn: Option<&str>,
     ) -> Self {
         let mut meta = BTreeMap::new();
         meta.insert("code".to_string(), ciborium::Value::Text(code.to_string()));
@@ -579,6 +583,9 @@ impl Frame {
             "message".to_string(),
             ciborium::Value::Text(message.to_string()),
         );
+        if let Some(urn) = arg_urn {
+            meta.insert("arg_urn".to_string(), ciborium::Value::Text(urn.to_string()));
+        }
 
         let mut frame = Self::new(FrameType::Err, id);
         frame.meta = Some(meta);
@@ -895,6 +902,25 @@ impl Frame {
                 .and_then(crate::failure::FailureClass::from_wire)
                 .unwrap_or(crate::failure::FailureClass::Internal),
         )
+    }
+
+    /// Media URN of the argument the emitter attributed this failure to, if
+    /// this is an ERR frame whose meta carries `arg_urn`. Absence means the
+    /// emit source did not attribute the failure to one argument — receivers
+    /// never infer one (docs/failure-taxonomy.md).
+    pub fn error_arg_urn(&self) -> Option<&str> {
+        if self.frame_type != FrameType::Err {
+            return None;
+        }
+        self.meta.as_ref().and_then(|m| {
+            m.get("arg_urn").and_then(|v| {
+                if let ciborium::Value::Text(s) = v {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            })
+        })
     }
 
     /// Get error message if this is an ERR frame
@@ -1620,6 +1646,7 @@ mod tests {
             "CONTEXT_OVERFLOW",
             FailureClass::Input,
             "prompt too large",
+            None,
         );
         assert_eq!(classified.error_code(), Some("CONTEXT_OVERFLOW"));
         assert_eq!(classified.error_class(), Some(FailureClass::Input));
@@ -1645,6 +1672,114 @@ mod tests {
             ciborium::Value::Text("user-error".to_string()),
         );
         assert_eq!(weird.error_class(), Some(FailureClass::Internal));
+    }
+
+    /// TEST7105: an ERR frame built WITH argument attribution round-trips it
+    /// through encode→decode: meta carries `arg_urn`, `error_arg_urn()`
+    /// serves it, and code/class/message arrive intact beside it. Mirrored
+    /// in the Go/Python/Swift runtimes (shared 7105/7106 range).
+    #[test]
+    fn test7105_err_frame_arg_urn_round_trip() {
+        use crate::bifaci::io::{decode_frame, encode_frame};
+        use crate::failure::FailureClass;
+
+        let id = MessageId::new_uuid();
+        let frame = Frame::err_classified(
+            id,
+            "CONTEXT_OVERFLOW",
+            FailureClass::Input,
+            "prompt too large",
+            Some("media:prompt;textable"),
+        );
+        assert_eq!(frame.error_arg_urn(), Some("media:prompt;textable"));
+
+        let decoded = decode_frame(&encode_frame(&frame).expect("encode")).expect("decode");
+        assert_eq!(
+            decoded
+                .meta
+                .as_ref()
+                .expect("ERR frame has meta")
+                .get("arg_urn"),
+            Some(&ciborium::Value::Text("media:prompt;textable".to_string())),
+            "the wire meta map carries the attribution key verbatim"
+        );
+        assert_eq!(decoded.error_arg_urn(), Some("media:prompt;textable"));
+        assert_eq!(decoded.error_code(), Some("CONTEXT_OVERFLOW"));
+        assert_eq!(decoded.error_class(), Some(FailureClass::Input));
+        assert_eq!(decoded.error_message(), Some("prompt too large"));
+    }
+
+    /// TEST7106: attribution is OPTIONAL and source-declared at every hop.
+    /// An ERR frame built WITHOUT attribution has NO `arg_urn` key in meta
+    /// (absent, not empty) and `error_arg_urn()` is None after a wire round
+    /// trip; the `OpError::Classified` and `ExecutionError` accessors serve
+    /// the emit source's attribution in the Some case and None — never a
+    /// guess — in the unattributed case.
+    #[test]
+    fn test7106_arg_urn_absent_when_unattributed_and_accessor_threading() {
+        use crate::bifaci::io::{decode_frame, encode_frame};
+        use crate::failure::FailureClass;
+        use crate::orchestrator::executor::ExecutionError;
+
+        let id = MessageId::new_uuid();
+        let frame = Frame::err_classified(
+            id,
+            "GPU_OUT_OF_MEMORY",
+            FailureClass::Resource,
+            "no VRAM",
+            None,
+        );
+        let decoded = decode_frame(&encode_frame(&frame).expect("encode")).expect("decode");
+        assert!(
+            !decoded
+                .meta
+                .as_ref()
+                .expect("ERR frame has meta")
+                .contains_key("arg_urn"),
+            "unattributed ERR must carry NO arg_urn key — absence, never an empty string"
+        );
+        assert_eq!(decoded.error_arg_urn(), None);
+        assert_eq!(decoded.error_code(), Some("GPU_OUT_OF_MEMORY"));
+        assert_eq!(decoded.error_class(), Some(FailureClass::Resource));
+
+        // L1 — the op layer serves the emit source's attribution verbatim.
+        let attributed = ops::OpError::Classified {
+            code: "CONTEXT_OVERFLOW".to_string(),
+            class: FailureClass::Input,
+            message: "prompt too large".to_string(),
+            arg_urn: Some("media:prompt;textable".to_string()),
+        };
+        assert_eq!(attributed.failure_arg_urn(), Some("media:prompt;textable"));
+        let unattributed = ops::OpError::Classified {
+            code: "CONTEXT_OVERFLOW".to_string(),
+            class: FailureClass::Input,
+            message: "prompt too large".to_string(),
+            arg_urn: None,
+        };
+        assert_eq!(unattributed.failure_arg_urn(), None);
+
+        // L4 — the orchestrator serves the attribution the ERR frame carried.
+        let attributed = ExecutionError::CartridgeExecutionFailed {
+            cap_urn: "cap:in=media:prompt;textable".to_string(),
+            code: Some("CONTEXT_OVERFLOW".to_string()),
+            class: FailureClass::Input,
+            details: "prompt too large".to_string(),
+            arg_urn: Some("media:prompt;textable".to_string()),
+        };
+        assert_eq!(attributed.failure_arg_urn(), Some("media:prompt;textable"));
+        let unattributed = ExecutionError::CartridgeExecutionFailed {
+            cap_urn: "cap:in=media:prompt;textable".to_string(),
+            code: Some("GPU_OUT_OF_MEMORY".to_string()),
+            class: FailureClass::Resource,
+            details: "no VRAM".to_string(),
+            arg_urn: None,
+        };
+        assert_eq!(unattributed.failure_arg_urn(), None);
+        // A variant with no attribution channel is never about one argument.
+        assert_eq!(
+            ExecutionError::HostError("boom".to_string()).failure_arg_urn(),
+            None
+        );
     }
 
     // TEST186: Test Frame::log stores level and message in metadata
