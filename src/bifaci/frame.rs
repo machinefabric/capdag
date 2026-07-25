@@ -40,10 +40,10 @@ use crate::CapUrn;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Protocol version. Version 3: credit-based per-stream flow control, unbounded
-/// streams, terminal metadata on END (final progress rides in the terminal frame),
-/// counted drops, handshake version enforcement. Version 2 handshakes are rejected.
-pub const PROTOCOL_VERSION: u8 = 3;
+/// Protocol version 4 requires explicit handler capacity and strict diagnostic
+/// attribution in addition to credit-based flow control and terminal metadata.
+/// Every other version is rejected during handshake.
+pub const PROTOCOL_VERSION: u8 = 4;
 
 /// Default maximum frame size (3.5 MB) - safe margin below 3.75MB limit
 /// Larger payloads automatically use CHUNK frames
@@ -301,6 +301,10 @@ impl Frame {
             "version".to_string(),
             ciborium::Value::Integer((PROTOCOL_VERSION as i64).into()),
         );
+        meta.insert(
+            "handler_capacity".to_string(),
+            ciborium::Value::Integer(0.into()),
+        );
 
         let mut frame = Self::new(FrameType::Hello, MessageId::Uint(0));
         frame.meta = Some(meta);
@@ -310,7 +314,11 @@ impl Frame {
     /// Create a HELLO frame for handshake with manifest (cartridge side).
     /// The manifest is JSON-encoded cartridge metadata including name, version, and caps.
     /// This is the ONLY way for cartridges to communicate their capabilities.
-    pub fn hello_with_manifest(limits: &Limits, manifest: &[u8]) -> Self {
+    pub fn hello_with_manifest(
+        limits: &Limits,
+        manifest: &[u8],
+        handler_capacity: usize,
+    ) -> Self {
         let mut meta = BTreeMap::new();
         meta.insert(
             "max_frame".to_string(),
@@ -335,6 +343,14 @@ impl Frame {
         meta.insert(
             "manifest".to_string(),
             ciborium::Value::Bytes(manifest.to_vec()),
+        );
+        meta.insert(
+            "handler_capacity".to_string(),
+            ciborium::Value::Integer(
+                u64::try_from(handler_capacity)
+                    .expect("handler capacity must fit the protocol's uint64 domain")
+                    .into(),
+            ),
         );
 
         let mut frame = Self::new(FrameType::Hello, MessageId::Uint(0));
@@ -511,8 +527,18 @@ impl Frame {
         })
     }
 
-    /// Create a LOG frame for progress/status
-    pub fn log(id: MessageId, level: &str, message: &str) -> Self {
+    /// Create an attributed, non-progress LOG frame.
+    pub fn log(
+        id: MessageId,
+        level: &str,
+        attribution_class: crate::failure::AttributionClass,
+        message: &str,
+        arg_urn: Option<&str>,
+    ) -> Self {
+        assert!(!level.trim().is_empty(), "LOG level must be nonempty");
+        assert_ne!(level, "progress", "progress logs must use Frame::progress");
+        assert!(!message.trim().is_empty(), "LOG message must be nonempty");
+        assert!(arg_urn.map_or(true, |urn| !urn.is_empty()), "LOG arg_urn must be nonempty when present");
         let mut meta = BTreeMap::new();
         meta.insert(
             "level".to_string(),
@@ -522,6 +548,13 @@ impl Frame {
             "message".to_string(),
             ciborium::Value::Text(message.to_string()),
         );
+        meta.insert(
+            "attribution_class".to_string(),
+            ciborium::Value::Text(attribution_class.as_str().to_string()),
+        );
+        if let Some(urn) = arg_urn {
+            meta.insert("arg_urn".to_string(), ciborium::Value::Text(urn.to_string()));
+        }
 
         let mut frame = Self::new(FrameType::Log, id);
         frame.meta = Some(meta);
@@ -550,33 +583,28 @@ impl Frame {
         frame
     }
 
-    /// Create an ERR frame. The class defaults to `Internal` — an error that
-    /// reaches the wire without a declared class is the emitter's problem by
-    /// definition; emitters with a classified error use
-    /// [`Frame::err_classified`].
-    pub fn err(id: MessageId, code: &str, message: &str) -> Self {
-        Self::err_classified(id, code, crate::failure::FailureClass::Internal, message, None)
-    }
-
     /// Create an ERR frame carrying the full failure identity: the emitter's
     /// machine-readable `code` (e.g. `CONTEXT_OVERFLOW`), the failure CLASS
     /// (whose problem it is — declared at the error's definition site, see
-    /// `capdag::FailureClass`), the human message, and — when the emitter
+    /// `capdag::AttributionClass`), the human message, and — when the emitter
     /// attributed the failure to ONE argument — the media URN of that
-    /// argument. ERR meta contract (docs/12.2): `code` + `class` +
+    /// argument. ERR meta contract (docs/12.2): `code` + `attribution_class` +
     /// `message`, all text, plus optional `arg_urn`; the key is ABSENT when
     /// unattributed, never an empty string.
-    pub fn err_classified(
+    pub fn err(
         id: MessageId,
         code: &str,
-        class: crate::failure::FailureClass,
+        class: crate::failure::AttributionClass,
         message: &str,
         arg_urn: Option<&str>,
     ) -> Self {
+        assert!(!code.trim().is_empty(), "ERR code must be nonempty");
+        assert!(!message.trim().is_empty(), "ERR message must be nonempty");
+        assert!(arg_urn.map_or(true, |urn| !urn.is_empty()), "ERR arg_urn must be nonempty when present");
         let mut meta = BTreeMap::new();
         meta.insert("code".to_string(), ciborium::Value::Text(code.to_string()));
         meta.insert(
-            "class".to_string(),
+            "attribution_class".to_string(),
             ciborium::Value::Text(class.as_str().to_string()),
         );
         meta.insert(
@@ -834,8 +862,7 @@ impl Frame {
                 } else {
                     None
                 }
-            })
-            .unwrap_or(DEFAULT_MAX_REORDER_BUFFER);
+            })?;
         let initial_credit = meta
             .get("initial_credit")
             .and_then(|v| {
@@ -849,8 +876,7 @@ impl Frame {
                 } else {
                     None
                 }
-            })
-            .unwrap_or(DEFAULT_INITIAL_CREDIT);
+            })?;
         Some(Limits {
             max_frame,
             max_chunk,
@@ -880,47 +906,50 @@ impl Frame {
         })
     }
 
-    /// Get the failure class if this is an ERR frame. A frame without a
-    /// `class` entry (or with an unknown token) classifies as `Internal`:
-    /// unclassified means "the emitter's problem", never a guess about the
-    /// user's input.
-    pub fn error_class(&self) -> Option<crate::failure::FailureClass> {
-        if self.frame_type != FrameType::Err {
-            return None;
+    /// Parse the mandatory attribution class on an ERR or non-progress LOG.
+    pub fn attribution_class(&self) -> Result<crate::failure::AttributionClass, String> {
+        let is_attributed_log = self.frame_type == FrameType::Log
+            && self.log_level() != Some("progress");
+        if self.frame_type != FrameType::Err && !is_attributed_log {
+            return Err(format!("{:?} frames do not carry attribution", self.frame_type));
         }
-        let token = self.meta.as_ref().and_then(|m| {
-            m.get("class").and_then(|v| {
-                if let ciborium::Value::Text(s) = v {
-                    Some(s.as_str())
-                } else {
-                    None
-                }
+        let token = self
+            .meta
+            .as_ref()
+            .and_then(|m| m.get("attribution_class"))
+            .and_then(|v| match v {
+                ciborium::Value::Text(s) => Some(s.as_str()),
+                _ => None,
             })
-        });
-        Some(
-            token
-                .and_then(crate::failure::FailureClass::from_wire)
-                .unwrap_or(crate::failure::FailureClass::Internal),
-        )
+            .ok_or_else(|| "frame missing required text attribution_class".to_string())?;
+        crate::failure::AttributionClass::from_wire(token)
+            .ok_or_else(|| format!("unknown attribution_class '{token}'"))
     }
 
-    /// Media URN of the argument the emitter attributed this failure to, if
-    /// this is an ERR frame whose meta carries `arg_urn`. Absence means the
-    /// emit source did not attribute the failure to one argument — receivers
-    /// never infer one (docs/failure-taxonomy.md).
-    pub fn error_arg_urn(&self) -> Option<&str> {
-        if self.frame_type != FrameType::Err {
-            return None;
+    /// Media URN of the argument the emitter attributed this diagnostic to.
+    /// Valid on ERR and non-progress LOG frames. Absence means the emit source
+    /// did not attribute the record to one argument; receivers never infer it.
+    pub fn attribution_arg_urn(&self) -> Result<Option<&str>, String> {
+        let is_attributed_log = self.frame_type == FrameType::Log
+            && self.log_level() != Some("progress");
+        if self.frame_type != FrameType::Err && !is_attributed_log {
+            return Err(format!(
+                "{:?} frames do not carry diagnostic argument attribution",
+                self.frame_type
+            ));
         }
-        self.meta.as_ref().and_then(|m| {
-            m.get("arg_urn").and_then(|v| {
-                if let ciborium::Value::Text(s) = v {
-                    Some(s.as_str())
-                } else {
-                    None
-                }
-            })
-        })
+        let Some(value) = self.meta.as_ref().and_then(|meta| meta.get("arg_urn")) else {
+            return Ok(None);
+        };
+        match value {
+            ciborium::Value::Text(arg_urn) if !arg_urn.trim().is_empty() => {
+                Ok(Some(arg_urn.as_str()))
+            }
+            ciborium::Value::Text(_) => {
+                Err("diagnostic arg_urn must not be empty".to_string())
+            }
+            _ => Err("diagnostic arg_urn must be text when present".to_string()),
+        }
     }
 
     /// Get error message if this is an ERR frame
@@ -1019,6 +1048,26 @@ impl Frame {
                     None
                 }
             })
+        })
+    }
+
+    /// Extract the mandatory handler concurrency capacity from HELLO.
+    /// Zero means unlimited.
+    pub fn hello_handler_capacity(&self) -> Option<usize> {
+        if self.frame_type != FrameType::Hello {
+            return None;
+        }
+        self.meta.as_ref()?.get("handler_capacity").and_then(|v| {
+            if let ciborium::Value::Integer(i) = v {
+                let n: i128 = (*i).into();
+                if n >= 0 && n <= usize::MAX as i128 {
+                    Some(n as usize)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         })
     }
 
@@ -1570,6 +1619,7 @@ mod tests {
                 initial_credit: DEFAULT_INITIAL_CREDIT,
             },
             manifest_json.as_bytes(),
+            0,
         );
         assert_eq!(frame.frame_type, FrameType::Hello);
         assert_eq!(frame.hello_max_frame(), Some(1_000_000));
@@ -1624,74 +1674,93 @@ mod tests {
     #[test]
     fn test185_err_frame() {
         let id = MessageId::new_uuid();
-        let frame = Frame::err(id, "NOT_FOUND", "Cap not found");
+        let frame = Frame::err(
+            id,
+            "NOT_FOUND",
+            crate::failure::AttributionClass::Internal,
+            "Cap not found",
+            None,
+        );
         assert_eq!(frame.frame_type, FrameType::Err);
         assert_eq!(frame.error_code(), Some("NOT_FOUND"));
         assert_eq!(frame.error_message(), Some("Cap not found"));
     }
 
-    // TEST1900: the ERR frame failure-class wire contract
-    // (docs/failure-taxonomy.md): err_classified writes meta
-    // code+class+message; plain err defaults class to internal; a missing or
-    // unknown class token reads as Internal (unclassified means "ours",
-    // never a guess); a known token round-trips exactly. Mirrored in the
-    // Go/Python/Swift runtimes (their TEST1734).
+    // TEST1900: the ERR and non-progress LOG attribution-class wire contract
+    // (docs/failure-taxonomy.md): err writes meta
+    // code+attribution_class+message; missing and unknown attribution are
+    // rejected as protocol violations. Mirrored in all runtime SDKs.
     #[test]
-    fn test1900_err_frame_failure_class_wire_contract() {
-        use crate::failure::FailureClass;
+    fn test1900_err_frame_attribution_class_wire_contract() {
+        use crate::failure::AttributionClass;
 
         let id = MessageId::new_uuid();
-        let classified = Frame::err_classified(
+        let classified = Frame::err(
             id.clone(),
             "CONTEXT_OVERFLOW",
-            FailureClass::Input,
+            AttributionClass::Input,
             "prompt too large",
             None,
         );
         assert_eq!(classified.error_code(), Some("CONTEXT_OVERFLOW"));
-        assert_eq!(classified.error_class(), Some(FailureClass::Input));
+        assert_eq!(classified.attribution_class(), Ok(AttributionClass::Input));
         assert_eq!(classified.error_message(), Some("prompt too large"));
 
-        let plain = Frame::err(id.clone(), "BOOM", "unclassified failure");
-        assert_eq!(
-            plain.error_class(),
-            Some(FailureClass::Internal),
-            "an unclassified ERR emit must declare itself internal on the wire"
+        let mut missing = Frame::err(
+            id.clone(),
+            "BOOM",
+            AttributionClass::Internal,
+            "x",
+            None,
         );
+        missing.meta.as_mut().unwrap().remove("attribution_class");
+        assert!(missing.attribution_class().is_err());
 
-        // A frame from an older/foreign emitter: no class entry at all.
-        let mut legacy = Frame::err(id.clone(), "BOOM", "x");
-        legacy.meta.as_mut().unwrap().remove("class");
-        assert_eq!(legacy.error_class(), Some(FailureClass::Internal));
-
-        // An unknown token is a protocol anomaly, read as unclassified —
-        // never a guess.
-        let mut weird = Frame::err(id, "BOOM", "x");
+        let mut weird = Frame::err(id, "BOOM", AttributionClass::Internal, "x", None);
         weird.meta.as_mut().unwrap().insert(
-            "class".to_string(),
+            "attribution_class".to_string(),
             ciborium::Value::Text("user-error".to_string()),
         );
-        assert_eq!(weird.error_class(), Some(FailureClass::Internal));
+        assert!(weird.attribution_class().is_err());
+
+        let mut malformed_arg = Frame::err(
+            MessageId::new_uuid(),
+            "BOOM",
+            AttributionClass::Internal,
+            "x",
+            None,
+        );
+        malformed_arg
+            .meta
+            .as_mut()
+            .unwrap()
+            .insert("arg_urn".to_string(), ciborium::Value::Integer(7.into()));
+        assert!(malformed_arg.attribution_arg_urn().is_err());
+        malformed_arg.meta.as_mut().unwrap().insert(
+            "arg_urn".to_string(),
+            ciborium::Value::Text(String::new()),
+        );
+        assert!(malformed_arg.attribution_arg_urn().is_err());
     }
 
     /// TEST7105: an ERR frame built WITH argument attribution round-trips it
-    /// through encode→decode: meta carries `arg_urn`, `error_arg_urn()`
+    /// through encode→decode: meta carries `arg_urn`, `attribution_arg_urn()`
     /// serves it, and code/class/message arrive intact beside it. Mirrored
     /// in the Go/Python/Swift runtimes (shared 7105/7106 range).
     #[test]
     fn test7105_err_frame_arg_urn_round_trip() {
         use crate::bifaci::io::{decode_frame, encode_frame};
-        use crate::failure::FailureClass;
+        use crate::failure::AttributionClass;
 
         let id = MessageId::new_uuid();
-        let frame = Frame::err_classified(
+        let frame = Frame::err(
             id,
             "CONTEXT_OVERFLOW",
-            FailureClass::Input,
+            AttributionClass::Input,
             "prompt too large",
             Some("media:prompt;textable"),
         );
-        assert_eq!(frame.error_arg_urn(), Some("media:prompt;textable"));
+        assert_eq!(frame.attribution_arg_urn().unwrap(), Some("media:prompt;textable"));
 
         let decoded = decode_frame(&encode_frame(&frame).expect("encode")).expect("decode");
         assert_eq!(
@@ -1703,29 +1772,51 @@ mod tests {
             Some(&ciborium::Value::Text("media:prompt;textable".to_string())),
             "the wire meta map carries the attribution key verbatim"
         );
-        assert_eq!(decoded.error_arg_urn(), Some("media:prompt;textable"));
+        assert_eq!(decoded.attribution_arg_urn().unwrap(), Some("media:prompt;textable"));
         assert_eq!(decoded.error_code(), Some("CONTEXT_OVERFLOW"));
-        assert_eq!(decoded.error_class(), Some(FailureClass::Input));
+        assert_eq!(decoded.attribution_class(), Ok(AttributionClass::Input));
         assert_eq!(decoded.error_message(), Some("prompt too large"));
+    }
+
+    // TEST7117: non-progress LOG carries the same source attribution tuple as
+    // ERR, including an optional argument URN, through the actual wire codec.
+    #[test]
+    fn test7117_log_frame_arg_urn_round_trip() {
+        use crate::bifaci::io::{decode_frame, encode_frame};
+        use crate::failure::AttributionClass;
+
+        let frame = Frame::log(
+            MessageId::new_uuid(),
+            "warn",
+            AttributionClass::Resource,
+            "model cache is under memory pressure",
+            Some("media:model-spec"),
+        );
+        let decoded = decode_frame(&encode_frame(&frame).expect("encode")).expect("decode");
+        assert_eq!(decoded.frame_type, FrameType::Log);
+        assert_eq!(decoded.log_level(), Some("warn"));
+        assert_eq!(decoded.attribution_class(), Ok(AttributionClass::Resource));
+        assert_eq!(decoded.attribution_arg_urn().unwrap(), Some("media:model-spec"));
+        assert_eq!(decoded.log_message(), Some("model cache is under memory pressure"));
     }
 
     /// TEST7106: attribution is OPTIONAL and source-declared at every hop.
     /// An ERR frame built WITHOUT attribution has NO `arg_urn` key in meta
-    /// (absent, not empty) and `error_arg_urn()` is None after a wire round
+    /// (absent, not empty) and `attribution_arg_urn()` is `Ok(None)` after a wire round
     /// trip; the `OpError::Classified` and `ExecutionError` accessors serve
     /// the emit source's attribution in the Some case and None — never a
     /// guess — in the unattributed case.
     #[test]
     fn test7106_arg_urn_absent_when_unattributed_and_accessor_threading() {
         use crate::bifaci::io::{decode_frame, encode_frame};
-        use crate::failure::FailureClass;
+        use crate::failure::AttributionClass;
         use crate::orchestrator::executor::ExecutionError;
 
         let id = MessageId::new_uuid();
-        let frame = Frame::err_classified(
+        let frame = Frame::err(
             id,
             "GPU_OUT_OF_MEMORY",
-            FailureClass::Resource,
+            AttributionClass::Resource,
             "no VRAM",
             None,
         );
@@ -1738,21 +1829,21 @@ mod tests {
                 .contains_key("arg_urn"),
             "unattributed ERR must carry NO arg_urn key — absence, never an empty string"
         );
-        assert_eq!(decoded.error_arg_urn(), None);
+        assert_eq!(decoded.attribution_arg_urn().unwrap(), None);
         assert_eq!(decoded.error_code(), Some("GPU_OUT_OF_MEMORY"));
-        assert_eq!(decoded.error_class(), Some(FailureClass::Resource));
+        assert_eq!(decoded.attribution_class(), Ok(AttributionClass::Resource));
 
         // L1 — the op layer serves the emit source's attribution verbatim.
         let attributed = ops::OpError::Classified {
             code: "CONTEXT_OVERFLOW".to_string(),
-            class: FailureClass::Input,
+            class: AttributionClass::Input,
             message: "prompt too large".to_string(),
             arg_urn: Some("media:prompt;textable".to_string()),
         };
         assert_eq!(attributed.failure_arg_urn(), Some("media:prompt;textable"));
         let unattributed = ops::OpError::Classified {
             code: "CONTEXT_OVERFLOW".to_string(),
-            class: FailureClass::Input,
+            class: AttributionClass::Input,
             message: "prompt too large".to_string(),
             arg_urn: None,
         };
@@ -1762,7 +1853,7 @@ mod tests {
         let attributed = ExecutionError::CartridgeExecutionFailed {
             cap_urn: "cap:in=media:prompt;textable".to_string(),
             code: Some("CONTEXT_OVERFLOW".to_string()),
-            class: FailureClass::Input,
+            class: AttributionClass::Input,
             details: "prompt too large".to_string(),
             arg_urn: Some("media:prompt;textable".to_string()),
         };
@@ -1770,7 +1861,7 @@ mod tests {
         let unattributed = ExecutionError::CartridgeExecutionFailed {
             cap_urn: "cap:in=media:prompt;textable".to_string(),
             code: Some("GPU_OUT_OF_MEMORY".to_string()),
-            class: FailureClass::Resource,
+            class: AttributionClass::Resource,
             details: "no VRAM".to_string(),
             arg_urn: None,
         };
@@ -1786,7 +1877,13 @@ mod tests {
     #[test]
     fn test186_log_frame() {
         let id = MessageId::new_uuid();
-        let frame = Frame::log(id.clone(), "info", "Processing started");
+        let frame = Frame::log(
+            id.clone(),
+            "info",
+            crate::AttributionClass::Internal,
+            "Processing started",
+            None,
+        );
         assert_eq!(frame.frame_type, FrameType::Log);
         assert_eq!(frame.id, id);
         assert_eq!(frame.log_level(), Some("info"));
@@ -1954,7 +2051,13 @@ mod tests {
     // TEST193: Test hello_max_frame and hello_max_chunk return None for non-Hello frame types
     #[test]
     fn test193_hello_accessors_on_non_hello_frame() {
-        let err = Frame::err(MessageId::new_uuid(), "E", "m");
+        let err = Frame::err(
+            MessageId::new_uuid(),
+            "E",
+            crate::failure::AttributionClass::Internal,
+            "m",
+            None,
+        );
         assert!(err.hello_max_frame().is_none());
         assert!(err.hello_max_chunk().is_none());
         assert!(err.hello_manifest().is_none());
@@ -2015,10 +2118,10 @@ mod tests {
         );
     }
 
-    // TEST199: Test PROTOCOL_VERSION is 3
+    // TEST199: Test PROTOCOL_VERSION is 4
     #[test]
     fn test199_protocol_version_constant() {
-        assert_eq!(PROTOCOL_VERSION, 3);
+        assert_eq!(PROTOCOL_VERSION, 4);
     }
 
     // TEST200: Test integer key constants match the protocol specification
@@ -2049,6 +2152,7 @@ mod tests {
                 initial_credit: DEFAULT_INITIAL_CREDIT,
             },
             &binary_manifest,
+            0,
         );
         assert_eq!(frame.hello_manifest().unwrap(), &binary_manifest);
     }
@@ -2223,7 +2327,7 @@ mod tests {
         assert_eq!(
             FrameType::from_u8(13),
             Some(FrameType::Credit),
-            "13 is Credit (v3)"
+            "13 is Credit (v4)"
         );
         assert!(
             FrameType::from_u8(14).is_none(),
@@ -2467,7 +2571,13 @@ mod tests {
         let rid = MessageId::new_uuid();
 
         let mut req = Frame::new(FrameType::Req, rid.clone());
-        let mut log = Frame::log(rid.clone(), "info", "progress");
+        let mut log = Frame::log(
+            rid.clone(),
+            "info",
+            crate::AttributionClass::Internal,
+            "progress",
+            None,
+        );
         let mut chunk = Frame::new(FrameType::Chunk, rid.clone());
         let mut end = Frame::end(rid.clone(), None);
 
@@ -2778,7 +2888,13 @@ mod tests {
         req.seq = 0;
         buf.accept(req).unwrap();
 
-        let mut err = Frame::err(rid.clone(), "TEST", "test error");
+        let mut err = Frame::err(
+            rid.clone(),
+            "TEST",
+            crate::failure::AttributionClass::Internal,
+            "test error",
+            None,
+        );
         err.seq = 1;
         let ready = buf.accept(err).unwrap();
         assert_eq!(ready.len(), 1);
@@ -2917,7 +3033,7 @@ mod tests {
         );
     }
 
-    // TEST6672: CBOR decode ACCEPTS STREAM_END without chunk_count — unbounded streams make no length promise (v3, L16)
+    // TEST6672: CBOR decode ACCEPTS STREAM_END without chunk_count — unbounded streams make no length promise (v4, L16)
     #[test]
     fn test6672_cbor_accepts_stream_end_without_chunk_count() {
         use crate::bifaci::io::{decode_frame, encode_frame};
@@ -2927,7 +3043,7 @@ mod tests {
         assert_eq!(frame.chunk_count, None);
 
         let encoded = encode_frame(&frame).expect("encoding should succeed");
-        let decoded = decode_frame(&encoded).expect("v3 accepts STREAM_END without chunk_count");
+        let decoded = decode_frame(&encoded).expect("v4 accepts STREAM_END without chunk_count");
         assert_eq!(decoded.frame_type, FrameType::StreamEnd);
         assert_eq!(decoded.id, req_id);
         assert_eq!(decoded.stream_id.as_deref(), Some("s1"));

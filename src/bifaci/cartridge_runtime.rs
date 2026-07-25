@@ -27,7 +27,7 @@
 //!     let mut runtime = CartridgeRuntime::new(manifest);
 //!
 //!     runtime.register::<MyRequest, _>("cap:my-op;...", |request, output, peer| {
-//!         output.log("info", "Starting work...");
+//!         output.log("info", capdag::AttributionClass::Internal, "Starting work...");
 //!         output.emit_cbor(&ciborium::Value::Bytes(b"result".to_vec()))?;
 //!         Ok(())
 //!     });
@@ -73,7 +73,7 @@ pub enum RuntimeError {
 
     /// A handler failure carrying its FULL identity: the machine-readable
     /// code the cartridge's typed error declares (`error_code()`), the
-    /// failure class it declares (`failure_class()` — whose problem it is),
+    /// failure class it declares (`attribution_class()` — whose problem it is),
     /// and the human message. This is what handler shims construct from
     /// typed errors instead of folding the code into message text; the ERR
     /// frame carries all three fields to the engine. Untyped failures stay
@@ -81,7 +81,7 @@ pub enum RuntimeError {
     #[error("{code}: {message}")]
     Classified {
         code: String,
-        class: crate::failure::FailureClass,
+        class: crate::failure::AttributionClass,
         message: String,
         /// Media URN of the ARGUMENT the failure is attributed to, declared
         /// by the emit source when — and only when — the failure is about one
@@ -133,11 +133,11 @@ impl RuntimeError {
     /// `Classified` carries its origin's declaration; a remote peer error
     /// carries the class the PEER's frame declared; everything else is
     /// `Internal` — unclassified means "ours", never a guess.
-    pub fn failure_class(&self) -> crate::failure::FailureClass {
+    pub fn attribution_class(&self) -> crate::failure::AttributionClass {
         match self {
             RuntimeError::Classified { class, .. } => *class,
             RuntimeError::Stream(StreamError::RemoteError { class, .. }) => *class,
-            _ => crate::failure::FailureClass::Internal,
+            _ => crate::failure::AttributionClass::Internal,
         }
     }
 
@@ -173,12 +173,12 @@ impl RuntimeError {
 
     /// Construct a classified handler failure — the cartridge-author entry
     /// point for typed errors: `code` from `error_code()`, `class` from
-    /// `failure_class()`, `message` for humans. No argument attribution;
+    /// `attribution_class()`, `message` for humans. No argument attribution;
     /// chain [`RuntimeError::with_arg_urn`] when the failure IS about one
     /// argument.
     pub fn classified(
         code: impl Into<String>,
-        class: crate::failure::FailureClass,
+        class: crate::failure::AttributionClass,
         message: impl Into<String>,
     ) -> Self {
         RuntimeError::Classified {
@@ -215,7 +215,7 @@ impl From<RuntimeError> for ops::OpError {
         match e.failure_code() {
             Some(code) => ops::OpError::Classified {
                 code: code.to_string(),
-                class: e.failure_class(),
+                class: e.attribution_class(),
                 message: e.failure_reason(),
                 arg_urn: e.failure_arg_urn().map(str::to_string),
             },
@@ -389,7 +389,7 @@ pub enum StreamError {
     #[error("Remote error [{code}]: {message}")]
     RemoteError {
         code: String,
-        class: crate::failure::FailureClass,
+        class: crate::failure::AttributionClass,
         message: String,
         arg_urn: Option<String>,
     },
@@ -405,6 +405,30 @@ pub enum StreamError {
 
     #[error("Protocol error: {0}")]
     Protocol(String),
+}
+
+fn remote_error_fields(
+    frame: &Frame,
+) -> Result<
+    (
+        String,
+        crate::failure::AttributionClass,
+        String,
+        Option<String>,
+    ),
+    String,
+> {
+    let code = frame
+        .error_code()
+        .ok_or_else(|| "ERR frame missing required text code".to_string())?
+        .to_string();
+    let message = frame
+        .error_message()
+        .ok_or_else(|| "ERR frame missing required text message".to_string())?
+        .to_string();
+    let class = frame.attribution_class()?;
+    let arg_urn = frame.attribution_arg_urn()?.map(str::to_string);
+    Ok((code, class, message, arg_urn))
 }
 
 /// Allows sending frames directly through the output channel.
@@ -665,8 +689,9 @@ pub enum PeerResponseItem {
 ///
 /// The handler drains this with `recv()` and reacts to each `PeerResponseItem` as it arrives.
 /// LOG frames are delivered in real-time as they arrive (not buffered until data starts).
-/// For callers that don't care about LOG frames, `collect_bytes()` and `collect_value()`
-/// silently discard them and return only data.
+/// Collection helpers fail if a LOG frame is present because silently dropping
+/// source diagnostics would violate the protocol's attribution contract. Callers
+/// that accept peer diagnostics must drain `recv()` or use a forwarding helper.
 pub struct PeerResponse {
     rx: tokio::sync::mpsc::UnboundedReceiver<PeerResponseItem>,
     /// Consumption grants for the responding peer's output window (L10/L14).
@@ -727,16 +752,76 @@ impl PeerResponse {
         Self { rx, grants: None }
     }
 
-    /// Collect all data chunks into a single byte vector, discarding LOG frames and metadata.
+    /// Collect finite peer data while preserving every peer side-channel frame.
+    /// Progress is mapped into the caller's declared range; non-progress LOG
+    /// frames retain the source's class and optional argument attribution.
+    pub async fn collect_bytes_forwarding(
+        mut self,
+        output: &OutputStream,
+        progress_base: f32,
+        progress_weight: f32,
+    ) -> Result<Vec<u8>, StreamError> {
+        let mut result = Vec::new();
+        while let Some(item) = self.recv().await {
+            match item {
+                PeerResponseItem::Data(Ok(value), _) => match value {
+                    ciborium::Value::Bytes(bytes) => result.extend(bytes),
+                    ciborium::Value::Text(text) => result.extend(text.into_bytes()),
+                    other => {
+                        let mut encoded = Vec::new();
+                        ciborium::into_writer(&other, &mut encoded).map_err(|error| {
+                            StreamError::Decode(format!("Failed to encode CBOR: {error}"))
+                        })?;
+                        result.extend(encoded);
+                    }
+                },
+                PeerResponseItem::Data(Err(error), _) => return Err(error),
+                PeerResponseItem::Log(frame) => {
+                    let level = frame.log_level().ok_or_else(|| {
+                        StreamError::Protocol("peer LOG missing required text level".to_string())
+                    })?;
+                    let message = frame.log_message().ok_or_else(|| {
+                        StreamError::Protocol("peer LOG missing required text message".to_string())
+                    })?;
+                    if level == "progress" {
+                        let progress = frame.log_progress().ok_or_else(|| {
+                            StreamError::Protocol(
+                                "peer progress LOG missing numeric progress".to_string(),
+                            )
+                        })?;
+                        output.progress(
+                            progress_base + progress.clamp(0.0, 1.0) * progress_weight,
+                            message,
+                        );
+                    } else {
+                        let class = frame
+                            .attribution_class()
+                            .map_err(StreamError::Protocol)?;
+                        match frame
+                            .attribution_arg_urn()
+                            .map_err(StreamError::Protocol)?
+                        {
+                            Some(arg_urn) => {
+                                output.log_for_argument(level, class, message, arg_urn)
+                            }
+                            None => output.log(level, class, message),
+                        }
+                    }
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    /// Collect all data chunks into a single byte vector.
     ///
-    /// WARNING: Only call this if you know the stream is finite.
+    /// Fails if a LOG frame is present; use `collect_bytes_forwarding` when the
+    /// peer may emit progress or ordinary diagnostics.
     pub async fn collect_bytes(mut self) -> Result<Vec<u8>, StreamError> {
         let mut result = Vec::new();
-        let mut chunk_count = 0u32;
         while let Some(item) = self.recv().await {
             match item {
                 PeerResponseItem::Data(Ok(value), _meta) => {
-                    chunk_count += 1;
                     match value {
                         ciborium::Value::Bytes(b) => result.extend(b),
                         ciborium::Value::Text(s) => result.extend(s.into_bytes()),
@@ -750,22 +835,40 @@ impl PeerResponse {
                     }
                 }
                 PeerResponseItem::Data(Err(e), _) => return Err(e),
-                PeerResponseItem::Log(_) => {} // Discard LOG frames
+                PeerResponseItem::Log(_) => {
+                    return Err(StreamError::Protocol(
+                        "peer response emitted a LOG frame; collect with explicit diagnostic forwarding"
+                            .to_string(),
+                    ));
+                }
             }
         }
         Ok(result)
     }
 
-    /// Collect a single CBOR data value (expects exactly one data chunk), discarding LOG frames and metadata.
+    /// Collect a single CBOR data value, requiring exactly one data chunk and
+    /// no LOG frames anywhere in the response.
     pub async fn collect_value(mut self) -> Result<ciborium::Value, StreamError> {
+        let mut value = None;
         while let Some(item) = self.recv().await {
             match item {
-                PeerResponseItem::Data(Ok(value), _meta) => return Ok(value),
+                PeerResponseItem::Data(Ok(next), _meta) => {
+                    if value.replace(next).is_some() {
+                        return Err(StreamError::Protocol(
+                            "peer response contained more than one value".to_string(),
+                        ));
+                    }
+                }
                 PeerResponseItem::Data(Err(e), _) => return Err(e),
-                PeerResponseItem::Log(_) => {} // Discard LOG frames
+                PeerResponseItem::Log(_) => {
+                    return Err(StreamError::Protocol(
+                        "peer response emitted a LOG frame; collect with explicit diagnostic forwarding"
+                            .to_string(),
+                    ));
+                }
             }
         }
-        Err(StreamError::Closed)
+        value.ok_or(StreamError::Closed)
     }
 }
 
@@ -946,8 +1049,38 @@ impl ProgressSender {
     }
 
     /// Emit a log message.
-    pub fn log(&self, level: &str, message: &str) {
-        let mut frame = Frame::log(self.request_id.clone(), level, message);
+    pub fn log(
+        &self,
+        level: &str,
+        attribution_class: crate::failure::AttributionClass,
+        message: &str,
+    ) {
+        let mut frame = Frame::log(
+            self.request_id.clone(),
+            level,
+            attribution_class,
+            message,
+            None,
+        );
+        frame.routing_id = self.routing_id.clone();
+        let _ = self.sender.send(&frame);
+    }
+
+    /// Emit a log message attributed by the source to one argument media URN.
+    pub fn log_for_argument(
+        &self,
+        level: &str,
+        attribution_class: crate::failure::AttributionClass,
+        message: &str,
+        arg_urn: &str,
+    ) {
+        let mut frame = Frame::log(
+            self.request_id.clone(),
+            level,
+            attribution_class,
+            message,
+            Some(arg_urn),
+        );
         frame.routing_id = self.routing_id.clone();
         let _ = self.sender.send(&frame);
     }
@@ -1431,8 +1564,38 @@ impl OutputStream {
     }
 
     /// Emit a log message.
-    pub fn log(&self, level: &str, message: &str) {
-        let mut frame = Frame::log(self.request_id.clone(), level, message);
+    pub fn log(
+        &self,
+        level: &str,
+        attribution_class: crate::failure::AttributionClass,
+        message: &str,
+    ) {
+        let mut frame = Frame::log(
+            self.request_id.clone(),
+            level,
+            attribution_class,
+            message,
+            None,
+        );
+        frame.routing_id = self.routing_id.clone();
+        let _ = self.sender.send(&frame);
+    }
+
+    /// Emit a log message attributed by the source to one argument media URN.
+    pub fn log_for_argument(
+        &self,
+        level: &str,
+        attribution_class: crate::failure::AttributionClass,
+        message: &str,
+        arg_urn: &str,
+    ) {
+        let mut frame = Frame::log(
+            self.request_id.clone(),
+            level,
+            attribution_class,
+            message,
+            Some(arg_urn),
+        );
         frame.routing_id = self.routing_id.clone();
         let _ = self.sender.send(&frame);
     }
@@ -1597,29 +1760,24 @@ impl OutputStream {
         let tick_counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
         let tick_counter_for_ticker = tick_counter.clone();
 
-        // Helper: build a Log frame stamped with the request's rid +
-        // routing_id, with the given level and message. Mirrors
-        // `Frame::log` but lets us pick the level explicitly so we
-        // can use "debug" for normal ticks and "warn"/"error" for
-        // anomalies.
+        // Helper: build an attributed diagnostic Log frame stamped with the
+        // request's rid + routing_id. Keepalive lifecycle diagnostics describe
+        // runtime internals; progress ticks remain the separate, unattributed
+        // functional progress channel below.
         fn keepalive_log_frame(
             rid: &MessageId,
             xid: &Option<MessageId>,
             level: &str,
             message: &str,
         ) -> Frame {
-            let mut meta = std::collections::BTreeMap::new();
-            meta.insert(
-                "level".to_string(),
-                ciborium::Value::Text(level.to_string()),
+            let mut frame = Frame::log(
+                rid.clone(),
+                level,
+                crate::AttributionClass::Internal,
+                message,
+                None,
             );
-            meta.insert(
-                "message".to_string(),
-                ciborium::Value::Text(message.to_string()),
-            );
-            let mut frame = Frame::new(FrameType::Log, rid.clone());
             frame.routing_id = xid.clone();
-            frame.meta = Some(meta);
             frame
         }
 
@@ -1836,8 +1994,8 @@ pub trait PeerInvoker: Send + Sync {
 
     /// Convenience: open call, write each arg's bytes, finish, return response.
     ///
-    /// Returns a `PeerResponse` — use `collect_bytes()` / `collect_value()` to
-    /// discard LOG frames, or `recv()` to process them alongside data.
+    /// Returns a `PeerResponse`. Use `recv()` or a forwarding collector when
+    /// the peer may emit diagnostics; plain collectors fail on LOG frames.
     async fn call_with_bytes(
         &self,
         cap_urn: &str,
@@ -2099,8 +2257,20 @@ impl FrameSender for CliFrameSender {
             }
             FrameType::Log => {
                 // Extract log message and emit to stderr
-                let level = frame.log_level().unwrap_or("INFO");
-                let message = frame.log_message().unwrap_or("");
+                let level = frame.log_level().ok_or_else(|| {
+                    RuntimeError::Protocol("LOG frame missing required text level".to_string())
+                })?;
+                let message = frame.log_message().ok_or_else(|| {
+                    RuntimeError::Protocol("LOG frame missing required text message".to_string())
+                })?;
+                if frame.log_progress().is_none() {
+                    frame
+                        .attribution_class()
+                        .map_err(RuntimeError::Protocol)?;
+                    frame
+                        .attribution_arg_urn()
+                        .map_err(RuntimeError::Protocol)?;
+                }
                 self.emitter.emit_log(level, message);
                 Ok(())
             }
@@ -2109,15 +2279,15 @@ impl FrameSender for CliFrameSender {
                 Ok(())
             }
             FrameType::Err => {
+                let (code, class, message, arg_urn) =
+                    remote_error_fields(&frame).map_err(RuntimeError::Protocol)?;
                 // Keep the frame's declared code/class/message structural —
                 // CLI mode still owes the caller the real failure identity.
                 Err(RuntimeError::Classified {
-                    code: frame.error_code().unwrap_or("ERROR").to_string(),
-                    class: frame
-                        .error_class()
-                        .unwrap_or(crate::failure::FailureClass::Internal),
-                    message: frame.error_message().unwrap_or("Unknown error").to_string(),
-                    arg_urn: frame.error_arg_urn().map(str::to_string),
+                    code,
+                    class,
+                    message,
+                    arg_urn,
                 })
             }
             _ => {
@@ -3397,12 +3567,16 @@ fn demux_multi_stream(
                 }
 
                 FrameType::Err => {
-                    let code = frame.error_code().unwrap_or("UNKNOWN").to_string();
-                    let class = frame
-                        .error_class()
-                        .unwrap_or(crate::failure::FailureClass::Internal);
-                    let message = frame.error_message().unwrap_or("Unknown error").to_string();
-                    let arg_urn = frame.error_arg_urn().map(str::to_string);
+                    let (code, class, message, arg_urn) = match remote_error_fields(&frame) {
+                        Ok(fields) => fields,
+                        Err(message) => {
+                            for (_, tx) in &stream_channels {
+                                let _ = tx.send(Err(StreamError::Protocol(message.clone())));
+                            }
+                            let _ = streams_tx.send(Err(StreamError::Protocol(message)));
+                            break;
+                        }
+                    };
                     // Error all open streams
                     for (_, tx) in &stream_channels {
                         let _ = tx.send(Err(StreamError::RemoteError {
@@ -3560,12 +3734,16 @@ fn demux_single_stream(
                     break;
                 }
                 FrameType::Err => {
-                    let code = frame.error_code().unwrap_or("UNKNOWN").to_string();
-                    let class = frame
-                        .error_class()
-                        .unwrap_or(crate::failure::FailureClass::Internal);
-                    let message = frame.error_message().unwrap_or("Unknown error").to_string();
-                    let arg_urn = frame.error_arg_urn().map(str::to_string);
+                    let (code, class, message, arg_urn) = match remote_error_fields(&frame) {
+                        Ok(fields) => fields,
+                        Err(message) => {
+                            let _ = item_tx.send(PeerResponseItem::Data(
+                                Err(StreamError::Protocol(message)),
+                                None,
+                            ));
+                            break;
+                        }
+                    };
                     let _ = item_tx.send(PeerResponseItem::Data(
                         Err(StreamError::RemoteError {
                             code,
@@ -3704,7 +3882,7 @@ async fn dispatch_op(
         match e.failure_code() {
             Some(code) => RuntimeError::Classified {
                 code: code.to_string(),
-                class: e.failure_class(),
+                class: e.attribution_class(),
                 message: e.failure_reason(),
                 arg_urn: e.failure_arg_urn().map(str::to_string),
             },
@@ -3872,10 +4050,10 @@ fn spawn_handler(
                 // attribution from the emit source when classified,
                 // HANDLER_ERROR/Internal/unattributed when the handler never
                 // declared one.
-                let mut err_frame = Frame::err_classified(
+                let mut err_frame = Frame::err(
                     request_id.clone(),
                     e.failure_code().unwrap_or("HANDLER_ERROR"),
-                    e.failure_class(),
+                    e.attribution_class(),
                     &e.failure_reason(),
                     e.failure_arg_urn(),
                 );
@@ -4782,8 +4960,13 @@ impl CartridgeRuntime {
         let mut hs_async_writer = tokio::io::BufWriter::new(handshake_stdout);
         let mut hs_frame_writer = FrameWriter::new(&mut hs_async_writer);
 
-        let negotiated_limits =
-            handshake_accept(&mut frame_reader, &mut hs_frame_writer, &self.manifest_data).await?;
+        let negotiated_limits = handshake_accept(
+            &mut frame_reader,
+            &mut hs_frame_writer,
+            &self.manifest_data,
+            self.capacity.get(),
+        )
+        .await?;
         frame_reader.set_limits(negotiated_limits.clone());
         // Flush and drop the async handshake writer; safe_fd stays open for sync writes.
         drop(hs_frame_writer);
@@ -4946,7 +5129,9 @@ impl CartridgeRuntime {
                 let mut dequeued_log = Frame::log(
                     queued.request_id.clone(),
                     "dequeued",
+                    crate::failure::AttributionClass::Internal,
                     "Request dequeued, handler starting",
+                    None,
                 );
                 dequeued_log.routing_id = queued.routing_id.clone();
                 let _ = output_tx.send(dequeued_log);
@@ -4984,7 +5169,13 @@ impl CartridgeRuntime {
                     credit_router.close_request(&rid, "END");
                     if cancelled_requests.remove(&rid) {
                         let routing_id = handler_routing_ids.remove(&rid).flatten();
-                        let mut err = Frame::err(rid, "CANCELLED", "Request cancelled");
+                        let mut err = Frame::err(
+                            rid,
+                            "CANCELLED",
+                            crate::failure::AttributionClass::Internal,
+                            "Request cancelled",
+                            None,
+                        );
                         err.routing_id = routing_id;
                         let _ = output_tx.send(err);
                     } else {
@@ -5010,8 +5201,13 @@ impl CartridgeRuntime {
                     let cap_urn = match frame.cap.as_ref() {
                         Some(urn) => urn.clone(),
                         None => {
-                            let mut err_frame =
-                                Frame::err(frame.id, "INVALID_REQUEST", "Request missing cap URN");
+                            let mut err_frame = Frame::err(
+                                frame.id,
+                                "INVALID_REQUEST",
+                                crate::failure::AttributionClass::Internal,
+                                "Request missing cap URN",
+                                None,
+                            );
                             err_frame.routing_id = routing_id;
                             let _ = output_tx.send(err_frame);
                             continue;
@@ -5023,10 +5219,10 @@ impl CartridgeRuntime {
                         None => {
                             // A dispatched cap this binary doesn't handle is a
                             // deployment/manifest mismatch — Environment.
-                            let mut err_frame = Frame::err_classified(
+                            let mut err_frame = Frame::err(
                                 frame.id.clone(),
                                 "NO_HANDLER",
-                                crate::failure::FailureClass::Environment,
+                                crate::failure::AttributionClass::Environment,
                                 &format!("No handler registered for cap: {}", cap_urn),
                                 None,
                             );
@@ -5040,7 +5236,9 @@ impl CartridgeRuntime {
                         let mut err_frame = Frame::err(
                             frame.id,
                             "PROTOCOL_ERROR",
+                            crate::failure::AttributionClass::Internal,
                             "REQ frame must have empty payload - use STREAM_START for arguments",
+                            None,
                         );
                         err_frame.routing_id = routing_id;
                         let _ = output_tx.send(err_frame);
@@ -5064,10 +5262,12 @@ impl CartridgeRuntime {
                         let mut log_frame = Frame::log(
                             request_id.clone(),
                             "queued",
+                            crate::failure::AttributionClass::Internal,
                             &format!(
                                 "Request queued (position {}, {} active)",
                                 queue_pos, running_handler_count
                             ),
+                            None,
                         );
                         log_frame.routing_id = routing_id.clone();
                         let _ = output_tx.send(log_frame);
@@ -5184,7 +5384,9 @@ impl CartridgeRuntime {
                         let mut err = Frame::err(
                             target_rid.clone(),
                             "CANCELLED",
+                            crate::failure::AttributionClass::Internal,
                             "Request cancelled while queued",
+                            None,
                         );
                         err.routing_id = queued.routing_id;
                         let _ = output_tx.send(err);
@@ -5263,7 +5465,17 @@ impl CartridgeRuntime {
                     meta.insert(
                         "drops_total".into(),
                         ciborium::Value::Integer(
-                            i64::try_from(self.drop_counters.total()).unwrap_or(i64::MAX).into(),
+                            u64::try_from(self.drop_counters.total())
+                                .expect("drop total must fit the protocol's uint64 domain")
+                                .into(),
+                        ),
+                    );
+                    meta.insert(
+                        "handler_capacity".into(),
+                        ciborium::Value::Integer(
+                            u64::try_from(self.capacity.get())
+                                .expect("handler capacity must fit the protocol's uint64 domain")
+                                .into(),
                         ),
                     );
                     response.meta = Some(meta);
@@ -5274,7 +5486,9 @@ impl CartridgeRuntime {
                     let err_frame = Frame::err(
                         frame.id,
                         "PROTOCOL_ERROR",
+                        crate::failure::AttributionClass::Internal,
                         "Unexpected HELLO after handshake",
+                        None,
                     );
                     let _ = output_tx.send(err_frame);
                 }
@@ -5478,7 +5692,7 @@ mod tests {
         ));
 
         // But a flow frame for A is gated.
-        let late_a = Frame::log(rid_a, "info", "late");
+        let late_a = Frame::log(rid_a, "info", crate::AttributionClass::Internal, "late", None);
         assert!(matches!(
             write_gated(late_a, &mut wire, &limits, &mut seq, &mut terminated, &drops),
             GatedWrite::DroppedPostTerminal
@@ -5686,7 +5900,7 @@ mod tests {
             tx,
             drops: Arc::clone(&drops),
         };
-        let _ = sender.send(&Frame::log(rid, "info", "dead channel"));
+        let _ = sender.send(&Frame::log(rid, "info", crate::AttributionClass::Internal, "dead channel", None));
 
         let snap = drops.snapshot();
         assert_eq!(snap.total, 3, "each induced drop counted exactly once (L8)");
@@ -10046,7 +10260,9 @@ mod tests {
             .send(Frame::log(
                 req_id.clone(),
                 "status",
+                crate::AttributionClass::Internal,
                 "large file in progress",
+                None,
             ))
             .unwrap();
 
@@ -10131,9 +10347,74 @@ mod tests {
         );
     }
 
-    // TEST840: PeerResponse::collect_bytes discards LOG frames
+    // TEST7118: finite peer collection preserves source diagnostics instead
+    // of consuming them as data or dropping them. Progress is mapped into the
+    // caller's range and argument attribution survives byte-for-byte.
     #[tokio::test]
-    async fn test840_peer_response_collect_bytes_discards_logs() {
+    async fn test7118_collect_bytes_forwarding_preserves_peer_side_channels() {
+        let request_id = MessageId::new_uuid();
+        let (item_tx, item_rx) = unbounded_channel();
+        item_tx
+            .send(PeerResponseItem::Log(Frame::progress(
+                request_id.clone(),
+                0.5,
+                "halfway",
+            )))
+            .unwrap();
+        item_tx
+            .send(PeerResponseItem::Log(Frame::log(
+                request_id,
+                "warn",
+                crate::failure::AttributionClass::Resource,
+                "cache pressure",
+                Some("media:model-spec"),
+            )))
+            .unwrap();
+        item_tx
+            .send(PeerResponseItem::Data(
+                Ok(ciborium::Value::Text("payload".to_string())),
+                None,
+            ))
+            .unwrap();
+        drop(item_tx);
+
+        let response = PeerResponse {
+            rx: item_rx,
+            grants: None,
+        };
+        let (sender, frames) = MockFrameSender::new();
+        let output = OutputStream::new(
+            Arc::new(sender),
+            "output".to_string(),
+            "media:test".to_string(),
+            MessageId::new_uuid(),
+            None,
+            256_000,
+        );
+
+        let bytes = response
+            .collect_bytes_forwarding(&output, 0.2, 0.4)
+            .await
+            .unwrap();
+        assert_eq!(bytes, b"payload");
+
+        let frames = frames.lock().unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].log_progress(), Some(0.4));
+        assert_eq!(frames[0].log_message(), Some("halfway"));
+        assert_eq!(
+            frames[1].attribution_class(),
+            Ok(crate::failure::AttributionClass::Resource)
+        );
+        assert_eq!(
+            frames[1].attribution_arg_urn().unwrap(),
+            Some("media:model-spec")
+        );
+    }
+
+    // TEST840: PeerResponse::collect_bytes rejects unhandled LOG frames.
+    #[tokio::test]
+    async fn test840_peer_response_collect_bytes_rejects_unhandled_logs() {
         let (sender, _frames) = MockFrameSender::new();
         let (response_tx, response_rx) = unbounded_channel();
 
@@ -10145,7 +10426,7 @@ mod tests {
         start.media_urn = Some("media:binary".to_string());
         response_tx.send(start).unwrap();
 
-        // LOG frame (should be discarded by collect_bytes)
+        // LOG frames require explicit forwarding.
         response_tx
             .send(Frame::progress(req_id.clone(), 0.25, "working"))
             .unwrap();
@@ -10170,7 +10451,7 @@ mod tests {
 
         // Another LOG
         response_tx
-            .send(Frame::log(req_id.clone(), "info", "done"))
+            .send(Frame::log(req_id.clone(), "info", crate::AttributionClass::Internal, "done", None))
             .unwrap();
 
         // STREAM_END
@@ -10189,19 +10470,16 @@ mod tests {
         };
 
         let response = peer.finish().await.expect("finish must succeed");
-        let bytes = response
+        let error = response
             .collect_bytes()
             .await
-            .expect("collect must succeed");
-        assert_eq!(
-            bytes, b"hello",
-            "collect_bytes must return only data, discarding all LOG frames"
-        );
+            .expect_err("collect must reject an unhandled diagnostic");
+        assert!(error.to_string().contains("explicit diagnostic forwarding"));
     }
 
-    // TEST841: PeerResponse::collect_value discards LOG frames
+    // TEST841: PeerResponse::collect_value rejects unhandled LOG frames.
     #[tokio::test]
-    async fn test841_peer_response_collect_value_discards_logs() {
+    async fn test841_peer_response_collect_value_rejects_unhandled_logs() {
         let (sender, _frames) = MockFrameSender::new();
         let (response_tx, response_rx) = unbounded_channel();
 
@@ -10218,7 +10496,7 @@ mod tests {
             .send(Frame::progress(req_id.clone(), 0.5, "half"))
             .unwrap();
         response_tx
-            .send(Frame::log(req_id.clone(), "debug", "processing"))
+            .send(Frame::log(req_id.clone(), "debug", crate::AttributionClass::Internal, "processing", None))
             .unwrap();
 
         // Single CHUNK with a CBOR integer
@@ -10252,15 +10530,11 @@ mod tests {
         };
 
         let response = peer.finish().await.expect("finish must succeed");
-        let value = response
+        let error = response
             .collect_value()
             .await
-            .expect("collect must succeed");
-        assert_eq!(
-            value,
-            Value::Integer(42.into()),
-            "collect_value must skip LOG frames and return first data value"
-        );
+            .expect_err("collect must reject an unhandled diagnostic");
+        assert!(error.to_string().contains("explicit diagnostic forwarding"));
     }
 
     // ==================== find_stream / require_stream Tests ====================
@@ -10421,6 +10695,24 @@ mod tests {
                 .filter(|f| f.frame_type == FrameType::Log)
                 .count()
         );
+        let diagnostics: Vec<_> = captured
+            .iter()
+            .filter(|frame| {
+                frame.frame_type == FrameType::Log
+                    && frame.log_level() != Some("progress")
+            })
+            .collect();
+        assert!(
+            !diagnostics.is_empty(),
+            "the synchronous ticker-start diagnostic must be observable"
+        );
+        for diagnostic in diagnostics {
+            assert_eq!(
+                diagnostic.attribution_class(),
+                Ok(crate::AttributionClass::Internal),
+                "keepalive lifecycle diagnostics must satisfy the attributed LOG wire contract",
+            );
+        }
     }
 
     // TEST843: run_with_keepalive returns Ok/Err from closure
@@ -10483,7 +10775,7 @@ mod tests {
 
         let ps = stream.progress_sender();
         ps.progress(0.5, "halfway there");
-        ps.log("info", "loading complete");
+        ps.log("info", crate::AttributionClass::Internal, "loading complete");
 
         let captured = frames.lock().unwrap();
         assert_eq!(captured.len(), 2, "ProgressSender should emit 2 frames");

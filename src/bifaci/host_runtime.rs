@@ -356,6 +356,8 @@ struct ManagedCartridge {
     installed_identity: Option<InstalledCartridgeRecord>,
     /// Whether the cartridge is currently running and healthy.
     running: bool,
+    /// Cartridge-advertised live handler capacity. Zero means unlimited.
+    handler_capacity: usize,
     /// Reader task handle.
     reader_handle: Option<JoinHandle<()>>,
     /// Writer task handle.
@@ -427,6 +429,7 @@ impl ManagedCartridge {
             cap_groups,
             installed_identity,
             running: false,
+            handler_capacity: 0,
             reader_handle: None,
             writer_handle: None,
             hello_failed: false,
@@ -545,6 +548,7 @@ impl ManagedCartridge {
             cap_groups,
             installed_identity,
             running: false,
+            handler_capacity: 0,
             reader_handle: None,
             writer_handle: None,
             hello_failed,
@@ -564,6 +568,7 @@ impl ManagedCartridge {
     fn new_attached(
         manifest: Vec<u8>,
         limits: Limits,
+        handler_capacity: usize,
         cap_groups: Vec<crate::bifaci::manifest::CapGroup>,
         installed_identity: Option<InstalledCartridgeRecord>,
     ) -> Self {
@@ -577,6 +582,7 @@ impl ManagedCartridge {
             cap_groups,
             installed_identity,
             running: true,
+            handler_capacity,
             reader_handle: None,
             writer_handle: None,
             hello_failed: false,
@@ -808,9 +814,10 @@ pub struct CartridgeHostRuntime {
     /// dead cartridges are counted drops, never silent losses.
     drops: Arc<crate::bifaci::stats::DropCounters>,
     /// Incoming requests whose REQUEST BODY has completed (body END routed to
-    /// the handler) but whose RESPONSE has not yet terminated. v3 keeps
+    /// the handler) but whose RESPONSE has not yet terminated. The current
+    /// protocol keeps
     /// `incoming_rxids` alive through this phase — engine→cartridge CREDIT
-    /// grants for the handler's OUTPUT arrive throughout it (the pre-v3 code
+    /// grants for the handler's OUTPUT arrive throughout it (earlier code
     /// removed the entry at body END, silently killing every output grant and
     /// deadlocking any response larger than the initial window). Data frames
     /// arriving from the relay during this phase are self-loop peer responses
@@ -1223,6 +1230,7 @@ impl CartridgeHostRuntime {
         let mut cartridge = ManagedCartridge::new_attached(
             result.manifest,
             result.limits,
+            result.handler_capacity,
             cap_groups,
             installed_identity,
         );
@@ -1462,10 +1470,10 @@ impl CartridgeHostRuntime {
                             if self.cartridges[idx].hello_failed {
                                 // Handshake failure is a broken runtime
                                 // deployment — Environment.
-                                let mut err = Frame::err_classified(
+                                let mut err = Frame::err(
                                     frame.id.clone(),
                                     "CARTRIDGE_UNAVAILABLE",
-                                    crate::failure::FailureClass::Environment,
+                                    crate::failure::AttributionClass::Environment,
                                     &format!(
                                         "Cartridge '{}' failed handshake and cannot be spawned",
                                         target_id
@@ -1483,10 +1491,10 @@ impl CartridgeHostRuntime {
                         None => {
                             // Missing cartridge on this host is a deployment
                             // problem — Environment.
-                            let mut err = Frame::err_classified(
+                            let mut err = Frame::err(
                                 frame.id.clone(),
                                 "CARTRIDGE_NOT_FOUND",
-                                crate::failure::FailureClass::Environment,
+                                crate::failure::AttributionClass::Environment,
                                 &format!("Cartridge '{}' not found on this host", target_id),
                                 None,
                             );
@@ -1511,10 +1519,10 @@ impl CartridgeHostRuntime {
                             );
                             // No dispatchable cartridge for a planned cap is a
                             // deployment/manifest mismatch — Environment.
-                            let mut err = Frame::err_classified(
+                            let mut err = Frame::err(
                                 frame.id.clone(),
                                 "NO_HANDLER",
-                                crate::failure::FailureClass::Environment,
+                                crate::failure::AttributionClass::Environment,
                                 &format!("no cartridge handles cap: {}", cap_urn),
                                 None,
                             );
@@ -1603,7 +1611,7 @@ impl CartridgeHostRuntime {
                                 target: "host_runtime",
                                 rid = ?frame.id,
                                 no_route_total = total,
-                                "[CartridgeHostRuntime] dropped CREDIT without direction — v3 requires credit_dir (no_route, L11)"
+                                "[CartridgeHostRuntime] dropped CREDIT without direction — v4 requires credit_dir (no_route, L11)"
                             );
                             return Ok(());
                         }
@@ -1671,10 +1679,10 @@ impl CartridgeHostRuntime {
                         .unwrap_or("Cartridge exited while processing request");
                     // A dead cartridge process is a runtime-environment
                     // failure — Environment (docs/failure-taxonomy.md).
-                    let mut err = Frame::err_classified(
+                    let mut err = Frame::err(
                         frame.id.clone(),
                         "CARTRIDGE_DIED",
-                        crate::failure::FailureClass::Environment,
+                        crate::failure::AttributionClass::Environment,
                         death_msg,
                         None,
                     );
@@ -1694,7 +1702,7 @@ impl CartridgeHostRuntime {
                 // Terminal bookkeeping.
                 // - Via incoming_rxids: the REQUEST BODY completed. The entry
                 //   STAYS — the handler's response is still flowing and its
-                //   output CREDIT grants route through it (v3). It is removed
+                //   output CREDIT grants route through it (v4). It is removed
                 //   when the handler's response terminal passes outbound
                 //   (handle_cartridge_frame) or on cartridge death.
                 // - Via outgoing_rids: a peer RESPONSE completed — clean up.
@@ -1834,6 +1842,21 @@ impl CartridgeHostRuntime {
                             self.cartridges[cartridge_idx].protocol_drops_total =
                                 Some(u64::try_from(*v).unwrap_or(0));
                         }
+                        let capacity = meta
+                            .get("handler_capacity")
+                            .and_then(|value| match value {
+                                ciborium::Value::Integer(value) => {
+                                    usize::try_from(*value).ok()
+                                }
+                                _ => None,
+                            })
+                            .ok_or_else(|| {
+                                AsyncHostError::Protocol(format!(
+                                    "Cartridge {} heartbeat missing required non-negative handler_capacity",
+                                    cartridge_idx
+                                ))
+                            })?;
+                        self.cartridges[cartridge_idx].handler_capacity = capacity;
                     }
                     // Stamp the round-trip completion timestamp so the
                     // runtime-stats snapshot can surface heartbeat age to the UI.
@@ -1936,7 +1959,7 @@ impl CartridgeHostRuntime {
                         self.outgoing_max_seq_touched.remove(&flow_key);
 
                         // The handler's RESPONSE terminal is the request's true
-                        // end at this host (v3): once the body has completed
+                        // end at this host (v4): once the body has completed
                         // too, release the incoming routing entry and its
                         // body-done marker. If the response terminates BEFORE
                         // the body END arrives (response-first race), remember
@@ -2163,7 +2186,7 @@ impl CartridgeHostRuntime {
         // OOM kill is a Resource problem, a cancel stays Internal.
         // Both unexpected deaths and OOM kills send ERR frames for pending work.
         // Only AppExit suppresses ERR frames (relay is closing, no callers left).
-        let err_info: Option<(&str, crate::failure::FailureClass, String)> = match reason {
+        let err_info: Option<(&str, crate::failure::AttributionClass, String)> = match reason {
             None => {
                 // Unexpected death — genuine crash mid-flight
                 let exit_suffix = if exit_info.is_empty() {
@@ -2187,7 +2210,7 @@ impl CartridgeHostRuntime {
                 };
                 Some((
                     "CARTRIDGE_DIED",
-                    crate::failure::FailureClass::Environment,
+                    crate::failure::AttributionClass::Environment,
                     error_message,
                 ))
             }
@@ -2214,7 +2237,7 @@ impl CartridgeHostRuntime {
                 };
                 Some((
                     "OOM_KILLED",
-                    crate::failure::FailureClass::Resource,
+                    crate::failure::AttributionClass::Resource,
                     error_message,
                 ))
             }
@@ -2222,7 +2245,7 @@ impl CartridgeHostRuntime {
                 // Cancel-triggered kill — ERR "CANCELLED" for all pending work
                 Some((
                     "CANCELLED",
-                    crate::failure::FailureClass::Internal,
+                    crate::failure::AttributionClass::Internal,
                     format!(
                         "Cartridge {} killed by cancel request.",
                         self.cartridges[cartridge_idx].path.display()
@@ -2235,7 +2258,7 @@ impl CartridgeHostRuntime {
             }
         };
 
-        if let Some((error_code, failure_class, error_message)) = err_info {
+        if let Some((error_code, attribution_class, error_message)) = err_info {
             self.cartridges[cartridge_idx].last_death_message = Some(error_message.clone());
 
             // Surface the death (with the OS exit status / signal captured above)
@@ -2253,10 +2276,10 @@ impl CartridgeHostRuntime {
             );
 
             for (rid, next_seq) in &failed_outgoing {
-                let mut err_frame = Frame::err_classified(
+                let mut err_frame = Frame::err(
                     rid.clone(),
                     error_code,
-                    failure_class,
+                    attribution_class,
                     &error_message,
                     None,
                 );
@@ -2264,10 +2287,10 @@ impl CartridgeHostRuntime {
                 let _ = outbound_tx.send(err_frame);
             }
             for (xid, rid, next_seq) in &failed_incoming {
-                let mut err_frame = Frame::err_classified(
+                let mut err_frame = Frame::err(
                     rid.clone(),
                     error_code,
-                    failure_class,
+                    attribution_class,
                     &error_message,
                     None,
                 );
@@ -2634,6 +2657,7 @@ impl CartridgeHostRuntime {
         let cartridge = &mut self.cartridges[cartridge_idx];
         cartridge.manifest = handshake_result.manifest;
         cartridge.limits = handshake_result.limits;
+        cartridge.handler_capacity = handshake_result.handler_capacity;
         cartridge.cap_groups = cap_groups;
         cartridge.running = true;
         cartridge.process = Some(child);
@@ -2824,10 +2848,10 @@ impl CartridgeHostRuntime {
                     self.outgoing_max_seq_touched.remove(&flow_key);
                     // A hung cartridge process is a runtime-environment
                     // failure — Environment.
-                    let mut err_frame = Frame::err_classified(
+                    let mut err_frame = Frame::err(
                         rid.clone(),
                         "CARTRIDGE_UNHEALTHY",
-                        crate::failure::FailureClass::Environment,
+                        crate::failure::AttributionClass::Environment,
                         "Cartridge stopped responding to heartbeats",
                         None,
                     );
@@ -2854,10 +2878,10 @@ impl CartridgeHostRuntime {
                         .map(|s| s + 1)
                         .unwrap_or(0);
                     self.outgoing_max_seq_touched.remove(&flow_key);
-                    let mut err_frame = Frame::err_classified(
+                    let mut err_frame = Frame::err(
                         rid.clone(),
                         "CARTRIDGE_UNHEALTHY",
-                        crate::failure::FailureClass::Environment,
+                        crate::failure::AttributionClass::Environment,
                         "Cartridge stopped responding to heartbeats",
                         None,
                     );
@@ -2936,6 +2960,7 @@ impl CartridgeHostRuntime {
                 let pid = cartridge.process.as_ref().and_then(|c| c.id());
                 let stats = CartridgeRuntimeStats {
                     running: cartridge.running,
+                    handler_capacity: cartridge.handler_capacity as u64,
                     pid,
                     active_request_count: *active_counts.get(&_idx).unwrap_or(&0),
                     peer_request_count: *peer_counts.get(&_idx).unwrap_or(&0),
@@ -2945,7 +2970,7 @@ impl CartridgeHostRuntime {
                     restart_count: cartridge.restart_count,
                     protocol_drops_total: cartridge.protocol_drops_total,
                 };
-                // A cartridge whose HELLO failed (e.g. a pre-v3 binary hard-
+                // A cartridge whose HELLO failed (e.g. a pre-v4 binary hard-
                 // rejected by the version check) stays IN the inventory with
                 // an attachment error — never silently absent. It carries no
                 // cap_groups, so it is never routable.
@@ -3398,7 +3423,7 @@ mod tests {
 
         let mut reader = FrameReader::new(BufReader::new(from_runtime));
         let mut writer = FrameWriter::new(BufWriter::new(to_runtime));
-        handshake_accept(&mut reader, &mut writer, manifest)
+        handshake_accept(&mut reader, &mut writer, manifest, 0)
             .await
             .unwrap();
 
@@ -3535,6 +3560,7 @@ mod tests {
         let cartridge = ManagedCartridge::new_attached(
             manifest.as_bytes().to_vec(),
             Limits::default(),
+            0,
             Vec::new(),
             Some(record.clone()),
         );
@@ -4261,7 +4287,7 @@ mod tests {
             }
 
             // Send LOG + response (LOG should be forwarded too)
-            let mut log = Frame::log(req_id_for_cartridge.clone(), "info", "Processing");
+            let mut log = Frame::log(req_id_for_cartridge.clone(), "info", crate::AttributionClass::Internal, "Processing", None);
             seq.assign(&mut log);
             w.write(&log).await.unwrap();
             let sid = "rs".to_string();
@@ -5159,14 +5185,14 @@ mod tests {
             use crate::bifaci::io::{handshake_accept, FrameReader, FrameWriter};
             let mut reader = FrameReader::new(BufReader::new(p_from_rt));
             let mut writer = FrameWriter::new(BufWriter::new(p_to_rt));
-            handshake_accept(&mut reader, &mut writer, &m)
+            handshake_accept(&mut reader, &mut writer, &m, 0)
                 .await
                 .unwrap();
 
             // Read identity REQ, respond with ERR (broken identity handler)
             let req = reader.read().await.unwrap().expect("expected identity REQ");
             assert_eq!(req.frame_type, FrameType::Req);
-            let err = Frame::err(req.id, "BROKEN", "identity handler is broken");
+            let err = Frame::err(req.id, "BROKEN", crate::AttributionClass::Internal, "identity handler is broken", None);
             writer.write(&err).await.unwrap();
         });
 
@@ -6054,7 +6080,7 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert!(records[0].attachment_error.is_none());
 
-        // HELLO permanently fails (e.g. a pre-v3 binary rejected by the
+        // HELLO permanently fails (e.g. a pre-v4 binary rejected by the
         // version check): the record STAYS, carrying the failure — the UI
         // must always be able to name why a cartridge is not serving.
         runtime.cartridges[0].hello_failed = true;
@@ -6154,6 +6180,10 @@ mod tests {
         let mut response = Frame::heartbeat(hb_id);
         let mut meta = std::collections::BTreeMap::new();
         meta.insert("drops_total".into(), ciborium::Value::Integer(42.into()));
+        meta.insert(
+            "handler_capacity".into(),
+            ciborium::Value::Integer(0.into()),
+        );
         response.meta = Some(meta);
         runtime
             .handle_cartridge_frame(0, response, &outbound_tx)
@@ -6175,6 +6205,10 @@ mod tests {
         let mut response = Frame::heartbeat(hb_id);
         let mut meta = std::collections::BTreeMap::new();
         meta.insert("drops_total".into(), ciborium::Value::Integer(45.into()));
+        meta.insert(
+            "handler_capacity".into(),
+            ciborium::Value::Integer(0.into()),
+        );
         response.meta = Some(meta);
         runtime
             .handle_cartridge_frame(0, response, &outbound_tx)

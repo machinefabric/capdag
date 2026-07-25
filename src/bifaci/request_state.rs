@@ -1,4 +1,4 @@
-//! Unified per-request state for routing runtimes (protocol v3, L7/L8).
+//! Unified per-request state for routing runtimes (protocol v4, L7/L8).
 //!
 //! One `RequestState` per in-flight request replaces the parallel routing maps
 //! (routing entry, origin, peer markers, parent→child links, response channel,
@@ -14,11 +14,184 @@
 use crate::bifaci::frame::{Frame, FrameType, MessageId};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::mpsc;
 
 /// (XID, RID) — the unique key of a routed request.
 pub type RequestKey = (MessageId, MessageId);
+
+/// Stable admission identity for one cartridge behind one relay master.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AdmissionKey {
+    pub master_idx: usize,
+    pub registry_url: Option<String>,
+    pub channel: String,
+    pub id: String,
+    pub version: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Default)]
+struct AdmissionSlot {
+    available: bool,
+    capacity: usize,
+    active: usize,
+    queue: VecDeque<u64>,
+}
+
+#[derive(Debug, Default)]
+struct AdmissionInner {
+    slots: HashMap<AdmissionKey, AdmissionSlot>,
+}
+
+/// FIFO admission shared by every request path in a RelaySwitch.
+#[derive(Debug, Clone, Default)]
+pub struct AdmissionController {
+    inner: Arc<Mutex<AdmissionInner>>,
+    notify: Arc<tokio::sync::Notify>,
+    tickets: Arc<AtomicU64>,
+}
+
+impl AdmissionController {
+    pub fn configure(&self, key: AdmissionKey, capacity: usize) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let slot = inner.slots.entry(key).or_default();
+        slot.available = true;
+        slot.capacity = capacity;
+        drop(inner);
+        self.notify.notify_waiters();
+    }
+
+    pub fn reconcile_master(&self, master_idx: usize, available: &std::collections::HashSet<AdmissionKey>) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        for (key, slot) in &mut inner.slots {
+            if key.master_idx == master_idx && !available.contains(key) {
+                slot.available = false;
+            }
+        }
+        drop(inner);
+        self.notify.notify_waiters();
+    }
+
+    pub fn disable_master(&self, master_idx: usize) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        for (key, slot) in &mut inner.slots {
+            if key.master_idx == master_idx {
+                slot.available = false;
+            }
+        }
+        drop(inner);
+        self.notify.notify_waiters();
+    }
+
+    pub async fn acquire(&self, key: AdmissionKey) -> Result<AdmissionPermit, String> {
+        let ticket = self.tickets.fetch_add(1, Ordering::Relaxed);
+        {
+            let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let slot = inner.slots.get_mut(&key).ok_or_else(|| {
+                format!("cartridge '{}' has no configured admission target", key.id)
+            })?;
+            if !slot.available {
+                return Err(format!("cartridge '{}' is no longer available", key.id));
+            }
+            slot.queue.push_back(ticket);
+        }
+        let mut waiter = AdmissionWaiter {
+            controller: self.clone(),
+            key: key.clone(),
+            ticket,
+            queued: true,
+        };
+        loop {
+            let notified = self.notify.notified();
+            {
+                let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+                let slot = inner
+                    .slots
+                    .get_mut(&key)
+                    .expect("admission slot disappeared while request was queued");
+                if !slot.available {
+                    drop(inner);
+                    return Err(format!("cartridge '{}' became unavailable while waiting for capacity", key.id));
+                }
+                let has_capacity = slot.capacity == 0 || slot.active < slot.capacity;
+                if has_capacity && slot.queue.front() == Some(&ticket) {
+                    slot.queue.pop_front();
+                    slot.active += 1;
+                    waiter.queued = false;
+                    drop(inner);
+                    self.notify.notify_waiters();
+                    return Ok(AdmissionPermit {
+                        controller: self.clone(),
+                        key: Some(key),
+                    });
+                }
+            }
+            notified.await;
+        }
+    }
+
+    fn cancel_waiter(&self, key: &AdmissionKey, ticket: u64) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(slot) = inner.slots.get_mut(key) {
+            if let Some(position) = slot.queue.iter().position(|queued| *queued == ticket) {
+                slot.queue.remove(position);
+            }
+        }
+        drop(inner);
+        self.notify.notify_waiters();
+    }
+
+    fn release(&self, key: &AdmissionKey) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let slot = inner
+            .slots
+            .get_mut(key)
+            .expect("admission permit references an unknown cartridge");
+        slot.active = slot
+            .active
+            .checked_sub(1)
+            .expect("admission permit released without an active request");
+        drop(inner);
+        self.notify.notify_waiters();
+    }
+}
+
+struct AdmissionWaiter {
+    controller: AdmissionController,
+    key: AdmissionKey,
+    ticket: u64,
+    queued: bool,
+}
+
+impl Drop for AdmissionWaiter {
+    fn drop(&mut self) {
+        if self.queued {
+            self.controller.cancel_waiter(&self.key, self.ticket);
+        }
+    }
+}
+
+pub struct AdmissionPermit {
+    controller: AdmissionController,
+    key: Option<AdmissionKey>,
+}
+
+impl std::fmt::Debug for AdmissionPermit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdmissionPermit").field("key", &self.key).finish()
+    }
+}
+
+impl Drop for AdmissionPermit {
+    fn drop(&mut self) {
+        if let Some(key) = self.key.take() {
+            self.controller.release(&key);
+        }
+    }
+}
 
 /// Where a request came from and where it is going, as master indices.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +276,8 @@ pub struct RequestState {
     /// snapshot shows only anonymous rids, making background chatter
     /// indistinguishable from run traffic.
     pub cap_urn: Option<String>,
+    /// Capacity slot held until the existing terminal path removes this state.
+    pub admission_permit: Option<AdmissionPermit>,
     /// Child peer calls spawned under this request (cancel cascade).
     pub children: Vec<RequestKey>,
     pub phase: RequestPhase,
@@ -126,6 +301,7 @@ impl RequestState {
             external_channel,
             is_peer,
             cap_urn: None,
+            admission_permit: None,
             children: Vec::new(),
             phase: RequestPhase::Created,
             streams: HashMap::new(),
@@ -138,6 +314,11 @@ impl RequestState {
     /// identity in observability surfaces.
     pub fn with_cap_urn(mut self, cap_urn: Option<String>) -> Self {
         self.cap_urn = cap_urn;
+        self
+    }
+
+    pub fn with_admission_permit(mut self, permit: AdmissionPermit) -> Self {
+        self.admission_permit = Some(permit);
         self
     }
 
@@ -445,6 +626,141 @@ pub struct RequestTableSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn admission_key() -> AdmissionKey {
+        AdmissionKey {
+            master_idx: 0,
+            registry_url: Some("https://registry.example".to_string()),
+            channel: "stable".to_string(),
+            id: "candle".to_string(),
+            version: "1.0.0".to_string(),
+            sha256: "abc123".to_string(),
+        }
+    }
+
+    // TEST7110: admission is strict FIFO and a terminal request releases exactly
+    // one capacity slot for the next body.
+    #[tokio::test]
+    async fn test7110_admission_fifo_releases_one_waiter() {
+        let controller = AdmissionController::default();
+        let key = admission_key();
+        controller.configure(key.clone(), 1);
+        let first = controller.acquire(key.clone()).await.unwrap();
+
+        let second_controller = controller.clone();
+        let second_key = key.clone();
+        let second = tokio::spawn(async move { second_controller.acquire(second_key).await });
+        tokio::task::yield_now().await;
+        let third_controller = controller.clone();
+        let third_key = key.clone();
+        let third = tokio::spawn(async move { third_controller.acquire(third_key).await });
+        tokio::task::yield_now().await;
+        assert!(!second.is_finished());
+        assert!(!third.is_finished());
+
+        drop(first);
+        let second_permit = tokio::time::timeout(std::time::Duration::from_secs(1), second)
+            .await
+            .expect("second FIFO waiter must be admitted")
+            .expect("second waiter task must not fail")
+            .expect("second waiter must acquire its slot");
+        assert!(!third.is_finished(), "one release admits only one waiter");
+        drop(second_permit);
+        tokio::time::timeout(std::time::Duration::from_secs(1), third)
+            .await
+            .expect("third FIFO waiter must be admitted next")
+            .expect("third waiter task must not fail")
+            .expect("third waiter must acquire its slot");
+    }
+
+    // TEST7111: cancelling a queued body removes its ticket; it cannot strand
+    // later ForEach bodies behind a dead queue head.
+    #[tokio::test]
+    async fn test7111_cancelled_admission_waiter_cannot_block_queue() {
+        let controller = AdmissionController::default();
+        let key = admission_key();
+        controller.configure(key.clone(), 1);
+        let active = controller.acquire(key.clone()).await.unwrap();
+
+        let cancelled_controller = controller.clone();
+        let cancelled_key = key.clone();
+        let cancelled = tokio::spawn(async move {
+            cancelled_controller.acquire(cancelled_key).await
+        });
+        tokio::task::yield_now().await;
+        cancelled.abort();
+        let _ = cancelled.await;
+
+        let next_controller = controller.clone();
+        let next_key = key.clone();
+        let next = tokio::spawn(async move { next_controller.acquire(next_key).await });
+        tokio::task::yield_now().await;
+        drop(active);
+        tokio::time::timeout(std::time::Duration::from_secs(1), next)
+            .await
+            .expect("later waiter must pass the cancelled ticket")
+            .expect("later waiter task must not fail")
+            .expect("later waiter must acquire its slot");
+    }
+
+    // TEST7112: the post-HELLO capacity update wakes already queued work. This
+    // is what changes an unstarted cartridge's one bootstrap slot to its
+    // authoritative runtime capacity without waiting for the first body to end.
+    #[tokio::test]
+    async fn test7112_capacity_reconfiguration_wakes_existing_waiters() {
+        let controller = AdmissionController::default();
+        let key = admission_key();
+        controller.configure(key.clone(), 1);
+        let active = controller.acquire(key.clone()).await.unwrap();
+
+        let waiting_controller = controller.clone();
+        let waiting_key = key.clone();
+        let waiting = tokio::spawn(async move {
+            waiting_controller.acquire(waiting_key).await
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+
+        controller.configure(key, 0);
+        let concurrently_admitted = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            waiting,
+        )
+        .await
+        .expect("unlimited HELLO capacity must wake queued work")
+        .expect("queued waiter task must not fail")
+        .expect("queued waiter must acquire its slot");
+        drop(concurrently_admitted);
+        drop(active);
+    }
+
+    // TEST7114: a cartridge disappearing while work is queued wakes every
+    // waiter with a routing error; unregistered work never hangs outside the
+    // request table after a cartridge or relay-master loss.
+    #[tokio::test]
+    async fn test7114_unavailable_admission_target_rejects_queued_work() {
+        let controller = AdmissionController::default();
+        let key = admission_key();
+        controller.configure(key.clone(), 1);
+        let active = controller.acquire(key.clone()).await.unwrap();
+
+        let waiting_controller = controller.clone();
+        let waiting_key = key.clone();
+        let waiting = tokio::spawn(async move {
+            waiting_controller.acquire(waiting_key).await
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+
+        controller.disable_master(key.master_idx);
+        let error = tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+            .await
+            .expect("disabled admission target must wake queued work")
+            .expect("queued waiter task must not fail")
+            .expect_err("queued work must not acquire a disappeared cartridge");
+        assert!(error.contains("became unavailable"));
+        drop(active);
+    }
 
     fn key(x: u64, r: u64) -> RequestKey {
         (MessageId::Uint(x), MessageId::Uint(r))

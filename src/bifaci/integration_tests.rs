@@ -127,7 +127,7 @@ mod tests {
     ) {
         let mut reader = FrameReader::new(BufReader::new(from_runtime));
         let mut writer = FrameWriter::new(BufWriter::new(to_runtime));
-        let limits = handshake_accept(&mut reader, &mut writer, manifest)
+        let limits = handshake_accept(&mut reader, &mut writer, manifest, 0)
             .await
             .unwrap();
         reader.set_limits(limits);
@@ -327,7 +327,7 @@ mod tests {
 
             let req = reader.read().await.unwrap().expect("Expected REQ");
             let mut seq = SeqAssigner::new();
-            let mut err = Frame::err(req.id, "FAIL_CODE", "Something went wrong");
+            let mut err = Frame::err(req.id, "FAIL_CODE", crate::AttributionClass::Internal, "Something went wrong", None);
             seq.assign(&mut err);
             writer.write(&err).await.unwrap();
             seq.remove(&FlowKey::from_frame(&err));
@@ -942,7 +942,7 @@ mod tests {
         let cartridge_handle = tokio::spawn(async move {
             let mut reader = FrameReader::new(BufReader::new(cartridge_read));
             let mut writer = FrameWriter::new(BufWriter::new(cartridge_write));
-            let limits = handshake_accept(&mut reader, &mut writer, &manifest)
+            let limits = handshake_accept(&mut reader, &mut writer, &manifest, 0)
                 .await
                 .unwrap();
             assert!(limits.max_frame > 0);
@@ -1151,7 +1151,7 @@ mod tests {
         let cartridge_handle = tokio::spawn(async move {
             let mut reader = FrameReader::new(BufReader::new(cartridge_from_host));
             let mut writer = FrameWriter::new(BufWriter::new(cartridge_to_host));
-            handshake_accept(&mut reader, &mut writer, &manifest)
+            handshake_accept(&mut reader, &mut writer, &manifest, 0)
                 .await
                 .unwrap()
         });

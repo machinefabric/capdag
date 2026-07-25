@@ -66,6 +66,7 @@ pub use executor::{
 pub use stream_io::{
     collect_terminal_output, decode_terminal_output, send_one_stream, unwrap_cbor_value,
     ActivityTimer, CreditGrantFn, CreditPlumbing, FlowObserver, IncrementalWriter, PipelineLogFn,
+    PipelineLogRecord,
     SegmentWriterFactory,
     PipelineProgressTracker, StreamIoError, TerminalItem, TerminalMeta, TerminalOutput,
     PIPELINE_STALL_TIMEOUT_SECS,

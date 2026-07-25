@@ -48,7 +48,7 @@ pub mod urn;
 // structurally through the ERR frame to the engine (docs/17.2). Defined in
 // the leaf `ops` crate; re-exported here as the cartridge-contract surface.
 pub use ops::failure;
-pub use ops::failure::FailureClass;
+pub use ops::failure::AttributionClass;
 
 // URN types
 pub use urn::cap_urn::*;
@@ -305,7 +305,7 @@ pub use orchestrator::{
     IncrementalWriter,
     NodeData,
     ParseOrchestrationError,
-    PipelineLogFn,
+    PipelineLogFn, PipelineLogRecord,
     PipelineProgressTracker,
     ProgressMapper,
     ResolvedEdge,

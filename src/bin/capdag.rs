@@ -7,7 +7,7 @@ use capdag::orchestrator::{
     build_plans_from_notation, execute_plan, CliRuntime, EngineRuntime,
 };
 use capdag::{
-    CapProgressFn, CartridgeChannel, ExecutionNodeType, FabricRegistry, PipelineLogFn, StreamMeta,
+    CapProgressFn, CartridgeChannel, ExecutionNodeType, FabricRegistry, PipelineLogFn,
 };
 use std::collections::HashMap;
 use std::env;
@@ -86,36 +86,34 @@ fn progress_hooks() -> (CapProgressFn, PipelineLogFn) {
     let progress: CapProgressFn = Arc::new(|p: f32, cap_urn: &str, msg: &str| {
         eprintln!("  [{:5.1}%] {} {}", p * 100.0, cap_urn, msg);
     });
-    let log_fn: PipelineLogFn = Arc::new(
-        |cap_urn: &str,
-         level: &str,
-         message: &str,
-         meta: Option<StreamMeta>,
-         body_index: Option<usize>| {
-            let meta_suffix = match meta.as_ref().and_then(|meta| meta.get("progress")) {
-                Some(ciborium::Value::Float(progress)) => {
-                    format!(" [meta progress={:.1}%]", progress * 100.0)
-                }
-                Some(ciborium::Value::Integer(progress)) => {
-                    let progress: i128 = (*progress).into();
-                    format!(" [meta progress={}]", progress)
-                }
-                _ => meta
-                    .as_ref()
-                    .map(|meta| format!(" [meta {:?}]", meta))
-                    .unwrap_or_default(),
-            };
-            match body_index {
-                Some(index) => {
-                    eprintln!(
-                        "  [log:{} body={}]{} {} {}",
-                        level, index, meta_suffix, cap_urn, message
-                    )
-                }
-                None => eprintln!("  [log:{}]{} {} {}", level, meta_suffix, cap_urn, message),
-            }
-        },
-    );
+    let log_fn: PipelineLogFn = Arc::new(|record| {
+        let meta_suffix = record
+            .meta
+            .as_ref()
+            .map(|meta| format!(" [meta {:?}]", meta))
+            .unwrap_or_default();
+        let step_token = record.step_token_id.as_deref().unwrap_or("machine");
+        let cap_urn = record.cap_urn.as_deref().unwrap_or("machine");
+        let body_suffix = record
+            .body_index
+            .map(|index| format!(" body={index}"))
+            .unwrap_or_default();
+        let arg_suffix = record
+            .arg_urn
+            .as_deref()
+            .map(|arg_urn| format!(" arg='{arg_urn}'"))
+            .unwrap_or_default();
+        eprintln!(
+            "  [log:{}{} step='{}'{}]{} {} {}",
+            record.level,
+            body_suffix,
+            step_token,
+            arg_suffix,
+            meta_suffix,
+            cap_urn,
+            record.message
+        );
+    });
     (progress, log_fn)
 }
 

@@ -37,25 +37,20 @@ fn test_pipeline_log_fn() -> PipelineLogFn {
         format!(" [meta {:?}]", meta)
     }
 
-    Arc::new(
-        |cap_urn: &str,
-         level: &str,
-         message: &str,
-         meta: Option<StreamMeta>,
-         body_index: Option<usize>| {
-            let meta_suffix = render_meta(meta.as_ref());
-            match body_index {
+    Arc::new(|record| {
+            let meta_suffix = render_meta(record.meta.as_ref());
+            let cap_urn = record.cap_urn.as_deref().unwrap_or("machine");
+            match record.body_index {
                 Some(index) => eprintln!(
                     "[OrchestratorTestLog][{}][body {}]{} {} {}",
-                    level, index, meta_suffix, cap_urn, message
+                    record.level, index, meta_suffix, cap_urn, record.message
                 ),
                 None => eprintln!(
                     "[OrchestratorTestLog][{}]{} {} {}",
-                    level, meta_suffix, cap_urn, message
+                    record.level, meta_suffix, cap_urn, record.message
                 ),
             }
-        },
-    )
+        })
 }
 
 // =============================================================================

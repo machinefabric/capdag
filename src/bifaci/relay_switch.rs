@@ -58,7 +58,7 @@ use crate::bifaci::io::{identity_nonce, CborError, FrameReader, FrameWriter};
 use crate::cap::registry::FabricRegistry;
 use crate::planner::live_cap_fab::{LiveCapFab, ReachableTargetInfo, Strand};
 use crate::urn::media_urn::MediaUrn;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -112,7 +112,8 @@ impl From<std::io::Error> for RelaySwitchError {
 // RoutingEntry lives in `request_state` — the unified per-request state module
 // shared by every routing runtime (L7).
 use crate::bifaci::request_state::{
-    FrameDirection, RequestState, RequestTable, RoutingEntry, TerminalKind,
+    AdmissionController, AdmissionKey, AdmissionPermit, FrameDirection, RequestState,
+    RequestTable, RoutingEntry, TerminalKind,
 };
 use crate::bifaci::stats::DropCounters;
 
@@ -281,6 +282,8 @@ pub struct CartridgeAttachmentError {
 pub struct CartridgeRuntimeStats {
     /// Process is currently running and serving requests.
     pub running: bool,
+    /// Maximum concurrent handlers. Zero means unlimited.
+    pub handler_capacity: u64,
     /// OS pid of the cartridge process when running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
@@ -315,6 +318,7 @@ impl CartridgeRuntimeStats {
     pub fn not_running() -> Self {
         Self {
             running: false,
+            handler_capacity: 0,
             pid: None,
             active_request_count: 0,
             peer_request_count: 0,
@@ -596,6 +600,8 @@ pub struct RelaySwitch {
     /// stats, and the rid→xid index — one entry, one registration, one
     /// termination. Replaces the six parallel routing maps.
     requests: RwLock<RequestTable>,
+    /// FIFO capacity gate keyed by exact relay-master + cartridge identity.
+    admission: AdmissionController,
     /// Dropped-frame accounting (L8): unroutable/post-terminal frames are
     /// counted drops, never silent losses and never protocol errors.
     drops: Arc<DropCounters>,
@@ -947,8 +953,16 @@ impl RelaySwitch {
                             break;
                         }
                         FrameType::Err => {
-                            let code = frame.error_code().unwrap_or("UNKNOWN");
-                            let msg = frame.error_message().unwrap_or("no message");
+                            let code = frame.error_code().ok_or_else(|| {
+                                RelaySwitchError::Protocol(
+                                    "ERR frame missing required text code".to_string(),
+                                )
+                            })?;
+                            let msg = frame.error_message().ok_or_else(|| {
+                                RelaySwitchError::Protocol(
+                                    "ERR frame missing required text message".to_string(),
+                                )
+                            })?;
                             return Err(RelaySwitchError::Protocol(format!(
                                 "master {}: identity verification failed: [{code}] {msg}",
                                 master_idx
@@ -957,7 +971,7 @@ impl RelaySwitch {
                         // Control/side-channel frames are legal ANYWHERE during the
                         // probe (spec 12.4: LOG interleaves without affecting data
                         // flow; CREDIT/HEARTBEAT are the control plane the writer
-                        // gate itself exempts, L4). A v3 cartridge crediting its
+                        // gate itself exempts, L4). A v4 cartridge crediting its
                         // probe input as it consumes (L10) must not fail identity
                         // verification.
                         FrameType::Log | FrameType::Credit | FrameType::Heartbeat => {}
@@ -1042,6 +1056,7 @@ impl RelaySwitch {
             masters: RwLock::new(masters),
             cap_table: RwLock::new(Vec::new()),
             requests: RwLock::new(RequestTable::new()),
+            admission: AdmissionController::default(),
             drops: Arc::new(DropCounters::new()),
             aggregate_capabilities: RwLock::new(
                 serde_json::to_vec(&Vec::<String>::new())
@@ -1069,6 +1084,18 @@ impl RelaySwitch {
             pending_identity_probes_rx: std::sync::Mutex::new(Some(probes_rx)),
             add_master_lock: tokio::sync::Mutex::new(()),
         };
+
+        let initial_inventories = {
+            let masters = switch.masters.read().await;
+            let mut inventories = Vec::with_capacity(masters.len());
+            for master in masters.iter() {
+                inventories.push(master.installed_cartridges.read().await.clone());
+            }
+            inventories
+        };
+        for (master_idx, cartridges) in initial_inventories.iter().enumerate() {
+            switch.configure_master_admission(master_idx, cartridges)?;
+        }
 
         // Build routing tables from already-populated caps
         switch.rebuild_cap_table().await;
@@ -1639,6 +1666,196 @@ impl RelaySwitch {
         }
     }
 
+    fn admission_key(master_idx: usize, cartridge: &InstalledCartridgeRecord) -> AdmissionKey {
+        AdmissionKey {
+            master_idx,
+            registry_url: cartridge.registry_url.clone(),
+            channel: cartridge.channel.as_str().to_string(),
+            id: cartridge.id.clone(),
+            version: cartridge.version.clone(),
+            sha256: cartridge.sha256.clone(),
+        }
+    }
+
+    fn configure_master_admission(
+        &self,
+        master_idx: usize,
+        cartridges: &[InstalledCartridgeRecord],
+    ) -> Result<(), RelaySwitchError> {
+        let mut available = HashSet::with_capacity(cartridges.len());
+        for cartridge in cartridges {
+            let Some(stats) = cartridge.runtime_stats.as_ref() else {
+                return Err(RelaySwitchError::Protocol(format!(
+                    "cartridge '{}' on master {} is missing mandatory v4 runtime_stats",
+                    cartridge.id, master_idx
+                )));
+            };
+            let capacity = if stats.running {
+                usize::try_from(stats.handler_capacity).map_err(|_| {
+                    RelaySwitchError::Protocol(format!(
+                        "cartridge '{}' handler_capacity exceeds this host's address space",
+                        cartridge.id
+                    ))
+                })?
+            } else {
+                1
+            };
+            let key = Self::admission_key(master_idx, cartridge);
+            // A host may expose several process instances of the same logical
+            // install (the interop multi-cartridge topology does this). They
+            // share one admission identity. Preserve the first host-ordered
+            // record, matching host dispatch, rather than letting a later
+            // duplicate overwrite its effective capacity.
+            if available.insert(key.clone()) {
+                self.admission.configure(key, capacity);
+            }
+        }
+        self.admission.reconcile_master(master_idx, &available);
+        Ok(())
+    }
+
+    async fn cap_admission_target(
+        &self,
+        master_idx: usize,
+        registered_cap: &str,
+    ) -> Result<(AdmissionKey, usize), RelaySwitchError> {
+        let cartridges = {
+            let masters = self.masters.read().await;
+            let master = masters.get(master_idx).ok_or_else(|| {
+                RelaySwitchError::Protocol(format!(
+                    "selected master index {} no longer exists",
+                    master_idx
+                ))
+            })?;
+            let cartridges = master.installed_cartridges.read().await.clone();
+            cartridges
+        };
+        let mut matches = cartridges.iter().filter(|cartridge| {
+            cartridge.attachment_error.is_none()
+                && cartridge
+                    .cap_urns()
+                    .iter()
+                    .any(|candidate| candidate == registered_cap)
+        });
+        let cartridge = matches.next().ok_or_else(|| {
+            RelaySwitchError::Protocol(format!(
+                "master {} advertises cap '{}' without an installed-cartridge owner",
+                master_idx, registered_cap
+            ))
+        })?;
+        let key = Self::admission_key(master_idx, cartridge);
+        if matches.any(|candidate| Self::admission_key(master_idx, candidate) != key) {
+            return Err(RelaySwitchError::Protocol(format!(
+                "master {} has multiple distinct installed cartridges claiming cap '{}'; routing is ambiguous",
+                master_idx, registered_cap
+            )));
+        }
+        let stats = cartridge.runtime_stats.as_ref().ok_or_else(|| {
+            RelaySwitchError::Protocol(format!(
+                "cartridge '{}' on master {} is missing mandatory v4 runtime_stats",
+                cartridge.id, master_idx
+            ))
+        })?;
+        let capacity = if stats.running {
+            usize::try_from(stats.handler_capacity).map_err(|_| {
+                RelaySwitchError::Protocol(format!(
+                    "cartridge '{}' handler_capacity exceeds this host's address space",
+                    cartridge.id
+                ))
+            })?
+        } else {
+            1
+        };
+        Ok((key, capacity))
+    }
+
+    async fn acquire_cap_admission(
+        &self,
+        master_idx: usize,
+        registered_cap: &str,
+    ) -> Result<AdmissionPermit, RelaySwitchError> {
+        let (key, capacity) = self
+            .cap_admission_target(master_idx, registered_cap)
+            .await?;
+        self.admission.configure(key.clone(), capacity);
+        self.admission
+            .acquire(key)
+            .await
+            .map_err(RelaySwitchError::Protocol)
+    }
+
+    /// Return the authoritative handler capacity for the cartridge selected
+    /// by normal cap dispatch. A positive capacity is an execution boundary:
+    /// callers must not pre-acquire that request as part of a multi-cap live
+    /// pipeline, because the permit represents an actively owned process slot.
+    /// Zero means unlimited and permits live pre-opening.
+    pub async fn admission_capacity_for_cap(
+        &self,
+        cap_urn: &str,
+    ) -> Result<usize, RelaySwitchError> {
+        let (master_idx, registered_cap) = self
+            .find_route_for_cap(cap_urn, None)
+            .await
+            .ok_or_else(|| RelaySwitchError::NoHandler(cap_urn.to_string()))?;
+        let (_, capacity) = self
+            .cap_admission_target(master_idx, &registered_cap)
+            .await?;
+        Ok(capacity)
+    }
+
+    async fn acquire_cartridge_admission(
+        &self,
+        master_idx: usize,
+        cartridge_id: &str,
+    ) -> Result<AdmissionPermit, RelaySwitchError> {
+        let cartridge = {
+            let masters = self.masters.read().await;
+            let master = masters.get(master_idx).ok_or_else(|| {
+                RelaySwitchError::Protocol(format!(
+                    "selected master index {} no longer exists",
+                    master_idx
+                ))
+            })?;
+            let cartridges = master.installed_cartridges.read().await;
+            let mut matches = cartridges.iter().filter(|record| record.id == cartridge_id);
+            let cartridge = matches.next().cloned().ok_or_else(|| {
+                RelaySwitchError::Protocol(format!(
+                    "cartridge '{}' is not installed on master {}",
+                    cartridge_id, master_idx
+                ))
+            })?;
+            if matches.next().is_some() {
+                return Err(RelaySwitchError::Protocol(format!(
+                    "cartridge id '{}' is ambiguous on master {}; use the full install identity",
+                    cartridge_id, master_idx
+                )));
+            }
+            cartridge
+        };
+        let stats = cartridge.runtime_stats.as_ref().ok_or_else(|| {
+            RelaySwitchError::Protocol(format!(
+                "cartridge '{}' on master {} is missing mandatory v4 runtime_stats",
+                cartridge.id, master_idx
+            ))
+        })?;
+        let capacity = if stats.running {
+            usize::try_from(stats.handler_capacity).map_err(|_| {
+                RelaySwitchError::Protocol(format!(
+                    "cartridge '{}' handler_capacity exceeds this host's address space",
+                    cartridge.id
+                ))
+            })?
+        } else {
+            1
+        };
+        let key = Self::admission_key(master_idx, &cartridge);
+        self.admission.configure(key.clone(), capacity);
+        self.admission
+            .acquire(key)
+            .await
+            .map_err(RelaySwitchError::Protocol)
+    }
+
     /// Register an externally-originated request (engine / execute_cap
     /// caller): response channel, routing, origin, and rid index land in one
     /// atomic table registration (L7). Duplicate registration is a protocol
@@ -1649,24 +1866,47 @@ impl RelaySwitch {
         dest_idx: usize,
         tx: mpsc::UnboundedSender<Frame>,
         cap_urn: Option<String>,
+        permit: Option<AdmissionPermit>,
     ) -> Result<(), RelaySwitchError> {
+        let mut state = RequestState::new(
+            RoutingEntry {
+                source_master_idx: None,
+                destination_master_idx: dest_idx,
+            },
+            None,
+            Some(tx),
+            false,
+        )
+        .with_cap_urn(cap_urn);
+        if let Some(permit) = permit {
+            state = state.with_admission_permit(permit);
+        }
         self.requests
             .write()
             .await
-            .register(
-                key,
-                RequestState::new(
-                    RoutingEntry {
-                        source_master_idx: None,
-                        destination_master_idx: dest_idx,
-                    },
-                    None,
-                    Some(tx),
-                    false,
-                )
-                .with_cap_urn(cap_urn),
-            )
+            .register(key, state)
             .map_err(RelaySwitchError::Protocol)
+    }
+
+    /// Forward the first REQ after registration. If the write fails there can
+    /// be no terminal response, so remove that exact request immediately;
+    /// dropping its state also releases its admission permit.
+    async fn write_initial_request(
+        &self,
+        key: &(MessageId, MessageId),
+        dest_idx: usize,
+        frame: &mut Frame,
+    ) -> Result<(), RelaySwitchError> {
+        match self.write_to_master_idx(dest_idx, frame).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.requests
+                    .write()
+                    .await
+                    .terminate(key, TerminalKind::MasterDied);
+                Err(error.into())
+            }
+        }
     }
 
     pub async fn execute_cap(
@@ -1685,17 +1925,26 @@ impl RelaySwitch {
         let (tx, rx) = mpsc::unbounded_channel();
 
         // Find master that can handle this cap (no preference for internal requests)
-        let dest_idx = self
-            .find_master_for_cap(cap_urn, None)
+        let (dest_idx, registered_cap) = self
+            .find_route_for_cap(cap_urn, None)
             .await
             .ok_or_else(|| RelaySwitchError::NoHandler(cap_urn.to_string()))?;
+        let permit = self
+            .acquire_cap_admission(dest_idx, &registered_cap)
+            .await?;
 
         // Assign XID
         let xid = MessageId::Uint(self.xid_counter.fetch_add(1, Ordering::SeqCst) + 1);
         let key = (xid.clone(), rid.clone());
 
         // Register response channel + routing + rid index BEFORE sending (L7)
-        self.register_external(key.clone(), dest_idx, tx, Some(cap_urn.to_string()))
+        self.register_external(
+            key.clone(),
+            dest_idx,
+            tx,
+            Some(cap_urn.to_string()),
+            Some(permit),
+        )
             .await?;
 
         // Build frame with XID
@@ -1703,7 +1952,7 @@ impl RelaySwitch {
         frame_with_xid.routing_id = Some(xid);
 
         // Forward to destination
-        self.write_to_master_idx(dest_idx, &mut frame_with_xid)
+        self.write_initial_request(&key, dest_idx, &mut frame_with_xid)
             .await?;
 
         Ok((rid, rx))
@@ -1727,10 +1976,13 @@ impl RelaySwitch {
         preferred_cap: Option<&str>,
     ) -> Result<(MessageId, mpsc::UnboundedReceiver<Frame>), RelaySwitchError> {
         // Find master that can handle this cap
-        let dest_idx = self
-            .find_master_for_cap(cap_urn, preferred_cap)
+        let (dest_idx, registered_cap) = self
+            .find_route_for_cap(cap_urn, preferred_cap)
             .await
             .ok_or_else(|| RelaySwitchError::NoHandler(cap_urn.to_string()))?;
+        let permit = self
+            .acquire_cap_admission(dest_idx, &registered_cap)
+            .await?;
 
         // Assign XID
         let xid = MessageId::Uint(self.xid_counter.fetch_add(1, Ordering::SeqCst) + 1);
@@ -1740,7 +1992,13 @@ impl RelaySwitch {
         let (tx, rx) = mpsc::unbounded_channel();
 
         // Register response channel + routing + rid index BEFORE sending (L7)
-        self.register_external(key.clone(), dest_idx, tx, Some(cap_urn.to_string()))
+        self.register_external(
+            key.clone(),
+            dest_idx,
+            tx,
+            Some(cap_urn.to_string()),
+            Some(permit),
+        )
             .await?;
 
         Ok((xid, rx))
@@ -1804,7 +2062,16 @@ impl RelaySwitch {
         let (tx, rx) = mpsc::unbounded_channel();
 
         // Register response channel + routing + rid index BEFORE sending (L7)
-        self.register_external(key.clone(), dest_idx, tx, Some(cap_urn.to_string()))
+        let permit = self
+            .acquire_cartridge_admission(dest_idx, cartridge_id)
+            .await?;
+        self.register_external(
+            key.clone(),
+            dest_idx,
+            tx,
+            Some(cap_urn.to_string()),
+            Some(permit),
+        )
             .await?;
 
         Ok((xid, rx))
@@ -1844,6 +2111,7 @@ impl RelaySwitch {
             master_idx,
             tx,
             Some(CAP_IDENTITY.to_string()),
+            None,
         )
         .await
         .map_err(|e| format!("identity probe registration failed: {}", e))?;
@@ -1932,14 +2200,18 @@ impl RelaySwitch {
                         return Ok(());
                     }
                     FrameType::Err => {
-                        let code = frame.error_code().unwrap_or("UNKNOWN");
-                        let msg = frame.error_message().unwrap_or("no message");
+                        let code = frame
+                            .error_code()
+                            .ok_or_else(|| "ERR frame missing required text code".to_string())?;
+                        let msg = frame
+                            .error_message()
+                            .ok_or_else(|| "ERR frame missing required text message".to_string())?;
                         return Err(format!("identity probe failed: [{}] {}", code, msg));
                     }
                     // Control/side-channel frames are legal ANYWHERE during the
                     // probe (spec 12.4: LOG interleaves without affecting data
                     // flow; CREDIT/HEARTBEAT are the control plane the writer
-                    // gate itself exempts, L4). A v3 cartridge crediting its
+                    // gate itself exempts, L4). A v4 cartridge crediting its
                     // probe input as it consumes (L10) must not fail identity
                     // verification.
                     FrameType::Log | FrameType::Credit | FrameType::Heartbeat => {}
@@ -2012,7 +2284,13 @@ impl RelaySwitch {
 
         // Send ERR "CANCELLED" to external response channel if present
         if let Some(tx) = state.external_channel {
-            let mut err_frame = Frame::err(rid.clone(), "CANCELLED", "Request cancelled");
+            let mut err_frame = Frame::err(
+                rid.clone(),
+                "CANCELLED",
+                crate::failure::AttributionClass::Internal,
+                "Request cancelled",
+                None,
+            );
             err_frame.routing_id = Some(xid.clone());
             let _ = tx.send(err_frame);
         }
@@ -2319,8 +2597,12 @@ impl RelaySwitch {
                             break;
                         }
                         FrameType::Err => {
-                            let code = frame.error_code().unwrap_or("UNKNOWN").to_string();
-                            let msg = frame.error_message().unwrap_or("no message").to_string();
+                            let code = frame
+                                .error_code()
+                                .ok_or_else(|| "ERR frame missing required text code".to_string())?;
+                            let msg = frame
+                                .error_message()
+                                .ok_or_else(|| "ERR frame missing required text message".to_string())?;
                             return Err(format!(
                                 "identity failed: [{}] {}",
                                 code, msg
@@ -2329,7 +2611,7 @@ impl RelaySwitch {
                         // Control/side-channel frames are legal ANYWHERE during the
                         // probe (spec 12.4: LOG interleaves without affecting data
                         // flow; CREDIT/HEARTBEAT are the control plane the writer
-                        // gate itself exempts, L4). A v3 cartridge crediting its
+                        // gate itself exempts, L4). A v4 cartridge crediting its
                         // probe input as it consumes (L10) must not fail identity
                         // verification.
                         FrameType::Log | FrameType::Credit | FrameType::Heartbeat => {}
@@ -2496,6 +2778,17 @@ impl RelaySwitch {
             }
         }
 
+        let inventory = {
+            let masters = self.masters.read().await;
+            let inventory = masters[master_idx]
+                .installed_cartridges
+                .read()
+                .await
+                .clone();
+            inventory
+        };
+        self.configure_master_admission(master_idx, &inventory)?;
+
         // Rebuild tables
         self.rebuild_cap_table().await;
         self.rebuild_capabilities().await;
@@ -2552,7 +2845,7 @@ impl RelaySwitch {
                     })
                 });
 
-                let dest_idx = if let Some(ref cartridge_id) = target_cartridge_id {
+                let (dest_idx, admission_cap, admission_cartridge) = if let Some(ref cartridge_id) = target_cartridge_id {
                     // Direct routing by cartridge ID
                     let masters = self.masters.read().await;
                     let mut found = None;
@@ -2563,17 +2856,19 @@ impl RelaySwitch {
                             break;
                         }
                     }
-                    found.ok_or_else(|| {
+                    let dest = found.ok_or_else(|| {
                         RelaySwitchError::Protocol(format!(
                             "Unknown cartridge '{}': not reported by any master",
                             cartridge_id
                         ))
-                    })?
+                    })?;
+                    (dest, None, Some(cartridge_id.clone()))
                 } else {
                     // Standard cap-based dispatch
-                    self.find_master_for_cap(cap_urn, preferred_cap)
+                    let (dest, registered_cap) = self.find_route_for_cap(cap_urn, preferred_cap)
                         .await
-                        .ok_or_else(|| RelaySwitchError::NoHandler(cap_urn.clone()))?
+                        .ok_or_else(|| RelaySwitchError::NoHandler(cap_urn.clone()))?;
+                    (dest, Some(registered_cap), None)
                 };
 
                 // A REQ arriving WITH an XID is the pre-registered path:
@@ -2598,7 +2893,7 @@ impl RelaySwitch {
                             key.0, key.1
                         )));
                     };
-                    self.write_to_master_idx(dest, &mut frame).await?;
+                    self.write_initial_request(&key, dest, &mut frame).await?;
                     return Ok(());
                 }
 
@@ -2609,12 +2904,25 @@ impl RelaySwitch {
                 let xid = MessageId::Uint(self.xid_counter.fetch_add(1, Ordering::SeqCst) + 1);
                 frame.routing_id = Some(xid.clone());
                 let key = (xid, frame.id.clone());
+                let permit = match (admission_cap.as_deref(), admission_cartridge.as_deref()) {
+                    (Some(registered_cap), None) => {
+                        self.acquire_cap_admission(dest_idx, registered_cap).await?
+                    }
+                    (None, Some(cartridge_id)) => {
+                        self.acquire_cartridge_admission(dest_idx, cartridge_id).await?
+                    }
+                    _ => {
+                        return Err(RelaySwitchError::Protocol(
+                            "request has an invalid admission target".to_string(),
+                        ))
+                    }
+                };
 
                 self.requests
                     .write()
                     .await
                     .register(
-                        key,
+                        key.clone(),
                         RequestState::new(
                             RoutingEntry {
                                 source_master_idx: None,
@@ -2624,12 +2932,13 @@ impl RelaySwitch {
                             None,
                             false,
                         )
-                        .with_cap_urn(frame.cap.clone()),
+                        .with_cap_urn(frame.cap.clone())
+                        .with_admission_permit(permit),
                     )
                     .map_err(RelaySwitchError::Protocol)?;
 
                 // Forward to destination with XID
-                self.write_to_master_idx(dest_idx, &mut frame).await?;
+                self.write_initial_request(&key, dest_idx, &mut frame).await?;
                 Ok(())
             }
 
@@ -2890,6 +3199,16 @@ impl RelaySwitch {
         cap_urn: &str,
         preferred_cap: Option<&str>,
     ) -> Option<usize> {
+        self.find_route_for_cap(cap_urn, preferred_cap)
+            .await
+            .map(|(master_idx, _)| master_idx)
+    }
+
+    async fn find_route_for_cap(
+        &self,
+        cap_urn: &str,
+        preferred_cap: Option<&str>,
+    ) -> Option<(usize, String)> {
         let request_urn = match crate::CapUrn::from_string(cap_urn) {
             Ok(u) => u,
             Err(_) => return None,
@@ -2901,7 +3220,7 @@ impl RelaySwitch {
         let preferred_urn = preferred_cap.and_then(|p| crate::CapUrn::from_string(p).ok());
 
         // Collect ALL dispatchable masters with their specificity scores.
-        let mut matches: Vec<(usize, isize, bool)> = Vec::new(); // (master_idx, signed_distance, is_preferred)
+        let mut matches: Vec<(usize, String, isize, bool)> = Vec::new();
 
         let cap_table = self.cap_table.read().await;
         for (registered_cap, master_idx) in cap_table.iter() {
@@ -2915,7 +3234,12 @@ impl RelaySwitch {
                     let is_preferred = preferred_urn
                         .as_ref()
                         .map_or(false, |pref| pref.is_equivalent(&registered_urn));
-                    matches.push((*master_idx, signed_distance, is_preferred));
+                    matches.push((
+                        *master_idx,
+                        registered_cap.clone(),
+                        signed_distance,
+                        is_preferred,
+                    ));
                 }
             }
         }
@@ -2925,15 +3249,17 @@ impl RelaySwitch {
         }
 
         // If any match is preferred, pick the first preferred match.
-        if let Some(&(idx, _, _)) = matches.iter().find(|(_, _, pref)| *pref) {
-            return Some(idx);
+        if let Some((idx, registered_cap, _, _)) =
+            matches.iter().find(|(_, _, _, pref)| *pref)
+        {
+            return Some((*idx, registered_cap.clone()));
         }
 
         // Ranking: prefer equivalent (0), then more specific (+), then more generic (-)
         // Sort by: (is_negative, abs_distance) so positives come before negatives at same abs
         matches.sort_by(|a, b| {
-            let (_, dist_a, _) = a;
-            let (_, dist_b, _) = b;
+            let (_, _, dist_a, _) = a;
+            let (_, _, dist_b, _) = b;
 
             // First: non-negative distances before negative
             match (dist_a >= &0, dist_b >= &0) {
@@ -2946,7 +3272,9 @@ impl RelaySwitch {
             }
         });
 
-        matches.first().map(|(idx, _, _)| *idx)
+        matches
+            .first()
+            .map(|(idx, registered_cap, _, _)| (*idx, registered_cap.clone()))
     }
 
     /// Handle a frame arriving from a master (cartridge → engine direction).
@@ -2981,8 +3309,8 @@ impl RelaySwitch {
                 frame.routing_id = Some(xid.clone());
 
                 // Find destination master (no preference for peer requests)
-                let dest_idx_opt = self.find_master_for_cap(cap_urn, None).await;
-                if dest_idx_opt.is_none() {
+                let route = self.find_route_for_cap(cap_urn, None).await;
+                if route.is_none() {
                     // No handler registered for this cap. Rather than returning
                     // Err(NoHandler) — which the pump logs and discards, leaving
                     // the caller hanging until the 120s activity timeout — send
@@ -2996,10 +3324,10 @@ impl RelaySwitch {
                     );
                     // No master serving this cap is a deployment/manifest
                     // mismatch — Environment (docs/failure-taxonomy.md).
-                    let mut err_frame = Frame::err_classified(
+                    let mut err_frame = Frame::err(
                         frame.id.clone(),
                         "NO_HANDLER",
-                        crate::failure::FailureClass::Environment,
+                        crate::failure::AttributionClass::Environment,
                         &format!("No handler found for cap: {}", cap_urn),
                         None,
                     );
@@ -3009,7 +3337,7 @@ impl RelaySwitch {
                         .await;
                     return Ok(None);
                 }
-                let dest_idx = dest_idx_opt.unwrap();
+                let (dest_idx, _registered_cap) = route.unwrap();
 
                 let rid = frame.id.clone();
                 let key = (xid.clone(), rid.clone());
@@ -3061,7 +3389,7 @@ impl RelaySwitch {
                 }
 
                 // Forward to destination with XID
-                self.write_to_master_idx(dest_idx, &mut frame).await?;
+                self.write_initial_request(&key, dest_idx, &mut frame).await?;
 
                 // Do NOT return to engine (internal routing)
                 Ok(None)
@@ -3100,8 +3428,7 @@ impl RelaySwitch {
                     // and terminal delivery cannot disagree (L6). A frame for
                     // a released key is a counted no_route drop, never a
                     // protocol error and never silent (L8).
-                    let mut cap_for_log: Option<String> = None;
-                    let route = {
+                    let (route, cap_for_log) = {
                         let mut requests = self.requests.write().await;
                         requests.record_frame(&key, FrameDirection::Inbound, &frame);
                         if is_terminal {
@@ -3112,11 +3439,11 @@ impl RelaySwitch {
                             };
                             match requests.terminate(&key, kind) {
                                 Some(state) => {
-                                    cap_for_log = state.cap_urn.clone();
-                                    match state.origin {
+                                    let route = match state.origin {
                                         None => RouteBack::External(state.external_channel),
                                         Some(idx) => RouteBack::Master(idx),
-                                    }
+                                    };
+                                    (route, state.cap_urn)
                                 },
                                 None => {
                                     let total = self
@@ -3135,11 +3462,11 @@ impl RelaySwitch {
                         } else {
                             match requests.get(&key) {
                                 Some(state) => {
-                                    cap_for_log = state.cap_urn.clone();
-                                    match state.origin {
+                                    let route = match state.origin {
                                         None => RouteBack::External(state.external_channel.clone()),
                                         Some(idx) => RouteBack::Master(idx),
-                                    }
+                                    };
+                                    (route, state.cap_urn.clone())
                                 },
                                 None => {
                                     let total = self
@@ -3271,6 +3598,7 @@ impl RelaySwitch {
 
                 let payload = parse_relay_notify_payload(caps_payload)?;
                 let new_caps = payload.cap_urns();
+                self.configure_master_admission(source_idx, &payload.installed_cartridges)?;
 
                 // Detect transition from empty → non-empty caps. The
                 // initial RelayNotify (during `add_master`) skipped
@@ -3396,6 +3724,7 @@ impl RelaySwitch {
             masters[master_idx].healthy.store(false, Ordering::SeqCst);
             *masters[master_idx].last_error.write().await = Some(reason_owned.clone());
         }
+        self.admission.disable_master(master_idx);
 
         error!(
             master_idx = master_idx,
@@ -3437,10 +3766,10 @@ impl RelaySwitch {
             // Create ERR frame
             // A dead relay master is a runtime-environment failure —
             // Environment (docs/failure-taxonomy.md).
-            let mut err_frame = Frame::err_classified(
+            let mut err_frame = Frame::err(
                 rid.clone(),
                 "MASTER_DIED",
-                crate::failure::FailureClass::Environment,
+                crate::failure::AttributionClass::Environment,
                 &format!("Relay master {} connection closed: {}", master_idx, reason),
                 None,
             );
@@ -3914,6 +4243,15 @@ mod tests {
                     "id": "test-cartridge",
                     "version": "0.0.0",
                     "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "runtime_stats": {
+                        "running": true,
+                        "handler_capacity": 0,
+                        "active_request_count": 0,
+                        "peer_request_count": 0,
+                        "memory_footprint_mb": 0,
+                        "memory_rss_mb": 0,
+                        "restart_count": 0
+                    },
                     "cap_groups": [
                         {
                             "name": "test",
@@ -3975,6 +4313,160 @@ mod tests {
         (reader, writer)
     }
 
+    // TEST7113: a capacity-one cartridge owns only the active body. If that
+    // invocation dies, its ERR releases the slot and the next queued body is
+    // dispatched; the queued body is not failed as pending work of the dead
+    // process.
+    #[tokio::test]
+    async fn test7113_cartridge_loss_releases_next_engine_invocation() {
+        let (engine_sock, slave_sock) = UnixStream::pair().unwrap();
+        let (first_seen_tx, first_seen_rx) = tokio::sync::oneshot::channel();
+        let (fail_first_tx, fail_first_rx) = tokio::sync::oneshot::channel();
+        let (second_seen_tx, second_seen_rx) = tokio::sync::oneshot::channel();
+
+        let slave = tokio::spawn(async move {
+            let (mut reader, mut writer) = slave_notify_with_identity(
+                slave_sock,
+                &serde_json::json!(["cap:effect=none"]),
+                &Limits::default(),
+            )
+            .await;
+
+            let capacity_update = serde_json::json!({
+                "installed_cartridges": [{
+                    "registry_url": null,
+                    "channel": "release",
+                    "id": "test-cartridge",
+                    "version": "0.0.0",
+                    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "runtime_stats": {
+                        "running": true,
+                        "handler_capacity": 1,
+                        "active_request_count": 1,
+                        "peer_request_count": 0,
+                        "memory_footprint_mb": 0,
+                        "memory_rss_mb": 0,
+                        "restart_count": 0
+                    },
+                    "cap_groups": [{
+                        "name": "test",
+                        "caps": [{
+                            "urn": "cap:effect=none",
+                            "title": "test",
+                            "aliases": ["test"],
+                            "args": []
+                        }],
+                        "adapter_urns": []
+                    }]
+                }]
+            });
+            writer
+                .write(&Frame::relay_notify(
+                    &serde_json::to_vec(&capacity_update).unwrap(),
+                    &Limits::default(),
+                ))
+                .await
+                .unwrap();
+
+            let first = loop {
+                let frame = reader.read().await.unwrap().expect("first request");
+                if frame.frame_type == FrameType::Req {
+                    break frame;
+                }
+            };
+            first_seen_tx.send(()).unwrap();
+            fail_first_rx.await.unwrap();
+            let mut died = Frame::err(
+                first.id,
+                "CARTRIDGE_DIED",
+                crate::AttributionClass::Environment,
+                "active cartridge process exited",
+                None,
+            );
+            died.routing_id = first.routing_id;
+            writer.write(&died).await.unwrap();
+
+            let second = loop {
+                let frame = reader.read().await.unwrap().expect("second request");
+                if frame.frame_type == FrameType::Req {
+                    break frame;
+                }
+            };
+            second_seen_tx.send(()).unwrap();
+            let mut end = Frame::end(second.id, None);
+            end.routing_id = second.routing_id;
+            writer.write(&end).await.unwrap();
+        });
+
+        let switch = Arc::new(
+            RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
+                .await
+                .unwrap(),
+        );
+        // Consume the capacity update before starting the two invocations.
+        switch.read_from_masters().await.unwrap();
+
+        let (_first_rid, mut first_rx) = switch
+            .execute_cap("cap:effect=none", vec![], "application/cbor")
+            .await
+            .unwrap();
+        first_seen_rx.await.unwrap();
+
+        let queued_switch = switch.clone();
+        let second_call = tokio::spawn(async move {
+            queued_switch
+                .execute_cap("cap:effect=none", vec![], "application/cbor")
+                .await
+        });
+        tokio::task::yield_now().await;
+        assert!(
+            !second_call.is_finished(),
+            "the second body must remain outside the capacity-one process"
+        );
+
+        fail_first_tx.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                switch.pump_one().await.unwrap();
+                if !first_rx.is_empty() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("active failure must be routed to its body");
+        let failed = first_rx.recv().await.expect("first body receives terminal ERR");
+        assert_eq!(failed.frame_type, FrameType::Err);
+        assert_eq!(failed.error_code(), Some("CARTRIDGE_DIED"));
+
+        let (_second_rid, mut second_rx) = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            second_call,
+        )
+        .await
+        .expect("the failed body must release the next admission slot")
+        .expect("second invocation task must not fail")
+        .expect("second invocation must register");
+        second_seen_rx.await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                switch.pump_one().await.unwrap();
+                if !second_rx.is_empty() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("replacement request must receive its terminal frame");
+        assert_eq!(
+            second_rx.recv().await.expect("replacement request completes").frame_type,
+            FrameType::End
+        );
+        slave.await.unwrap();
+    }
+
     /// Test slave for the DEFERRED runtime-identity-probe path. Sends an
     /// EMPTY initial RelayNotify (so `RelaySwitch::new` skips synchronous
     /// verification and the master joins capless+healthy), then a populated
@@ -4024,6 +4516,15 @@ mod tests {
                     "id": "test-cartridge",
                     "version": "0.0.0",
                     "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "runtime_stats": {
+                        "running": true,
+                        "handler_capacity": 0,
+                        "active_request_count": 0,
+                        "peer_request_count": 0,
+                        "memory_footprint_mb": 0,
+                        "memory_rss_mb": 0,
+                        "restart_count": 0
+                    },
                     "cap_groups": [
                         { "name": "test", "caps": group_caps, "adapter_urns": [] }
                     ],
@@ -4053,7 +4554,7 @@ mod tests {
                     probe_xid = f.routing_id.clone();
                     if !succeed {
                         // Broken identity handler: reply ERR on the same flow.
-                        let mut err = Frame::err(f.id.clone(), "BROKEN", "test cartridge");
+                        let mut err = Frame::err(f.id.clone(), "BROKEN", crate::AttributionClass::Internal, "test cartridge", None);
                         err.routing_id = f.routing_id.clone();
                         let _ = writer.write(&err).await;
                         return;
@@ -4973,6 +5474,15 @@ mod tests {
                         "id": "broken-cartridge",
                         "version": "0.0.0",
                         "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "runtime_stats": {
+                        "running": true,
+                        "handler_capacity": 0,
+                        "active_request_count": 0,
+                        "peer_request_count": 0,
+                        "memory_footprint_mb": 0,
+                        "memory_rss_mb": 0,
+                        "restart_count": 0
+                    },
                         "cap_groups": [
                             {
                                 "name": "test",
@@ -4997,7 +5507,7 @@ mod tests {
             // Read identity REQ, respond with ERR
             let req = reader.read().await.unwrap().expect("expected identity REQ");
             assert_eq!(req.frame_type, FrameType::Req);
-            let err = Frame::err(req.id, "BROKEN", "identity verification broken");
+            let err = Frame::err(req.id, "BROKEN", crate::AttributionClass::Internal, "identity verification broken", None);
             writer.write(&err).await.unwrap();
         });
 
@@ -5062,6 +5572,15 @@ mod tests {
                         "id": "test-cartridge",
                         "version": "0.0.0",
                         "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "runtime_stats": {
+                        "running": true,
+                        "handler_capacity": 0,
+                        "active_request_count": 0,
+                        "peer_request_count": 0,
+                        "memory_footprint_mb": 0,
+                        "memory_rss_mb": 0,
+                        "restart_count": 0
+                    },
                         "cap_groups": [
                             {
                                 "name": "test",
@@ -5104,7 +5623,7 @@ mod tests {
                     Err(_) => return,
                 };
                 if frame.frame_type == FrameType::Req {
-                    let mut err = Frame::err(frame.id.clone(), "BROKEN", "test cartridge");
+                    let mut err = Frame::err(frame.id.clone(), "BROKEN", crate::AttributionClass::Internal, "test cartridge", None);
                     err.routing_id = frame.routing_id.clone();
                     let _ = writer.write(&err).await;
                     return;
@@ -6628,7 +7147,7 @@ mod tests {
                     break f;
                 }
             };
-            let mut log = Frame::log(req.id.clone(), "info", "first result row");
+            let mut log = Frame::log(req.id.clone(), "info", crate::AttributionClass::Internal, "first result row", None);
             log.routing_id = req.routing_id.clone();
             writer.write(&log).await.unwrap();
 
@@ -6707,6 +7226,15 @@ mod tests {
                         "id": "test-cartridge",
                         "version": "0.0.0",
                         "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "runtime_stats": {
+                        "running": true,
+                        "handler_capacity": 0,
+                        "active_request_count": 0,
+                        "peer_request_count": 0,
+                        "memory_footprint_mb": 0,
+                        "memory_rss_mb": 0,
+                        "restart_count": 0
+                    },
                         "cap_groups": [
                             {
                                 "name": "test",
@@ -6912,7 +7440,7 @@ mod tests {
             )
             .unwrap();
 
-        let mut err = Frame::err(rid.clone(), "HANDLER_ERROR", "boom");
+        let mut err = Frame::err(rid.clone(), "HANDLER_ERROR", crate::AttributionClass::Internal, "boom", None);
         err.routing_id = Some(xid);
         switch.handle_master_frame(0, err).await.unwrap();
 

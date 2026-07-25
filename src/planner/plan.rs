@@ -1163,13 +1163,14 @@ pub struct BodyOutcome {
     pub success: bool,
     /// Cap URNs in the body's execution pathway (in execution order).
     pub cap_urns: Vec<String>,
-    /// The cap URN that was executing when the body failed (None if succeeded).
-    pub failed_cap: Option<String>,
+    /// Exact immutable strand-step token that failed.
+    #[serde(deserialize_with = "deserialize_required_nullable_string")]
+    pub failed_token_id: Option<String>,
     /// Error message if the body failed.
     pub error: Option<String>,
     /// Media URN of the argument attributed by the failure's emit source.
     /// Absent when the source did not name one; downstream layers never infer it.
-    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_required_nullable_string")]
     pub failed_arg_urn: Option<String>,
     /// Human-readable title for this body, from stream metadata.
     /// ForEach: per-item meta "title" from prefix output (e.g. "page_3").
@@ -1191,6 +1192,15 @@ pub struct BodyOutcome {
     /// Byte size of the body's input item at the split (0 for linear).
     #[serde(default)]
     pub item_byte_count: u64,
+}
+
+fn deserialize_required_nullable_string<'de, D>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)
 }
 
 /// Overall result of executing a machine
@@ -2190,5 +2200,35 @@ mod tests {
         // Should have: input_slot + synthetic output
         assert_eq!(prefix.nodes.len(), 2);
         assert!(prefix.validate().is_ok());
+    }
+
+    // TEST6525: Body outcomes serialize an explicit stable failure coordinate
+    #[test]
+    fn test6525_body_outcome_requires_explicit_failure_coordinate() {
+        let outcome = BodyOutcome {
+            body_index: 0,
+            success: true,
+            cap_urns: vec![],
+            failed_token_id: None,
+            error: None,
+            failed_arg_urn: None,
+            title: None,
+            saved_paths: vec![],
+            total_bytes: 0,
+            duration_ms: 0,
+            item_preview_text: None,
+            item_byte_count: 0,
+        };
+        let encoded = serde_json::to_value(&outcome).unwrap();
+        assert_eq!(encoded.get("failed_token_id"), Some(&serde_json::Value::Null));
+        assert_eq!(encoded.get("failed_arg_urn"), Some(&serde_json::Value::Null));
+
+        let mut missing = encoded.as_object().unwrap().clone();
+        missing.remove("failed_token_id");
+        assert!(serde_json::from_value::<BodyOutcome>(serde_json::Value::Object(missing)).is_err());
+
+        let mut missing = encoded.as_object().unwrap().clone();
+        missing.remove("failed_arg_urn");
+        assert!(serde_json::from_value::<BodyOutcome>(serde_json::Value::Object(missing)).is_err());
     }
 }
