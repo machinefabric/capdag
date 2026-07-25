@@ -29,7 +29,7 @@ use async_trait::async_trait;
 
 use crate::cap::registry::FabricRegistry;
 use crate::orchestrator::plan_converter::plan_to_resolved_graph;
-use crate::orchestrator::stream_io::{PipelineProgressTracker, TerminalMeta};
+use crate::orchestrator::stream_io::{PipelineLogRecord, PipelineProgressTracker};
 use crate::orchestrator::types::ResolvedGraph;
 use crate::orchestrator::ParseOrchestrationError;
 use crate::planner::plan_analysis::derive_foreach_media_urns;
@@ -786,7 +786,7 @@ pub async fn execute_plan(
             body_index: 0,
             success: true,
             cap_urns: trunk_cap_urns,
-            failed_cap: None,
+            failed_token_id: None,
             error: None,
             failed_arg_urn: None,
             title: None,
@@ -1118,7 +1118,7 @@ async fn run_region_bodies(
                             body_index: i,
                             success: true,
                             cap_urns: region.body_cap_urns.clone(),
-                            failed_cap: None,
+                            failed_token_id: None,
                             error: None,
                             failed_arg_urn: None,
                             title: None,
@@ -1145,16 +1145,11 @@ async fn run_region_bodies(
                         stall_tracker.touch();
                         stall_warning_logged = false;
                         let error_str = format!("{e}");
-                        let failed_cap = region
-                            .body_cap_urns
-                            .iter()
-                            .find(|u| error_str.contains(u.as_str()))
-                            .cloned();
                         body_outcomes.push(BodyOutcome {
                             body_index: i,
                             success: false,
                             cap_urns: region.body_cap_urns.clone(),
-                            failed_cap,
+                            failed_token_id: e.step_token_id().map(str::to_string),
                             error: Some(error_str),
                             failed_arg_urn: e.failure_arg_urn().map(str::to_string),
                             title: None,
@@ -1165,9 +1160,6 @@ async fn run_region_bodies(
                             item_byte_count: input_items.get(i).map(|b| b.len() as u64).unwrap_or(0),
                         });
                         if let Some(bofn) = body_outcome_fn { bofn(body_outcomes); }
-                        if let Some(lfn) = log_fn {
-                            lfn("", "error", &format!("ForEach body {i} failed: {e}"), None, Some(i));
-                        }
                         tracing::error!("[execute_plan] region '{}' body {i} failed: {e}", region.fe_id);
                         completed += 1;
                         failed += 1;
@@ -1183,7 +1175,20 @@ async fn run_region_bodies(
             _ = tokio::time::sleep(Duration::from_secs(5)) => {
                 if stall_tracker.is_stalled() && !stall_warning_logged {
                     if let Some(lfn) = log_fn {
-                        lfn("", "warn", &format!("ForEach region '{}' has had no progress for {PIPELINE_STALL_TIMEOUT_SECS}s — continuing to wait. Use Cancel to abort.", region.fe_id), None, None);
+                        lfn(PipelineLogRecord {
+                            step_token_id: Some(region.step_token_id.clone()),
+                            cap_urn: None,
+                            level: "warn".to_string(),
+                            attribution_class: crate::AttributionClass::Internal,
+                            message: format!(
+                                "This ForEach step has had no progress for \
+                                 {PIPELINE_STALL_TIMEOUT_SECS}s; continuing to wait. \
+                                 Use Cancel to abort."
+                            ),
+                            meta: None,
+                            body_index: None,
+                            arg_urn: None,
+                        });
                     }
                     stall_warning_logged = true;
                 }
@@ -1198,10 +1203,12 @@ async fn run_region_bodies(
             _ => succeeded == 0,
         };
         if should_fail {
-            return Err(ExecutionError::HostError(format!(
-                "ForEach region '{}' failed: {failed}/{item_count} bodies failed (policy={policy})",
-                region.fe_id
-            )));
+            return Err(ExecutionError::StepFailed {
+                step_token_id: region.step_token_id.clone(),
+                source: Box::new(ExecutionError::HostError(format!(
+                    "ForEach step failed: {failed}/{item_count} bodies failed (policy={policy})"
+                ))),
+            });
         }
     }
 
@@ -1444,11 +1451,10 @@ mod tests {
         );
     }
 
-    // Drive the actual ForEach body-progress path. This fails if execution leaks
-    // the structural node id (`fe`, or `foreach_1` in production) instead of the
-    // immutable strand token consumed by the rendered run graph.
+    // TEST7119: the actual ForEach body-progress path emits the immutable strand
+    // token consumed by the rendered graph, never its structural node id.
     #[tokio::test]
-    async fn foreach_progress_emits_the_stable_strand_token() {
+    async fn test7119_foreach_progress_emits_the_stable_strand_token() {
         let (plan, _) = plan_with_region_and_fold();
         let registry = FabricRegistry::new_for_test();
         registry.add_caps_to_cache(vec![

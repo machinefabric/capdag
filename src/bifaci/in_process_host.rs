@@ -248,7 +248,13 @@ impl ResponseWriter {
 
     /// Send an error response.
     pub fn emit_error(&self, code: &str, message: &str) {
-        self.send(Frame::err(MessageId::Uint(0), code, message));
+        self.send(Frame::err(
+            MessageId::Uint(0),
+            code,
+            crate::failure::AttributionClass::Internal,
+            message,
+            None,
+        ));
     }
 }
 
@@ -611,7 +617,20 @@ impl InProcessCartridgeHost {
                 adapter_urns: Vec::new(),
             }],
             attachment_error: None,
-            runtime_stats: None,
+            runtime_stats: Some(crate::bifaci::relay_switch::CartridgeRuntimeStats {
+                running: true,
+                // In-process handlers are task-backed and have no fixed
+                // concurrency ceiling. Protocol v4 represents that as 0.
+                handler_capacity: 0,
+                pid: Some(std::process::id()),
+                active_request_count: 0,
+                peer_request_count: 0,
+                memory_footprint_mb: 0,
+                memory_rss_mb: 0,
+                last_heartbeat_unix_seconds: None,
+                restart_count: 0,
+                protocol_drops_total: None,
+            }),
             // In-process cartridges have no on-disk presence to
             // inspect and no registry to verify against — the
             // embedder constructed them directly. They are
@@ -764,7 +783,13 @@ impl InProcessCartridgeHost {
                     let cap_urn = match &frame.cap {
                         Some(c) => c.clone(),
                         None => {
-                            let mut err = Frame::err(rid, "PROTOCOL_ERROR", "REQ missing cap URN");
+                            let mut err = Frame::err(
+                                rid,
+                                "PROTOCOL_ERROR",
+                                crate::failure::AttributionClass::Internal,
+                                "REQ missing cap URN",
+                                None,
+                            );
                             err.routing_id = xid;
                             let _ = write_tx.send(err);
                             continue;
@@ -783,10 +808,10 @@ impl InProcessCartridgeHost {
                             None => {
                                 // No registered handler for a dispatched cap
                                 // is a deployment mismatch — Environment.
-                                let mut err = Frame::err_classified(
+                                let mut err = Frame::err(
                                     rid,
                                     "NO_HANDLER",
-                                    crate::failure::FailureClass::Environment,
+                                    crate::failure::AttributionClass::Environment,
                                     &format!("no handler for cap: {}", cap_urn),
                                     None,
                                 );
@@ -913,13 +938,23 @@ impl InProcessCartridgeHost {
                     }
 
                     // Send ERR "CANCELLED"
-                    let mut err = Frame::err(target_rid, "CANCELLED", "Request cancelled");
+                    let mut err = Frame::err(
+                        target_rid,
+                        "CANCELLED",
+                        crate::failure::AttributionClass::Internal,
+                        "Request cancelled",
+                        None,
+                    );
                     err.routing_id = xid;
                     let _ = write_tx.send(err);
                 }
 
                 FrameType::Heartbeat => {
-                    let response = Frame::heartbeat(frame.id.clone());
+                    let mut response = Frame::heartbeat(frame.id.clone());
+                    response.meta.get_or_insert_default().insert(
+                        "handler_capacity".to_string(),
+                        ciborium::Value::Integer(0.into()),
+                    );
                     let _ = write_tx.send(response);
                 }
 
@@ -1229,6 +1264,9 @@ mod tests {
         assert_eq!(payload.installed_cartridges.len(), 1);
         assert_eq!(payload.installed_cartridges[0].id, "thumb-host");
         assert_eq!(payload.installed_cartridges[0].cap_groups.len(), 1);
+        let stats = payload.installed_cartridges[0].runtime_stats.as_ref().unwrap();
+        assert!(stats.running);
+        assert_eq!(stats.handler_capacity, 0);
     }
 
     // TEST658: InProcessCartridgeHost handles heartbeat by echoing same ID
@@ -1256,6 +1294,12 @@ mod tests {
         let resp = reader.read().await.unwrap().unwrap();
         assert_eq!(resp.frame_type, FrameType::Heartbeat);
         assert_eq!(resp.id, hb_id);
+        assert_eq!(
+            resp.meta
+                .as_ref()
+                .and_then(|meta| meta.get("handler_capacity")),
+            Some(&ciborium::Value::Integer(0.into()))
+        );
 
         drop(writer);
         drop(reader);

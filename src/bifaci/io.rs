@@ -596,6 +596,8 @@ pub struct HandshakeResult {
     /// Cartridge manifest JSON data (from cartridge's HELLO response).
     /// This is REQUIRED - cartridges MUST include their manifest in HELLO.
     pub manifest: Vec<u8>,
+    /// Cartridge handler concurrency (0 means unlimited).
+    pub handler_capacity: usize,
 }
 
 // =============================================================================
@@ -783,7 +785,9 @@ pub async fn handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     }
 
     // Protocol version must match exactly (L1). No cross-version operation.
-    let their_version = their_frame.hello_version().unwrap_or(their_frame.version);
+    let their_version = their_frame
+        .hello_version()
+        .ok_or_else(|| CborError::Handshake("HELLO missing required version".to_string()))?;
     if their_version != PROTOCOL_VERSION {
         return Err(CborError::Handshake(format!(
             "protocol version mismatch: ours {}, theirs {}",
@@ -798,16 +802,25 @@ pub async fn handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
             CborError::Handshake("Cartridge HELLO missing required manifest".to_string())
         })?
         .to_vec();
+    let handler_capacity = their_frame.hello_handler_capacity().ok_or_else(|| {
+        CborError::Handshake(
+            "Cartridge HELLO missing required non-negative handler_capacity".to_string(),
+        )
+    })?;
 
     // Negotiate minimum of both
-    let their_max_frame = their_frame.hello_max_frame().unwrap_or(DEFAULT_MAX_FRAME);
-    let their_max_chunk = their_frame.hello_max_chunk().unwrap_or(DEFAULT_MAX_CHUNK);
+    let their_max_frame = their_frame
+        .hello_max_frame()
+        .ok_or_else(|| CborError::Handshake("HELLO missing required max_frame".to_string()))?;
+    let their_max_chunk = their_frame
+        .hello_max_chunk()
+        .ok_or_else(|| CborError::Handshake("HELLO missing required max_chunk".to_string()))?;
     let their_max_reorder_buffer = their_frame
         .hello_max_reorder_buffer()
-        .unwrap_or(DEFAULT_MAX_REORDER_BUFFER);
+        .ok_or_else(|| CborError::Handshake("HELLO missing required max_reorder_buffer".to_string()))?;
     let their_initial_credit = their_frame
         .hello_initial_credit()
-        .unwrap_or(DEFAULT_INITIAL_CREDIT);
+        .ok_or_else(|| CborError::Handshake("HELLO missing required initial_credit".to_string()))?;
 
     let limits = Limits {
         max_frame: DEFAULT_MAX_FRAME.min(their_max_frame),
@@ -820,7 +833,11 @@ pub async fn handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     reader.set_limits(limits);
     writer.set_limits(limits);
 
-    Ok(HandshakeResult { limits, manifest })
+    Ok(HandshakeResult {
+        limits,
+        manifest,
+        handler_capacity,
+    })
 }
 
 /// Accept HELLO handshake with manifest (cartridge side - receives first, sends manifest in response).
@@ -831,6 +848,7 @@ pub async fn handshake_accept<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     reader: &mut FrameReader<R>,
     writer: &mut FrameWriter<W>,
     manifest: &[u8],
+    handler_capacity: usize,
 ) -> Result<Limits, CborError> {
     // Read their HELLO first (host initiates)
     let their_frame = reader.read().await?.ok_or_else(|| {
@@ -845,7 +863,9 @@ pub async fn handshake_accept<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     }
 
     // Protocol version must match exactly (L1). No cross-version operation.
-    let their_version = their_frame.hello_version().unwrap_or(their_frame.version);
+    let their_version = their_frame
+        .hello_version()
+        .ok_or_else(|| CborError::Handshake("HELLO missing required version".to_string()))?;
     if their_version != PROTOCOL_VERSION {
         return Err(CborError::Handshake(format!(
             "protocol version mismatch: ours {}, theirs {}",
@@ -854,14 +874,18 @@ pub async fn handshake_accept<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     }
 
     // Negotiate minimum of both
-    let their_max_frame = their_frame.hello_max_frame().unwrap_or(DEFAULT_MAX_FRAME);
-    let their_max_chunk = their_frame.hello_max_chunk().unwrap_or(DEFAULT_MAX_CHUNK);
+    let their_max_frame = their_frame
+        .hello_max_frame()
+        .ok_or_else(|| CborError::Handshake("HELLO missing required max_frame".to_string()))?;
+    let their_max_chunk = their_frame
+        .hello_max_chunk()
+        .ok_or_else(|| CborError::Handshake("HELLO missing required max_chunk".to_string()))?;
     let their_max_reorder_buffer = their_frame
         .hello_max_reorder_buffer()
-        .unwrap_or(DEFAULT_MAX_REORDER_BUFFER);
+        .ok_or_else(|| CborError::Handshake("HELLO missing required max_reorder_buffer".to_string()))?;
     let their_initial_credit = their_frame
         .hello_initial_credit()
-        .unwrap_or(DEFAULT_INITIAL_CREDIT);
+        .ok_or_else(|| CborError::Handshake("HELLO missing required initial_credit".to_string()))?;
 
     let limits = Limits {
         max_frame: DEFAULT_MAX_FRAME.min(their_max_frame),
@@ -871,7 +895,7 @@ pub async fn handshake_accept<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     };
 
     // Send our HELLO with manifest
-    let our_hello = Frame::hello_with_manifest(&limits, manifest);
+    let our_hello = Frame::hello_with_manifest(&limits, manifest, handler_capacity);
     writer.write(&our_hello).await?;
 
     // Update both reader and writer with negotiated limits
@@ -998,8 +1022,12 @@ pub async fn verify_identity<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                 return Ok(());
             }
             FrameType::Err => {
-                let code = frame.error_code().unwrap_or("UNKNOWN");
-                let msg = frame.error_message().unwrap_or("no message");
+                let code = frame.error_code().ok_or_else(|| {
+                    CborError::Protocol("ERR frame missing required text code".to_string())
+                })?;
+                let msg = frame.error_message().ok_or_else(|| {
+                    CborError::Protocol("ERR frame missing required text message".to_string())
+                })?;
                 return Err(CborError::Protocol(format!(
                     "Identity verification failed: [{code}] {msg}"
                 )));
@@ -1007,7 +1035,7 @@ pub async fn verify_identity<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
             // Control/side-channel frames are legal ANYWHERE during the
             // probe (spec 12.4: LOG interleaves without affecting data
             // flow; CREDIT/HEARTBEAT are the control plane the writer
-            // gate itself exempts, L4). A v3 cartridge crediting its
+            // gate itself exempts, L4). A v4 cartridge crediting its
             // probe input as it consumes (L10) must not fail identity
             // verification.
             FrameType::Log | FrameType::Credit | FrameType::Heartbeat => {}
@@ -1071,7 +1099,7 @@ mod tests {
     #[test]
     fn test207_err_frame_roundtrip() {
         let id = MessageId::new_uuid();
-        let original = Frame::err(id, "NOT_FOUND", "Cap not found");
+        let original = Frame::err(id, "NOT_FOUND", crate::AttributionClass::Internal, "Cap not found", None);
         let bytes = encode_frame(&original).expect("encode should succeed");
         let decoded = decode_frame(&bytes).expect("decode should succeed");
 
@@ -1084,7 +1112,7 @@ mod tests {
     #[test]
     fn test208_log_frame_roundtrip() {
         let id = MessageId::new_uuid();
-        let original = Frame::log(id, "warn", "Something happened");
+        let original = Frame::log(id, "warn", crate::AttributionClass::Internal, "Something happened", None);
         let bytes = encode_frame(&original).expect("encode should succeed");
         let decoded = decode_frame(&bytes).expect("decode should succeed");
 
@@ -1208,6 +1236,7 @@ mod tests {
                 initial_credit: DEFAULT_INITIAL_CREDIT,
             },
             manifest,
+            0,
         );
         let bytes = encode_frame(&original).expect("encode should succeed");
         let decoded = decode_frame(&bytes).expect("decode should succeed");
@@ -1816,7 +1845,7 @@ mod tests {
         let cartridge_handle = tokio::spawn(async move {
             let mut reader = FrameReader::new(TokioBufReader::new(cartridge_from_host));
             let mut writer = FrameWriter::new(TokioBufWriter::new(cartridge_to_host));
-            handshake_accept(&mut reader, &mut writer, &manifest_clone)
+            handshake_accept(&mut reader, &mut writer, &manifest_clone, 0)
                 .await
                 .unwrap()
         });
@@ -2165,7 +2194,7 @@ mod tests {
         let (mut cartridge_write, mut cartridge_read) = tokio::io::duplex(64 * 1024);
         {
             let mut w = FrameWriter::new(&mut cartridge_write);
-            let hello = Frame::hello_with_manifest(&cartridge_limits, manifest);
+            let hello = Frame::hello_with_manifest(&cartridge_limits, manifest, 0);
             w.write(&hello).await.unwrap();
         }
         drop(cartridge_write);
@@ -2198,12 +2227,12 @@ mod tests {
         assert_eq!(host_reorder, DEFAULT_MAX_REORDER_BUFFER);
     }
 
-    const V3_TEST_MANIFEST: &[u8] = br#"{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases": ["identity"]}]}]}"#;
+    const V4_TEST_MANIFEST: &[u8] = br#"{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases": ["identity"]}]}]}"#;
 
     /// Run a real host↔cartridge handshake over a bidirectional duplex pair.
     /// The cartridge side proposes `cartridge_limits` in its HELLO.
     /// Returns (host result, cartridge negotiated limits).
-    async fn run_v3_handshake(
+    async fn run_v4_handshake(
         cartridge_limits: Limits,
     ) -> (
         Result<HandshakeResult, CborError>,
@@ -2239,7 +2268,8 @@ mod tests {
             writer
                 .write(&Frame::hello_with_manifest(
                     &cartridge_limits,
-                    V3_TEST_MANIFEST,
+                    V4_TEST_MANIFEST,
+                    0,
                 ))
                 .await?;
             Ok(Limits {
@@ -2267,18 +2297,18 @@ mod tests {
         (host_result, cart_result)
     }
 
-    // TEST7000: v3 handshake succeeds and negotiates the element-wise minimum of all four limits including initial_credit
+    // TEST7000: v4 handshake negotiates all limits and required handler capacity.
     #[tokio::test]
-    async fn test7000_v3_handshake_negotiates_all_four_limits() {
+    async fn test7000_v4_handshake_negotiates_all_four_limits() {
         let cartridge_limits = Limits {
             max_frame: 2_000_000,
             max_chunk: 128_000,
             max_reorder_buffer: 32,
             initial_credit: 16,
         };
-        let (host_result, cart_result) = run_v3_handshake(cartridge_limits).await;
+        let (host_result, cart_result) = run_v4_handshake(cartridge_limits).await;
 
-        let host = host_result.expect("v3 handshake must succeed");
+        let host = host_result.expect("v4 handshake must succeed");
         assert_eq!(host.limits.max_frame, 2_000_000, "min(3.5MB, 2MB)");
         assert_eq!(host.limits.max_chunk, 128_000, "min(256KB, 128KB)");
         assert_eq!(host.limits.max_reorder_buffer, 32, "min(64, 32)");
@@ -2302,7 +2332,7 @@ mod tests {
             let mut reader = FrameReader::new(cart_r);
             let mut writer = FrameWriter::new(cart_w);
             let _host_hello = reader.read().await.unwrap().unwrap();
-            let mut hello = Frame::hello_with_manifest(&Limits::default(), V3_TEST_MANIFEST);
+            let mut hello = Frame::hello_with_manifest(&Limits::default(), V4_TEST_MANIFEST, 0);
             hello.version = 2;
             if let Some(meta) = hello.meta.as_mut() {
                 meta.insert("version".to_string(), ciborium::Value::Integer(2.into()));
@@ -2323,7 +2353,7 @@ mod tests {
             msg
         );
         assert!(
-            msg.contains('2') && msg.contains('3'),
+            msg.contains('2') && msg.contains('4'),
             "error must state both versions: {}",
             msg
         );
@@ -2337,7 +2367,7 @@ mod tests {
             initial_credit: 8,
             ..Limits::default()
         };
-        let (host_result, cart_result) = run_v3_handshake(smaller).await;
+        let (host_result, cart_result) = run_v4_handshake(smaller).await;
         assert_eq!(host_result.unwrap().limits.initial_credit, 8);
         assert_eq!(cart_result.unwrap().initial_credit, 8);
 
@@ -2346,7 +2376,7 @@ mod tests {
             initial_credit: 128,
             ..Limits::default()
         };
-        let (host_result, cart_result) = run_v3_handshake(larger).await;
+        let (host_result, cart_result) = run_v4_handshake(larger).await;
         assert_eq!(host_result.unwrap().limits.initial_credit, 32);
         assert_eq!(cart_result.unwrap().initial_credit, 32);
     }
@@ -2367,7 +2397,7 @@ mod tests {
     ) {
         let mut reader = FrameReader::new(TokioBufReader::new(from_host));
         let mut writer = FrameWriter::new(TokioBufWriter::new(to_host));
-        handshake_accept(&mut reader, &mut writer, manifest)
+        handshake_accept(&mut reader, &mut writer, manifest, 0)
             .await
             .unwrap();
 
@@ -2443,13 +2473,13 @@ mod tests {
         let cartridge_handle = tokio::spawn(async move {
             let mut reader = FrameReader::new(TokioBufReader::new(cartridge_from_host));
             let mut writer = FrameWriter::new(TokioBufWriter::new(cartridge_to_host));
-            handshake_accept(&mut reader, &mut writer, &manifest)
+            handshake_accept(&mut reader, &mut writer, &manifest, 0)
                 .await
                 .unwrap();
 
             // Read REQ, respond with ERR
             let req = reader.read().await.unwrap().expect("expected REQ");
-            let err = Frame::err(req.id, "BROKEN", "identity handler broken");
+            let err = Frame::err(req.id, "BROKEN", crate::AttributionClass::Internal, "identity handler broken", None);
             writer.write(&err).await.unwrap();
             // Flush to ensure host reads the error before connection closes
             use tokio::io::AsyncWriteExt;
@@ -2483,7 +2513,7 @@ mod tests {
         let cartridge_handle = tokio::spawn(async move {
             let mut reader = FrameReader::new(TokioBufReader::new(cartridge_from_host));
             let mut writer = FrameWriter::new(TokioBufWriter::new(cartridge_to_host));
-            handshake_accept(&mut reader, &mut writer, &manifest)
+            handshake_accept(&mut reader, &mut writer, &manifest, 0)
                 .await
                 .unwrap();
 

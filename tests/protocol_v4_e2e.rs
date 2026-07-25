@@ -1,4 +1,5 @@
-//! Protocol v3 end-to-end tests (bifaci v3 — credit-based flow control,
+//! Protocol v4 end-to-end tests (bifaci v4 — explicit diagnostic attribution,
+//! handler-capacity admission, credit-based flow control,
 //! bidirectional streaming, terminal metadata on END, pipelined chains).
 //!
 //! These exercise the FULL stack with a real cartridge process:
@@ -24,7 +25,7 @@
 //!   upstream finishes)
 //!
 //! Deferred to the capdag-interop suite (see
-//! machfab-tests/capdag-interop/README.md, "Protocol v3 scenarios"):
+//! machfab-tests/capdag-interop/README.md, "Protocol v4 scenarios"):
 //! - TEST7057 (credit across a relay hop with XID rewriting): the
 //!   orchestrator harness has exactly one slave hop, which every test here
 //!   exercises implicitly; the multi-hop XID-rewrite assertion needs the
@@ -45,7 +46,8 @@
 
 use capdag::cap::definition::{ArgSource, CapArg, CapOutput};
 use capdag::orchestrator::{
-    execute_dag, parse_machine_to_cap_dag, CartridgeManager, ExecutionContext, NodeData,
+    execute_dag, parse_machine_to_cap_dag, CapProgressFn, CartridgeManager, ExecutionContext,
+    NodeData,
 };
 use capdag::{
     Cap, CapUrn, FabricRegistry, FrameReader, FrameWriter, Limits, PipelineLogFn,
@@ -84,19 +86,25 @@ type CapturedLogs = Arc<Mutex<Vec<(String, String, String)>>>;
 fn capturing_log_fn() -> (PipelineLogFn, CapturedLogs) {
     let events: CapturedLogs = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&events);
-    let log_fn: PipelineLogFn = Arc::new(
-        move |cap_urn: &str,
-              level: &str,
-              message: &str,
-              _meta: Option<StreamMeta>,
-              _body_index: Option<usize>| {
-            eprintln!("[V3E2ELog][{}] {} {}", level, cap_urn, message);
+    let log_fn: PipelineLogFn = Arc::new(move |record| {
+            let cap_urn = record.cap_urn.unwrap_or_else(|| "machine".to_string());
+            eprintln!("[V4E2ELog][{}] {} {}", record.level, cap_urn, record.message);
             sink.lock()
                 .unwrap()
-                .push((cap_urn.to_string(), level.to_string(), message.to_string()));
-        },
-    );
+                .push((cap_urn, record.level, record.message));
+        });
     (log_fn, events)
+}
+
+fn capturing_progress_fn(events: &CapturedLogs) -> CapProgressFn {
+    let sink = Arc::clone(events);
+    Arc::new(move |_progress, cap_urn, message| {
+        sink.lock().unwrap().push((
+            cap_urn.to_string(),
+            "progress".to_string(),
+            message.to_string(),
+        ));
+    })
 }
 
 // =============================================================================
@@ -178,8 +186,8 @@ fn build_testcartridge_cap(urn_str: &str) -> Cap {
     }
 }
 
-/// Unified `FabricRegistry` pre-loaded with the v3 testcartridge caps.
-fn create_v3_fabric_registry() -> Arc<FabricRegistry> {
+/// Unified `FabricRegistry` pre-loaded with the v4 testcartridge caps.
+fn create_v4_fabric_registry() -> Arc<FabricRegistry> {
     let registry = FabricRegistry::new_for_test();
     let caps = vec![
         build_testcartridge_cap(CAP_STREAM_N_CHUNKS),
@@ -217,7 +225,7 @@ fn testcartridge_needs_rebuild(binary_path: &PathBuf) -> bool {
     if let Ok(meta) = cargo_toml.metadata() {
         if let Ok(mtime) = meta.modified() {
             if mtime > binary_mtime {
-                eprintln!("[V3E2ETest] Cargo.toml is newer than binary");
+                eprintln!("[V4E2ETest] Cargo.toml is newer than binary");
                 return true;
             }
         }
@@ -225,7 +233,7 @@ fn testcartridge_needs_rebuild(binary_path: &PathBuf) -> bool {
 
     let src_dir = cart_dir.join("src");
     if src_dir.exists() && check_dir_newer(&src_dir, &binary_mtime) {
-        eprintln!("[V3E2ETest] src/ has files newer than binary");
+        eprintln!("[V4E2ETest] src/ has files newer than binary");
         return true;
     }
 
@@ -259,9 +267,9 @@ fn check_dir_newer(dir: &PathBuf, reference: &std::time::SystemTime) -> bool {
 fn build_testcartridge() {
     let cart_dir = testcartridge_dir();
     let target_dir = testcartridge_target_dir();
-    eprintln!("[V3E2ETest] Building testcartridge in release mode...");
-    eprintln!("[V3E2ETest]   Directory: {:?}", cart_dir);
-    eprintln!("[V3E2ETest]   Target dir: {:?}", target_dir);
+    eprintln!("[V4E2ETest] Building testcartridge in release mode...");
+    eprintln!("[V4E2ETest]   Directory: {:?}", cart_dir);
+    eprintln!("[V4E2ETest]   Target dir: {:?}", target_dir);
 
     let output = Command::new("cargo")
         .arg("build")
@@ -274,13 +282,13 @@ fn build_testcartridge() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     if !stdout.trim().is_empty() {
         for line in stdout.lines() {
-            eprintln!("[V3E2ETest]   {}", line);
+            eprintln!("[V4E2ETest]   {}", line);
         }
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !stderr.trim().is_empty() {
         for line in stderr.lines() {
-            eprintln!("[V3E2ETest]   {}", line);
+            eprintln!("[V4E2ETest]   {}", line);
         }
     }
 
@@ -291,7 +299,7 @@ fn build_testcartridge() {
         );
     }
 
-    eprintln!("[V3E2ETest] Successfully built testcartridge");
+    eprintln!("[V4E2ETest] Successfully built testcartridge");
 }
 
 /// Resolve the `CARGO_TARGET_DIR` for the testcartridge build (see
@@ -317,7 +325,7 @@ fn testcartridge_bin() -> PathBuf {
 
     let needs_build = if !bin_path.exists() {
         eprintln!(
-            "[V3E2ETest] Binary not found at {:?}, will build",
+            "[V4E2ETest] Binary not found at {:?}, will build",
             bin_path
         );
         true
@@ -371,7 +379,7 @@ async fn setup_execution_context(
         .await
         .expect("resolve_cartridges failed");
 
-    let mut ctx = ExecutionContext::new(create_v3_fabric_registry())
+    let mut ctx = ExecutionContext::new(create_v4_fabric_registry())
         .await
         .expect("ExecutionContext::new failed");
     ctx.add_cartridge_host(cartridges)
@@ -397,7 +405,7 @@ async fn setup_execution_context(
 // dropped, the count/bytes report would differ.
 #[tokio::test]
 async fn test7054_slow_consumer_throttles_input_send() {
-    let registry = create_v3_fabric_registry();
+    let registry = create_v4_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = format!(
@@ -416,6 +424,7 @@ async fn test7054_slow_consumer_throttles_input_send() {
     initial_is_sequence.insert("input".to_string(), true);
 
     let (log_fn, events) = capturing_log_fn();
+    let progress_fn = capturing_progress_fn(&events);
     let outputs = tokio::time::timeout(
         Duration::from_secs(120),
         execute_dag(
@@ -428,8 +437,8 @@ async fn test7054_slow_consumer_throttles_input_send() {
             initial_is_sequence,
             dev_binaries,
             None,
-            create_v3_fabric_registry(),
-            None,
+            create_v4_fabric_registry(),
+            Some(&progress_fn),
             &log_fn,
             &HashMap::new(),
             None,
@@ -461,7 +470,7 @@ async fn test7054_slow_consumer_throttles_input_send() {
                 && level == "progress"
                 && msg == "slow-consume-complete"
         }),
-        "END terminal metadata (finish message) must reach the pipeline log \
+        "END terminal metadata (finish message) must reach the progress \
          callback as the final progress event (L3/L5); captured: {:?}",
         events
     );
@@ -479,7 +488,7 @@ async fn test7054_slow_consumer_throttles_input_send() {
 // in order.
 #[tokio::test]
 async fn test7056_bidirectional_echo_no_deadlock() {
-    let registry = create_v3_fabric_registry();
+    let registry = create_v4_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = format!(
@@ -509,7 +518,7 @@ async fn test7056_bidirectional_echo_no_deadlock() {
             initial_is_sequence,
             dev_binaries,
             None,
-            create_v3_fabric_registry(),
+            create_v4_fabric_registry(),
             None,
             &log_fn,
             &HashMap::new(),
@@ -564,7 +573,7 @@ async fn test7056_bidirectional_echo_no_deadlock() {
 // `active` non-empty and fails the test (L7/L13).
 #[tokio::test]
 async fn test7059_terminal_end_releases_credit_and_leaks_no_state() {
-    let registry = create_v3_fabric_registry();
+    let registry = create_v4_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = format!(
@@ -691,7 +700,7 @@ async fn test7059_terminal_end_releases_credit_and_leaks_no_state() {
 async fn test7061_negotiated_initial_credit_is_min_of_proposals() {
     use capdag::bifaci::local_socket::UnixStream;
 
-    let registry = create_v3_fabric_registry();
+    let registry = create_v4_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = format!(
@@ -833,7 +842,7 @@ async fn test7076_pipelined_chain_downstream_consumes_before_upstream_finishes()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
         )
         .try_init();
-    let registry = create_v3_fabric_registry();
+    let registry = create_v4_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
     let route = format!(
@@ -851,6 +860,7 @@ async fn test7076_pipelined_chain_downstream_consumes_before_upstream_finishes()
     initial_is_sequence.insert("input".to_string(), false);
 
     let (log_fn, events) = capturing_log_fn();
+    let progress_fn = capturing_progress_fn(&events);
     // 180s, deliberately LONGER than the 120s activity timeout: on a
     // credit-forwarding stall the runtime's activity warnings fire at 120s
     // carrying the per-stream credit-state dumps (forwarder gate balances,
@@ -869,8 +879,8 @@ async fn test7076_pipelined_chain_downstream_consumes_before_upstream_finishes()
             initial_is_sequence,
             dev_binaries,
             None,
-            create_v3_fabric_registry(),
-            None,
+            create_v4_fabric_registry(),
+            Some(&progress_fn),
             &log_fn,
             &HashMap::new(),
             None,

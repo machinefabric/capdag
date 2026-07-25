@@ -18,7 +18,7 @@
 //!                                                             ←→ Cartridge C
 //! ```
 
-use super::stream_io::{PipelineLogFn, PipelineProgressTracker, TerminalMeta};
+use super::stream_io::{PipelineLogFn, PipelineLogRecord, PipelineProgressTracker, TerminalMeta};
 use super::types::{ResolvedEdge, ResolvedGraph};
 use crate::{
     handshake, Cap, CapManifest, CapUrn, CartridgeHostRuntime, CartridgeRepo, FabricRegistry,
@@ -189,6 +189,14 @@ const CAP_IDENTITY: &str = "cap:effect=none";
 
 #[derive(Debug, Error)]
 pub enum ExecutionError {
+    /// An execution failure attributed to the exact immutable strand step.
+    #[error("Step {step_token_id} failed: {source}")]
+    StepFailed {
+        step_token_id: String,
+        #[source]
+        source: Box<ExecutionError>,
+    },
+
     #[error("Cartridge not found for cap: {cap_urn}")]
     CartridgeNotFound { cap_urn: String },
 
@@ -206,7 +214,7 @@ pub enum ExecutionError {
     CartridgeExecutionFailed {
         cap_urn: String,
         code: Option<String>,
-        class: crate::failure::FailureClass,
+        class: crate::failure::AttributionClass,
         details: String,
         arg_urn: Option<String>,
     },
@@ -230,22 +238,24 @@ impl ExecutionError {
     /// every other variant declares its class here, at its definition:
     /// missing/undownloadable cartridges and registry failures are deployment
     /// problems (Environment); everything else is ours (Internal).
-    pub fn failure_class(&self) -> crate::failure::FailureClass {
-        use crate::failure::FailureClass;
+    pub fn attribution_class(&self) -> crate::failure::AttributionClass {
+        use crate::failure::AttributionClass;
         match self {
+            ExecutionError::StepFailed { source, .. } => source.attribution_class(),
             ExecutionError::CartridgeExecutionFailed { class, .. } => *class,
             ExecutionError::CartridgeNotFound { .. }
             | ExecutionError::CartridgeDownloadFailed(_)
-            | ExecutionError::FabricRegistryError(_) => FailureClass::Environment,
+            | ExecutionError::FabricRegistryError(_) => AttributionClass::Environment,
             ExecutionError::NoIncomingData { .. }
             | ExecutionError::IoError(_)
-            | ExecutionError::HostError(_) => FailureClass::Internal,
+            | ExecutionError::HostError(_) => AttributionClass::Internal,
         }
     }
 
     /// The machine-readable code declared at the emit source, when carried.
     pub fn failure_code(&self) -> Option<&str> {
         match self {
+            ExecutionError::StepFailed { source, .. } => source.failure_code(),
             ExecutionError::CartridgeExecutionFailed { code, .. } => code.as_deref(),
             _ => None,
         }
@@ -256,6 +266,7 @@ impl ExecutionError {
     /// not about one argument and returns `None` — never a guess.
     pub fn failure_arg_urn(&self) -> Option<&str> {
         match self {
+            ExecutionError::StepFailed { source, .. } => source.failure_arg_urn(),
             ExecutionError::CartridgeExecutionFailed { arg_urn, .. } => arg_urn.as_deref(),
             _ => None,
         }
@@ -265,8 +276,35 @@ impl ExecutionError {
     /// failures, the Display chain otherwise.
     pub fn failure_reason(&self) -> String {
         match self {
+            ExecutionError::StepFailed { source, .. } => source.failure_reason(),
             ExecutionError::CartridgeExecutionFailed { details, .. } => details.clone(),
             other => other.to_string(),
+        }
+    }
+
+    pub fn step_token_id(&self) -> Option<&str> {
+        match self {
+            ExecutionError::StepFailed { step_token_id, .. } => Some(step_token_id),
+            _ => None,
+        }
+    }
+
+    pub fn failure_cap_urn(&self) -> Option<&str> {
+        match self {
+            ExecutionError::StepFailed { source, .. } => source.failure_cap_urn(),
+            ExecutionError::CartridgeExecutionFailed { cap_urn, .. } => Some(cap_urn),
+            _ => None,
+        }
+    }
+
+    fn at_step(self, step_token_id: impl Into<String>) -> Self {
+        if matches!(self, ExecutionError::StepFailed { .. }) {
+            self
+        } else {
+            ExecutionError::StepFailed {
+                step_token_id: step_token_id.into(),
+                source: Box::new(self),
+            }
         }
     }
 }
@@ -413,7 +451,7 @@ fn topological_sort_groups(groups: &[EdgeGroup]) -> Result<Vec<usize>, Execution
         return Err(ExecutionError::CartridgeExecutionFailed {
             cap_urn: String::new(),
             code: None,
-            class: crate::failure::FailureClass::Internal,
+            class: crate::failure::AttributionClass::Internal,
             details: "Cycle detected in graph".to_string(),
             arg_urn: None,
         });
@@ -610,7 +648,7 @@ impl CartridgeManager {
                 cap_urn: "manifest-discovery".to_string(),
                 code: None,
                 // An unspawnable cartridge binary is a deployment problem.
-                class: crate::failure::FailureClass::Environment,
+                class: crate::failure::AttributionClass::Environment,
                 details: format!("Failed to spawn cartridge: {}", e),
                 arg_urn: None,
             })?;
@@ -786,7 +824,7 @@ impl CartridgeManager {
                 return Err(ExecutionError::CartridgeExecutionFailed {
                     cap_urn: cartridge_id.to_string(),
                     code: None,
-                    class: crate::failure::FailureClass::Environment,
+                    class: crate::failure::AttributionClass::Environment,
                     details: format!("Dev binary not found: {:?}", path),
                     arg_urn: None,
                 });
@@ -1033,7 +1071,7 @@ impl CartridgeManager {
             ExecutionError::CartridgeExecutionFailed {
                 cap_urn: cartridge_id.to_string(),
                 code: None,
-                class: crate::failure::FailureClass::Environment,
+                class: crate::failure::AttributionClass::Environment,
                 details: format!(
                     "failed to read installed binary {:?} for integrity verification: {}",
                     binary_path, e
@@ -1048,7 +1086,7 @@ impl CartridgeManager {
                 code: None,
                 // A tampered/mismatched installed binary is a deployment
                 // problem — Environment.
-                class: crate::failure::FailureClass::Environment,
+                class: crate::failure::AttributionClass::Environment,
                 details: format!(
                     "installed binary at {:?} failed integrity verification: {}",
                     binary_path, e
@@ -1643,10 +1681,54 @@ pub async fn run_dag_on_context(
     // fan-in (a group whose stdin/args come from >1 producer group) both break
     // chains, so every non-linear junction is resolved by materialising the
     // producer's output into node_data and feeding the downstream chain head from
-    // it. A single linear machine yields exactly one chain and collapses to the
-    // pipelined path below unchanged. Persisted terminal sinks each get their own
-    // writer from the factory (fan-out ⇒ several); intermediate sinks stay in memory.
-    let chains = decompose_group_chains(&groups, &group_order);
+    // it. A single linear machine yields exactly one structural chain before the
+    // capacity partition below. Persisted terminal sinks each get their own writer
+    // from the factory (fan-out ⇒ several); intermediate sinks stay in memory.
+    //
+    // A positive handler capacity is also a materialisation boundary. Opening
+    // several bounded invocations before feeding the chain head can deadlock when
+    // two adjacent caps resolve to the same capacity-one cartridge: the first
+    // invocation owns the permit but has no input, while opening the second waits
+    // for that permit before the feed and relay pump exist. Unlimited handlers
+    // retain the maximal live-pipeline behaviour.
+    let linear_chains = decompose_group_chains(&groups, &group_order);
+    let mut capacity_by_cap: HashMap<String, usize> = HashMap::new();
+    let mut bounded_groups: HashSet<usize> = HashSet::new();
+    for (group_idx, group) in groups.iter().enumerate() {
+        let capacity = if let Some(capacity) = capacity_by_cap.get(&group.cap_urn) {
+            *capacity
+        } else {
+            if ctx
+                .switch()
+                .wait_for_cap(&group.cap_urn, CAP_DISPATCH_READY_TIMEOUT)
+                .await
+                .is_none()
+            {
+                return Err(ExecutionError::HostError(format!(
+                    "resolve admission capacity for cap '{}': no master advertised a cap \
+                     dispatchable for this request within {}s",
+                    group.cap_urn,
+                    CAP_DISPATCH_READY_TIMEOUT.as_secs(),
+                )));
+            }
+            let capacity = ctx
+                .switch()
+                .admission_capacity_for_cap(&group.cap_urn)
+                .await
+                .map_err(|error| {
+                    ExecutionError::HostError(format!(
+                        "resolve admission capacity for cap '{}': {}",
+                        group.cap_urn, error
+                    ))
+                })?;
+            capacity_by_cap.insert(group.cap_urn.clone(), capacity);
+            capacity
+        };
+        if capacity > 0 {
+            bounded_groups.insert(group_idx);
+        }
+    }
+    let chains = split_chains_at_bounded_groups(linear_chains, &bounded_groups);
     let n_chains = chains.len();
 
     for (ci, chain_idxs) in chains.iter().enumerate() {
@@ -1822,6 +1904,34 @@ fn decompose_group_chains(groups: &[EdgeGroup], group_order: &[usize]) -> Vec<Ve
         chains.push(chain);
     }
     chains
+}
+
+/// Split linear chains into maximal unlimited-capacity segments and singleton
+/// bounded-capacity groups. A bounded invocation owns a concrete cartridge
+/// process slot from REQ through terminal response, so it must receive its input
+/// and finish before a dependent bounded invocation is acquired.
+fn split_chains_at_bounded_groups(
+    chains: Vec<Vec<usize>>,
+    bounded_groups: &HashSet<usize>,
+) -> Vec<Vec<usize>> {
+    let mut split = Vec::new();
+    for chain in chains {
+        let mut live_segment = Vec::new();
+        for group_idx in chain {
+            if bounded_groups.contains(&group_idx) {
+                if !live_segment.is_empty() {
+                    split.push(std::mem::take(&mut live_segment));
+                }
+                split.push(vec![group_idx]);
+            } else {
+                live_segment.push(group_idx);
+            }
+        }
+        if !live_segment.is_empty() {
+            split.push(live_segment);
+        }
+    }
+    split
 }
 
 /// Execute ONE linear chain of cap groups as a live pipeline: the head's inputs are
@@ -2003,6 +2113,7 @@ async fn run_group_chain(
             cap_arguments.get(&next_group.to).cloned().unwrap_or_default();
 
         let group_token_id = ordered_groups[i].token_id.clone();
+        let fwd_step_token_id = group_token_id.clone();
         let pfn: Option<CapProgressFn> = progress_fn.map(|parent| {
             let base = group_base(i);
             let weight = group_weight;
@@ -2034,6 +2145,7 @@ async fn run_group_chain(
                 fwd_max_chunk,
                 pfn.as_ref(),
                 &prev_cap_urn,
+                &fwd_step_token_id,
                 &next_in_media,
                 fwd_log_fn.as_ref(),
                 fwd_body_index,
@@ -2092,6 +2204,7 @@ async fn run_group_chain(
         taken_last_rx,
         last_pfn.as_ref(),
         last_cap_urn,
+        &last_group_token_id,
         log_fn,
         body_index,
         stall_tracker.as_ref(),
@@ -2115,7 +2228,8 @@ async fn run_group_chain(
             class,
             details,
             arg_urn,
-        },
+        }
+        .at_step(last_group_token_id.clone()),
         other => ExecutionError::HostError(other.to_string()),
     });
 
@@ -2130,29 +2244,26 @@ async fn run_group_chain(
     match send_task.await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
-            first_error.get_or_insert(e);
+            first_error.get_or_insert(e.at_step(ordered_groups[0].token_id.clone()));
         }
         Err(e) => {
             first_error.get_or_insert(ExecutionError::HostError(format!(
                 "Input send task panicked: {}",
                 e
-            )));
+            )).at_step(ordered_groups[0].token_id.clone()));
         }
     }
     for (i, handle) in forwarding_handles.into_iter().enumerate() {
         match handle.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                first_error.get_or_insert(ExecutionError::HostError(format!(
-                    "Forwarding task {} failed: {}",
-                    i, e
-                )));
+                first_error.get_or_insert(e.at_step(ordered_groups[i].token_id.clone()));
             }
             Err(e) => {
                 first_error.get_or_insert(ExecutionError::HostError(format!(
                     "Forwarding task {} panicked: {}",
                     i, e
-                )));
+                )).at_step(ordered_groups[i].token_id.clone()));
             }
         }
     }
@@ -2423,6 +2534,7 @@ async fn forward_frames(
     max_chunk: usize,
     progress_fn: Option<&CapProgressFn>,
     prev_cap_urn: &str,
+    prev_step_token_id: &str,
     next_in_media: &str,
     log_fn: Option<&PipelineLogFn>,
     body_index: Option<usize>,
@@ -2653,11 +2765,29 @@ async fn forward_frames(
                     }
                     FrameType::End => {
                         if frame.exit_code() != Some(0) {
-                            return Err(ExecutionError::HostError(format!(
+                            let details = format!(
                                 "Cap '{}' END without success: exit_code={:?}",
                                 prev_cap_urn,
                                 frame.exit_code()
-                            )));
+                            );
+                            if let Some(lfn) = &log_fn {
+                                let mut record = PipelineLogRecord::attributed(
+                                    prev_step_token_id,
+                                    prev_cap_urn,
+                                    "error",
+                                    crate::failure::AttributionClass::Internal,
+                                    &details,
+                                );
+                                record.body_index = body_index;
+                                lfn(record);
+                            }
+                            return Err(ExecutionError::CartridgeExecutionFailed {
+                                cap_urn: prev_cap_urn.to_string(),
+                                code: None,
+                                class: crate::failure::AttributionClass::Internal,
+                                details,
+                                arg_urn: None,
+                            });
                         }
                         let final_progress = frame.final_progress().unwrap_or(1.0) as f32;
                         if let Some(pfn) = &progress_fn {
@@ -2684,35 +2814,108 @@ async fn forward_frames(
                         return Ok(());
                     }
                     FrameType::Log => {
-                        let level = frame.log_level().unwrap_or("info");
+                        let level = frame.log_level().ok_or_else(|| {
+                            ExecutionError::HostError(format!(
+                                "Cap '{}' emitted a LOG frame without required text level",
+                                prev_cap_urn
+                            ))
+                        })?;
                         timer.handle_log_level(level);
 
                         if let Some(p) = frame.log_progress() {
-                            let msg = frame.log_message().unwrap_or("");
+                            let msg = frame.log_message().ok_or_else(|| {
+                                ExecutionError::HostError(format!(
+                                    "Cap '{}' emitted a progress LOG without required text message",
+                                    prev_cap_urn
+                                ))
+                            })?;
                             if let Some(pfn) = &progress_fn {
                                 pfn(p, prev_cap_urn, msg);
                             }
+                        } else {
+                            let msg = frame.log_message().ok_or_else(|| {
+                                ExecutionError::HostError(format!(
+                                    "Cap '{}' emitted a LOG frame without required text message",
+                                    prev_cap_urn
+                                ))
+                            })?;
+                            let class = frame.attribution_class().map_err(|error| {
+                                ExecutionError::HostError(format!(
+                                    "Cap '{}' emitted an invalid LOG frame: {}",
+                                    prev_cap_urn, error
+                                ))
+                            })?;
+                            let arg_urn = frame
+                                .attribution_arg_urn()
+                                .map_err(|error| {
+                                    ExecutionError::HostError(format!(
+                                        "Cap '{}' emitted an invalid LOG frame: {}",
+                                        prev_cap_urn, error
+                                    ))
+                                })?
+                                .map(str::to_string);
                             if let Some(lfn) = &log_fn {
-                                lfn(prev_cap_urn, "progress", msg, frame.meta.clone(), body_index);
-                            }
-                        } else if let Some(msg) = frame.log_message() {
-                            if let Some(lfn) = &log_fn {
-                                lfn(prev_cap_urn, level, msg, frame.meta.clone(), body_index);
+                                let mut record = PipelineLogRecord::attributed(
+                                    prev_step_token_id,
+                                    prev_cap_urn,
+                                    level,
+                                    class,
+                                    msg,
+                                );
+                                record.meta = frame.meta.clone();
+                                record.body_index = body_index;
+                                record.arg_urn = arg_urn;
+                                lfn(record);
                             }
                         }
                     }
                     FrameType::Err => {
-                        let msg = frame
-                            .error_message()
-                            .unwrap_or("Unknown cartridge error")
-                            .to_string();
+                        let class = frame.attribution_class().map_err(|error| {
+                            ExecutionError::HostError(format!(
+                                "Cap '{}' emitted an invalid ERR frame: {}",
+                                prev_cap_urn, error
+                            ))
+                        })?;
+                        let code = frame.error_code().ok_or_else(|| {
+                            ExecutionError::HostError(format!(
+                                "Cap '{}' emitted an ERR frame without required text code",
+                                prev_cap_urn
+                            ))
+                        })?;
+                        let msg = frame.error_message().ok_or_else(|| {
+                            ExecutionError::HostError(format!(
+                                "Cap '{}' emitted an ERR frame without required text message",
+                                prev_cap_urn
+                            ))
+                        })?.to_string();
+                        let arg_urn = frame
+                            .attribution_arg_urn()
+                            .map_err(|error| {
+                                ExecutionError::HostError(format!(
+                                    "Cap '{}' emitted an invalid ERR frame: {}",
+                                    prev_cap_urn, error
+                                ))
+                            })?
+                            .map(str::to_string);
                         if let Some(lfn) = &log_fn {
-                            lfn(prev_cap_urn, "error", &msg, None, body_index);
+                            let mut record = PipelineLogRecord::attributed(
+                                prev_step_token_id,
+                                prev_cap_urn,
+                                "error",
+                                class,
+                                &msg,
+                            );
+                            record.body_index = body_index;
+                            record.arg_urn = arg_urn.clone();
+                            lfn(record);
                         }
-                        return Err(ExecutionError::HostError(format!(
-                            "Cap '{}' failed: {}",
-                            prev_cap_urn, msg
-                        )));
+                        return Err(ExecutionError::CartridgeExecutionFailed {
+                            cap_urn: prev_cap_urn.to_string(),
+                            code: Some(code.to_string()),
+                            class,
+                            details: msg,
+                            arg_urn,
+                        });
                     }
                     _ => {}
                 }
@@ -2720,7 +2923,15 @@ async fn forward_frames(
             Ok(None) => {
                 let msg = format!("Cap '{}' response channel closed without END", prev_cap_urn);
                 if let Some(lfn) = &log_fn {
-                    lfn(prev_cap_urn, "error", &msg, None, body_index);
+                    let mut record = PipelineLogRecord::attributed(
+                        prev_step_token_id,
+                        prev_cap_urn,
+                        "error",
+                        crate::failure::AttributionClass::Internal,
+                        &msg,
+                    );
+                    record.body_index = body_index;
+                    lfn(record);
                 }
                 return Err(ExecutionError::HostError(msg));
             }
@@ -2770,7 +2981,15 @@ async fn forward_frames(
                         credit_state.join("; "),
                     );
                     if let Some(lfn) = &log_fn {
-                        lfn(prev_cap_urn, "warn", &msg, None, body_index);
+                        let mut record = PipelineLogRecord::attributed(
+                            prev_step_token_id,
+                            prev_cap_urn,
+                            "warn",
+                            crate::failure::AttributionClass::Internal,
+                            &msg,
+                        );
+                        record.body_index = body_index;
+                        lfn(record);
                     }
                     tracing::warn!(
                         cap_urn = %prev_cap_urn,

@@ -11,9 +11,9 @@
       {
         "old": 1734,
         "new": 1900,
-        "function": "Test1734_err_frame_failure_class_wire_contract",
-        "description": "TEST1734: the ERR frame's failure identity is a wire contract (docs/failure-taxonomy.md L2): NewErrClassified round-trips code + class + message through encode/decode; NewErr defaults the class to internal; a frame without a class entry (or with an unknown token) reads as internal \u2014 the receiver's unclassified-means-ours rule.",
-        "location": "bifaci/frame_test.go:2294"
+        "function": "Test1734_err_frame_attribution_class_wire_contract",
+        "description": "TEST1734: ERR attribution is mandatory and strict; missing or unknown class tokens and malformed argument attribution are protocol errors.",
+        "location": "bifaci/frame_test.go:2290"
       },
       {
         "old": 1879,
@@ -34,9 +34,9 @@
       {
         "old": 1734,
         "new": 1900,
-        "function": "test_1734_err_frame_failure_class_wire_contract",
-        "description": "TEST1734: the ERR frame failure-class wire contract (docs/failure-taxonomy.md): err_classified writes meta code+class+message; plain err defaults class to internal; a missing or unknown class token reads as INTERNAL (unclassified means \"ours\", never a guess); a known token round-trips exactly.",
-        "location": "tests/test_cbor_frame.py:1742"
+        "function": "test_1734_err_frame_attribution_class_wire_contract",
+        "description": "TEST1734: ERR attribution is mandatory and strict; missing or unknown class tokens and malformed argument attribution are protocol errors.",
+        "location": "tests/test_cbor_frame.py:1741"
       },
       {
         "old": 1879,
@@ -71,9 +71,9 @@
       {
         "old": 1734,
         "new": 1900,
-        "function": "test1734_errFrameFailureClassWireContract",
-        "description": "TEST1734: the ERR frame failure-class wire contract (docs/failure-taxonomy.md): errClassified writes meta code+class+message; plain err defaults class to internal; a missing or unknown class token reads as .internal (unclassified means \"ours\", never a guess); a known token round-trips exactly.",
-        "location": "Tests/BifaciTests/FrameTests.swift:2005"
+        "function": "test1734_errFrameAttributionClassWireContract",
+        "description": "TEST1734: ERR attribution is mandatory and strict; missing or unknown class tokens and malformed argument attribution are protocol errors.",
+        "location": "Tests/BifaciTests/FrameTests.swift:2002"
       },
       {
         "old": 1879,

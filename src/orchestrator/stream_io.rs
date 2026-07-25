@@ -33,6 +33,9 @@ pub enum StreamIoError {
     #[error("CBOR decoding error: {0}")]
     CborDecode(String),
 
+    #[error("Protocol error: {0}")]
+    Protocol(String),
+
     #[error("Protocol error: expected Bytes or Text in CBOR transport at item {index}, got {description}")]
     UnexpectedCborType { index: usize, description: String },
 
@@ -49,7 +52,7 @@ pub enum StreamIoError {
     Terminal {
         cap_urn: String,
         code: Option<String>,
-        class: crate::failure::FailureClass,
+        class: crate::failure::AttributionClass,
         details: String,
         arg_urn: Option<String>,
     },
@@ -171,14 +174,69 @@ impl PipelineProgressTracker {
 // Logging callback
 // =============================================================================
 
-/// Pipeline-level log callback.
-///
-/// Arguments: `(cap_urn, level, message, meta, body_index)`.
-/// `meta` is the original LOG-frame metadata when available.
-/// `body_index` is `Some` for pipeline bodies (ForEach parallelism) and `None`
-/// for single-body / CLI execution.
-pub type PipelineLogFn =
-    Arc<dyn Fn(&str, &str, &str, Option<StreamMeta>, Option<usize>) + Send + Sync>;
+/// One transient, non-progress diagnostic emitted while a pipeline is live.
+/// The stable step token is the graph address; `body_index` only identifies a
+/// ForEach item within that step and is never used as a node address.
+#[derive(Debug, Clone)]
+pub struct PipelineLogRecord {
+    pub step_token_id: Option<String>,
+    pub cap_urn: Option<String>,
+    pub level: String,
+    pub attribution_class: crate::failure::AttributionClass,
+    pub message: String,
+    pub meta: Option<StreamMeta>,
+    pub body_index: Option<usize>,
+    pub arg_urn: Option<String>,
+}
+
+impl PipelineLogRecord {
+    pub fn attributed(
+        step_token_id: impl Into<String>,
+        cap_urn: impl Into<String>,
+        level: impl Into<String>,
+        attribution_class: crate::failure::AttributionClass,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            step_token_id: Some(step_token_id.into()),
+            cap_urn: Some(cap_urn.into()),
+            level: level.into(),
+            attribution_class,
+            message: message.into(),
+            meta: None,
+            body_index: None,
+            arg_urn: None,
+        }
+    }
+}
+
+pub type PipelineLogFn = Arc<dyn Fn(PipelineLogRecord) + Send + Sync>;
+
+fn emit_pipeline_log(
+    log_fn: Option<&PipelineLogFn>,
+    step_token_id: &str,
+    cap_urn: &str,
+    level: &str,
+    attribution_class: crate::failure::AttributionClass,
+    message: &str,
+    meta: Option<StreamMeta>,
+    body_index: Option<usize>,
+    arg_urn: Option<String>,
+) {
+    if let Some(log_fn) = log_fn {
+        let mut record = PipelineLogRecord::attributed(
+            step_token_id,
+            cap_urn,
+            level,
+            attribution_class,
+            message,
+        );
+        record.meta = meta;
+        record.body_index = body_index;
+        record.arg_urn = arg_urn;
+        log_fn(record);
+    }
+}
 
 // =============================================================================
 // Credit plumbing (flow control, L9–L15)
@@ -499,6 +557,7 @@ pub struct TerminalItem {
 pub struct TerminalOutput {
     rx: mpsc::UnboundedReceiver<Frame>,
     cap_urn: String,
+    step_token_id: String,
     progress_fn: Option<CapProgressFn>,
     log_fn: Option<PipelineLogFn>,
     credit: Option<CreditPlumbing>,
@@ -514,6 +573,7 @@ impl TerminalOutput {
     pub fn new(
         rx: mpsc::UnboundedReceiver<Frame>,
         cap_urn: &str,
+        step_token_id: &str,
         progress_fn: Option<CapProgressFn>,
         log_fn: Option<PipelineLogFn>,
         credit: Option<CreditPlumbing>,
@@ -521,6 +581,7 @@ impl TerminalOutput {
         Self {
             rx,
             cap_urn: cap_urn.to_string(),
+            step_token_id: step_token_id.to_string(),
             progress_fn,
             log_fn,
             credit,
@@ -578,7 +639,7 @@ impl TerminalOutput {
                     return Some(Err(StreamIoError::Terminal {
                         cap_urn: self.cap_urn.clone(),
                         code: None,
-                        class: crate::failure::FailureClass::Internal,
+                        class: crate::failure::AttributionClass::Internal,
                         details: "response channel closed without END".to_string(),
                         arg_urn: None,
                     }));
@@ -620,18 +681,55 @@ impl TerminalOutput {
                     }
                 }
                 FrameType::Log => {
-                    let level = frame.log_level().unwrap_or("info");
+                    let level = match frame.log_level() {
+                        Some(level) => level,
+                        None => {
+                            return Some(Err(StreamIoError::Protocol(
+                                "LOG frame missing required text level".to_string(),
+                            )))
+                        }
+                    };
                     if let Some(p) = frame.log_progress() {
-                        let msg = frame.log_message().unwrap_or("");
+                        let msg = match frame.log_message() {
+                            Some(message) => message,
+                            None => {
+                                return Some(Err(StreamIoError::Protocol(
+                                    "progress LOG frame missing required text message".to_string(),
+                                )))
+                            }
+                        };
                         if let Some(pfn) = &self.progress_fn {
                             pfn(p, &self.cap_urn, msg);
                         }
+                    } else {
+                        let msg = match frame.log_message() {
+                            Some(message) => message,
+                            None => {
+                                return Some(Err(StreamIoError::Protocol(
+                                    "LOG frame missing required text message".to_string(),
+                                )))
+                            }
+                        };
+                        let class = match frame.attribution_class() {
+                            Ok(class) => class,
+                            Err(error) => return Some(Err(StreamIoError::Protocol(error))),
+                        };
                         if let Some(lfn) = &self.log_fn {
-                            lfn(&self.cap_urn, "progress", msg, frame.meta.clone(), None);
-                        }
-                    } else if let Some(msg) = frame.log_message() {
-                        if let Some(lfn) = &self.log_fn {
-                            lfn(&self.cap_urn, level, msg, frame.meta.clone(), None);
+                            let mut record = PipelineLogRecord::attributed(
+                                &self.step_token_id,
+                                &self.cap_urn,
+                                level,
+                                class,
+                                msg,
+                            );
+                            record.meta = frame.meta.clone();
+                            record.arg_urn = match frame.attribution_arg_urn() {
+                                Ok(arg_urn) => arg_urn.map(str::to_string),
+                                Err(error) => {
+                                    return Some(Err(StreamIoError::Protocol(error)))
+                                }
+                            };
+                            lfn(record);
                         }
                     }
                 }
@@ -647,7 +745,7 @@ impl TerminalOutput {
                         return Some(Err(StreamIoError::Terminal {
                             cap_urn: self.cap_urn.clone(),
                             code: None,
-                            class: crate::failure::FailureClass::Internal,
+                            class: crate::failure::AttributionClass::Internal,
                             details: format!(
                                 "END without success: exit_code={:?}",
                                 frame.exit_code()
@@ -665,19 +763,37 @@ impl TerminalOutput {
                 }
                 FrameType::Err => {
                     self.ended = true;
+                    let class = match frame.attribution_class() {
+                        Ok(class) => class,
+                        Err(message) => return Some(Err(StreamIoError::Protocol(message))),
+                    };
                     // The ERR frame carries the failure identity DECLARED at
                     // its emit source — read it structurally, never re-derive.
+                    let code = match frame.error_code() {
+                        Some(code) => code.to_string(),
+                        None => {
+                            return Some(Err(StreamIoError::Protocol(
+                                "ERR frame missing required text code".to_string(),
+                            )))
+                        }
+                    };
+                    let details = match frame.error_message() {
+                        Some(message) => message.to_string(),
+                        None => {
+                            return Some(Err(StreamIoError::Protocol(
+                                "ERR frame missing required text message".to_string(),
+                            )))
+                        }
+                    };
                     return Some(Err(StreamIoError::Terminal {
                         cap_urn: self.cap_urn.clone(),
-                        code: frame.error_code().map(str::to_string),
-                        class: frame
-                            .error_class()
-                            .unwrap_or(crate::failure::FailureClass::Internal),
-                        details: frame
-                            .error_message()
-                            .unwrap_or("Unknown cartridge error")
-                            .to_string(),
-                        arg_urn: frame.error_arg_urn().map(str::to_string),
+                        code: Some(code),
+                        class,
+                        details,
+                        arg_urn: match frame.attribution_arg_urn() {
+                            Ok(arg_urn) => arg_urn.map(str::to_string),
+                            Err(error) => return Some(Err(StreamIoError::Protocol(error))),
+                        },
                     }));
                 }
                 _ => {}
@@ -722,6 +838,7 @@ pub async fn collect_terminal_output(
     mut rx: mpsc::UnboundedReceiver<Frame>,
     progress_fn: Option<&CapProgressFn>,
     cap_urn: &str,
+    step_token_id: &str,
     log_fn: Option<&PipelineLogFn>,
     body_index: Option<usize>,
     stall_tracker: Option<&Arc<PipelineProgressTracker>>,
@@ -813,15 +930,23 @@ pub async fn collect_terminal_output(
                                 None => "exit_code absent (cartridge likely crashed)".to_string(),
                             };
                             let details = format!("END without success: {}", detail);
-                            if let Some(lfn) = &log_fn {
-                                lfn(cap_urn, "error", &details, None, body_index);
-                            }
+                            emit_pipeline_log(
+                                log_fn,
+                                step_token_id,
+                                cap_urn,
+                                "error",
+                                crate::failure::AttributionClass::Internal,
+                                &details,
+                                None,
+                                body_index,
+                                None,
+                            );
                             // Non-success END with no ERR frame — no source
                             // declared an identity: Internal, no code.
                             return Err(StreamIoError::Terminal {
                                 cap_urn: cap_urn.to_string(),
                                 code: None,
-                                class: crate::failure::FailureClass::Internal,
+                                class: crate::failure::AttributionClass::Internal,
                                 details,
                                 arg_urn: None,
                             });
@@ -851,15 +976,6 @@ pub async fn collect_terminal_output(
                         if let Some(pfn) = &progress_fn {
                             pfn(final_progress, cap_urn, final_message);
                         }
-                        if let Some(lfn) = &log_fn {
-                            lfn(
-                                cap_urn,
-                                "progress",
-                                final_message,
-                                frame.meta.clone(),
-                                body_index,
-                            );
-                        }
 
                         // Drain frames already queued locally before returning
                         // (L4/L5): LOG frames that arrived before END but sit
@@ -869,11 +985,33 @@ pub async fn collect_terminal_output(
                         while let Ok(late) = rx.try_recv() {
                             match late.frame_type {
                                 FrameType::Log => {
-                                    let level = late.log_level().unwrap_or("info");
-                                    if let Some(msg) = late.log_message() {
-                                        if let Some(lfn) = &log_fn {
-                                            lfn(cap_urn, level, msg, late.meta.clone(), body_index);
-                                        }
+                                    if late.log_progress().is_none() {
+                                        let level = late.log_level().ok_or_else(|| {
+                                            StreamIoError::Protocol(
+                                                "LOG frame missing required text level".to_string(),
+                                            )
+                                        })?;
+                                        let msg = late.log_message().ok_or_else(|| {
+                                            StreamIoError::Protocol(
+                                                "LOG frame missing required text message".to_string(),
+                                            )
+                                        })?;
+                                        let class = late
+                                            .attribution_class()
+                                            .map_err(StreamIoError::Protocol)?;
+                                        emit_pipeline_log(
+                                            log_fn,
+                                            step_token_id,
+                                            cap_urn,
+                                            level,
+                                            class,
+                                            msg,
+                                            late.meta.clone(),
+                                            body_index,
+                                            late.attribution_arg_urn()
+                                                .map_err(StreamIoError::Protocol)?
+                                                .map(str::to_string),
+                                        );
                                     }
                                 }
                                 other => {
@@ -890,47 +1028,84 @@ pub async fn collect_terminal_output(
                         return Ok((response_chunks, is_sequence, terminal_meta));
                     }
                     FrameType::Err => {
-                        let msg = frame
-                            .error_message()
-                            .unwrap_or("Unknown cartridge error")
-                            .to_string();
-                        if let Some(lfn) = &log_fn {
-                            lfn(cap_urn, "error", &msg, None, body_index);
-                        }
+                        let class = frame
+                            .attribution_class()
+                            .map_err(StreamIoError::Protocol)?;
+                        let code = frame.error_code().ok_or_else(|| {
+                            StreamIoError::Protocol(
+                                "ERR frame missing required text code".to_string(),
+                            )
+                        })?;
+                        let msg = frame.error_message().ok_or_else(|| {
+                            StreamIoError::Protocol(
+                                "ERR frame missing required text message".to_string(),
+                            )
+                        })?.to_string();
+                        let arg_urn = frame
+                            .attribution_arg_urn()
+                            .map_err(StreamIoError::Protocol)?
+                            .map(str::to_string);
+                        emit_pipeline_log(
+                            log_fn,
+                            step_token_id,
+                            cap_urn,
+                            "error",
+                            class,
+                            &msg,
+                            None,
+                            body_index,
+                            arg_urn.clone(),
+                        );
                         // The ERR frame carries the failure identity DECLARED
                         // at its emit source — read it structurally.
                         return Err(StreamIoError::Terminal {
                             cap_urn: cap_urn.to_string(),
-                            code: frame.error_code().map(str::to_string),
-                            class: frame
-                                .error_class()
-                                .unwrap_or(crate::failure::FailureClass::Internal),
+                            code: Some(code.to_string()),
+                            class,
                             details: msg,
-                            arg_urn: frame.error_arg_urn().map(str::to_string),
+                            arg_urn,
                         });
                     }
                     FrameType::Log => {
-                        let level = frame.log_level().unwrap_or("info");
+                        let level = frame.log_level().ok_or_else(|| {
+                            StreamIoError::Protocol(
+                                "LOG frame missing required text level".to_string(),
+                            )
+                        })?;
                         timer.handle_log_level(level);
 
                         if let Some(p) = frame.log_progress() {
-                            let cartridge_msg = frame.log_message().unwrap_or("");
+                            let cartridge_msg = frame.log_message().ok_or_else(|| {
+                                StreamIoError::Protocol(
+                                    "progress LOG frame missing required text message".to_string(),
+                                )
+                            })?;
                             if let Some(pfn) = &progress_fn {
                                 pfn(p, cap_urn, cartridge_msg);
                             }
-                            if let Some(lfn) = &log_fn {
-                                lfn(
-                                    cap_urn,
-                                    "progress",
-                                    cartridge_msg,
-                                    frame.meta.clone(),
-                                    body_index,
-                                );
-                            }
-                        } else if let Some(msg) = frame.log_message() {
-                            if let Some(lfn) = &log_fn {
-                                lfn(cap_urn, level, msg, frame.meta.clone(), body_index);
-                            }
+                        } else {
+                            let msg = frame.log_message().ok_or_else(|| {
+                                StreamIoError::Protocol(
+                                    "LOG frame missing required text message".to_string(),
+                                )
+                            })?;
+                            let class = frame
+                                .attribution_class()
+                                .map_err(StreamIoError::Protocol)?;
+                            emit_pipeline_log(
+                                log_fn,
+                                step_token_id,
+                                cap_urn,
+                                level,
+                                class,
+                                msg,
+                                frame.meta.clone(),
+                                body_index,
+                                frame
+                                    .attribution_arg_urn()
+                                    .map_err(StreamIoError::Protocol)?
+                                    .map(str::to_string),
+                            );
                         }
                     }
                     FrameType::StreamStart => {
@@ -959,14 +1134,22 @@ pub async fn collect_terminal_output(
             }
             Ok(None) => {
                 let details = "response channel closed without END".to_string();
-                if let Some(lfn) = &log_fn {
-                    lfn(cap_urn, "error", &details, None, body_index);
-                }
+                emit_pipeline_log(
+                    log_fn,
+                    step_token_id,
+                    cap_urn,
+                    "error",
+                    crate::failure::AttributionClass::Internal,
+                    &details,
+                    None,
+                    body_index,
+                    None,
+                );
                 // Engine-detected protocol violation — ours: Internal, no code.
                 return Err(StreamIoError::Terminal {
                     cap_urn: cap_urn.to_string(),
                     code: None,
-                    class: crate::failure::FailureClass::Internal,
+                    class: crate::failure::AttributionClass::Internal,
                     details,
                     arg_urn: None,
                 });
@@ -1009,9 +1192,17 @@ pub async fn collect_terminal_output(
                         response_chunks.len(),
                         pending.join("; "),
                     );
-                    if let Some(lfn) = &log_fn {
-                        lfn(cap_urn, "warn", &details, None, body_index);
-                    }
+                    emit_pipeline_log(
+                        log_fn,
+                        step_token_id,
+                        cap_urn,
+                        "warn",
+                        crate::failure::AttributionClass::Internal,
+                        &details,
+                        None,
+                        body_index,
+                        None,
+                    );
                     tracing::warn!(
                         cap_urn = %cap_urn,
                         consumed_bytes = response_chunks.len(),
@@ -1050,8 +1241,10 @@ mod tests {
             progress_fn: Arc::new(move |p, _cap, msg| {
                 p2.lock().unwrap().push((p, msg.to_string()));
             }),
-            log_fn: Arc::new(move |_cap, level, msg, _meta, _body| {
-                l2.lock().unwrap().push((level.to_string(), msg.to_string()));
+            log_fn: Arc::new(move |record| {
+                l2.lock()
+                    .unwrap()
+                    .push((record.level, record.message));
             }),
         }
     }
@@ -1093,6 +1286,7 @@ mod tests {
             rx,
             Some(&cap.progress_fn),
             "cap:test",
+            "step_test",
             Some(&cap.log_fn),
             None,
             None,
@@ -1136,6 +1330,7 @@ mod tests {
             rx,
             Some(&cap.progress_fn),
             "cap:test",
+            "step_test",
             Some(&cap.log_fn),
             None,
             None,
@@ -1161,7 +1356,7 @@ mod tests {
         tx.send(chunk(&rid, b"data")).unwrap();
         tx.send(Frame::end_ok(rid.clone(), None)).unwrap();
         // Stragglers already queued when END is processed (the enqueue race):
-        tx.send(Frame::log(rid.clone(), "info", "flushed-after-end"))
+        tx.send(Frame::log(rid.clone(), "info", crate::AttributionClass::Internal, "flushed-after-end", None))
             .unwrap();
         tx.send(Frame::progress(rid.clone(), 0.95, "stale keepalive"))
             .unwrap();
@@ -1172,6 +1367,7 @@ mod tests {
             rx,
             Some(&cap.progress_fn),
             "cap:test",
+            "step_test",
             Some(&cap.log_fn),
             None,
             None,
@@ -1190,8 +1386,8 @@ mod tests {
             logs
         );
         assert!(
-            logs.iter().any(|(_, m)| m == "stale keepalive"),
-            "post-END progress LOG is delivered as a message: {:?}",
+            !logs.iter().any(|(_, m)| m == "stale keepalive"),
+            "progress frames are functional signals, never ordinary diagnostics: {:?}",
             logs
         );
 
@@ -1211,7 +1407,7 @@ mod tests {
     async fn test7071_terminal_output_yields_before_stream_end() {
         let rid = MessageId::new_uuid();
         let (tx, rx) = mpsc::unbounded_channel();
-        let mut terminal = TerminalOutput::new(rx, "cap:test", None, None, None);
+        let mut terminal = TerminalOutput::new(rx, "cap:test", "step_test", None, None, None);
 
         // Announce an unbounded stream and one item — nothing has ended.
         let ss = Frame::stream_start_unbounded(
@@ -1251,7 +1447,7 @@ mod tests {
     async fn test7077_per_item_meta_incremental() {
         let rid = MessageId::new_uuid();
         let (tx, rx) = mpsc::unbounded_channel();
-        let mut terminal = TerminalOutput::new(rx, "cap:test", None, None, None);
+        let mut terminal = TerminalOutput::new(rx, "cap:test", "step_test", None, None, None);
 
         tx.send(stream_start(&rid)).unwrap();
 
