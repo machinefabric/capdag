@@ -169,7 +169,11 @@ pub fn parse_minisign_public_key(pubkey_b64: &str) -> Result<ParsedPublicKey, Si
 
 /// Verify a raw base64 ed25519 signature over exact bytes against a base64
 /// minisign public key.
-pub fn raw_verify(pubkey_b64: &str, signature_b64: &str, bytes: &[u8]) -> Result<(), SignatureError> {
+pub fn raw_verify(
+    pubkey_b64: &str,
+    signature_b64: &str,
+    bytes: &[u8],
+) -> Result<(), SignatureError> {
     use ed25519_dalek::Verifier;
     let parsed = parse_minisign_public_key(pubkey_b64)?;
     let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&parsed.ed25519_public_key)
@@ -243,10 +247,12 @@ mod tests {
 
     // Committed real-crypto fixtures: capdag verifies pre-signed artifacts and
     // tampers them in-memory to prove rejection.
-    const RELEASE_PUBKEY: &str = include_str!("../../tests/fixtures/nocommit/signing/release.pubkey");
+    const RELEASE_PUBKEY: &str =
+        include_str!("../../tests/fixtures/nocommit/signing/release.pubkey");
     const WRONG_PUBKEY: &str = include_str!("../../tests/fixtures/nocommit/signing/wrong.pubkey");
     const ARTIFACT: &[u8] = include_bytes!("../../tests/fixtures/nocommit/signing/artifact.bin");
-    const ARTIFACT_SIG: &str = include_str!("../../tests/fixtures/nocommit/signing/artifact.bin.minisig");
+    const ARTIFACT_SIG: &str =
+        include_str!("../../tests/fixtures/nocommit/signing/artifact.bin.minisig");
 
     // TEST8029: a real release-key signature verifies over the exact artifact
     // bytes with the release public key.
@@ -264,7 +270,10 @@ mod tests {
         tampered[0] ^= 0x01;
         let err = verify_binary_signature(RELEASE_PUBKEY, ARTIFACT_SIG, &tampered)
             .expect_err("a flipped byte must fail verification");
-        assert!(matches!(err, SignatureError::VerificationFailed(_)), "got: {err:?}");
+        assert!(
+            matches!(err, SignatureError::VerificationFailed(_)),
+            "got: {err:?}"
+        );
     }
 
     // TEST8031: the same signature under a DIFFERENT public key fails even over
@@ -273,7 +282,10 @@ mod tests {
     fn test8031_wrong_key_rejected() {
         let err = verify_binary_signature(WRONG_PUBKEY, ARTIFACT_SIG, ARTIFACT)
             .expect_err("a signature must not verify under a different key");
-        assert!(matches!(err, SignatureError::VerificationFailed(_)), "got: {err:?}");
+        assert!(
+            matches!(err, SignatureError::VerificationFailed(_)),
+            "got: {err:?}"
+        );
     }
 
     // TEST8044: `parse_minisign_public_key` extracts a 32-byte ed25519 key and
@@ -301,7 +313,10 @@ mod tests {
             split_root_pubkeys(keys),
             vec!["RWRootAKeyBase64", "RWRootBKeyBase64", "RWRootCKeyBase64"]
         );
-        assert_eq!(signing_environment_from_build_env(Some("staging")), Some("staging"));
+        assert_eq!(
+            signing_environment_from_build_env(Some("staging")),
+            Some("staging")
+        );
     }
 
     // TEST8045: absent env ⇒ dev build ⇒ None for both the root set and the

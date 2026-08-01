@@ -317,10 +317,12 @@ pub trait IncrementalWriter: Send {
 
 /// Creates a fresh [`IncrementalWriter`] for a persisted terminal sink. The segment
 /// executor calls it once per persisted sink, passing the sink's node id and, inside a
-/// ForEach body, the item index. The engine plugs in a factory bound to the run's
-/// artifact directory; the reference/in-memory path supplies none.
-pub type SegmentWriterFactory =
-    dyn Fn(&str, Option<usize>) -> Box<dyn IncrementalWriter> + Send + Sync;
+/// ForEach body, the boundary's stable step token plus local item index. The engine
+/// plugs in a factory bound to the run's artifact directory; the reference/in-memory
+/// path supplies none.
+pub type SegmentWriterFactory = dyn Fn(&str, Option<super::execute_plan::ForEachBodyCoordinate>) -> Box<dyn IncrementalWriter>
+    + Send
+    + Sync;
 
 /// Observes the correlation between a cap invocation's request id and its
 /// strand-step identity, at the one point both are known (invocation setup).
@@ -356,7 +358,11 @@ pub async fn send_one_stream(
     // gates on terminal via `router.close_request` (L13).
     let credit = credit.map(|(router, initial_credit)| {
         let gate = std::sync::Arc::new(crate::bifaci::credit::CreditGate::new(initial_credit));
-        router.register(rid.clone(), Some(stream_id.clone()), std::sync::Arc::clone(&gate));
+        router.register(
+            rid.clone(),
+            Some(stream_id.clone()),
+            std::sync::Arc::clone(&gate),
+        );
         gate
     });
     let credit = credit.as_deref();
@@ -725,9 +731,7 @@ impl TerminalOutput {
                             record.meta = frame.meta.clone();
                             record.arg_urn = match frame.attribution_arg_urn() {
                                 Ok(arg_urn) => arg_urn.map(str::to_string),
-                                Err(error) => {
-                                    return Some(Err(StreamIoError::Protocol(error)))
-                                }
+                                Err(error) => return Some(Err(StreamIoError::Protocol(error))),
                             };
                             lfn(record);
                         }
@@ -993,7 +997,8 @@ pub async fn collect_terminal_output(
                                         })?;
                                         let msg = late.log_message().ok_or_else(|| {
                                             StreamIoError::Protocol(
-                                                "LOG frame missing required text message".to_string(),
+                                                "LOG frame missing required text message"
+                                                    .to_string(),
                                             )
                                         })?;
                                         let class = late
@@ -1028,19 +1033,20 @@ pub async fn collect_terminal_output(
                         return Ok((response_chunks, is_sequence, terminal_meta));
                     }
                     FrameType::Err => {
-                        let class = frame
-                            .attribution_class()
-                            .map_err(StreamIoError::Protocol)?;
+                        let class = frame.attribution_class().map_err(StreamIoError::Protocol)?;
                         let code = frame.error_code().ok_or_else(|| {
                             StreamIoError::Protocol(
                                 "ERR frame missing required text code".to_string(),
                             )
                         })?;
-                        let msg = frame.error_message().ok_or_else(|| {
-                            StreamIoError::Protocol(
-                                "ERR frame missing required text message".to_string(),
-                            )
-                        })?.to_string();
+                        let msg = frame
+                            .error_message()
+                            .ok_or_else(|| {
+                                StreamIoError::Protocol(
+                                    "ERR frame missing required text message".to_string(),
+                                )
+                            })?
+                            .to_string();
                         let arg_urn = frame
                             .attribution_arg_urn()
                             .map_err(StreamIoError::Protocol)?
@@ -1089,9 +1095,8 @@ pub async fn collect_terminal_output(
                                     "LOG frame missing required text message".to_string(),
                                 )
                             })?;
-                            let class = frame
-                                .attribution_class()
-                                .map_err(StreamIoError::Protocol)?;
+                            let class =
+                                frame.attribution_class().map_err(StreamIoError::Protocol)?;
                             emit_pipeline_log(
                                 log_fn,
                                 step_token_id,
@@ -1242,9 +1247,7 @@ mod tests {
                 p2.lock().unwrap().push((p, msg.to_string()));
             }),
             log_fn: Arc::new(move |record| {
-                l2.lock()
-                    .unwrap()
-                    .push((record.level, record.message));
+                l2.lock().unwrap().push((record.level, record.message));
             }),
         }
     }
@@ -1277,7 +1280,8 @@ mod tests {
         let (tx, rx) = mpsc::unbounded_channel();
         tx.send(stream_start(&rid)).unwrap();
         tx.send(chunk(&rid, b"payload")).unwrap();
-        tx.send(Frame::progress(rid.clone(), 0.5, "halfway")).unwrap();
+        tx.send(Frame::progress(rid.clone(), 0.5, "halfway"))
+            .unwrap();
         tx.send(Frame::end_ok(rid.clone(), None)).unwrap();
         drop(tx);
 
@@ -1356,8 +1360,14 @@ mod tests {
         tx.send(chunk(&rid, b"data")).unwrap();
         tx.send(Frame::end_ok(rid.clone(), None)).unwrap();
         // Stragglers already queued when END is processed (the enqueue race):
-        tx.send(Frame::log(rid.clone(), "info", crate::AttributionClass::Internal, "flushed-after-end", None))
-            .unwrap();
+        tx.send(Frame::log(
+            rid.clone(),
+            "info",
+            crate::AttributionClass::Internal,
+            "flushed-after-end",
+            None,
+        ))
+        .unwrap();
         tx.send(Frame::progress(rid.clone(), 0.95, "stale keepalive"))
             .unwrap();
         drop(tx);
@@ -1395,9 +1405,14 @@ mod tests {
         // the stale 0.95 must not regress it.
         let events = cap.progress.lock().unwrap().clone();
         let last = events.last().unwrap();
-        assert_eq!(last.0, 1.0, "final progress event is END's, not a straggler");
+        assert_eq!(
+            last.0, 1.0,
+            "final progress event is END's, not a straggler"
+        );
         assert!(
-            !events.iter().any(|(p, m)| *p == 0.95 && m == "stale keepalive"),
+            !events
+                .iter()
+                .any(|(p, m)| *p == 0.95 && m == "stale keepalive"),
             "post-terminal progress value must not reach the progress callback"
         );
     }

@@ -314,11 +314,7 @@ impl Frame {
     /// Create a HELLO frame for handshake with manifest (cartridge side).
     /// The manifest is JSON-encoded cartridge metadata including name, version, and caps.
     /// This is the ONLY way for cartridges to communicate their capabilities.
-    pub fn hello_with_manifest(
-        limits: &Limits,
-        manifest: &[u8],
-        handler_capacity: usize,
-    ) -> Self {
+    pub fn hello_with_manifest(limits: &Limits, manifest: &[u8], handler_capacity: usize) -> Self {
         let mut meta = BTreeMap::new();
         meta.insert(
             "max_frame".to_string(),
@@ -538,7 +534,10 @@ impl Frame {
         assert!(!level.trim().is_empty(), "LOG level must be nonempty");
         assert_ne!(level, "progress", "progress logs must use Frame::progress");
         assert!(!message.trim().is_empty(), "LOG message must be nonempty");
-        assert!(arg_urn.map_or(true, |urn| !urn.is_empty()), "LOG arg_urn must be nonempty when present");
+        assert!(
+            arg_urn.map_or(true, |urn| !urn.is_empty()),
+            "LOG arg_urn must be nonempty when present"
+        );
         let mut meta = BTreeMap::new();
         meta.insert(
             "level".to_string(),
@@ -553,7 +552,10 @@ impl Frame {
             ciborium::Value::Text(attribution_class.as_str().to_string()),
         );
         if let Some(urn) = arg_urn {
-            meta.insert("arg_urn".to_string(), ciborium::Value::Text(urn.to_string()));
+            meta.insert(
+                "arg_urn".to_string(),
+                ciborium::Value::Text(urn.to_string()),
+            );
         }
 
         let mut frame = Self::new(FrameType::Log, id);
@@ -600,7 +602,10 @@ impl Frame {
     ) -> Self {
         assert!(!code.trim().is_empty(), "ERR code must be nonempty");
         assert!(!message.trim().is_empty(), "ERR message must be nonempty");
-        assert!(arg_urn.map_or(true, |urn| !urn.is_empty()), "ERR arg_urn must be nonempty when present");
+        assert!(
+            arg_urn.map_or(true, |urn| !urn.is_empty()),
+            "ERR arg_urn must be nonempty when present"
+        );
         let mut meta = BTreeMap::new();
         meta.insert("code".to_string(), ciborium::Value::Text(code.to_string()));
         meta.insert(
@@ -612,7 +617,10 @@ impl Frame {
             ciborium::Value::Text(message.to_string()),
         );
         if let Some(urn) = arg_urn {
-            meta.insert("arg_urn".to_string(), ciborium::Value::Text(urn.to_string()));
+            meta.insert(
+                "arg_urn".to_string(),
+                ciborium::Value::Text(urn.to_string()),
+            );
         }
 
         let mut frame = Self::new(FrameType::Err, id);
@@ -849,34 +857,30 @@ impl Frame {
                 None
             }
         })?;
-        let max_reorder_buffer = meta
-            .get("max_reorder_buffer")
-            .and_then(|v| {
-                if let ciborium::Value::Integer(i) = v {
-                    let n: i128 = (*i).into();
-                    if n > 0 && n <= usize::MAX as i128 {
-                        Some(n as usize)
-                    } else {
-                        None
-                    }
+        let max_reorder_buffer = meta.get("max_reorder_buffer").and_then(|v| {
+            if let ciborium::Value::Integer(i) = v {
+                let n: i128 = (*i).into();
+                if n > 0 && n <= usize::MAX as i128 {
+                    Some(n as usize)
                 } else {
                     None
                 }
-            })?;
-        let initial_credit = meta
-            .get("initial_credit")
-            .and_then(|v| {
-                if let ciborium::Value::Integer(i) = v {
-                    let n: i128 = (*i).into();
-                    if n > 0 && n <= u64::MAX as i128 {
-                        Some(n as u64)
-                    } else {
-                        None
-                    }
+            } else {
+                None
+            }
+        })?;
+        let initial_credit = meta.get("initial_credit").and_then(|v| {
+            if let ciborium::Value::Integer(i) = v {
+                let n: i128 = (*i).into();
+                if n > 0 && n <= u64::MAX as i128 {
+                    Some(n as u64)
                 } else {
                     None
                 }
-            })?;
+            } else {
+                None
+            }
+        })?;
         Some(Limits {
             max_frame,
             max_chunk,
@@ -908,10 +912,13 @@ impl Frame {
 
     /// Parse the mandatory attribution class on an ERR or non-progress LOG.
     pub fn attribution_class(&self) -> Result<crate::failure::AttributionClass, String> {
-        let is_attributed_log = self.frame_type == FrameType::Log
-            && self.log_level() != Some("progress");
+        let is_attributed_log =
+            self.frame_type == FrameType::Log && self.log_level() != Some("progress");
         if self.frame_type != FrameType::Err && !is_attributed_log {
-            return Err(format!("{:?} frames do not carry attribution", self.frame_type));
+            return Err(format!(
+                "{:?} frames do not carry attribution",
+                self.frame_type
+            ));
         }
         let token = self
             .meta
@@ -930,8 +937,8 @@ impl Frame {
     /// Valid on ERR and non-progress LOG frames. Absence means the emit source
     /// did not attribute the record to one argument; receivers never infer it.
     pub fn attribution_arg_urn(&self) -> Result<Option<&str>, String> {
-        let is_attributed_log = self.frame_type == FrameType::Log
-            && self.log_level() != Some("progress");
+        let is_attributed_log =
+            self.frame_type == FrameType::Log && self.log_level() != Some("progress");
         if self.frame_type != FrameType::Err && !is_attributed_log {
             return Err(format!(
                 "{:?} frames do not carry diagnostic argument attribution",
@@ -945,9 +952,7 @@ impl Frame {
             ciborium::Value::Text(arg_urn) if !arg_urn.trim().is_empty() => {
                 Ok(Some(arg_urn.as_str()))
             }
-            ciborium::Value::Text(_) => {
-                Err("diagnostic arg_urn must not be empty".to_string())
-            }
+            ciborium::Value::Text(_) => Err("diagnostic arg_urn must not be empty".to_string()),
             _ => Err("diagnostic arg_urn must be text when present".to_string()),
         }
     }
@@ -1706,13 +1711,7 @@ mod tests {
         assert_eq!(classified.attribution_class(), Ok(AttributionClass::Input));
         assert_eq!(classified.error_message(), Some("prompt too large"));
 
-        let mut missing = Frame::err(
-            id.clone(),
-            "BOOM",
-            AttributionClass::Internal,
-            "x",
-            None,
-        );
+        let mut missing = Frame::err(id.clone(), "BOOM", AttributionClass::Internal, "x", None);
         missing.meta.as_mut().unwrap().remove("attribution_class");
         assert!(missing.attribution_class().is_err());
 
@@ -1736,10 +1735,11 @@ mod tests {
             .unwrap()
             .insert("arg_urn".to_string(), ciborium::Value::Integer(7.into()));
         assert!(malformed_arg.attribution_arg_urn().is_err());
-        malformed_arg.meta.as_mut().unwrap().insert(
-            "arg_urn".to_string(),
-            ciborium::Value::Text(String::new()),
-        );
+        malformed_arg
+            .meta
+            .as_mut()
+            .unwrap()
+            .insert("arg_urn".to_string(), ciborium::Value::Text(String::new()));
         assert!(malformed_arg.attribution_arg_urn().is_err());
     }
 
@@ -1760,7 +1760,10 @@ mod tests {
             "prompt too large",
             Some("media:prompt;textable"),
         );
-        assert_eq!(frame.attribution_arg_urn().unwrap(), Some("media:prompt;textable"));
+        assert_eq!(
+            frame.attribution_arg_urn().unwrap(),
+            Some("media:prompt;textable")
+        );
 
         let decoded = decode_frame(&encode_frame(&frame).expect("encode")).expect("decode");
         assert_eq!(
@@ -1772,7 +1775,10 @@ mod tests {
             Some(&ciborium::Value::Text("media:prompt;textable".to_string())),
             "the wire meta map carries the attribution key verbatim"
         );
-        assert_eq!(decoded.attribution_arg_urn().unwrap(), Some("media:prompt;textable"));
+        assert_eq!(
+            decoded.attribution_arg_urn().unwrap(),
+            Some("media:prompt;textable")
+        );
         assert_eq!(decoded.error_code(), Some("CONTEXT_OVERFLOW"));
         assert_eq!(decoded.attribution_class(), Ok(AttributionClass::Input));
         assert_eq!(decoded.error_message(), Some("prompt too large"));
@@ -1796,8 +1802,14 @@ mod tests {
         assert_eq!(decoded.frame_type, FrameType::Log);
         assert_eq!(decoded.log_level(), Some("warn"));
         assert_eq!(decoded.attribution_class(), Ok(AttributionClass::Resource));
-        assert_eq!(decoded.attribution_arg_urn().unwrap(), Some("media:model-spec"));
-        assert_eq!(decoded.log_message(), Some("model cache is under memory pressure"));
+        assert_eq!(
+            decoded.attribution_arg_urn().unwrap(),
+            Some("media:model-spec")
+        );
+        assert_eq!(
+            decoded.log_message(),
+            Some("model cache is under memory pressure")
+        );
     }
 
     /// TEST7106: attribution is OPTIONAL and source-declared at every hop.
@@ -3059,7 +3071,12 @@ mod tests {
         use crate::bifaci::io::{decode_frame, encode_frame};
 
         let rid = MessageId::new_uuid();
-        let frame = Frame::credit(rid.clone(), Some("s1".to_string()), 17, CreditDirection::Response);
+        let frame = Frame::credit(
+            rid.clone(),
+            Some("s1".to_string()),
+            17,
+            CreditDirection::Response,
+        );
         assert_eq!(frame.credit_count(), Some(17));
 
         let decoded = decode_frame(&encode_frame(&frame).unwrap()).unwrap();
@@ -3102,7 +3119,12 @@ mod tests {
         let mut chunk = Frame::chunk(rid.clone(), "s1".to_string(), 0, vec![1], 0, 1);
         assigner.assign(&mut chunk);
         assert_eq!(chunk.seq, 0);
-        let mut credit = Frame::credit(rid.clone(), Some("s1".to_string()), 4, CreditDirection::Response);
+        let mut credit = Frame::credit(
+            rid.clone(),
+            Some("s1".to_string()),
+            4,
+            CreditDirection::Response,
+        );
         assigner.assign(&mut credit);
         assert_eq!(credit.seq, 0, "Credit must not consume a flow seq");
         let mut chunk2 = Frame::chunk(rid.clone(), "s1".to_string(), 0, vec![2], 1, 1);

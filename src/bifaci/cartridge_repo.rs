@@ -149,7 +149,11 @@ pub struct RegistryCap {
     pub urn: String,
     pub title: String,
     pub aliases: Vec<String>,
-    #[serde(rename = "abstract", default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        rename = "abstract",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub is_abstract: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cap_description: Option<String>,
@@ -397,7 +401,11 @@ impl CartridgeInfo {
     /// Find this cartridge's build for `host_platform` within a given version,
     /// if any. The host package within it is then chosen by
     /// [`CartridgeBuild::primary_package`].
-    fn build_for_host<'a>(&'a self, version: &str, host_platform: &str) -> Option<&'a CartridgeBuild> {
+    fn build_for_host<'a>(
+        &'a self,
+        version: &str,
+        host_platform: &str,
+    ) -> Option<&'a CartridgeBuild> {
         self.versions
             .get(version)
             .and_then(|v| v.builds.iter().find(|b| b.platform == host_platform))
@@ -459,7 +467,9 @@ impl CartridgeInfo {
             host_platform: host_platform.to_string(),
             resolved_version: None,
             resolved_package: None,
-            reason: Some(format!("No installable {host_platform} build available in any version")),
+            reason: Some(format!(
+                "No installable {host_platform} build available in any version"
+            )),
         }
     }
 }
@@ -756,11 +766,16 @@ impl CartridgeRepo {
         trust: &crate::bifaci::release_cert::RegistryTrust,
     ) -> Result<Vec<(String, String)>> {
         let sidecar_url = format!("{repo_url}.sig");
-        let response = self.http_client.get(&sidecar_url).send().await.map_err(|e| {
-            CartridgeRepoError::HttpError(format!(
-                "Failed to fetch manifest signature sidecar {sidecar_url}: {e}"
-            ))
-        })?;
+        let response = self
+            .http_client
+            .get(&sidecar_url)
+            .send()
+            .await
+            .map_err(|e| {
+                CartridgeRepoError::HttpError(format!(
+                    "Failed to fetch manifest signature sidecar {sidecar_url}: {e}"
+                ))
+            })?;
         if !response.status().is_success() {
             return Err(CartridgeRepoError::ManifestVerificationFailed(format!(
                 "manifest signature sidecar missing (HTTP {} from {sidecar_url}) — refusing \
@@ -1951,10 +1966,7 @@ mod tests {
         // Round-trip preserves the binary object.
         let reserialized = serde_json::to_string(&build).unwrap();
         let reparsed: CartridgeBuild = serde_json::from_str(&reserialized).unwrap();
-        assert_eq!(
-            reparsed.binary.as_ref().unwrap().sha256,
-            binary.sha256
-        );
+        assert_eq!(reparsed.binary.as_ref().unwrap().sha256, binary.sha256);
 
         // Absent on the wire → None, and stays absent when re-serialized.
         let without_json = r#"{
@@ -2012,7 +2024,10 @@ mod tests {
 
         let build = cartridge.build_for_platform("darwin-arm64");
         assert!(build.is_some());
-        assert_eq!(build.unwrap().primary_package().unwrap().name, "testcartridge-1.0.0.pkg");
+        assert_eq!(
+            build.unwrap().primary_package().unwrap().name,
+            "testcartridge-1.0.0.pkg"
+        );
 
         let no_build = cartridge.build_for_platform("linux-x86_64");
         assert!(no_build.is_none());
@@ -2152,8 +2167,14 @@ mod tests {
         assert_eq!(r.resolved_version.as_deref(), Some("1.2.0"));
         assert_eq!(r.resolved_package.as_ref().unwrap().name, "c-1.2.0.deb");
         let reason = r.reason.expect("outdated carries a reason");
-        assert!(reason.contains("1.3.0"), "reason names the latest: {reason}");
-        assert!(reason.contains("1.2.0"), "reason names the resolved: {reason}");
+        assert!(
+            reason.contains("1.3.0"),
+            "reason names the latest: {reason}"
+        );
+        assert!(
+            reason.contains("1.2.0"),
+            "reason names the resolved: {reason}"
+        );
     }
 
     // TEST1851: no version ships a host build → Incompatible, no resolved
@@ -2172,11 +2193,7 @@ mod tests {
         assert_eq!(r.status, CompatStatus::Incompatible);
         assert!(r.resolved_version.is_none());
         assert!(r.resolved_package.is_none());
-        assert!(r
-            .reason
-            .as_deref()
-            .unwrap()
-            .contains("windows-x86_64"));
+        assert!(r.reason.as_deref().unwrap().contains("windows-x86_64"));
     }
 
     // TEST1852: a host build whose packages[] is empty AND has no legacy
@@ -2266,13 +2283,17 @@ mod tests {
     // TEST323: CartridgeRepoServer requires schema 5.0 and rejects older.
     #[test]
     fn test323_cartridge_repo_server_validate_registry() {
-        let server =
-            CartridgeRepoServer::new(build_registry(vec![]), "https://test.example/manifest", TEST_FABRIC_URL);
+        let server = CartridgeRepoServer::new(
+            build_registry(vec![]),
+            "https://test.example/manifest",
+            TEST_FABRIC_URL,
+        );
         assert!(server.is_ok());
 
         let mut bad = build_registry(vec![]);
         bad.schema_version = "4.0".to_string();
-        let result = CartridgeRepoServer::new(bad, "https://test.example/manifest", TEST_FABRIC_URL);
+        let result =
+            CartridgeRepoServer::new(bad, "https://test.example/manifest", TEST_FABRIC_URL);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("5.0"));
 
@@ -2281,7 +2302,11 @@ mod tests {
         // reinterpreted across an incompatible cap-shape regime.
         let mut wrong_version = build_registry(vec![]);
         wrong_version.registry_version = crate::CARTRIDGE_REGISTRY_VERSION + 1;
-        let result = CartridgeRepoServer::new(wrong_version, "https://test.example/manifest", TEST_FABRIC_URL);
+        let result = CartridgeRepoServer::new(
+            wrong_version,
+            "https://test.example/manifest",
+            TEST_FABRIC_URL,
+        );
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -2424,7 +2449,9 @@ mod tests {
             vec![("foocartridge", release_entry)],
             vec![("foocartridge", nightly_entry)],
         );
-        let server = CartridgeRepoServer::new(registry, "https://test.example/manifest", TEST_FABRIC_URL).unwrap();
+        let server =
+            CartridgeRepoServer::new(registry, "https://test.example/manifest", TEST_FABRIC_URL)
+                .unwrap();
 
         let r = server
             .get_cartridge_by_id(CartridgeChannel::Release, "foocartridge")
@@ -2462,11 +2489,11 @@ mod tests {
                 vec![],
             )],
         );
-        let registry = build_registry_in_channels(
-            vec![("foo", release_entry)],
-            vec![("bar", nightly_entry)],
-        );
-        let server = CartridgeRepoServer::new(registry, "https://test.example/manifest", TEST_FABRIC_URL).unwrap();
+        let registry =
+            build_registry_in_channels(vec![("foo", release_entry)], vec![("bar", nightly_entry)]);
+        let server =
+            CartridgeRepoServer::new(registry, "https://test.example/manifest", TEST_FABRIC_URL)
+                .unwrap();
 
         let cartridges = server.transform_to_cartridge_array().unwrap();
         let channels: Vec<CartridgeChannel> = cartridges.iter().map(|c| c.channel).collect();
@@ -2551,10 +2578,12 @@ mod tests {
     // than the cap's declared form still resolves.
     #[test]
     fn test329_cartridge_repo_server_get_by_cap() {
-        let declared_urn = "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
+        let declared_urn =
+            "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
         // Same cap URN with the in/out spec tags in a different declared
         // order. Tagged-URN normalization treats them as identical.
-        let request_urn = "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
+        let request_urn =
+            "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
 
         let entry = build_registry_entry(
             "PDF Cartridge",
@@ -2636,8 +2665,10 @@ mod tests {
     #[tokio::test]
     async fn test331_cartridge_repo_client_get_suggestions() {
         let repo = CartridgeRepo::new(3600, TEST_FABRIC_URL);
-        let declared_urn = "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
-        let request_urn = "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
+        let declared_urn =
+            "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
+        let request_urn =
+            "cap:in=\"media:ext=pdf\";disbind;out=\"media:disbound-page;enc=utf-8;list\"";
 
         let registry = CartridgeRegistryResponse {
             cartridges: vec![{

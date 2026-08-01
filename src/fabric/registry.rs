@@ -243,9 +243,7 @@ fn select_display_alias<'a>(names: impl Iterator<Item = &'a str>) -> Option<&'a 
 fn normalize_cap_urn(urn: &str) -> Result<String, FabricRegistryError> {
     crate::CapUrn::from_string(urn)
         .map(|parsed| parsed.to_string())
-        .map_err(|e| {
-            FabricRegistryError::ParseError(format!("malformed cap URN '{}': {}", urn, e))
-        })
+        .map_err(|e| FabricRegistryError::ParseError(format!("malformed cap URN '{}': {}", urn, e)))
 }
 
 fn normalize_media_urn(urn: &str) -> Result<String, FabricRegistryError> {
@@ -370,17 +368,29 @@ pub enum CapNarrowError {
 impl std::fmt::Display for CapNarrowError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CapNarrowError::Registry(e) => write!(f, "cap registry unavailable while narrowing: {}", e),
-            CapNarrowError::NoHandler { abstract_urn, input_media, target } => {
+            CapNarrowError::Registry(e) => {
+                write!(f, "cap registry unavailable while narrowing: {}", e)
+            }
+            CapNarrowError::NoHandler {
+                abstract_urn,
+                input_media,
+                target,
+            } => {
                 write!(
                     f,
                     "no concrete cap specializes '{}' for input '{}'{}",
                     abstract_urn,
                     input_media,
-                    target.as_ref().map(|t| format!(" → '{}'", t)).unwrap_or_default()
+                    target
+                        .as_ref()
+                        .map(|t| format!(" → '{}'", t))
+                        .unwrap_or_default()
                 )
-            },
-            CapNarrowError::Ambiguous { abstract_urn, candidates } => {
+            }
+            CapNarrowError::Ambiguous {
+                abstract_urn,
+                candidates,
+            } => {
                 write!(
                     f,
                     "'{}' is ambiguous for this input — {} concrete caps match: {}. Disambiguate with --to <target> or name the concrete alias.",
@@ -388,7 +398,7 @@ impl std::fmt::Display for CapNarrowError {
                     candidates.len(),
                     candidates.join(", ")
                 )
-            },
+            }
         }
     }
 }
@@ -487,12 +497,10 @@ impl FabricRegistry {
         // everything (the load function only walks flat paths anyway
         // because no versioned subdirs are written under v0 mode).
         if manifest_version >= 1 {
-            cached_caps_map.retain(|urn, cap| {
-                manifest.caps.get(urn).copied().unwrap_or(0) == cap.version
-            });
-            cached_specs_map.retain(|urn, spec| {
-                manifest.media.get(urn).copied().unwrap_or(0) == spec.version
-            });
+            cached_caps_map
+                .retain(|urn, cap| manifest.caps.get(urn).copied().unwrap_or(0) == cap.version);
+            cached_specs_map
+                .retain(|urn, spec| manifest.media.get(urn).copied().unwrap_or(0) == spec.version);
             cached_aliases_map.retain(|name, alias| {
                 manifest.aliases.get(name).copied().unwrap_or(0) == alias.version
             });
@@ -596,7 +604,9 @@ impl FabricRegistry {
             FabricRegistryError::CacheError("Could not determine cache directory".to_string())
         })?;
         cache_dir.push("capdag");
-        cache_dir.push(crate::bifaci::cartridge_slug::slug_for(Some(registry_base_url)));
+        cache_dir.push(crate::bifaci::cartridge_slug::slug_for(Some(
+            registry_base_url,
+        )));
         Ok(cache_dir)
     }
 
@@ -1248,7 +1258,7 @@ impl FabricRegistry {
                     abstract_urn: abstract_urn.to_string(),
                     candidates: matches.iter().map(|u| u.to_string()).collect(),
                 })
-            },
+            }
         }
     }
 
@@ -1946,7 +1956,10 @@ impl FabricRegistry {
                 }
                 // Corrupt cache entry (URN no longer parses) surfaces as an
                 // error rather than a silent raw-key insertion.
-                specs.insert(normalize_media_urn(&cache_entry.spec.urn)?, cache_entry.spec);
+                specs.insert(
+                    normalize_media_urn(&cache_entry.spec.urn)?,
+                    cache_entry.spec,
+                );
             }
         }
         Ok(specs)
@@ -2124,10 +2137,7 @@ fn cap_url_and_cache_path(
         )
     } else {
         (
-            format!(
-                "{}/caps/{}/{}.json",
-                config.registry_base_url, hash, defver
-            ),
+            format!("{}/caps/{}/{}.json", config.registry_base_url, hash, defver),
             cache_dir
                 .join("caps")
                 .join(&hash)
@@ -2178,7 +2188,10 @@ fn alias_url_and_cache_path(
     hasher.update(normalized_name.as_bytes());
     let hash = format!("{:x}", hasher.finalize());
     (
-        format!("{}/aliases/{}/{}.json", config.registry_base_url, hash, defver),
+        format!(
+            "{}/aliases/{}/{}.json",
+            config.registry_base_url, hash, defver
+        ),
         cache_dir
             .join("aliases")
             .join(&hash)
@@ -2214,10 +2227,12 @@ async fn fetch_one_alias(
             normalized_name, defver
         )));
     }
-    let (url, cache_path) =
-        alias_url_and_cache_path(cache_dir, config, normalized_name, defver);
+    let (url, cache_path) = alias_url_and_cache_path(cache_dir, config, normalized_name, defver);
     let response = client.get(&url).send().await.map_err(|e| {
-        FabricRegistryError::HttpError(format!("Failed to fetch alias '{}': {}", normalized_name, e))
+        FabricRegistryError::HttpError(format!(
+            "Failed to fetch alias '{}': {}",
+            normalized_name, e
+        ))
     })?;
     if !response.status().is_success() {
         return Err(FabricRegistryError::NotFound(format!(
@@ -2234,7 +2249,10 @@ async fn fetch_one_alias(
         ))
     })?;
     let alias: StoredAlias = serde_json::from_str(&body).map_err(|e| {
-        FabricRegistryError::ParseError(format!("Failed to parse alias '{}': {}", normalized_name, e))
+        FabricRegistryError::ParseError(format!(
+            "Failed to parse alias '{}': {}",
+            normalized_name, e
+        ))
     })?;
     validate_fetched_alias(&alias, normalized_name, defver)?;
     cache_alias_entry(&alias, &cache_path, cached_aliases, cache_revision_tx)?;
@@ -2619,10 +2637,7 @@ async fn load_or_fetch_manifest(
         )));
     }
     let body = response.text().await.map_err(|e| {
-        FabricRegistryError::HttpError(format!(
-            "Failed to read manifest v{} body: {}",
-            version, e
-        ))
+        FabricRegistryError::HttpError(format!("Failed to read manifest v{} body: {}", version, e))
     })?;
     let manifest: Manifest = serde_json::from_str(&body).map_err(|e| {
         FabricRegistryError::ParseError(format!("Failed to parse manifest v{}: {}", version, e))
@@ -2936,12 +2951,18 @@ mod alias_tests {
             vec!["disbind-pdf".to_string()],
         );
         let jpeg_png = Cap::new(
-            CapUrn::from_string(r#"cap:convert-image;in="media:ext=jpeg;image";out="media:ext=png;image""#).unwrap(),
+            CapUrn::from_string(
+                r#"cap:convert-image;in="media:ext=jpeg;image";out="media:ext=png;image""#,
+            )
+            .unwrap(),
             "JPEG to PNG".to_string(),
             vec!["convert-image-jpeg-to-png".to_string()],
         );
         let jpeg_webp = Cap::new(
-            CapUrn::from_string(r#"cap:convert-image;in="media:ext=jpeg;image";out="media:ext=webp;image""#).unwrap(),
+            CapUrn::from_string(
+                r#"cap:convert-image;in="media:ext=jpeg;image";out="media:ext=webp;image""#,
+            )
+            .unwrap(),
             "JPEG to WebP".to_string(),
             vec!["convert-image-jpeg-to-webp".to_string()],
         );
@@ -2949,7 +2970,8 @@ mod alias_tests {
 
         // disbind has a fixed output → a pdf input narrows uniquely, no --to.
         let disbind_abstract =
-            CapUrn::from_string(r#"cap:disbind;out="media:enc=utf-8;ext=txt;page;plain-text""#).unwrap();
+            CapUrn::from_string(r#"cap:disbind;out="media:enc=utf-8;ext=txt;page;plain-text""#)
+                .unwrap();
         let pdf = MediaUrn::from_string("media:ext=pdf").unwrap();
         let concrete = registry
             .narrow_abstract_cap(&disbind_abstract, &pdf, None)
@@ -2962,7 +2984,9 @@ mod alias_tests {
         let jpeg = MediaUrn::from_string("media:ext=jpeg;image").unwrap();
         assert!(
             matches!(
-                registry.narrow_abstract_cap(&convert_abstract, &jpeg, None).await,
+                registry
+                    .narrow_abstract_cap(&convert_abstract, &jpeg, None)
+                    .await,
                 Err(CapNarrowError::Ambiguous { .. })
             ),
             "jpeg convert-image without --to must be ambiguous"
@@ -2979,7 +3003,9 @@ mod alias_tests {
         let gif = MediaUrn::from_string("media:ext=gif;image").unwrap();
         assert!(
             matches!(
-                registry.narrow_abstract_cap(&convert_abstract, &gif, None).await,
+                registry
+                    .narrow_abstract_cap(&convert_abstract, &gif, None)
+                    .await,
                 Err(CapNarrowError::NoHandler { .. })
             ),
             "a gif input has no convert-image handler here → NoHandler"
@@ -3003,10 +3029,7 @@ mod alias_tests {
             .await
             .is_ok());
         // Untyped: ok.
-        assert!(registry
-            .resolve_alias_typed("jsondoc", None)
-            .await
-            .is_ok());
+        assert!(registry.resolve_alias_typed("jsondoc", None).await.is_ok());
         // Wrong kind: hard error.
         let err = registry
             .resolve_alias_typed("jsondoc", Some(AliasTargetKind::Cap))
@@ -3034,7 +3057,10 @@ mod alias_tests {
             version: 1,
         });
         // Cap alias → the aliased cap.
-        let got = registry.get_cap("pdf2text").await.expect("cap alias resolves");
+        let got = registry
+            .get_cap("pdf2text")
+            .await
+            .expect("cap alias resolves");
         assert_eq!(got.urn_string(), canonical);
 
         // Media alias passed to the cap boundary → hard error.
@@ -3185,7 +3211,9 @@ mod parity_port_tests {
         // Canonical query → shortest alias wins.
         assert_eq!(
             registry
-                .display_alias_for_urn("cap:coerce;in=\"media:integer;numeric\";out=\"media:enc=utf-8\"")
+                .display_alias_for_urn(
+                    "cap:coerce;in=\"media:integer;numeric\";out=\"media:enc=utf-8\""
+                )
                 .as_deref(),
             Some("i2s")
         );
@@ -3193,11 +3221,16 @@ mod parity_port_tests {
         // must still resolve via canonicalisation. `media:record;fmt=json`
         // canonicalises to `media:fmt=json;record`.
         assert_eq!(
-            registry.display_alias_for_urn("media:record;fmt=json").as_deref(),
+            registry
+                .display_alias_for_urn("media:record;fmt=json")
+                .as_deref(),
             Some("json")
         );
         // A real URN with no alias → None.
-        assert_eq!(registry.display_alias_for_urn("media:enc=utf-8;ext=pdf"), None);
+        assert_eq!(
+            registry.display_alias_for_urn("media:enc=utf-8;ext=pdf"),
+            None
+        );
         // A non-URN (no cap:/media: prefix) → None, never a panic.
         assert_eq!(registry.display_alias_for_urn("int2str"), None);
         // The bare wildcard `cap:` parses but has no alias → None.
@@ -3235,7 +3268,10 @@ mod parity_port_tests {
     fn test147_registry_for_test_with_custom_config() {
         let config = RegistryConfig::new().with_registry_url("https://example.test/registry");
         let registry = FabricRegistry::new_for_test_with_config(config);
-        assert_eq!(registry.config().registry_base_url, "https://example.test/registry");
+        assert_eq!(
+            registry.config().registry_base_url,
+            "https://example.test/registry"
+        );
     }
 
     // TEST1899: a media def published under a manifest (v>=1) resolves to the
@@ -3297,7 +3333,9 @@ mod parity_port_tests {
     #[test]
     fn test607_media_urns_for_extension_unknown() {
         let registry = FabricRegistry::new_for_test();
-        let err = registry.media_urns_for_extension("zzzzunknown").unwrap_err();
+        let err = registry
+            .media_urns_for_extension("zzzzunknown")
+            .unwrap_err();
         assert!(format!("{err}").contains("zzzzunknown"));
     }
 
@@ -3323,10 +3361,16 @@ mod parity_port_tests {
     fn test609_get_extension_mappings() {
         let registry = FabricRegistry::new_for_test();
         registry.insert_cached_media_def_for_test(spec_with_ext(
-            "media:ext=pdf", "PDF", "application/octet-stream", &["pdf"],
+            "media:ext=pdf",
+            "PDF",
+            "application/octet-stream",
+            &["pdf"],
         ));
         registry.insert_cached_media_def_for_test(spec_with_ext(
-            "media:ext=epub", "EPUB", "application/octet-stream", &["epub"],
+            "media:ext=epub",
+            "EPUB",
+            "application/octet-stream",
+            &["epub"],
         ));
         let mappings = registry.get_extension_mappings().unwrap();
         let exts: HashSet<String> = mappings.iter().map(|(e, _)| e.clone()).collect();
@@ -3338,9 +3382,13 @@ mod parity_port_tests {
     #[test]
     fn test610_get_cached_media_def() {
         let registry = FabricRegistry::new_for_test();
-        assert!(registry.get_cached_media_def("media:nonexistent;xyzzy").is_none());
+        assert!(registry
+            .get_cached_media_def("media:nonexistent;xyzzy")
+            .is_none());
         registry.insert_cached_media_def_for_test(spec("media:enc=utf-8;test;spec", "Test Spec"));
-        let got = registry.get_cached_media_def("media:enc=utf-8;test;spec").unwrap();
+        let got = registry
+            .get_cached_media_def("media:enc=utf-8;test;spec")
+            .unwrap();
         assert_eq!(got.title, "Test Spec");
     }
 
@@ -3407,7 +3455,8 @@ mod parity_port_tests {
     async fn test908_cached_caps_accessible_when_offline() {
         use crate::cap::definition::{Cap, CapArg, CapOutput};
         let registry = FabricRegistry::new_for_test();
-        let urn = crate::CapUrn::from_string("cap:in=media:void;test-offline;out=media:void").unwrap();
+        let urn =
+            crate::CapUrn::from_string("cap:in=media:void;test-offline;out=media:void").unwrap();
         let cap = Cap {
             urn,
             version: 0,
@@ -3461,14 +3510,20 @@ mod parity_port_tests {
         let cap: Cap = serde_json::from_str(json).expect("cap parses");
         assert_eq!(cap.title, "Create Grinder Tool Task");
         assert_eq!(cap.primary_alias(), "grinder_task");
-        assert!(cap.get_stdin_media_urn().is_none(), "no stdin source means no stdin support");
+        assert!(
+            cap.get_stdin_media_urn().is_none(),
+            "no stdin source means no stdin support"
+        );
     }
 
     // TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension.
     #[test]
     fn test141_per_cap_url_shape() {
         let config = RegistryConfig::default();
-        let url = cap_registry_url(&config, "cap:in=\"media:listing-id\";use-grinder;out=\"media:id;task\"");
+        let url = cap_registry_url(
+            &config,
+            "cap:in=\"media:listing-id\";use-grinder;out=\"media:id;task\"",
+        );
         let after = url.split("/caps/").nth(1).expect("URL has /caps/ segment");
         assert_eq!(after.len(), 64, "SHA-256 hex digest is 64 characters");
         assert!(after.chars().all(|c| c.is_ascii_hexdigit()));
@@ -3478,8 +3533,14 @@ mod parity_port_tests {
     #[test]
     fn test142_normalize_handles_different_tag_orders() {
         let config = RegistryConfig::default();
-        let a = cap_registry_url(&config, "cap:test;in=\"media:enc=utf-8\";out=\"media:record\"");
-        let b = cap_registry_url(&config, "cap:in=\"media:enc=utf-8\";out=\"media:record\";test");
+        let a = cap_registry_url(
+            &config,
+            "cap:test;in=\"media:enc=utf-8\";out=\"media:record\"",
+        );
+        let b = cap_registry_url(
+            &config,
+            "cap:in=\"media:enc=utf-8\";out=\"media:record\";test",
+        );
         assert_eq!(a, b, "different tag orders produce the same URL");
     }
 
@@ -3551,7 +3612,8 @@ mod parity_port_tests {
 
         // The final path component is exactly the cartridge-registry slug of
         // the origin URL — one slug scheme across the codebase.
-        let slug = crate::bifaci::cartridge_slug::slug_for(Some("https://fabric-staging.capdag.com"));
+        let slug =
+            crate::bifaci::cartridge_slug::slug_for(Some("https://fabric-staging.capdag.com"));
         assert_eq!(
             staging.file_name().and_then(|s| s.to_str()),
             Some(slug.as_str()),
@@ -3559,7 +3621,10 @@ mod parity_port_tests {
         );
         // And the parent of that slug is the shared `capdag` cache directory.
         assert_eq!(
-            staging.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()),
+            staging
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str()),
             Some("capdag"),
             "the per-origin slug must live under the capdag cache directory"
         );
@@ -3569,19 +3634,33 @@ mod parity_port_tests {
     #[test]
     fn test6388_per_cap_url_uses_sha256() {
         let config = RegistryConfig::default();
-        let url = cap_registry_url(&config, "cap:in=\"media:enc=utf-8\";test;out=\"media:record\"");
+        let url = cap_registry_url(
+            &config,
+            "cap:in=\"media:enc=utf-8\";test;out=\"media:record\"",
+        );
         assert!(url.contains("/caps/"));
-        assert!(!url.contains("cap:"), "URL must not contain raw cap: URN syntax");
-        assert!(!url.contains("%3A") && !url.contains("%3D") && !url.contains("%3B"),
-            "URL must not contain percent-encoded URN characters");
+        assert!(
+            !url.contains("cap:"),
+            "URL must not contain raw cap: URN syntax"
+        );
+        assert!(
+            !url.contains("%3A") && !url.contains("%3D") && !url.contains("%3B"),
+            "URL must not contain percent-encoded URN characters"
+        );
     }
 
     // TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key.
     #[test]
     fn test6391_same_cap_different_spellings_same_url() {
         let config = RegistryConfig::default();
-        let a = cap_registry_url(&config, "cap:in=\"media:listing-id\";use-grinder;out=\"media:id;task\"");
-        let b = cap_registry_url(&config, "cap:out=\"media:id;task\";in=\"media:listing-id\";use-grinder");
+        let a = cap_registry_url(
+            &config,
+            "cap:in=\"media:listing-id\";use-grinder;out=\"media:id;task\"",
+        );
+        let b = cap_registry_url(
+            &config,
+            "cap:out=\"media:id;task\";in=\"media:listing-id\";use-grinder",
+        );
         assert_eq!(a, b, "equivalent URNs must hash to the same registry key");
     }
 }

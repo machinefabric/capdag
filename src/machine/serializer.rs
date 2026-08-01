@@ -191,10 +191,7 @@ struct StrandPlan {
     node_names: Vec<String>,
 }
 
-fn build_serialization_plan(
-    machine: &Machine,
-    rendering: CapRendering<'_>,
-) -> SerializationPlan {
+fn build_serialization_plan(machine: &Machine, rendering: CapRendering<'_>) -> SerializationPlan {
     let mut strand_plans: Vec<StrandPlan> = Vec::with_capacity(machine.strand_count());
     let mut next_alias: usize = 0;
     let mut next_node: usize = 0;
@@ -707,8 +704,7 @@ mod tests {
 
         // Round-trip: parse the aliased notation back. The alias is already in
         // the warm cache (seeded above), so the sync parser resolves it.
-        let m2 = Machine::from_string(&aliased, &registry)
-            .expect("aliased notation must re-parse");
+        let m2 = Machine::from_string(&aliased, &registry).expect("aliased notation must re-parse");
         assert!(
             m1.is_equivalent(&m2),
             "aliased serialize → parse must preserve strict equivalence"
@@ -730,7 +726,11 @@ mod tests {
         let registry = registry_with(vec![extract_cap_def(), embed_cap_def()]);
         seed_media_titles(
             &registry,
-            &["media:ext=pdf", "media:enc=utf-8;ext=txt", "media:vec;record"],
+            &[
+                "media:ext=pdf",
+                "media:enc=utf-8;ext=txt",
+                "media:vec;record",
+            ],
         );
         let machine = Machine::from_strand(&pdf_to_vec_strand(), &registry).unwrap();
         let payload = machine.to_render_payload_json(&registry).unwrap();

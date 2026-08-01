@@ -100,7 +100,11 @@ fn arg_invocation_form(arg: &CapArg) -> String {
 /// plus a trailing qualifier (default value / optional / sequence).
 fn render_option_line(arg: &CapArg) -> String {
     let mut line = format!("  {}  ({})", arg_invocation_form(arg), arg.media_urn);
-    if let Some(description) = arg.arg_description.as_deref().filter(|d| !d.trim().is_empty()) {
+    if let Some(description) = arg
+        .arg_description
+        .as_deref()
+        .filter(|d| !d.trim().is_empty())
+    {
         line.push_str(&format!(" — {}", description.trim()));
     }
     if arg.is_sequence {
@@ -155,7 +159,11 @@ pub fn render_cap_interface(cap: &Cap) -> Result<String, String> {
     out.push_str("\nInput (piped stdin, or input file path(s)):\n");
     for arg in &main_inputs {
         let mut line = format!("  {}", arg.stream_urn());
-        if let Some(description) = arg.arg_description.as_deref().filter(|d| !d.trim().is_empty()) {
+        if let Some(description) = arg
+            .arg_description
+            .as_deref()
+            .filter(|d| !d.trim().is_empty())
+        {
             line.push_str(&format!(" — {}", description.trim()));
         }
         if arg.is_sequence {
@@ -197,7 +205,11 @@ pub fn render_cap_interface(cap: &Cap) -> Result<String, String> {
         out.push_str(&format!(
             "\nOutput: {}{}\n",
             output.media_urn,
-            if output.is_sequence { " [sequence]" } else { "" }
+            if output.is_sequence {
+                " [sequence]"
+            } else {
+                ""
+            }
         ));
     }
 
@@ -217,7 +229,11 @@ pub fn render_cap_interface(cap: &Cap) -> Result<String, String> {
 ///   input; zero or several are hard errors naming the cap), and
 /// - a declared output.
 pub fn synthesize_single_cap_notation(cap: &Cap) -> Result<String, String> {
-    let stdin_count = cap.get_args().iter().filter(|a| has_stdin_source(a)).count();
+    let stdin_count = cap
+        .get_args()
+        .iter()
+        .filter(|a| has_stdin_source(a))
+        .count();
     match stdin_count {
         1 => {}
         0 => {
@@ -607,12 +623,7 @@ mod tests {
         assert_eq!(invocation, eq_form);
 
         // Unknown flag: hard error listing the cap's flags and media URNs.
-        let err = map_invocation(
-            &cap,
-            &["--bogus".to_string(), "v".to_string()],
-            &[],
-        )
-        .unwrap_err();
+        let err = map_invocation(&cap, &["--bogus".to_string(), "v".to_string()], &[]).unwrap_err();
         assert!(err.contains("no arg with CLI flag '--bogus'"), "{err}");
         assert!(err.contains("--model-spec"), "{err}");
 
@@ -643,8 +654,14 @@ mod tests {
             err.contains("media:enc=utf-8;model-spec"),
             "missing options are named with their media URN: {err}"
         );
-        assert!(!err.contains("budget"), "defaulted args not required: {err}");
-        assert!(!err.contains("criterion"), "optional args not required: {err}");
+        assert!(
+            !err.contains("budget"),
+            "defaulted args not required: {err}"
+        );
+        assert!(
+            !err.contains("criterion"),
+            "optional args not required: {err}"
+        );
 
         // A flag missing its value is a hard error, not a silent empty.
         let err = map_invocation(&cap, &["--model-spec".to_string()], &[]).unwrap_err();

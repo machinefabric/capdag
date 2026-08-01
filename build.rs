@@ -66,7 +66,10 @@ fn bake_capdag_version() {
         .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
     let version = raw.trim();
     if version.is_empty() {
-        panic!("{} is empty — it must hold the capdag release version", path.display());
+        panic!(
+            "{} is empty — it must hold the capdag release version",
+            path.display()
+        );
     }
     println!("cargo:rustc-env=CAPDAG_VERSION={version}");
 }
@@ -219,9 +222,7 @@ fn enforce_signing_pubkey_pairing() {
     if let Some(label) = &environment {
         let label = label.trim();
         if label != "prod" && label != "staging" {
-            panic!(
-                "MFR_SIGNING_ENVIRONMENT must be 'prod' or 'staging', got {label:?}."
-            );
+            panic!("MFR_SIGNING_ENVIRONMENT must be 'prod' or 'staging', got {label:?}.");
         }
     }
 }
@@ -296,10 +297,7 @@ fn generate_bundled_cartridge_hashes(out_dir: &str) {
     for (name, version, sha256) in &entries {
         // Values are validated below to be hex/identifier-safe, but emit via
         // escaped string literals regardless so codegen can never break.
-        body.push_str(&format!(
-            "    ({:?}, {:?}, {:?}),\n",
-            name, version, sha256
-        ));
+        body.push_str(&format!("    ({:?}, {:?}, {:?}),\n", name, version, sha256));
     }
     body.push_str("];\n");
 
@@ -326,9 +324,14 @@ fn parse_bundled_cartridge_hashes(raw: &str) -> Vec<(String, String, String)> {
         });
         for (version, sha) in versions {
             let sha = sha.as_str().unwrap_or_else(|| {
-                panic!("MFR_BUNDLED_CARTRIDGE_HASHES['{name}']['{version}'] must be a string sha256");
+                panic!(
+                    "MFR_BUNDLED_CARTRIDGE_HASHES['{name}']['{version}'] must be a string sha256"
+                );
             });
-            let is_hex64 = sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+            let is_hex64 = sha.len() == 64
+                && sha
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
             if !is_hex64 {
                 panic!(
                     "MFR_BUNDLED_CARTRIDGE_HASHES['{name}']['{version}'] must be a 64-char lowercase hex sha256, got {sha:?}"

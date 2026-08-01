@@ -596,7 +596,10 @@ mod tests {
     // Verifies filename() returns just the basename without directory path
     #[test]
     fn test959_cap_input_file_filename() {
-        let file = CapInputFile::new("/path/to/document.pdf".to_string(), "media:ext=pdf".to_string());
+        let file = CapInputFile::new(
+            "/path/to/document.pdf".to_string(),
+            "media:ext=pdf".to_string(),
+        );
         assert_eq!(file.filename(), Some("document.pdf"));
     }
 
@@ -822,10 +825,7 @@ mod tests {
         let files = vec![];
         let prev_outputs = HashMap::new();
         let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();
-        slot_values.insert(
-            "step_0:media:numeric;width".to_string(),
-            b"800".to_vec(),
-        );
+        slot_values.insert("step_0:media:numeric;width".to_string(), b"800".to_vec());
         let context = ArgumentResolutionContext {
             input_files: &files,
             current_file_index: 0,
@@ -1085,14 +1085,8 @@ mod tests {
         let files = vec![];
         let prev_outputs = HashMap::new();
         let mut slot_values: HashMap<String, Vec<u8>> = HashMap::new();
-        slot_values.insert(
-            "step_3:media:numeric;width".to_string(),
-            b"1024".to_vec(),
-        );
-        slot_values.insert(
-            "step_3:media:numeric;quality".to_string(),
-            b"95".to_vec(),
-        );
+        slot_values.insert("step_3:media:numeric;width".to_string(), b"1024".to_vec());
+        slot_values.insert("step_3:media:numeric;quality".to_string(), b"95".to_vec());
 
         let context = ArgumentResolutionContext {
             input_files: &files,

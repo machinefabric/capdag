@@ -204,7 +204,10 @@ mod tests {
         let graph = ResolvedGraph {
             nodes: HashMap::from([
                 ("input".to_string(), r#"media:ext=pdf"#.to_string()),
-                ("middle".to_string(), r#"media:enc=utf-8;ext=txt"#.to_string()),
+                (
+                    "middle".to_string(),
+                    r#"media:enc=utf-8;ext=txt"#.to_string(),
+                ),
                 (
                     "output".to_string(),
                     r#"media:embedding;record"#.to_string(),

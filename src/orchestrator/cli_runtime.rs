@@ -29,8 +29,7 @@ use crate::bifaci::relay_switch::RelaySwitch;
 use crate::cap::registry::FabricRegistry;
 use crate::orchestrator::execute_plan::EngineRuntime;
 use crate::orchestrator::executor::{
-    discover_bundled_cartridges, segment_activity_timeout, CartridgeManager,
-    ExecutionContext,
+    discover_bundled_cartridges, segment_activity_timeout, CartridgeManager, ExecutionContext,
 };
 use crate::orchestrator::types::ResolvedGraph;
 use crate::ExecutionError;
@@ -141,7 +140,10 @@ impl CliHost {
 
         // Resolve this segment's caps to cartridges (immutable borrow scoped to here).
         let mut resolved = {
-            let manager = self.manager.as_ref().expect("initialised immediately above");
+            let manager = self
+                .manager
+                .as_ref()
+                .expect("initialised immediately above");
             manager.resolve_cartridges(&cap_urns).await?
         };
 
@@ -208,10 +210,7 @@ impl EngineRuntime for CliRuntime {
             .clone())
     }
 
-    async fn activity_timeout_secs(
-        &self,
-        graph: &ResolvedGraph,
-    ) -> Result<u64, ExecutionError> {
+    async fn activity_timeout_secs(&self, graph: &ResolvedGraph) -> Result<u64, ExecutionError> {
         Ok(segment_activity_timeout(graph))
     }
 

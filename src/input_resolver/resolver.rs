@@ -776,7 +776,11 @@ mod tests {
         let (fabric_registry, _temp) = create_test_fabric_registry();
         let mut adapter_registry = MediaAdapterRegistry::new(fabric_registry);
         adapter_registry
-            .register_cap_group("test-group", &["media:fmt=json".to_string()], "test-cartridge")
+            .register_cap_group(
+                "test-group",
+                &["media:fmt=json".to_string()],
+                "test-cartridge",
+            )
             .unwrap();
 
         let invoker = MockInvoker {
@@ -829,7 +833,11 @@ mod tests {
 
         // Register an adapter for media:fmt=json
         adapter_registry
-            .register_cap_group("test-group", &["media:fmt=json".to_string()], "test-cartridge")
+            .register_cap_group(
+                "test-group",
+                &["media:fmt=json".to_string()],
+                "test-cartridge",
+            )
             .unwrap();
 
         let invoker = MockInvoker {
@@ -862,7 +870,11 @@ mod tests {
         let mut adapter_registry = MediaAdapterRegistry::new(fabric_registry);
 
         adapter_registry
-            .register_cap_group("test-group", &["media:fmt=json".to_string()], "test-cartridge")
+            .register_cap_group(
+                "test-group",
+                &["media:fmt=json".to_string()],
+                "test-cartridge",
+            )
             .unwrap();
 
         // Invoker returns None (empty END — no match)

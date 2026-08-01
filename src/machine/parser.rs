@@ -74,7 +74,7 @@ use crate::FabricRegistryError;
 
 use super::error::{MachineParseError, MachineSyntaxError};
 use super::graph::{Machine, MachineStrand, NodeId};
-use super::resolve::{resolve_pre_interned, PreInternedWiring};
+use super::resolve::{resolve_pre_interned, ForEachIdentity, PreInternedWiring};
 
 #[derive(Parser)]
 #[grammar = "machine/machine.pest"]
@@ -253,12 +253,11 @@ pub fn parse_machine_with_node_names(
             let Some(target) = registry.resolve_alias_cached(&name) else {
                 continue; // not a known alias → phase 4 yields UndefinedAlias
             };
-            let cap_urn = CapUrn::from_string(&target).map_err(|_| {
-                MachineSyntaxError::AliasNotACap {
+            let cap_urn =
+                CapUrn::from_string(&target).map_err(|_| MachineSyntaxError::AliasNotACap {
                     alias: name.clone(),
                     target: target.clone(),
-                }
-            })?;
+                })?;
             // Synthetic position past every real statement so duplicate
             // detection (which compares positions) never mistakes an
             // injected alias for a user-written header.
@@ -436,6 +435,7 @@ pub fn parse_machine_with_node_names(
                 // inherit from, so each parsed wiring's edge gets its own freshly
                 // minted stable identity.
                 token_id: uuid::Uuid::new_v4().to_string(),
+                foreach_identity: ForEachIdentity::MintIfRequired,
                 cap_urn: cap_urn.clone(),
                 source_node_ids,
                 target_node_id,

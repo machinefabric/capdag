@@ -621,7 +621,8 @@ mod tests {
     // The list tag is a semantic type property, not a cardinality indicator.
     #[test]
     fn test698_cap_shape_info_cardinality_always_single_from_urn() {
-        let info = CapShapeInfo::from_cap_specs("cap:pdf-to-pages", "media:ext=pdf", "media:ext=png;list");
+        let info =
+            CapShapeInfo::from_cap_specs("cap:pdf-to-pages", "media:ext=pdf", "media:ext=png;list");
         assert_eq!(info.input.cardinality, InputCardinality::Single);
         assert_eq!(info.output.cardinality, InputCardinality::Single);
         assert_eq!(info.cardinality_pattern(), CardinalityPattern::OneToOne);
@@ -683,7 +684,11 @@ mod tests {
     fn test711_strand_shape_analysis_simple_linear() {
         let infos = vec![
             CapShapeInfo::from_cap_specs("cap:pdf-to-png", "media:ext=pdf", "media:ext=png;image"),
-            CapShapeInfo::from_cap_specs("cap:resize", "media:ext=png;image", "media:ext=png;image"),
+            CapShapeInfo::from_cap_specs(
+                "cap:resize",
+                "media:ext=png;image",
+                "media:ext=png;image",
+            ),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
         assert!(analysis.is_valid);
@@ -703,7 +708,11 @@ mod tests {
                 false,
                 true,
             ),
-            CapShapeInfo::from_cap_specs("cap:thumbnail", "media:ext=png;image", "media:ext=png;image"),
+            CapShapeInfo::from_cap_specs(
+                "cap:thumbnail",
+                "media:ext=png;image",
+                "media:ext=png;image",
+            ),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
         assert!(analysis.is_valid);
@@ -946,7 +955,8 @@ mod tests {
     // TEST740: Tests CapShapeInfo correctly parses cap specs
     #[test]
     fn test740_cap_shape_info_from_specs() {
-        let info = CapShapeInfo::from_cap_specs("cap:test", "media:enc=utf-8", "media:fmt=json;record");
+        let info =
+            CapShapeInfo::from_cap_specs("cap:test", "media:enc=utf-8", "media:fmt=json;record");
         assert_eq!(info.input.cardinality, InputCardinality::Single);
         assert_eq!(info.input.structure, InputStructure::Opaque);
         assert_eq!(info.output.cardinality, InputCardinality::Single);
@@ -975,8 +985,16 @@ mod tests {
     #[test]
     fn test750_strand_shape_valid() {
         let infos = vec![
-            CapShapeInfo::from_cap_specs("cap:resize", "media:ext=png;image", "media:ext=png;image"),
-            CapShapeInfo::from_cap_specs("cap:compress", "media:ext=png;image", "media:ext=png;image"),
+            CapShapeInfo::from_cap_specs(
+                "cap:resize",
+                "media:ext=png;image",
+                "media:ext=png;image",
+            ),
+            CapShapeInfo::from_cap_specs(
+                "cap:compress",
+                "media:ext=png;image",
+                "media:ext=png;image",
+            ),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
         assert!(analysis.is_valid);
@@ -1009,7 +1027,11 @@ mod tests {
                 false,
                 true,
             ),
-            CapShapeInfo::from_cap_specs("cap:process", "media:enc=utf-8", "media:enc=utf-8;result"),
+            CapShapeInfo::from_cap_specs(
+                "cap:process",
+                "media:enc=utf-8",
+                "media:enc=utf-8;result",
+            ),
         ];
         let analysis = StrandShapeAnalysis::analyze(infos);
         assert!(analysis.is_valid);

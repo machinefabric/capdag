@@ -44,11 +44,27 @@ pub enum DevError {
     InvalidName(String),
     AlreadyExists(PathBuf),
     NoEntry(PathBuf),
-    ManifestSpawn { entry: PathBuf, source: String },
-    ManifestFailed { entry: PathBuf, code: Option<i32>, stderr: String },
-    ManifestParse { entry: PathBuf, source: String },
-    NotDev { registry_url: String },
-    FabricConflict { alias: String, dev_urn: String, fabric_urn: String },
+    ManifestSpawn {
+        entry: PathBuf,
+        source: String,
+    },
+    ManifestFailed {
+        entry: PathBuf,
+        code: Option<i32>,
+        stderr: String,
+    },
+    ManifestParse {
+        entry: PathBuf,
+        source: String,
+    },
+    NotDev {
+        registry_url: String,
+    },
+    FabricConflict {
+        alias: String,
+        dev_urn: String,
+        fabric_urn: String,
+    },
 }
 
 impl std::fmt::Display for DevError {
@@ -61,7 +77,11 @@ impl std::fmt::Display for DevError {
                  matching [a-z0-9] with '-' or '_' separators (e.g. sentiment-tagger)"
             ),
             DevError::AlreadyExists(p) => {
-                write!(f, "'{}' already exists — pick a new name or remove it first", p.display())
+                write!(
+                    f,
+                    "'{}' already exists — pick a new name or remove it first",
+                    p.display()
+                )
             }
             DevError::NoEntry(p) => write!(
                 f,
@@ -75,11 +95,16 @@ impl std::fmt::Display for DevError {
                  Make sure it is executable and its dependencies (capdag) are importable.",
                 entry.display()
             ),
-            DevError::ManifestFailed { entry, code, stderr } => write!(
+            DevError::ManifestFailed {
+                entry,
+                code,
+                stderr,
+            } => write!(
                 f,
                 "the cartridge entry '{}' exited with {} when asked for its manifest:\n{}",
                 entry.display(),
-                code.map(|c| format!("code {c}")).unwrap_or_else(|| "a signal".to_string()),
+                code.map(|c| format!("code {c}"))
+                    .unwrap_or_else(|| "a signal".to_string()),
                 stderr.trim()
             ),
             DevError::ManifestParse { entry, source } => write!(
@@ -93,7 +118,11 @@ impl std::fmt::Display for DevError {
                  installs DEV cartridges (registry_url must be null). Publish it through the \
                  cartridge registry instead, or set registry_url to null for local development."
             ),
-            DevError::FabricConflict { alias, dev_urn, fabric_urn } => write!(
+            DevError::FabricConflict {
+                alias,
+                dev_urn,
+                fabric_urn,
+            } => write!(
                 f,
                 "dev cap '{dev_urn}' claims alias '{alias}', but the fabric already maps that \
                  alias to a different cap '{fabric_urn}'. A dev cartridge may declare caps the \
@@ -120,7 +149,10 @@ fn io_err(context: &str, e: std::io::Error) -> DevError {
 /// URN tags, so it must be a clean slug.
 pub fn valid_cartridge_name(name: &str) -> bool {
     !name.is_empty()
-        && name.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
         && name
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
@@ -319,8 +351,12 @@ pub fn scaffold_python_cartridge(name: &str, parent_dir: &Path) -> Result<PathBu
     if project_dir.exists() {
         return Err(DevError::AlreadyExists(project_dir));
     }
-    fs::create_dir_all(&project_dir)
-        .map_err(|e| io_err(&format!("creating project dir '{}'", project_dir.display()), e))?;
+    fs::create_dir_all(&project_dir).map_err(|e| {
+        io_err(
+            &format!("creating project dir '{}'", project_dir.display()),
+            e,
+        )
+    })?;
 
     let entry_path = project_dir.join(PYTHON_ENTRY);
     fs::write(&entry_path, python_cartridge_source(name))
@@ -361,10 +397,14 @@ fn make_executable(_path: &Path) -> Result<(), DevError> {
 /// `CapManifest` JSON. Every cartridge (any language) prints the same wire
 /// shape, so a Python cartridge's output deserializes into the Rust type.
 pub fn read_entry_manifest(entry: &Path) -> Result<CapManifest, DevError> {
-    let output = Command::new(entry)
-        .arg("manifest")
-        .output()
-        .map_err(|e| DevError::ManifestSpawn { entry: entry.to_path_buf(), source: e.to_string() })?;
+    let output =
+        Command::new(entry)
+            .arg("manifest")
+            .output()
+            .map_err(|e| DevError::ManifestSpawn {
+                entry: entry.to_path_buf(),
+                source: e.to_string(),
+            })?;
     if !output.status.success() {
         return Err(DevError::ManifestFailed {
             entry: entry.to_path_buf(),
@@ -372,8 +412,10 @@ pub fn read_entry_manifest(entry: &Path) -> Result<CapManifest, DevError> {
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         });
     }
-    serde_json::from_slice::<CapManifest>(&output.stdout)
-        .map_err(|e| DevError::ManifestParse { entry: entry.to_path_buf(), source: e.to_string() })
+    serde_json::from_slice::<CapManifest>(&output.stdout).map_err(|e| DevError::ManifestParse {
+        entry: entry.to_path_buf(),
+        source: e.to_string(),
+    })
 }
 
 /// The project's entry path (`<project_dir>/cartridge.py`), verifying it exists.
@@ -420,7 +462,9 @@ pub fn stage_dev_cartridge(
     fabric_manifest_version: u32,
 ) -> Result<PathBuf, DevError> {
     if let Some(url) = &manifest.registry_url {
-        return Err(DevError::NotDev { registry_url: url.clone() });
+        return Err(DevError::NotDev {
+            registry_url: url.clone(),
+        });
     }
     let version_dir = dev_version_dir(
         user_cartridge_dir,
@@ -432,8 +476,12 @@ pub fn stage_dev_cartridge(
     // Update semantics: replace the version directory wholesale so a removed
     // file in the project does not linger in a stale install.
     if version_dir.exists() {
-        fs::remove_dir_all(&version_dir)
-            .map_err(|e| io_err(&format!("clearing old install '{}'", version_dir.display()), e))?;
+        fs::remove_dir_all(&version_dir).map_err(|e| {
+            io_err(
+                &format!("clearing old install '{}'", version_dir.display()),
+                e,
+            )
+        })?;
     }
     fs::create_dir_all(&version_dir)
         .map_err(|e| io_err(&format!("creating '{}'", version_dir.display()), e))?;
@@ -469,8 +517,10 @@ pub fn stage_dev_cartridge(
 /// Directory/file names never copied into an install (developer scratch that
 /// would bloat or break the install).
 fn is_ignored_project_entry(name: &str) -> bool {
-    matches!(name, ".venv" | "__pycache__" | ".git" | ".pytest_cache" | "cartridge.json")
-        || name.ends_with(".pyc")
+    matches!(
+        name,
+        ".venv" | "__pycache__" | ".git" | ".pytest_cache" | "cartridge.json"
+    ) || name.ends_with(".pyc")
 }
 
 /// Recursively copy a project tree into `dst`, skipping developer scratch.
@@ -583,7 +633,10 @@ fn read_subdirs(dir: &Path) -> Result<Vec<PathBuf>, DevError> {
 /// free to declare caps the fabric does not know (that is the whole point of
 /// local development); it just may not hijack a name the fabric already owns for
 /// something else. An alias the fabric does not define at all is fine.
-pub async fn check_no_fabric_conflict(registry: &FabricRegistry, cap: &Cap) -> Result<(), DevError> {
+pub async fn check_no_fabric_conflict(
+    registry: &FabricRegistry,
+    cap: &Cap,
+) -> Result<(), DevError> {
     let dev_urn = cap.urn.to_string();
     for alias in cap.get_aliases() {
         if let Ok(target) = registry.resolve_alias(alias).await {
@@ -616,7 +669,8 @@ mod tests {
     fn temp_root(tag: &str) -> PathBuf {
         // A unique-per-test dir under the OS temp root. No Date/rand available
         // in the crate's normal build, so key on the test tag + process id.
-        let base = std::env::temp_dir().join(format!("capdag-dev-test-{tag}-{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("capdag-dev-test-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).unwrap();
         base
@@ -634,9 +688,18 @@ mod tests {
 
         let entry = proj.join(PYTHON_ENTRY);
         let src = fs::read_to_string(&entry).unwrap();
-        assert!(src.contains("name=\"mood-tagger\""), "manifest name substituted");
-        assert!(src.contains("[\"mood-tagger\"]"), "cap alias seeded from name");
-        assert!(src.contains("media:enc=utf-8;mood-tagger-input"), "input media uses enc=utf-8");
+        assert!(
+            src.contains("name=\"mood-tagger\""),
+            "manifest name substituted"
+        );
+        assert!(
+            src.contains("[\"mood-tagger\"]"),
+            "cap alias seeded from name"
+        );
+        assert!(
+            src.contains("media:enc=utf-8;mood-tagger-input"),
+            "input media uses enc=utf-8"
+        );
         assert!(!src.contains("command="), "no removed `command=` field");
         assert!(!src.contains("textable"), "no removed `textable` marker");
         assert!(proj.join("README.md").is_file());

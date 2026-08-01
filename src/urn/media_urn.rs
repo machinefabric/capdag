@@ -287,8 +287,7 @@ pub const MEDIA_MODEL_SEARCH_RESPONSE: &str = "media:fmt=json;model-search-respo
 /// JSON record carrying the dry-run result of `resolve-model-filters` —
 /// the spec, the user filters, the architecture-required additions, and
 /// the resulting effective file list.
-pub const MEDIA_MODEL_FILTER_RESOLUTION: &str =
-    "media:fmt=json;model-filter-resolution;record";
+pub const MEDIA_MODEL_FILTER_RESOLUTION: &str = "media:fmt=json;model-filter-resolution;record";
 
 /// Helper to build a bare file media URN for a given extension — a file of the
 /// given type with no content-format or encoding claim (e.g. `media:ext=pdf`).
@@ -878,7 +877,9 @@ mod tests {
             .is_record());
         assert!(MediaUrn::from_string(MEDIA_JSON).unwrap().is_record()); // "media:fmt=json;record"
                                                                          // Without record marker, is_record is false
-        assert!(!MediaUrn::from_string("media:enc=utf-8").unwrap().is_record());
+        assert!(!MediaUrn::from_string("media:enc=utf-8")
+            .unwrap()
+            .is_record());
         assert!(!MediaUrn::from_string(MEDIA_STRING).unwrap().is_record()); // scalar, no record marker
         assert!(!MediaUrn::from_string(MEDIA_STRING_LIST)
             .unwrap()
@@ -894,8 +895,10 @@ mod tests {
         assert!(MediaUrn::from_string(MEDIA_NUMBER).unwrap().is_scalar()); // no list marker
         assert!(MediaUrn::from_string(MEDIA_BOOLEAN).unwrap().is_scalar()); // no list marker
         assert!(MediaUrn::from_string(MEDIA_OBJECT).unwrap().is_scalar()); // record but scalar
-        assert!(MediaUrn::from_string("media:enc=utf-8").unwrap().is_scalar()); // plain text is scalar
-                                                                               // With list marker, is_scalar is false
+        assert!(MediaUrn::from_string("media:enc=utf-8")
+            .unwrap()
+            .is_scalar()); // plain text is scalar
+                           // With list marker, is_scalar is false
         assert!(!MediaUrn::from_string(MEDIA_STRING_LIST)
             .unwrap()
             .is_scalar()); // has list marker
@@ -928,8 +931,10 @@ mod tests {
             .unwrap()
             .is_opaque()); // list but no record
         assert!(MediaUrn::from_string(MEDIA_PDF).unwrap().is_opaque()); // binary, no record
-        assert!(MediaUrn::from_string("media:enc=utf-8").unwrap().is_opaque()); // no record marker
-                                                                               // With record marker, is_opaque is false
+        assert!(MediaUrn::from_string("media:enc=utf-8")
+            .unwrap()
+            .is_opaque()); // no record marker
+                           // With record marker, is_opaque is false
         assert!(!MediaUrn::from_string(MEDIA_OBJECT).unwrap().is_opaque()); // has record marker
         assert!(!MediaUrn::from_string(MEDIA_JSON).unwrap().is_opaque()); // has record marker
         assert!(!MediaUrn::from_string(MEDIA_OBJECT_LIST)
@@ -965,9 +970,7 @@ mod tests {
             MediaUrn::from_string(MEDIA_CSV).unwrap().is_csv(),
             "the canonical CSV media (ext=csv) must be recognized as CSV"
         );
-        assert!(MediaUrn::from_string("media:fmt=csv")
-            .unwrap()
-            .is_csv());
+        assert!(MediaUrn::from_string("media:fmt=csv").unwrap().is_csv());
         // The bare `csv` marker spelling is still accepted.
         assert!(MediaUrn::from_string("media:fmt=csv;list")
             .unwrap()
@@ -999,7 +1002,7 @@ mod tests {
             .unwrap()
             .get_tag("enc")
             .is_some()); // "media:bool;enc=utf-8"
-        // No enc= → not text-representable
+                         // No enc= → not text-representable
         assert!(MediaUrn::from_string(MEDIA_INTEGER)
             .unwrap()
             .get_tag("enc")
@@ -1267,7 +1270,9 @@ mod debug_tests {
         assert!(MediaUrn::from_string("media:image;thumbnail")
             .unwrap()
             .is_image());
-        assert!(MediaUrn::from_string("media:ext=jpg;image").unwrap().is_image());
+        assert!(MediaUrn::from_string("media:ext=jpg;image")
+            .unwrap()
+            .is_image());
         // Non-image types
         assert!(!MediaUrn::from_string(MEDIA_PDF).unwrap().is_image());
         assert!(!MediaUrn::from_string(MEDIA_STRING).unwrap().is_image());
@@ -1282,7 +1287,9 @@ mod debug_tests {
         assert!(MediaUrn::from_string(MEDIA_AUDIO_SPEECH)
             .unwrap()
             .is_audio());
-        assert!(MediaUrn::from_string("media:audio;ext=mp3").unwrap().is_audio());
+        assert!(MediaUrn::from_string("media:audio;ext=mp3")
+            .unwrap()
+            .is_audio());
         // Non-audio types
         assert!(!MediaUrn::from_string(MEDIA_VIDEO).unwrap().is_audio());
         assert!(!MediaUrn::from_string(MEDIA_PNG).unwrap().is_audio());
@@ -1293,7 +1300,9 @@ mod debug_tests {
     #[test]
     fn test548_is_video() {
         assert!(MediaUrn::from_string(MEDIA_VIDEO).unwrap().is_video());
-        assert!(MediaUrn::from_string("media:ext=mp4;video").unwrap().is_video());
+        assert!(MediaUrn::from_string("media:ext=mp4;video")
+            .unwrap()
+            .is_video());
         // Non-video types
         assert!(!MediaUrn::from_string(MEDIA_AUDIO).unwrap().is_video());
         assert!(!MediaUrn::from_string(MEDIA_PNG).unwrap().is_video());

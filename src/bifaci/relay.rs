@@ -341,8 +341,8 @@ mod tests {
     use super::*;
     use crate::bifaci::frame::{FlowKey, Frame, FrameType, Limits, MessageId, SeqAssigner};
     use crate::bifaci::io::{FrameReader, FrameWriter};
-    use tokio::io::{BufReader, BufWriter};
     use crate::bifaci::local_socket::UnixStream;
+    use tokio::io::{BufReader, BufWriter};
 
     /// Create an async pipe pair using Unix sockets.
     /// Returns (read_end, write_end) for each direction.
@@ -1003,11 +1003,10 @@ mod tests {
 
         // The next frame the router sees MUST be the RelayNotify — proving the
         // RelayState was dropped and the RelayNotify forwarded (not the reverse).
-        let f2 = router_reader
-            .read()
-            .await
-            .unwrap()
-            .expect("forwarded RelayNotify (RelayState must be dropped, RelayNotify forwarded)");
+        let f2 =
+            router_reader.read().await.unwrap().expect(
+                "forwarded RelayNotify (RelayState must be dropped, RelayNotify forwarded)",
+            );
         assert_eq!(f2.frame_type, FrameType::RelayNotify);
         assert_eq!(f2.relay_notify_manifest(), Some(manifest.as_slice()));
 

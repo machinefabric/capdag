@@ -137,7 +137,10 @@ mod tests {
     fn test1880_alias_name_normalization_rules() {
         assert_eq!(normalize_alias_name("JSONDoc").unwrap(), "jsondoc");
         assert_eq!(normalize_alias_name("pdf2text").unwrap(), "pdf2text");
-        assert_eq!(normalize_alias_name("my.alias-1_x").unwrap(), "my.alias-1_x");
+        assert_eq!(
+            normalize_alias_name("my.alias-1_x").unwrap(),
+            "my.alias-1_x"
+        );
 
         assert!(matches!(
             normalize_alias_name(""),
@@ -161,7 +164,9 @@ mod tests {
     // The whole design rests on this discriminator being exact.
     #[test]
     fn test1881_token_urn_vs_alias_detection() {
-        assert!(token_is_urn("cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8\""));
+        assert!(token_is_urn(
+            "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8\""
+        ));
         assert!(token_is_urn("media:fmt=json;record"));
         assert!(!token_is_urn("pdf2text"));
         assert!(is_alias_token("pdf2text"));

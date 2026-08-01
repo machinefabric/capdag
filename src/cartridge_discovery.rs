@@ -16,7 +16,9 @@
 //! Managed layout (relative to the root passed to [`discover_cartridges`]):
 //! `{root}/{slug}/v{cartridge_registry_version}/{channel}/{name}/{version}/cartridge.json`.
 
-use crate::bifaci::cartridge_json::{validate_registry_url_scheme, CartridgeJson, RegistryUrlSchemeResult};
+use crate::bifaci::cartridge_json::{
+    validate_registry_url_scheme, CartridgeJson, RegistryUrlSchemeResult,
+};
 use crate::bifaci::cartridge_repo::CartridgeChannel;
 use crate::bifaci::cartridge_slug::slug_for;
 use crate::bifaci::manifest::CapManifest;
@@ -172,8 +174,9 @@ pub async fn discover_cartridges(
         .map_err(|e| anyhow::anyhow!("read_dir({}): {}", cartridges_root.display(), e))?;
 
     for slug_entry in slug_entries {
-        let slug_entry =
-            slug_entry.map_err(|e| anyhow::anyhow!("read_dir entry in {}: {}", cartridges_root.display(), e))?;
+        let slug_entry = slug_entry.map_err(|e| {
+            anyhow::anyhow!("read_dir entry in {}: {}", cartridges_root.display(), e)
+        })?;
         let slug_dir = slug_entry.path();
         if !slug_dir.is_dir() {
             let file_name = slug_dir.file_name().unwrap_or_default().to_string_lossy();
@@ -217,7 +220,8 @@ async fn scan_channel_root(
         .map_err(|e| anyhow::anyhow!("read_dir({}): {}", scan_root.display(), e))?;
 
     for entry in name_entries {
-        let entry = entry.map_err(|e| anyhow::anyhow!("read_dir entry in {}: {}", scan_root.display(), e))?;
+        let entry = entry
+            .map_err(|e| anyhow::anyhow!("read_dir entry in {}: {}", scan_root.display(), e))?;
         let name_dir = entry.path();
 
         if !name_dir.is_dir() {
@@ -256,8 +260,16 @@ async fn scan_channel_root(
 
         // Prefer the newest version (lexical-descending on the version folder name).
         version_dirs.sort_by(|a, b| {
-            let va = a.file_name().unwrap_or_default().to_string_lossy().to_string();
-            let vb = b.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let va = a
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let vb = b
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             vb.cmp(&va)
         });
         let version_dir = &version_dirs[0];
@@ -289,9 +301,9 @@ async fn scan_channel_root(
                 // cartridge.json (ManifestInvalid). Both are surfaced + logged,
                 // never hosted.
                 let kind = match &e {
-                    crate::bifaci::cartridge_json::CartridgeJsonError::RegistrySlugMismatch { .. } => {
-                        CartridgeAttachmentErrorKind::BadInstallation
-                    }
+                    crate::bifaci::cartridge_json::CartridgeJsonError::RegistrySlugMismatch {
+                        ..
+                    } => CartridgeAttachmentErrorKind::BadInstallation,
                     _ => CartridgeAttachmentErrorKind::ManifestInvalid,
                 };
                 error!(dir = %version_dir.display(), slug = %expected_slug, error = %e, "cartridge.json invalid or mis-placed — surfacing as incompatible");
@@ -303,7 +315,10 @@ async fn scan_channel_root(
                     version: path_derived_version.clone(),
                     error: CartridgeAttachmentError {
                         kind,
-                        message: format!("cartridge.json failed to load under slug '{}': {}", expected_slug, e),
+                        message: format!(
+                            "cartridge.json failed to load under slug '{}': {}",
+                            expected_slug, e
+                        ),
                         detected_at_unix_seconds: detected_at,
                     },
                 });
@@ -419,7 +434,8 @@ async fn scan_channel_root(
         //   the shipped cartridge was tampered with or the build failed to record
         //   it — surfaced incompatible + logged, never hosted. This is additive
         //   to the slug/channel/scheme/fabric-version checks above.
-        if cj.installed_from == Some(crate::bifaci::cartridge_json::CartridgeInstallSource::Bundle) {
+        if cj.installed_from == Some(crate::bifaci::cartridge_json::CartridgeInstallSource::Bundle)
+        {
             #[cfg(target_os = "macos")]
             {
                 tracing::info!(
@@ -429,7 +445,9 @@ async fn scan_channel_root(
             }
             #[cfg(not(target_os = "macos"))]
             {
-                if let Err(reason) = verify_bundled_cartridge_hash(&cj.name, &cj.version, version_dir) {
+                if let Err(reason) =
+                    verify_bundled_cartridge_hash(&cj.name, &cj.version, version_dir)
+                {
                     error!(cartridge = %version_dir.display(), name = %cj.name, version = %cj.version, reason = %reason, "bundled cartridge hash verification failed — surfacing as incompatible");
                     discovered.push(DiscoveredCartridge::Incompatible {
                         version_dir: version_dir.clone(),
@@ -439,7 +457,10 @@ async fn scan_channel_root(
                         version: cj.version.clone(),
                         error: CartridgeAttachmentError {
                             kind: CartridgeAttachmentErrorKind::BadInstallation,
-                            message: format!("bundled cartridge integrity check failed: {}", reason),
+                            message: format!(
+                                "bundled cartridge integrity check failed: {}",
+                                reason
+                            ),
                             detected_at_unix_seconds: detected_at,
                         },
                     });
@@ -491,7 +512,11 @@ async fn scan_channel_root(
 /// (see the discovery call site), so the engine there neither bakes nor checks
 /// these hashes.
 #[cfg(not(target_os = "macos"))]
-fn verify_bundled_cartridge_hash(name: &str, version: &str, version_dir: &Path) -> Result<(), String> {
+fn verify_bundled_cartridge_hash(
+    name: &str,
+    version: &str,
+    version_dir: &Path,
+) -> Result<(), String> {
     let expected = bundled_cartridge_expected_hash(name, version).ok_or_else(|| {
         format!(
             "no baked hash for bundled cartridge {name} {version} — this build did not record it (MFR_BUNDLED_CARTRIDGE_HASHES)"
@@ -577,7 +602,11 @@ mod tests {
         assert_eq!(out.len(), 1, "expected exactly one discovered entry");
         match &out[0] {
             DiscoveredCartridge::Incompatible { error, .. } => {
-                assert_eq!(error.kind, kind, "wrong attachment-error kind: {}", error.message);
+                assert_eq!(
+                    error.kind, kind,
+                    "wrong attachment-error kind: {}",
+                    error.message
+                );
             }
             other => panic!("expected Incompatible({kind:?}), got {other:?}"),
         }
@@ -590,7 +619,10 @@ mod tests {
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
             .await
             .unwrap();
-        assert!(out.is_empty(), "no install tree must be an empty roster, not an error");
+        assert!(
+            out.is_empty(),
+            "no install tree must be an empty roster, not an error"
+        );
     }
 
     // TEST0091: Missing cartridge json is manifest invalid
@@ -610,7 +642,15 @@ mod tests {
         let root = tempdir().unwrap();
         // Declares release but lives under nightly/ — host is nightly.
         let json = dev_cartridge_json("release", 1);
-        install_fixture(root.path(), "dev", "nightly", "cart", "1.0.0", Some(&json), "cart");
+        install_fixture(
+            root.path(),
+            "dev",
+            "nightly",
+            "cart",
+            "1.0.0",
+            Some(&json),
+            "cart",
+        );
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
             .await
             .unwrap();
@@ -622,11 +662,22 @@ mod tests {
     async fn test0094_fabric_manifest_mismatch_is_flagged() {
         let root = tempdir().unwrap();
         let json = dev_cartridge_json("nightly", 999);
-        install_fixture(root.path(), "dev", "nightly", "cart", "1.0.0", Some(&json), "cart");
+        install_fixture(
+            root.path(),
+            "dev",
+            "nightly",
+            "cart",
+            "1.0.0",
+            Some(&json),
+            "cart",
+        );
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
             .await
             .unwrap();
-        expect_incompatible(&out, CartridgeAttachmentErrorKind::FabricManifestVersionMismatch);
+        expect_incompatible(
+            &out,
+            CartridgeAttachmentErrorKind::FabricManifestVersionMismatch,
+        );
     }
 
     // TEST0120: Registry url under dev slug is rejected
@@ -638,7 +689,15 @@ mod tests {
         // (BadInstallation), surfaced + logged, never hosted. This is the
         // "registry-defined url under dev/ is invalid" rule.
         let json = r#"{"name":"cart","version":"1.0.0","channel":"nightly","registry_url":"https://cartridges.example.com/manifest","entry":"cart","installed_at":"2024-01-01T00:00:00Z","fabric_manifest_version":1}"#;
-        install_fixture(root.path(), "dev", "nightly", "cart", "1.0.0", Some(json), "cart");
+        install_fixture(
+            root.path(),
+            "dev",
+            "nightly",
+            "cart",
+            "1.0.0",
+            Some(json),
+            "cart",
+        );
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
             .await
             .unwrap();
@@ -677,8 +736,24 @@ mod tests {
             fabric_manifest_version: 1,
             cartridge_registry_version: crate::CARTRIDGE_REGISTRY_VERSION,
         };
-        install_fixture(root.path(), "dev", "nightly", "devcart", "1.0.0", Some(&dev_cartridge_json("nightly", 1)), "cart");
-        install_fixture(root.path(), &rslug, "nightly", "regcart", "1.0.0", Some(&registry_cartridge_json(url, "nightly", 1)), "cart");
+        install_fixture(
+            root.path(),
+            "dev",
+            "nightly",
+            "devcart",
+            "1.0.0",
+            Some(&dev_cartridge_json("nightly", 1)),
+            "cart",
+        );
+        install_fixture(
+            root.path(),
+            &rslug,
+            "nightly",
+            "regcart",
+            "1.0.0",
+            Some(&registry_cartridge_json(url, "nightly", 1)),
+            "cart",
+        );
         let out = discover_cartridges(root.path(), &host).await.unwrap();
         assert_eq!(out.len(), 2, "both slugs must be scanned, got: {out:?}");
         for c in &out {
@@ -704,11 +779,22 @@ mod tests {
         let root = tempdir().unwrap();
         let url = "https://cartridges.example.com/manifest";
         let rslug = registry_slug_for(url);
-        install_fixture(root.path(), &rslug, "release", "regcart", "1.0.0", Some(&registry_cartridge_json(url, "release", 1)), "cart");
+        install_fixture(
+            root.path(),
+            &rslug,
+            "release",
+            "regcart",
+            "1.0.0",
+            Some(&registry_cartridge_json(url, "release", 1)),
+            "cart",
+        );
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
             .await
             .unwrap();
-        assert!(out.is_empty(), "a release-only slug must be invisible to a nightly host, got: {out:?}");
+        assert!(
+            out.is_empty(),
+            "a release-only slug must be invisible to a nightly host, got: {out:?}"
+        );
     }
 
     // TEST1879: only the host's registry-VERSION subtree is scanned. A cartridge
@@ -731,7 +817,11 @@ mod tests {
             .join("regcart")
             .join("1.0.0");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("cartridge.json"), registry_cartridge_json(url, "nightly", 1)).unwrap();
+        std::fs::write(
+            dir.join("cartridge.json"),
+            registry_cartridge_json(url, "nightly", 1),
+        )
+        .unwrap();
         let entry = dir.join("cart");
         std::fs::write(&entry, "#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
@@ -757,7 +847,15 @@ mod tests {
         let url = "https://cartridges.example.com/manifest";
         let wrong_slug = registry_slug_for("https://somewhere-else.example.com/manifest");
         let json = registry_cartridge_json(url, "nightly", 1);
-        install_fixture(root.path(), &wrong_slug, "nightly", "cart", "1.0.0", Some(&json), "cart");
+        install_fixture(
+            root.path(),
+            &wrong_slug,
+            "nightly",
+            "cart",
+            "1.0.0",
+            Some(&json),
+            "cart",
+        );
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
             .await
             .unwrap();
@@ -779,7 +877,15 @@ mod tests {
         // self-consistent (null→dev), so it passes read_from_dir and reaches the
         // bundled-hash gate, which has no baked entry → BadInstallation.
         let json = r#"{"name":"cart","version":"1.0.0","channel":"nightly","registry_url":null,"entry":"cart","installed_at":"2024-01-01T00:00:00Z","installed_from":"bundle","fabric_manifest_version":1}"#;
-        install_fixture(root.path(), "dev", "nightly", "cart", "1.0.0", Some(json), "cart");
+        install_fixture(
+            root.path(),
+            "dev",
+            "nightly",
+            "cart",
+            "1.0.0",
+            Some(json),
+            "cart",
+        );
         let out = discover_cartridges(root.path(), &nightly_dev_identity())
             .await
             .unwrap();

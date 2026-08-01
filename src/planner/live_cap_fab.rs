@@ -793,22 +793,28 @@ impl LiveCapFab {
     ) -> bool {
         use std::collections::VecDeque;
 
-        let mut queue = VecDeque::from([(source.clone(), is_sequence, 0usize)]);
-        let mut visited: HashSet<(MediaUrn, bool)> = HashSet::from([(source.clone(), is_sequence)]);
+        let mut queue = VecDeque::from([(source.clone(), is_sequence, false, 0usize)]);
+        let mut visited: HashSet<(MediaUrn, bool, bool)> =
+            HashSet::from([(source.clone(), is_sequence, false)]);
 
-        while let Some((current, current_is_seq, depth)) = queue.pop_front() {
+        while let Some((current, current_is_seq, pending_foreach, depth)) = queue.pop_front() {
             if depth >= max_depth {
                 continue;
             }
 
             for (edge, next_is_seq) in self.get_outgoing_edges(&current, current_is_seq) {
+                if pending_foreach && !Self::can_follow_foreach(&edge) {
+                    continue;
+                }
                 if edge.is_cap() && edge.to_spec.is_equivalent(target).unwrap_or(false) {
                     return true;
                 }
 
-                let visit_key = (edge.to_spec.clone(), next_is_seq);
+                let next_pending_foreach =
+                    matches!(&edge.edge_type, LiveMachinePlanEdgeType::ForEach);
+                let visit_key = (edge.to_spec.clone(), next_is_seq, next_pending_foreach);
                 if visited.insert(visit_key.clone()) {
-                    queue.push_back((visit_key.0, visit_key.1, depth + 1));
+                    queue.push_back((visit_key.0, visit_key.1, visit_key.2, depth + 1));
                 }
             }
         }
@@ -863,39 +869,50 @@ impl LiveCapFab {
         // directly — their derived `Hash`/`Eq` go through
         // `TaggedUrn`'s structural tag-set identity.
         let mut results: HashMap<MediaUrn, ReachableTargetInfo> = HashMap::new();
-        let mut visited: HashSet<(MediaUrn, bool)> = HashSet::new();
-        let mut queue: VecDeque<(MediaUrn, bool, usize)> = VecDeque::new();
+        let mut visited: HashSet<(MediaUrn, bool, bool)> = HashSet::new();
+        let mut queue: VecDeque<(MediaUrn, bool, bool, usize)> = VecDeque::new();
 
-        queue.push_back((source.clone(), is_sequence, 0));
-        visited.insert((source.clone(), is_sequence));
+        queue.push_back((source.clone(), is_sequence, false, 0));
+        visited.insert((source.clone(), is_sequence, false));
 
-        while let Some((current, current_is_seq, depth)) = queue.pop_front() {
+        while let Some((current, current_is_seq, pending_foreach, depth)) = queue.pop_front() {
             if depth >= max_depth {
                 continue;
             }
 
             for (edge, next_is_seq) in self.get_outgoing_edges(&current, current_is_seq) {
+                if pending_foreach && !Self::can_follow_foreach(&edge) {
+                    continue;
+                }
                 let new_depth = depth + 1;
 
-                // Record this target — the `MediaUrn` entry
-                // key collapses tag-set-equal URNs
-                // automatically via the structural `Hash`/`Eq`.
-                let entry =
-                    results
-                        .entry(edge.to_spec.clone())
-                        .or_insert_with(|| ReachableTargetInfo {
+                let next_pending_foreach =
+                    matches!(&edge.edge_type, LiveMachinePlanEdgeType::ForEach);
+                if !next_pending_foreach {
+                    // A ForEach boundary is not a result. Record only complete
+                    // cap transitions; structural equality collapses tag-order
+                    // equivalent MediaUrns.
+                    let entry = results.entry(edge.to_spec.clone()).or_insert_with(|| {
+                        ReachableTargetInfo {
                             media_def: edge.to_spec.clone(),
                             display_name: edge.to_spec.to_string(),
                             min_path_length: new_depth as i32,
                             path_count: 0,
-                        });
-                entry.path_count += 1;
+                        }
+                    });
+                    entry.path_count += 1;
+                }
 
-                // Continue BFS if not visited at this is_sequence state
-                let visit_key = (edge.to_spec.clone(), next_is_seq);
+                // Continue BFS if not visited at this cardinality state.
+                let visit_key = (edge.to_spec.clone(), next_is_seq, next_pending_foreach);
                 if !visited.contains(&visit_key) {
                     visited.insert(visit_key);
-                    queue.push_back((edge.to_spec.clone(), next_is_seq, new_depth));
+                    queue.push_back((
+                        edge.to_spec.clone(),
+                        next_is_seq,
+                        next_pending_foreach,
+                        new_depth,
+                    ));
                 }
             }
         }
@@ -1175,12 +1192,16 @@ impl LiveCapFab {
         // Check if we've reached the EXACT target using is_equivalent().
         // Skip this check at the starting node (empty path) — when source==target,
         // we still want to explore edges to find round-trip transformation paths.
+        let pending_foreach = matches!(
+            current_path.last().map(|step| &step.step_type),
+            Some(StrandStepType::ForEach { .. })
+        );
         if !current_path.is_empty() && current.is_equivalent(target).unwrap_or(false) {
             if current_path.len() == depth_limit {
                 let cap_step_count = current_path.iter().filter(|s| s.is_cap()).count() as i32;
 
                 // A valid machine requires at least one capability step.
-                if cap_step_count > 0 {
+                if cap_step_count > 0 && !pending_foreach {
                     let description = current_path
                         .iter()
                         .map(|s| s.title())
@@ -1202,7 +1223,7 @@ impl LiveCapFab {
             }
             // For round-trip paths (source==target), don't return early —
             // continue exploring edges to find longer paths through this node.
-            if !source.is_equivalent(target).unwrap_or(false) {
+            if !pending_foreach && !source.is_equivalent(target).unwrap_or(false) {
                 return;
             }
         }
@@ -1221,6 +1242,9 @@ impl LiveCapFab {
         }
 
         for (edge, next_is_seq) in self.get_outgoing_edges(current, is_sequence) {
+            if pending_foreach && !Self::can_follow_foreach(&edge) {
+                continue;
+            }
             let next_visit_key = (edge.to_spec.clone(), next_is_seq);
 
             if !visited.contains(&next_visit_key) {
@@ -1293,6 +1317,20 @@ impl LiveCapFab {
         }
 
         visited.remove(&visit_key);
+    }
+
+    /// A synthesized ForEach boundary qualifies exactly the immediately
+    /// following scalar-input cap. Allowing a sequence-input cap here creates
+    /// a cardinality no-op (`ForEach -> concat`) that cannot be represented by
+    /// the resolved machine and is semantically dominated by the direct cap.
+    fn can_follow_foreach(edge: &LiveMachinePlanEdge) -> bool {
+        matches!(
+            &edge.edge_type,
+            LiveMachinePlanEdgeType::Cap {
+                input_is_sequence: false,
+                ..
+            }
+        )
     }
 
     fn path_matches_step_title_query(path: &Strand, step_title_query: Option<&str>) -> bool {
@@ -1623,7 +1661,12 @@ mod tests {
         let mut graph = LiveCapFab::new();
 
         // pdf -> extracted-text
-        let cap1 = make_test_cap("media:ext=pdf", "media:extracted-text", "extract", "Extract");
+        let cap1 = make_test_cap(
+            "media:ext=pdf",
+            "media:extracted-text",
+            "extract",
+            "Extract",
+        );
         // extracted-text -> summary-text
         let cap2 = make_test_cap(
             "media:extracted-text",
@@ -1824,7 +1867,12 @@ mod tests {
         let mut graph = LiveCapFab::new();
 
         // Only add PDF->text cap
-        let pdf_to_text = make_test_cap("media:ext=pdf", "media:enc=utf-8", "pdf2text", "PDF to Text");
+        let pdf_to_text = make_test_cap(
+            "media:ext=pdf",
+            "media:enc=utf-8",
+            "pdf2text",
+            "PDF to Text",
+        );
         graph.add_cap(&pdf_to_text);
 
         // Try to find path from PNG (not PDF)
@@ -1872,7 +1920,12 @@ mod tests {
     fn test779_get_reachable_targets_respects_type_matching() {
         let mut graph = LiveCapFab::new();
 
-        let pdf_to_text = make_test_cap("media:ext=pdf", "media:enc=utf-8", "pdf2text", "PDF to Text");
+        let pdf_to_text = make_test_cap(
+            "media:ext=pdf",
+            "media:enc=utf-8",
+            "pdf2text",
+            "PDF to Text",
+        );
         let png_to_thumb = make_test_cap(
             "media:ext=png;image",
             "media:thumbnail",
@@ -1970,7 +2023,12 @@ mod tests {
     fn test788_foreach_only_with_sequence_input() {
         let mut graph = LiveCapFab::new();
 
-        let disbind = make_test_cap("media:ext=pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF");
+        let disbind = make_test_cap(
+            "media:ext=pdf",
+            "media:enc=utf-8;page",
+            "disbind",
+            "Disbind PDF",
+        );
 
         let choose = make_test_cap(
             "media:enc=utf-8",
@@ -2028,7 +2086,12 @@ mod tests {
 
         // Create a registry with test caps
         let registry = FabricRegistry::new_for_test();
-        let disbind = make_test_cap("media:ext=pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF");
+        let disbind = make_test_cap(
+            "media:ext=pdf",
+            "media:enc=utf-8;page",
+            "disbind",
+            "Disbind PDF",
+        );
         let choose = make_test_cap(
             "media:enc=utf-8",
             "media:decision;fmt=json;record",
@@ -2154,7 +2217,10 @@ mod tests {
                         specificity: 4,
                         input_is_sequence: false,
                         output_is_sequence: true,
-                        inputs: vec![CapInput { arg_urn: MediaUrn::from_string("media:ext=pdf").unwrap(), source: ArgSourceRef::StrandInput }],
+                        inputs: vec![CapInput {
+                            arg_urn: MediaUrn::from_string("media:ext=pdf").unwrap(),
+                            source: ArgSourceRef::StrandInput,
+                        }],
                     },
                     MediaUrn::from_string("media:ext=pdf").unwrap(),
                     MediaUrn::from_string("media:enc=utf-8;page").unwrap(),
@@ -2181,8 +2247,14 @@ mod tests {
         // it would silently break update→element routing.
         assert_eq!(recovered.steps.len(), strand.steps.len());
         for (orig, got) in strand.steps.iter().zip(recovered.steps.iter()) {
-            assert!(!orig.token_id.is_empty(), "each step is minted with a token_id");
-            assert_eq!(orig.token_id, got.token_id, "token_id must round-trip unchanged");
+            assert!(
+                !orig.token_id.is_empty(),
+                "each step is minted with a token_id"
+            );
+            assert_eq!(
+                orig.token_id, got.token_id,
+                "token_id must round-trip unchanged"
+            );
         }
         assert_ne!(
             strand.steps[0].token_id, strand.steps[1].token_id,
@@ -2302,7 +2374,12 @@ mod tests {
     fn test1113_multi_cap_path_no_collect() {
         let mut graph = LiveCapFab::new();
 
-        let disbind = make_test_cap("media:ext=pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF");
+        let disbind = make_test_cap(
+            "media:ext=pdf",
+            "media:enc=utf-8;page",
+            "disbind",
+            "Disbind PDF",
+        );
         let summarize = make_test_cap(
             "media:enc=utf-8;page",
             "media:enc=utf-8;summary",
@@ -2327,7 +2404,12 @@ mod tests {
         let mut graph = LiveCapFab::new();
 
         let caps = vec![
-            make_test_cap("media:ext=pdf", "media:enc=utf-8;page", "disbind", "Disbind"),
+            make_test_cap(
+                "media:ext=pdf",
+                "media:enc=utf-8;page",
+                "disbind",
+                "Disbind",
+            ),
             make_test_cap(
                 "media:enc=utf-8;page",
                 "media:enc=utf-8;summary",
@@ -2467,18 +2549,74 @@ mod tests {
         );
     }
 
+    // TEST8064: a sequence-consuming cap may be reached directly from sequence
+    // data, but never through a dangling ForEach boundary. The latter was emitted
+    // as `ForEach -> concat` and then correctly rejected by machine resolution,
+    // aborting the transmute strand stream.
+    #[test]
+    fn test8064_sequence_consumer_never_follows_foreach_directly() {
+        use crate::cap::registry::FabricRegistry;
+
+        let mut concat = make_test_cap_with_arg(
+            "media:enc=utf-8",
+            "media:enc=utf-8;ext=txt",
+            "concat",
+            "Concat Text",
+        );
+        concat.args[0].is_sequence = true;
+        let scalar_consumer = make_test_cap_with_arg(
+            "media:enc=utf-8",
+            "media:enc=utf-8;summary",
+            "summarize",
+            "Summarize Text",
+        );
+        let mut graph = LiveCapFab::new();
+        graph.sync_from_caps(
+            &[concat.clone(), scalar_consumer.clone()],
+            &all_bookends(&[concat.clone(), scalar_consumer]),
+        );
+
+        let source = MediaUrn::from_string("media:enc=utf-8;page").unwrap();
+        let target = MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap();
+        let paths = graph.find_paths_to_exact_target(&source, &target, true, 4, 20);
+
+        assert!(
+            !paths.is_empty(),
+            "the direct sequence -> concat path must exist"
+        );
+        assert!(paths.iter().all(|path| {
+            !path
+                .steps
+                .iter()
+                .any(|step| matches!(step.step_type, StrandStepType::ForEach { .. }))
+        }));
+
+        let registry = FabricRegistry::new_for_test();
+        registry.add_caps_to_cache(vec![concat]);
+        for path in paths {
+            path.to_machine_notation(&registry)
+                .expect("every enumerated path must satisfy machine cardinality invariants");
+        }
+    }
+
     // TEST1119: Strand::knit returns a single-strand Machine via the new
     // resolver. Smoke test the registry-threaded API end-to-end.
     #[test]
     fn test1119_strand_knit_with_registry_returns_single_strand_machine() {
         use crate::cap::registry::FabricRegistry;
 
-        let cap = make_test_cap_with_arg("media:ext=pdf", "media:enc=utf-8;ext=txt", "extract", "Extract");
+        let cap = make_test_cap_with_arg(
+            "media:ext=pdf",
+            "media:enc=utf-8;ext=txt",
+            "extract",
+            "Extract",
+        );
         let registry = FabricRegistry::new_for_test();
         registry.add_caps_to_cache(vec![cap]);
 
         let cap_urn =
-            CapUrn::from_string("cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"").unwrap();
+            CapUrn::from_string("cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"")
+                .unwrap();
         let strand = Strand {
             steps: vec![StrandStep::new(
                 StrandStepType::Cap {
@@ -2487,7 +2625,10 @@ mod tests {
                     specificity: 0,
                     input_is_sequence: false,
                     output_is_sequence: false,
-                    inputs: vec![CapInput { arg_urn: MediaUrn::from_string("media:ext=pdf").unwrap(), source: ArgSourceRef::StrandInput }],
+                    inputs: vec![CapInput {
+                        arg_urn: MediaUrn::from_string("media:ext=pdf").unwrap(),
+                        source: ArgSourceRef::StrandInput,
+                    }],
                 },
                 MediaUrn::from_string("media:ext=pdf").unwrap(),
                 MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
@@ -2525,7 +2666,8 @@ mod tests {
         // Note: no caps added to the registry.
 
         let cap_urn =
-            CapUrn::from_string("cap:ghost;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"").unwrap();
+            CapUrn::from_string("cap:ghost;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\"")
+                .unwrap();
         let strand = Strand {
             steps: vec![StrandStep::new(
                 StrandStepType::Cap {
@@ -2534,7 +2676,10 @@ mod tests {
                     specificity: 0,
                     input_is_sequence: false,
                     output_is_sequence: false,
-                    inputs: vec![CapInput { arg_urn: MediaUrn::from_string("media:ext=pdf").unwrap(), source: ArgSourceRef::StrandInput }],
+                    inputs: vec![CapInput {
+                        arg_urn: MediaUrn::from_string("media:ext=pdf").unwrap(),
+                        source: ArgSourceRef::StrandInput,
+                    }],
                 },
                 MediaUrn::from_string("media:ext=pdf").unwrap(),
                 MediaUrn::from_string("media:enc=utf-8;ext=txt").unwrap(),
@@ -2862,8 +3007,10 @@ mod tests {
         );
         graph.add_cap(&concrete);
         let (n_after, e_after) = graph.stats();
-        assert!(e_after > before.1, "a concrete cap must add a runnable edge");
+        assert!(
+            e_after > before.1,
+            "a concrete cap must add a runnable edge"
+        );
         assert!(n_after > before.0, "a concrete cap must add graph nodes");
     }
 }
-

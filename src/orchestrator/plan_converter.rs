@@ -517,7 +517,11 @@ mod tests {
 
         // Edges: in_a→cap_a, in_b→cap_b, cap_a→cap_cat, cap_b→cap_cat.
         // The Collect resolves through into one edge per predecessor.
-        assert_eq!(graph.edges.len(), 4, "collect expands to one edge per producer");
+        assert_eq!(
+            graph.edges.len(),
+            4,
+            "collect expands to one edge per producer"
+        );
         let into_cat: Vec<&ResolvedEdge> =
             graph.edges.iter().filter(|e| e.to == "cap_cat").collect();
         assert_eq!(into_cat.len(), 2, "both producers feed concat");
@@ -531,7 +535,10 @@ mod tests {
         // discriminator.
         assert_eq!(into_cat[0].in_media, into_cat[1].in_media);
         assert!(
-            !graph.edges.iter().any(|e| e.from == "collect_0" || e.to == "collect_0"),
+            !graph
+                .edges
+                .iter()
+                .any(|e| e.from == "collect_0" || e.to == "collect_0"),
             "the Collect node itself must not appear as an edge endpoint"
         );
     }

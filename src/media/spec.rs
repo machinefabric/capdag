@@ -732,7 +732,8 @@ mod tests {
     // TEST096: Test deserializing MediaDef from JSON object
     #[test]
     fn test096_media_def_def_deserialize() {
-        let json = r#"{"urn":"media:fmt=json;test","media_type":"application/json","title":"Test"}"#;
+        let json =
+            r#"{"urn":"media:fmt=json;test","media_type":"application/json","title":"Test"}"#;
         let def: MediaDef = serde_json::from_str(json).unwrap();
         assert_eq!(def.urn, "media:fmt=json;test");
         assert_eq!(def.media_type, "application/json");

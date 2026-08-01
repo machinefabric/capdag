@@ -122,7 +122,9 @@ mod tests {
             "cartridges.machinefabric.com"
         );
         assert_eq!(
-            slug_for(Some("https://cartridges-staging.machinefabric.com/v1/manifest")),
+            slug_for(Some(
+                "https://cartridges-staging.machinefabric.com/v1/manifest"
+            )),
             "cartridges-staging.machinefabric.com"
         );
         assert!(is_registry_slug("cartridges.machinefabric.com"));
@@ -145,16 +147,37 @@ mod tests {
     fn test1502_slug_is_authority_only() {
         let base = slug_for(Some("https://cartridges.machinefabric.com/manifest"));
         // Path / version / query / trailing slash / host case do NOT change it.
-        assert_eq!(base, slug_for(Some("https://cartridges.machinefabric.com/v1/manifest")));
-        assert_eq!(base, slug_for(Some("https://cartridges.machinefabric.com/v2/manifest")));
-        assert_eq!(base, slug_for(Some("https://cartridges.machinefabric.com/manifest/")));
-        assert_eq!(base, slug_for(Some("https://cartridges.machinefabric.com/manifest?v=1")));
-        assert_eq!(base, slug_for(Some("https://CARTRIDGES.machinefabric.com/manifest")));
+        assert_eq!(
+            base,
+            slug_for(Some("https://cartridges.machinefabric.com/v1/manifest"))
+        );
+        assert_eq!(
+            base,
+            slug_for(Some("https://cartridges.machinefabric.com/v2/manifest"))
+        );
+        assert_eq!(
+            base,
+            slug_for(Some("https://cartridges.machinefabric.com/manifest/"))
+        );
+        assert_eq!(
+            base,
+            slug_for(Some("https://cartridges.machinefabric.com/manifest?v=1"))
+        );
+        assert_eq!(
+            base,
+            slug_for(Some("https://CARTRIDGES.machinefabric.com/manifest"))
+        );
         // A different host is a different registry.
-        assert_ne!(base, slug_for(Some("https://other.machinefabric.com/manifest")));
+        assert_ne!(
+            base,
+            slug_for(Some("https://other.machinefabric.com/manifest"))
+        );
         // Port is part of the authority: different ports → different slugs, and
         // the port ':' becomes a path-safe '-'.
-        assert_eq!(slug_for(Some("http://localhost:8080/manifest")), "localhost-8080");
+        assert_eq!(
+            slug_for(Some("http://localhost:8080/manifest")),
+            "localhost-8080"
+        );
         assert_ne!(
             slug_for(Some("http://localhost:8080/manifest")),
             slug_for(Some("http://localhost:9090/manifest"))

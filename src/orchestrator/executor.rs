@@ -22,8 +22,8 @@ use super::stream_io::{PipelineLogFn, PipelineLogRecord, PipelineProgressTracker
 use super::types::{ResolvedEdge, ResolvedGraph};
 use crate::{
     handshake, Cap, CapManifest, CapUrn, CartridgeHostRuntime, CartridgeRepo, FabricRegistry,
-    Frame, FrameReader, FrameWriter, FrameType, Limits, MessageId,
-    RelayNotifyCapabilitiesPayload, RelaySlave, RelaySwitch, DEFAULT_MAX_CHUNK,
+    Frame, FrameReader, FrameType, FrameWriter, Limits, MessageId, RelayNotifyCapabilitiesPayload,
+    RelaySlave, RelaySwitch, DEFAULT_MAX_CHUNK,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -602,7 +602,9 @@ impl CartridgeManager {
             // set: the `<url>.sig` sidecar must chain-verify over the exact
             // fetched bytes before the manifest is cached.
             self.cartridge_repo.set_trust(self.trust.clone()).await;
-            self.cartridge_repo.sync_repos(&[registry_url.clone()]).await;
+            self.cartridge_repo
+                .sync_repos(&[registry_url.clone()])
+                .await;
             // This manager's registry is mandatory — a sync failure (network,
             // parse, or SIGNATURE) surfaces here with its real cause instead
             // of a later misleading "cartridge not found".
@@ -629,7 +631,10 @@ impl CartridgeManager {
 
     /// The signing trust anchors, or the hard error raised when a registry
     /// operation is attempted without them.
-    fn trust_required(&self, context: &str) -> Result<&crate::bifaci::release_cert::RegistryTrust, ExecutionError> {
+    fn trust_required(
+        &self,
+        context: &str,
+    ) -> Result<&crate::bifaci::release_cert::RegistryTrust, ExecutionError> {
         self.trust.as_ref().ok_or_else(|| {
             ExecutionError::CartridgeDownloadFailed(format!(
                 "{context}: this build bakes no cartridge signing root keys — registry \
@@ -954,7 +959,13 @@ impl CartridgeManager {
         &self,
         registry_url: &str,
         cartridge_id: &str,
-    ) -> Result<(crate::bifaci::cartridge_repo::CartridgeInfo, crate::bifaci::cartridge_repo::CartridgeBinaryInfo), ExecutionError> {
+    ) -> Result<
+        (
+            crate::bifaci::cartridge_repo::CartridgeInfo,
+            crate::bifaci::cartridge_repo::CartridgeBinaryInfo,
+        ),
+        ExecutionError,
+    > {
         let cartridge_info = self
             .cartridge_repo
             .get_cartridge(registry_url, self.channel, cartridge_id)
@@ -1065,7 +1076,9 @@ impl CartridgeManager {
         binary_path: &Path,
     ) -> Result<(), ExecutionError> {
         let registry_url = self.registry_url_required(cartridge_id)?.to_string();
-        let (_info, binary) = self.registry_binary_info(&registry_url, cartridge_id).await?;
+        let (_info, binary) = self
+            .registry_binary_info(&registry_url, cartridge_id)
+            .await?;
         let bytes = fs::read(binary_path).map_err(|e| {
             // An unreadable installed binary is a deployment problem.
             ExecutionError::CartridgeExecutionFailed {
@@ -1107,8 +1120,9 @@ impl CartridgeManager {
     async fn download_cartridge(&self, cartridge_id: &str) -> Result<PathBuf, ExecutionError> {
         let registry_url = self.registry_url_required(cartridge_id)?.to_string();
         self.trust_required(cartridge_id)?;
-        let (cartridge_info, binary) =
-            self.registry_binary_info(&registry_url, cartridge_id).await?;
+        let (cartridge_info, binary) = self
+            .registry_binary_info(&registry_url, cartridge_id)
+            .await?;
 
         // The v5 manifest carries the absolute URL on the binary itself.
         // No URL derivation: if the manifest's URL is wrong, we want to fail
@@ -1645,13 +1659,16 @@ pub async fn run_dag_on_context(
     progress_fn: Option<&CapProgressFn>,
     step_progress_fn: Option<&CapStepProgressFn>,
     log_fn: Option<&PipelineLogFn>,
-    body_index: Option<usize>,
     stall_tracker: Option<Arc<PipelineProgressTracker>>,
     writer_factory: Option<&super::stream_io::SegmentWriterFactory>,
+    body_coordinate: Option<super::execute_plan::ForEachBodyCoordinate>,
     persist_sinks: &HashSet<String>,
     activity_timeout_secs: u64,
     observer: Option<&dyn super::stream_io::FlowObserver>,
 ) -> Result<DagOutput, ExecutionError> {
+    let body_index = body_coordinate
+        .as_ref()
+        .map(|coordinate| coordinate.body_index);
     let groups = build_edge_groups(&graph.edges);
     let group_order = topological_sort_groups(&groups)?;
     let n_groups = group_order.len();
@@ -1663,7 +1680,8 @@ pub async fn run_dag_on_context(
         .map(|(k, v)| (k.clone(), vec![v.clone()]))
         .collect();
     let mut node_is_sequence: HashMap<String, bool> = ctx.node_is_sequence().clone();
-    let mut writer_results: HashMap<String, Vec<super::execute_plan::WriterResult>> = HashMap::new();
+    let mut writer_results: HashMap<String, Vec<super::execute_plan::WriterResult>> =
+        HashMap::new();
     let mut terminal_meta: HashMap<String, TerminalMeta> = HashMap::new();
 
     if n_groups == 0 {
@@ -1744,11 +1762,11 @@ pub async fn run_dag_on_context(
         // was supplied (the engine persists; the reference/in-memory path does not).
         // The writer is owned here, handed by borrow to the collect step, and
         // finalised into a per-sink `WriterResult` after.
-        let mut writer: Option<Box<dyn super::stream_io::IncrementalWriter>> =
-            match writer_factory {
-                Some(f) if persist_sinks.contains(&sink) => Some(f(&sink, body_index)),
-                _ => None,
-            };
+        let mut writer: Option<Box<dyn super::stream_io::IncrementalWriter>> = match writer_factory
+        {
+            Some(f) if persist_sinks.contains(&sink) => Some(f(&sink, body_coordinate.clone())),
+            _ => None,
+        };
         let has_writer = writer.is_some();
 
         let progress_base = ci as f32 / n_chains as f32;
@@ -1774,7 +1792,10 @@ pub async fn run_dag_on_context(
         .await?;
 
         if let Some(w) = writer {
-            writer_results.entry(sink.clone()).or_default().push(w.finish());
+            writer_results
+                .entry(sink.clone())
+                .or_default()
+                .push(w.finish());
         }
 
         // Materialise this chain's sink so downstream chains' heads can read it (via
@@ -1790,7 +1811,9 @@ pub async fn run_dag_on_context(
             // JSON bytes are not themselves CBOR.
             let bytes = if is_seq {
                 crate::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(&items).map_err(
-                    |e| ExecutionError::HostError(format!("materialise chain output '{sink}': {e}")),
+                    |e| {
+                        ExecutionError::HostError(format!("materialise chain output '{sink}': {e}"))
+                    },
                 )?
             } else {
                 items.first().cloned().unwrap_or_default()
@@ -2109,8 +2132,10 @@ async fn run_group_chain(
         drop(dummy_tx);
 
         let fwd_switch = switch.clone();
-        let extra_args: Vec<(String, Vec<u8>)> =
-            cap_arguments.get(&next_group.to).cloned().unwrap_or_default();
+        let extra_args: Vec<(String, Vec<u8>)> = cap_arguments
+            .get(&next_group.to)
+            .cloned()
+            .unwrap_or_default();
 
         let group_token_id = ordered_groups[i].token_id.clone();
         let fwd_step_token_id = group_token_id.clone();
@@ -2186,8 +2211,12 @@ async fn run_group_chain(
             let switch = grant_switch.clone();
             let rid = grant_rid.clone();
             tokio::spawn(async move {
-                let frame =
-                    Frame::credit(rid, stream_id, n, crate::bifaci::frame::CreditDirection::Response);
+                let frame = Frame::credit(
+                    rid,
+                    stream_id,
+                    n,
+                    crate::bifaci::frame::CreditDirection::Response,
+                );
                 if let Err(e) = switch.send_to_master(frame, None).await {
                     tracing::debug!("[pipeline] terminal grant not deliverable: {}", e);
                 }
@@ -2247,10 +2276,10 @@ async fn run_group_chain(
             first_error.get_or_insert(e.at_step(ordered_groups[0].token_id.clone()));
         }
         Err(e) => {
-            first_error.get_or_insert(ExecutionError::HostError(format!(
-                "Input send task panicked: {}",
-                e
-            )).at_step(ordered_groups[0].token_id.clone()));
+            first_error.get_or_insert(
+                ExecutionError::HostError(format!("Input send task panicked: {}", e))
+                    .at_step(ordered_groups[0].token_id.clone()),
+            );
         }
     }
     for (i, handle) in forwarding_handles.into_iter().enumerate() {
@@ -2260,10 +2289,10 @@ async fn run_group_chain(
                 first_error.get_or_insert(e.at_step(ordered_groups[i].token_id.clone()));
             }
             Err(e) => {
-                first_error.get_or_insert(ExecutionError::HostError(format!(
-                    "Forwarding task {} panicked: {}",
-                    i, e
-                )).at_step(ordered_groups[i].token_id.clone()));
+                first_error.get_or_insert(
+                    ExecutionError::HostError(format!("Forwarding task {} panicked: {}", i, e))
+                        .at_step(ordered_groups[i].token_id.clone()),
+                );
             }
         }
     }
@@ -2377,7 +2406,10 @@ async fn send_group_input(
         }
     }
 
-    let extra_args = cap_arguments.get(&group.to).map(|v| v.as_slice()).unwrap_or(&[]);
+    let extra_args = cap_arguments
+        .get(&group.to)
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
 
     // Extra-arg streams must not collide with each other or with any input
     // stream URN — they are value-channel deliveries, never gathered.
@@ -2469,9 +2501,9 @@ async fn send_group_input(
             if *member_is_seq {
                 gathered.extend_from_slice(data);
             } else {
-                let wrapped = crate::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(
-                    &[data.to_vec()],
-                )
+                let wrapped = crate::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(&[
+                    data.to_vec(),
+                ])
                 .map_err(|e| {
                     ExecutionError::HostError(format!(
                         "gather into '{}' for cap '{}': {e}",
@@ -2495,9 +2527,11 @@ async fn send_group_input(
         .map_err(|e| ExecutionError::HostError(e.to_string()))?;
     }
     for (media_urn, data) in extra_args {
-        super::stream_io::send_one_stream(switch, rid, media_urn, data, None, false, max_chunk, credit)
-            .await
-            .map_err(|e| ExecutionError::HostError(e.to_string()))?;
+        super::stream_io::send_one_stream(
+            switch, rid, media_urn, data, None, false, max_chunk, credit,
+        )
+        .await
+        .map_err(|e| ExecutionError::HostError(e.to_string()))?;
     }
 
     let end_frame = Frame::end(rid.clone(), None);
@@ -2572,7 +2606,11 @@ async fn forward_frames(
                         let prev_sid = frame.stream_id.clone().unwrap_or_default();
                         let new_sid = uuid::Uuid::new_v4().to_string();
                         let gate = Arc::new(CreditGate::new(initial_credit));
-                        router_down.register(next_rid.clone(), Some(new_sid.clone()), Arc::clone(&gate));
+                        router_down.register(
+                            next_rid.clone(),
+                            Some(new_sid.clone()),
+                            Arc::clone(&gate),
+                        );
                         stream_id_map.insert(prev_sid, (new_sid.clone(), gate, 0));
 
                         // Relabel to the downstream edge's declared arg URN: the
@@ -2654,7 +2692,10 @@ async fn forward_frames(
                                         CreditDirection::Response,
                                     );
                                     switch.send_to_master(credit, None).await.map_err(|e| {
-                                        ExecutionError::HostError(format!("flush upstream CREDIT: {}", e))
+                                        ExecutionError::HostError(format!(
+                                            "flush upstream CREDIT: {}",
+                                            e
+                                        ))
                                     })?;
                                 }
                             }
@@ -2791,7 +2832,11 @@ async fn forward_frames(
                         }
                         let final_progress = frame.final_progress().unwrap_or(1.0) as f32;
                         if let Some(pfn) = &progress_fn {
-                            pfn(final_progress, prev_cap_urn, frame.final_message().unwrap_or(""));
+                            pfn(
+                                final_progress,
+                                prev_cap_urn,
+                                frame.final_message().unwrap_or(""),
+                            );
                         }
                         for (media_urn, data) in extra_args {
                             super::stream_io::send_one_stream(
@@ -2882,12 +2927,15 @@ async fn forward_frames(
                                 prev_cap_urn
                             ))
                         })?;
-                        let msg = frame.error_message().ok_or_else(|| {
-                            ExecutionError::HostError(format!(
-                                "Cap '{}' emitted an ERR frame without required text message",
-                                prev_cap_urn
-                            ))
-                        })?.to_string();
+                        let msg = frame
+                            .error_message()
+                            .ok_or_else(|| {
+                                ExecutionError::HostError(format!(
+                                    "Cap '{}' emitted an ERR frame without required text message",
+                                    prev_cap_urn
+                                ))
+                            })?
+                            .to_string();
                         let arg_urn = frame
                             .attribution_arg_urn()
                             .map_err(|error| {
@@ -3051,7 +3099,11 @@ pub(crate) fn segment_activity_timeout(graph: &ResolvedGraph) -> u64 {
 /// `(id, version, channel)` (absent for dev binaries), and the cap groups it serves.
 pub(crate) type HostableCartridge = (
     PathBuf,
-    Option<(String, String, crate::bifaci::cartridge_repo::CartridgeChannel)>,
+    Option<(
+        String,
+        String,
+        crate::bifaci::cartridge_repo::CartridgeChannel,
+    )>,
     Vec<crate::bifaci::manifest::CapGroup>,
 );
 
@@ -3074,9 +3126,12 @@ pub(crate) async fn discover_bundled_cartridges(
         cartridge_registry_version: crate::CARTRIDGE_REGISTRY_VERSION,
     };
     let mut out = Vec::new();
-    for discovered in crate::cartridge_discovery::discover_cartridges(bundled_cartridges_dir, &identity)
-        .await
-        .map_err(|e| ExecutionError::HostError(format!("bundled cartridge discovery failed: {e}")))?
+    for discovered in
+        crate::cartridge_discovery::discover_cartridges(bundled_cartridges_dir, &identity)
+            .await
+            .map_err(|e| {
+                ExecutionError::HostError(format!("bundled cartridge discovery failed: {e}"))
+            })?
     {
         match discovered {
             crate::cartridge_discovery::DiscoveredCartridge::Directory {
@@ -3090,7 +3145,10 @@ pub(crate) async fn discover_bundled_cartridges(
                 out.push((entry_point, Some((id, version, cart_channel)), cap_groups));
             }
             crate::cartridge_discovery::DiscoveredCartridge::Incompatible {
-                id, version, error, ..
+                id,
+                version,
+                error,
+                ..
             } => {
                 tracing::error!(
                     cartridge = %id, version = %version, reason = %error.message,
@@ -3225,8 +3283,7 @@ pub async fn execute_dag(
             let sink = sink.clone();
             let label = label.clone();
             Some(tokio::spawn(async move {
-                let mut ticker =
-                    tokio::time::interval(std::time::Duration::from_millis(250));
+                let mut ticker = tokio::time::interval(std::time::Duration::from_millis(250));
                 loop {
                     ticker.tick().await;
                     let stats = switch.protocol_stats().await;
@@ -3325,7 +3382,6 @@ mod tests {
         }
     }
 
-
     // TEST1433: a multi-edge group (fan-in / gather) ALWAYS heads its own
     // chain — mid-chain streaming forwards exactly one producer stream, so a
     // multi-input invocation must be fed from materialised node_data. A
@@ -3335,8 +3391,16 @@ mod tests {
         // Gather shape: in→A, in2→B, then (A, B) → C on one cap.
         let cap_c = "cap:in=\"media:enc=utf-8\";fold;out=\"media:enc=utf-8;ext=txt\"";
         let edges = vec![
-            edge("in", "A", "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8\""),
-            edge("in2", "B", "cap:in=\"media:ext=md\";op-b;out=\"media:enc=utf-8\""),
+            edge(
+                "in",
+                "A",
+                "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8\"",
+            ),
+            edge(
+                "in2",
+                "B",
+                "cap:in=\"media:ext=md\";op-b;out=\"media:enc=utf-8\"",
+            ),
             edge("A", "C", cap_c),
             edge("B", "C", cap_c),
         ];
@@ -3351,18 +3415,33 @@ mod tests {
         );
         // Every chain containing the C group contains ONLY the C group.
         let c_idx = groups.iter().position(|g| g.to == "C").expect("C group");
-        let c_chain = chains.iter().find(|ch| ch.contains(&c_idx)).expect("C chained");
+        let c_chain = chains
+            .iter()
+            .find(|ch| ch.contains(&c_idx))
+            .expect("C chained");
         assert_eq!(c_chain, &vec![c_idx]);
 
         // Control: a plain linear chain still fuses.
         let linear = vec![
-            edge("in", "A", "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8\""),
-            edge("A", "D", "cap:in=\"media:enc=utf-8\";op-d;out=\"media:enc=utf-8;ext=txt\""),
+            edge(
+                "in",
+                "A",
+                "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8\"",
+            ),
+            edge(
+                "A",
+                "D",
+                "cap:in=\"media:enc=utf-8\";op-d;out=\"media:enc=utf-8;ext=txt\"",
+            ),
         ];
         let groups = build_edge_groups(&linear);
         let order = topological_sort_groups(&groups).expect("acyclic");
         let chains = decompose_group_chains(&groups, &order);
-        assert_eq!(chains.len(), 1, "a dedicated single-edge consumer fuses into one chain");
+        assert_eq!(
+            chains.len(),
+            1,
+            "a dedicated single-edge consumer fuses into one chain"
+        );
         assert_eq!(chains[0].len(), 2);
     }
 
@@ -3524,8 +3603,7 @@ mod tests {
         });
 
         // This cap occupies [0.5, 0.75] of the overall run (base=0.5, weight=0.25).
-        let mapper =
-            ProgressMapper::new(&parent, 0.5, 0.25).with_step_sink(&sink, "tok-cap-x");
+        let mapper = ProgressMapper::new(&parent, 0.5, 0.25).with_step_sink(&sink, "tok-cap-x");
         mapper.report(0.0, "cap:x", "start");
         mapper.report(0.4, "cap:x", "mid");
         mapper.report(1.0, "cap:x", "end");
@@ -3537,9 +3615,16 @@ mod tests {
         let steps = steps.lock().unwrap();
         let overall = overall.lock().unwrap();
         // The sink saw the cap's OWN progress, unmapped, exactly 3 times (not from the sub).
-        assert_eq!(steps.len(), 3, "only the group mapper fires the sink; sub_mapper does not");
+        assert_eq!(
+            steps.len(),
+            3,
+            "only the group mapper fires the sink; sub_mapper does not"
+        );
         assert!((steps[0].0 - 0.0).abs() < 0.001);
-        assert!((steps[1].0 - 0.4).abs() < 0.001, "sink gets the raw child, not the overall");
+        assert!(
+            (steps[1].0 - 0.4).abs() < 0.001,
+            "sink gets the raw child, not the overall"
+        );
         assert!((steps[2].0 - 1.0).abs() < 0.001);
         assert_eq!(steps[1].1, "cap:x");
         // Every step report carries the reporting cap's stable identity — the key
@@ -3548,7 +3633,10 @@ mod tests {
         assert_eq!(steps[1].2, "tok-cap-x");
         assert_eq!(steps[2].2, "tok-cap-x");
         // The parent still saw that child mapped into [0.5, 0.75].
-        assert!((overall[1] - (0.5 + 0.4 * 0.25)).abs() < 0.001, "parent gets the mapped overall");
+        assert!(
+            (overall[1] - (0.5 + 0.4 * 0.25)).abs() < 0.001,
+            "parent gets the mapped overall"
+        );
     }
 
     // TEST915: Per-group subdivision produces monotonic, bounded progress for N groups
@@ -3720,5 +3808,4 @@ mod tests {
     // along with the variant — not a tautological removal of a real
     // test, but the deletion of an assertion about a code path that
     // no longer exists.
-
 }

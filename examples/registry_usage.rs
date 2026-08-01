@@ -24,7 +24,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nValidating local cap against registry...");
 
     let test_urn = CapUrn::from_string(cap_urn)?;
-    let local_cap = Cap::new(test_urn, "Test Cap".to_string(), vec!["test-command".to_string()]);
+    let local_cap = Cap::new(
+        test_urn,
+        "Test Cap".to_string(),
+        vec!["test-command".to_string()],
+    );
 
     match validate_cap_canonical(&registry, &local_cap).await {
         Ok(_) => println!("✓ Local cap is valid"),

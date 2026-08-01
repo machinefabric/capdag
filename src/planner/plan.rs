@@ -11,9 +11,10 @@
 
 use super::argument_binding::ArgumentBindings;
 use super::cardinality::InputCardinality;
+use super::live_cap_fab::{Strand, StrandStep, StrandStepType};
 use super::PlannerError;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use uuid::Uuid;
 
 /// Unique identifier for a node in the execution plan
@@ -587,6 +588,140 @@ impl MachinePlan {
         Ok(result)
     }
 
+    /// Return the exact strand this plan executes.
+    ///
+    /// Structural ForEach steps already present in `strand` must carry the same
+    /// identity as the plan. A ForEach introduced solely by run input cardinality
+    /// is inserted immediately before its body-entry cap using the identity minted
+    /// by plan construction. Persisting this value keeps run provenance and the
+    /// rendered path on the same graph-address space.
+    pub fn executed_strand(&self, strand: &Strand) -> Result<Strand, PlannerError> {
+        let mut cap_positions: HashMap<&str, usize> = HashMap::new();
+        for (index, step) in strand.steps.iter().enumerate() {
+            if step.is_cap()
+                && cap_positions
+                    .insert(step.token_id.as_str(), index)
+                    .is_some()
+            {
+                return Err(PlannerError::InvalidPath(format!(
+                    "resolved strand contains duplicate cap token_id '{}'",
+                    step.token_id
+                )));
+            }
+        }
+
+        let mut boundaries: Vec<(usize, String, String)> = Vec::new();
+        for node in self.nodes.values() {
+            let ExecutionNodeType::ForEach {
+                token_id,
+                body_entry,
+                ..
+            } = &node.node_type
+            else {
+                continue;
+            };
+            let body_node = self.nodes.get(body_entry).ok_or_else(|| {
+                PlannerError::InvalidPath(format!(
+                    "ForEach '{}' references missing body-entry node '{}'",
+                    token_id, body_entry
+                ))
+            })?;
+            let ExecutionNodeType::Cap {
+                token_id: cap_token_id,
+                ..
+            } = &body_node.node_type
+            else {
+                return Err(PlannerError::InvalidPath(format!(
+                    "ForEach '{}' body-entry '{}' is not a capability step",
+                    token_id, body_entry
+                )));
+            };
+            let position = *cap_positions.get(cap_token_id.as_str()).ok_or_else(|| {
+                PlannerError::InvalidPath(format!(
+                    "ForEach '{}' body-entry cap '{}' is absent from the resolved strand",
+                    token_id, cap_token_id
+                ))
+            })?;
+            boundaries.push((position, token_id.clone(), cap_token_id.clone()));
+        }
+        boundaries.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+        let plan_boundary_tokens: HashSet<&str> = boundaries
+            .iter()
+            .map(|(_, token, _)| token.as_str())
+            .collect();
+        for step in &strand.steps {
+            if matches!(step.step_type, StrandStepType::ForEach { .. })
+                && !plan_boundary_tokens.contains(step.token_id.as_str())
+            {
+                return Err(PlannerError::InvalidPath(format!(
+                    "resolved strand ForEach '{}' is absent from the execution plan",
+                    step.token_id
+                )));
+            }
+        }
+
+        let mut executed = strand.clone();
+        for (_, boundary_token_id, cap_token_id) in boundaries {
+            let cap_index = executed
+                .steps
+                .iter()
+                .position(|step| step.is_cap() && step.token_id == cap_token_id)
+                .ok_or_else(|| {
+                    PlannerError::InvalidPath(format!(
+                        "execution cap '{}' disappeared while aligning its ForEach boundary",
+                        cap_token_id
+                    ))
+                })?;
+
+            if let Some(previous) = cap_index.checked_sub(1).and_then(|i| executed.steps.get(i)) {
+                if matches!(previous.step_type, StrandStepType::ForEach { .. }) {
+                    if previous.token_id != boundary_token_id {
+                        return Err(PlannerError::InvalidPath(format!(
+                            "cap '{}' is preceded by ForEach '{}' but the execution plan uses '{}'",
+                            cap_token_id, previous.token_id, boundary_token_id
+                        )));
+                    }
+                    continue;
+                }
+            }
+
+            if executed.steps.iter().any(|step| {
+                matches!(step.step_type, StrandStepType::ForEach { .. })
+                    && step.token_id == boundary_token_id
+            }) {
+                return Err(PlannerError::InvalidPath(format!(
+                    "ForEach '{}' is not adjacent to its body-entry cap '{}'",
+                    boundary_token_id, cap_token_id
+                )));
+            }
+
+            let cap_from = executed.steps[cap_index].from_spec.clone();
+            executed.steps.insert(
+                cap_index,
+                StrandStep {
+                    token_id: boundary_token_id,
+                    step_type: StrandStepType::ForEach {
+                        media_def: cap_from.clone(),
+                    },
+                    from_spec: cap_from.clone(),
+                    to_spec: cap_from,
+                },
+            );
+        }
+
+        executed.total_steps = i32::try_from(executed.steps.len()).map_err(|_| {
+            PlannerError::InvalidPath("executed strand has more than i32::MAX steps".to_string())
+        })?;
+        executed.cap_step_count =
+            i32::try_from(executed.steps.iter().filter(|s| s.is_cap()).count()).map_err(|_| {
+                PlannerError::InvalidPath(
+                    "executed strand has more than i32::MAX capability steps".to_string(),
+                )
+            })?;
+        Ok(executed)
+    }
+
     /// Merge N per-strand plans (disjoint DAGs — one plan per `MachineStrand`, as
     /// built by [`MachinePlanBuilder::build_plan_from_machine_strand`]) into ONE
     /// executable plan, so a multi-strand machine runs as a single task with its
@@ -625,12 +760,8 @@ impl MachinePlan {
                     rename.insert(id.clone(), format!("s{strand_index}_{id}"));
                 }
             }
-            let map_id = |id: &str| -> NodeId {
-                rename
-                    .get(id)
-                    .cloned()
-                    .unwrap_or_else(|| id.to_string())
-            };
+            let map_id =
+                |id: &str| -> NodeId { rename.get(id).cloned().unwrap_or_else(|| id.to_string()) };
 
             // Nodes, with intra-node references rewritten. `add_node` re-derives the
             // entry/output tracking lists from the node types.
@@ -1156,7 +1287,12 @@ pub struct NodeExecutionResult {
 /// For linear (non-ForEach) pipelines, a single BodyOutcome with body_index=0
 /// represents the entire execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "BodyOutcomeWire")]
 pub struct BodyOutcome {
+    /// Stable StrandStep.token_id of the ForEach boundary this body belongs to.
+    /// Null only for the synthetic whole-run outcome of a linear machine.
+    #[serde(deserialize_with = "deserialize_required_nullable_string")]
+    pub foreach_token_id: Option<String>,
     /// Index of this body within the ForEach (0-based). 0 for linear pipelines.
     pub body_index: usize,
     /// Whether this body completed successfully.
@@ -1194,9 +1330,64 @@ pub struct BodyOutcome {
     pub item_byte_count: u64,
 }
 
-fn deserialize_required_nullable_string<'de, D>(
-    deserializer: D,
-) -> Result<Option<String>, D::Error>
+#[derive(Deserialize)]
+struct BodyOutcomeWire {
+    #[serde(deserialize_with = "deserialize_required_nullable_string")]
+    foreach_token_id: Option<String>,
+    body_index: usize,
+    success: bool,
+    cap_urns: Vec<String>,
+    #[serde(deserialize_with = "deserialize_required_nullable_string")]
+    failed_token_id: Option<String>,
+    error: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_nullable_string")]
+    failed_arg_urn: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    saved_paths: Vec<String>,
+    total_bytes: usize,
+    duration_ms: u64,
+    #[serde(default)]
+    item_preview_text: Option<String>,
+    #[serde(default)]
+    item_byte_count: u64,
+}
+
+impl TryFrom<BodyOutcomeWire> for BodyOutcome {
+    type Error = String;
+
+    fn try_from(wire: BodyOutcomeWire) -> Result<Self, Self::Error> {
+        if wire.foreach_token_id.as_deref() == Some("") {
+            return Err("BodyOutcome.foreach_token_id must be null or non-empty".to_string());
+        }
+        if wire.foreach_token_id.is_none() && wire.body_index != 0 {
+            return Err("a linear BodyOutcome must use body_index 0".to_string());
+        }
+        if wire.failed_token_id.as_deref() == Some("") {
+            return Err("BodyOutcome.failed_token_id must be null or non-empty".to_string());
+        }
+        if wire.failed_arg_urn.as_deref() == Some("") {
+            return Err("BodyOutcome.failed_arg_urn must be null or non-empty".to_string());
+        }
+        Ok(Self {
+            foreach_token_id: wire.foreach_token_id,
+            body_index: wire.body_index,
+            success: wire.success,
+            cap_urns: wire.cap_urns,
+            failed_token_id: wire.failed_token_id,
+            error: wire.error,
+            failed_arg_urn: wire.failed_arg_urn,
+            title: wire.title,
+            saved_paths: wire.saved_paths,
+            total_bytes: wire.total_bytes,
+            duration_ms: wire.duration_ms,
+            item_preview_text: wire.item_preview_text,
+            item_byte_count: wire.item_byte_count,
+        })
+    }
+}
+
+fn deserialize_required_nullable_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -1947,8 +2138,12 @@ mod tests {
             "Plan with ForEach+Collect should detect ForEach"
         );
 
-        let linear_plan =
-            MachinePlan::linear_chain(&["cap:a"], "media:ext=pdf", "media:ext=png;image", &["input_a"]);
+        let linear_plan = MachinePlan::linear_chain(
+            &["cap:a"],
+            "media:ext=pdf",
+            "media:ext=png;image",
+            &["input_a"],
+        );
         assert!(
             !linear_plan.has_foreach(),
             "Linear plan should not detect ForEach"
@@ -2202,10 +2397,110 @@ mod tests {
         assert!(prefix.validate().is_ok());
     }
 
+    fn one_cap_strand(prefix: Option<&str>) -> Strand {
+        let input = crate::MediaUrn::from_string("media:enc=utf-8;page").unwrap();
+        let output = crate::MediaUrn::from_string("media:enc=utf-8;ext=txt;plain-text").unwrap();
+        let cap = crate::CapUrn::from_string(
+            "cap:constrained;in=\"media:enc=utf-8\";language=en;out=\"media:enc=utf-8;ext=txt;plain-text\";summarize",
+        )
+        .unwrap();
+        let cap_step = StrandStep {
+            token_id: "tok-cap".to_string(),
+            step_type: StrandStepType::Cap {
+                cap_urn: cap,
+                title: "Summarize".to_string(),
+                specificity: 1,
+                input_is_sequence: false,
+                output_is_sequence: false,
+                inputs: Vec::new(),
+            },
+            from_spec: input.clone(),
+            to_spec: output.clone(),
+        };
+        let mut steps = Vec::new();
+        if let Some(token_id) = prefix {
+            steps.push(StrandStep {
+                token_id: token_id.to_string(),
+                step_type: StrandStepType::ForEach {
+                    media_def: input.clone(),
+                },
+                from_spec: input.clone(),
+                to_spec: input.clone(),
+            });
+        }
+        steps.push(cap_step);
+        Strand {
+            total_steps: steps.len() as i32,
+            cap_step_count: 1,
+            steps,
+            source_media_urn: input,
+            target_media_urn: output,
+            description: "one-cap test strand".to_string(),
+        }
+    }
+
+    // TEST7120: A runtime-cardinality ForEach is part of the executed graph, so
+    // persistence receives the exact plan token rather than a cap token or a
+    // separately minted render-only token.
+    #[test]
+    fn test7120_executed_strand_inserts_runtime_foreach_identity() {
+        let mut plan = MachinePlan::new("runtime foreach");
+        plan.add_node(MachineNode::cap_with_bindings_token(
+            "tok-cap",
+            "cap:constrained;in=\"media:enc=utf-8\";language=en;out=\"media:enc=utf-8;ext=txt;plain-text\";summarize",
+            ArgumentBindings::new(),
+            "tok-cap".to_string(),
+        ));
+        plan.add_node(MachineNode::for_each_token(
+            "foreach_0",
+            "input_slot_0",
+            "tok-cap",
+            "tok-cap",
+            "tok-foreach".to_string(),
+        ));
+
+        let executed = plan.executed_strand(&one_cap_strand(None)).unwrap();
+        assert_eq!(executed.steps.len(), 2);
+        assert!(matches!(
+            executed.steps[0].step_type,
+            StrandStepType::ForEach { .. }
+        ));
+        assert_eq!(executed.steps[0].token_id, "tok-foreach");
+        assert_eq!(executed.steps[1].token_id, "tok-cap");
+        assert_eq!(executed.total_steps, 2);
+    }
+
+    // TEST7121: Existing shape identity is never silently rewritten. A run whose
+    // strand and plan disagree must fail before it can persist invalid provenance.
+    #[test]
+    fn test7121_executed_strand_rejects_foreach_identity_mismatch() {
+        let mut plan = MachinePlan::new("mismatched foreach");
+        plan.add_node(MachineNode::cap_with_bindings_token(
+            "tok-cap",
+            "cap:test",
+            ArgumentBindings::new(),
+            "tok-cap".to_string(),
+        ));
+        plan.add_node(MachineNode::for_each_token(
+            "foreach_0",
+            "input_slot_0",
+            "tok-cap",
+            "tok-cap",
+            "tok-plan-foreach".to_string(),
+        ));
+
+        let error = plan
+            .executed_strand(&one_cap_strand(Some("tok-strand-foreach")))
+            .expect_err("mismatched boundary identities must fail hard");
+        assert!(error.to_string().contains("tok-strand-foreach"));
+        assert!(error.to_string().contains("tok-plan-foreach"));
+    }
+
     // TEST6525: Body outcomes serialize an explicit stable failure coordinate
     #[test]
     fn test6525_body_outcome_requires_explicit_failure_coordinate() {
         let outcome = BodyOutcome {
+            foreach_token_id: None,
             body_index: 0,
             success: true,
             cap_urns: vec![],
@@ -2220,8 +2515,22 @@ mod tests {
             item_byte_count: 0,
         };
         let encoded = serde_json::to_value(&outcome).unwrap();
-        assert_eq!(encoded.get("failed_token_id"), Some(&serde_json::Value::Null));
-        assert_eq!(encoded.get("failed_arg_urn"), Some(&serde_json::Value::Null));
+        assert_eq!(
+            encoded.get("foreach_token_id"),
+            Some(&serde_json::Value::Null)
+        );
+        assert_eq!(
+            encoded.get("failed_token_id"),
+            Some(&serde_json::Value::Null)
+        );
+        assert_eq!(
+            encoded.get("failed_arg_urn"),
+            Some(&serde_json::Value::Null)
+        );
+
+        let mut missing = encoded.as_object().unwrap().clone();
+        missing.remove("foreach_token_id");
+        assert!(serde_json::from_value::<BodyOutcome>(serde_json::Value::Object(missing)).is_err());
 
         let mut missing = encoded.as_object().unwrap().clone();
         missing.remove("failed_token_id");
@@ -2230,5 +2539,25 @@ mod tests {
         let mut missing = encoded.as_object().unwrap().clone();
         missing.remove("failed_arg_urn");
         assert!(serde_json::from_value::<BodyOutcome>(serde_json::Value::Object(missing)).is_err());
+
+        let mut nonzero_linear = encoded.as_object().unwrap().clone();
+        nonzero_linear.insert("body_index".to_string(), serde_json::json!(1));
+        let error =
+            serde_json::from_value::<BodyOutcome>(serde_json::Value::Object(nonzero_linear))
+                .expect_err("a bare nonzero ordinal is not a linear body coordinate");
+        assert!(error
+            .to_string()
+            .contains("linear BodyOutcome must use body_index 0"));
+
+        let mut foreach = encoded.as_object().unwrap().clone();
+        foreach.insert(
+            "foreach_token_id".to_string(),
+            serde_json::json!("tok-foreach"),
+        );
+        foreach.insert("body_index".to_string(), serde_json::json!(3));
+        let decoded = serde_json::from_value::<BodyOutcome>(serde_json::Value::Object(foreach))
+            .expect("a scoped ForEach body coordinate is valid");
+        assert_eq!(decoded.foreach_token_id.as_deref(), Some("tok-foreach"));
+        assert_eq!(decoded.body_index, 3);
     }
 }

@@ -983,9 +983,9 @@ mod tests {
     use super::*;
     use crate::bifaci::decode_chunk_payload;
     use crate::bifaci::io::{FrameReader, FrameWriter};
+    use crate::bifaci::local_socket::UnixStream;
     use crate::Cap;
     use tokio::io::{BufReader, BufWriter};
-    use crate::bifaci::local_socket::UnixStream;
 
     /// Echo handler: accumulates input, echoes raw bytes back.
     #[derive(Debug)]
@@ -1264,7 +1264,10 @@ mod tests {
         assert_eq!(payload.installed_cartridges.len(), 1);
         assert_eq!(payload.installed_cartridges[0].id, "thumb-host");
         assert_eq!(payload.installed_cartridges[0].cap_groups.len(), 1);
-        let stats = payload.installed_cartridges[0].runtime_stats.as_ref().unwrap();
+        let stats = payload.installed_cartridges[0]
+            .runtime_stats
+            .as_ref()
+            .unwrap();
         assert!(stats.running);
         assert_eq!(stats.handler_capacity, 0);
     }

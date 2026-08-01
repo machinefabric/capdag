@@ -794,13 +794,8 @@ impl PeerResponse {
                             message,
                         );
                     } else {
-                        let class = frame
-                            .attribution_class()
-                            .map_err(StreamError::Protocol)?;
-                        match frame
-                            .attribution_arg_urn()
-                            .map_err(StreamError::Protocol)?
-                        {
+                        let class = frame.attribution_class().map_err(StreamError::Protocol)?;
+                        match frame.attribution_arg_urn().map_err(StreamError::Protocol)? {
                             Some(arg_urn) => {
                                 output.log_for_argument(level, class, message, arg_urn)
                             }
@@ -821,19 +816,17 @@ impl PeerResponse {
         let mut result = Vec::new();
         while let Some(item) = self.recv().await {
             match item {
-                PeerResponseItem::Data(Ok(value), _meta) => {
-                    match value {
-                        ciborium::Value::Bytes(b) => result.extend(b),
-                        ciborium::Value::Text(s) => result.extend(s.into_bytes()),
-                        other => {
-                            let mut buf = Vec::new();
-                            ciborium::into_writer(&other, &mut buf).map_err(|e| {
-                                StreamError::Decode(format!("Failed to encode CBOR: {}", e))
-                            })?;
-                            result.extend(buf);
-                        }
+                PeerResponseItem::Data(Ok(value), _meta) => match value {
+                    ciborium::Value::Bytes(b) => result.extend(b),
+                    ciborium::Value::Text(s) => result.extend(s.into_bytes()),
+                    other => {
+                        let mut buf = Vec::new();
+                        ciborium::into_writer(&other, &mut buf).map_err(|e| {
+                            StreamError::Decode(format!("Failed to encode CBOR: {}", e))
+                        })?;
+                        result.extend(buf);
                     }
-                }
+                },
                 PeerResponseItem::Data(Err(e), _) => return Err(e),
                 PeerResponseItem::Log(_) => {
                     return Err(StreamError::Protocol(
@@ -2264,9 +2257,7 @@ impl FrameSender for CliFrameSender {
                     RuntimeError::Protocol("LOG frame missing required text message".to_string())
                 })?;
                 if frame.log_progress().is_none() {
-                    frame
-                        .attribution_class()
-                        .map_err(RuntimeError::Protocol)?;
+                    frame.attribution_class().map_err(RuntimeError::Protocol)?;
                     frame
                         .attribution_arg_urn()
                         .map_err(RuntimeError::Protocol)?;
@@ -3147,15 +3138,11 @@ struct SeqReassembly {
 ///   (CBOR definite-length encoding is prefix-free, so a truncated item can
 ///   never mis-decode as a complete one.)
 /// - `Err` — the bytes are not valid CBOR at all.
-fn try_decode_sequence_item(
-    buf: &[u8],
-) -> Result<Option<(ciborium::Value, usize)>, StreamError> {
+fn try_decode_sequence_item(buf: &[u8]) -> Result<Option<(ciborium::Value, usize)>, StreamError> {
     let mut cursor = std::io::Cursor::new(buf);
     match ciborium::from_reader::<ciborium::Value, _>(&mut cursor) {
         Ok(value) => Ok(Some((value, cursor.position() as usize))),
-        Err(ciborium::de::Error::Io(e))
-            if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-        {
+        Err(ciborium::de::Error::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
             Ok(None)
         }
         Err(e) => Err(StreamError::Decode(e.to_string())),
@@ -3190,8 +3177,7 @@ fn demux_multi_stream(
         // it; a chunk arriving with the window at zero is a fatal
         // CREDIT_VIOLATION. The demux itself never blocks — accounting keeps
         // control frames flowing regardless of data pressure.
-        let mut stream_windows: HashMap<String, Arc<std::sync::atomic::AtomicI64>> =
-            HashMap::new();
+        let mut stream_windows: HashMap<String, Arc<std::sync::atomic::AtomicI64>> = HashMap::new();
         // Sequence-mode streams: stream_id → item reassembly state (see
         // `SeqReassembly` — frame payloads are RFC 8742 fragments, decoded
         // at item granularity).
@@ -3243,9 +3229,7 @@ fn demux_multi_stream(
                                 SeqReassembly {
                                     buf: Vec::new(),
                                     item_meta: None,
-                                    fragment_grants: grants
-                                        .as_ref()
-                                        .map(|g| g.fragment_sibling()),
+                                    fragment_grants: grants.as_ref().map(|g| g.fragment_sibling()),
                                 },
                             );
                         }
@@ -3692,8 +3676,7 @@ fn demux_single_stream(
                                     }
                                     Ok(None) => break, // prefix — need more frames
                                     Err(e) => {
-                                        let _ =
-                                            item_tx.send(PeerResponseItem::Data(Err(e), None));
+                                        let _ = item_tx.send(PeerResponseItem::Data(Err(e), None));
                                         seq.buf.clear();
                                         break;
                                     }
@@ -4512,11 +4495,7 @@ impl CartridgeRuntime {
     /// Find a cap by one of its aliases (the CLI subcommand). Aliases are
     /// globally unique, so at most one cap matches — the direct cartridge CLI
     /// selects the exact cap named, with no family narrowing.
-    fn find_cap_by_alias<'a>(
-        &self,
-        manifest: &'a CapManifest,
-        alias: &str,
-    ) -> Option<&'a Cap> {
+    fn find_cap_by_alias<'a>(&self, manifest: &'a CapManifest, alias: &str) -> Option<&'a Cap> {
         manifest
             .all_caps()
             .into_iter()
@@ -5615,10 +5594,7 @@ mod tests {
             ),
             GatedWrite::DroppedPostTerminal
         ));
-        assert_eq!(
-            drops.get(crate::bifaci::frame::DropReason::PostTerminal),
-            1
-        );
+        assert_eq!(drops.get(crate::bifaci::frame::DropReason::PostTerminal), 1);
 
         let frames = decode_wire(&wire);
         assert_eq!(frames.len(), 2, "straggler must not reach the wire");
@@ -5671,9 +5647,21 @@ mod tests {
             write_gated(hb, &mut wire, &limits, &mut seq, &mut terminated, &drops),
             GatedWrite::Written
         ));
-        let credit = Frame::credit(rid_a.clone(), None, 4, crate::bifaci::frame::CreditDirection::Response);
+        let credit = Frame::credit(
+            rid_a.clone(),
+            None,
+            4,
+            crate::bifaci::frame::CreditDirection::Response,
+        );
         assert!(matches!(
-            write_gated(credit, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            write_gated(
+                credit,
+                &mut wire,
+                &limits,
+                &mut seq,
+                &mut terminated,
+                &drops
+            ),
             GatedWrite::Written
         ));
 
@@ -5692,9 +5680,22 @@ mod tests {
         ));
 
         // But a flow frame for A is gated.
-        let late_a = Frame::log(rid_a, "info", crate::AttributionClass::Internal, "late", None);
+        let late_a = Frame::log(
+            rid_a,
+            "info",
+            crate::AttributionClass::Internal,
+            "late",
+            None,
+        );
         assert!(matches!(
-            write_gated(late_a, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            write_gated(
+                late_a,
+                &mut wire,
+                &limits,
+                &mut seq,
+                &mut terminated,
+                &drops
+            ),
             GatedWrite::DroppedPostTerminal
         ));
 
@@ -5710,10 +5711,7 @@ mod tests {
                 FrameType::Log
             ]
         );
-        assert_eq!(
-            drops.get(crate::bifaci::frame::DropReason::PostTerminal),
-            1
-        );
+        assert_eq!(drops.get(crate::bifaci::frame::DropReason::PostTerminal), 1);
     }
 
     // TEST7027: A frame sent through a ChannelFrameSender whose receiver is gone is a counted channel_closed drop, never a silent loss.
@@ -5794,7 +5792,12 @@ mod tests {
 
         // Grant 2 → the remaining 2 chunks + STREAM_END flow; data is intact
         // and chunk indexes are contiguous (nothing lost or reordered).
-        router.grant(&Frame::credit(rid, Some("s1".to_string()), 2, crate::bifaci::frame::CreditDirection::Response));
+        router.grant(&Frame::credit(
+            rid,
+            Some("s1".to_string()),
+            2,
+            crate::bifaci::frame::CreditDirection::Response,
+        ));
         tokio::time::timeout(std::time::Duration::from_secs(2), writer)
             .await
             .expect("grant must unblock the writer")
@@ -5900,7 +5903,13 @@ mod tests {
             tx,
             drops: Arc::clone(&drops),
         };
-        let _ = sender.send(&Frame::log(rid, "info", crate::AttributionClass::Internal, "dead channel", None));
+        let _ = sender.send(&Frame::log(
+            rid,
+            "info",
+            crate::AttributionClass::Internal,
+            "dead channel",
+            None,
+        ));
 
         let snap = drops.snapshot();
         assert_eq!(snap.total, 3, "each induced drop counted exactly once (L8)");
@@ -5952,7 +5961,10 @@ mod tests {
             .unwrap();
         raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
         drop(raw_tx);
-        assert!(stream.recv().await.is_none(), "stream closes after STREAM_END");
+        assert!(
+            stream.recv().await.is_none(),
+            "stream closes after STREAM_END"
+        );
     }
 
     // TEST1300: A sequence item CBOR-encoded once and split across multiple CHUNK frames (the emit_list_item framing) reassembles into exactly one delivered item carrying the first fragment's per-item metadata.
@@ -5967,8 +5979,7 @@ mod tests {
         // how cap→cap forwarding of rendered page images broke.
         let item_bytes: Vec<u8> = (0..600_000u32).map(|i| (i % 251) as u8).collect();
         let mut encoded = Vec::new();
-        ciborium::into_writer(&ciborium::Value::Bytes(item_bytes.clone()), &mut encoded)
-            .unwrap();
+        ciborium::into_writer(&ciborium::Value::Bytes(item_bytes.clone()), &mut encoded).unwrap();
         assert!(
             encoded.len() > DEFAULT_MAX_CHUNK,
             "item must span multiple fragments"
@@ -5990,8 +6001,14 @@ mod tests {
         for (i, fragment) in encoded.chunks(fragment_size).enumerate() {
             let payload = fragment.to_vec();
             let checksum = Frame::compute_checksum(&payload);
-            let mut frame =
-                Frame::chunk(rid.clone(), "s1".to_string(), i as u64, payload, i as u64, checksum);
+            let mut frame = Frame::chunk(
+                rid.clone(),
+                "s1".to_string(),
+                i as u64,
+                payload,
+                i as u64,
+                checksum,
+            );
             // emit_list_item puts per-item meta on the FIRST fragment only.
             if i == 0 {
                 frame.meta = Some(item_meta.clone());
@@ -6046,11 +6063,7 @@ mod tests {
         let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
 
         let mut encoded = Vec::new();
-        ciborium::into_writer(
-            &ciborium::Value::Bytes(vec![42u8; 4096]),
-            &mut encoded,
-        )
-        .unwrap();
+        ciborium::into_writer(&ciborium::Value::Bytes(vec![42u8; 4096]), &mut encoded).unwrap();
         // Send only a strict prefix of the item, then STREAM_END.
         let payload = encoded[..encoded.len() / 2].to_vec();
         let checksum = Frame::compute_checksum(&payload);
@@ -6064,7 +6077,14 @@ mod tests {
             ))
             .unwrap();
         raw_tx
-            .send(Frame::chunk(rid.clone(), "s1".to_string(), 0, payload, 0, checksum))
+            .send(Frame::chunk(
+                rid.clone(),
+                "s1".to_string(),
+                0,
+                payload,
+                0,
+                checksum,
+            ))
             .unwrap();
         raw_tx
             .send(Frame::stream_end(rid.clone(), "s1".to_string(), 1))
@@ -6101,8 +6121,7 @@ mod tests {
         // demux-side fragment grants keep the producer's window open.
         let item_bytes = vec![9u8; 4 * 1024];
         let mut encoded = Vec::new();
-        ciborium::into_writer(&ciborium::Value::Bytes(item_bytes.clone()), &mut encoded)
-            .unwrap();
+        ciborium::into_writer(&ciborium::Value::Bytes(item_bytes.clone()), &mut encoded).unwrap();
         let fragment_size = encoded.len().div_ceil(4);
 
         raw_tx
@@ -6118,13 +6137,24 @@ mod tests {
             let payload = fragment.to_vec();
             let checksum = Frame::compute_checksum(&payload);
             raw_tx
-                .send(Frame::chunk(rid.clone(), "s1".to_string(), i as u64, payload, i as u64, checksum))
+                .send(Frame::chunk(
+                    rid.clone(),
+                    "s1".to_string(),
+                    i as u64,
+                    payload,
+                    i as u64,
+                    checksum,
+                ))
                 .unwrap();
             n_fragments += 1;
         }
         assert_eq!(n_fragments, 4);
         raw_tx
-            .send(Frame::stream_end(rid.clone(), "s1".to_string(), n_fragments))
+            .send(Frame::stream_end(
+                rid.clone(),
+                "s1".to_string(),
+                n_fragments,
+            ))
             .unwrap();
         raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
         drop(raw_tx);
@@ -6167,7 +6197,8 @@ mod tests {
     async fn test7073_collect_refuses_unbounded_streams() {
         let make_unbounded = || {
             let (tx, rx) = unbounded_channel();
-            tx.send(Ok((ciborium::Value::Bytes(vec![1]), None))).unwrap();
+            tx.send(Ok((ciborium::Value::Bytes(vec![1]), None)))
+                .unwrap();
             // Producer stays open — an unbounded collect would hang forever;
             // the guard must reject BEFORE consuming.
             let stream = InputStream {
@@ -6885,7 +6916,11 @@ mod tests {
         // Always append CAP_IDENTITY at the end - cartridges must declare it
         // (Appending instead of prepending to avoid breaking tests that reference caps[0])
         let identity_urn = crate::CapUrn::from_string(crate::standard::caps::CAP_IDENTITY).unwrap();
-        let identity_cap = Cap::new(identity_urn, "Identity".to_string(), vec!["identity".to_string()]);
+        let identity_cap = Cap::new(
+            identity_urn,
+            "Identity".to_string(),
+            vec!["identity".to_string()],
+        );
         caps.push(identity_cap);
 
         CapManifest::new(
@@ -6918,7 +6953,9 @@ mod tests {
                 data: b"result".to_vec(),
             })
         });
-        assert!(runtime.find_handler("cap:in=media:;test;out=media:").is_some());
+        assert!(runtime
+            .find_handler("cap:in=media:;test;out=media:")
+            .is_some());
     }
 
     // TEST249: Test register_op handler echoes bytes directly
@@ -7919,7 +7956,9 @@ mod tests {
         let cap = runtime.manifest.as_ref().unwrap().all_caps()[0].clone();
 
         let (result, _) = runtime
-            .extract_arg_value(&cap.args[0], &cli_args, &mut || Ok(Some(stdin_data.to_vec())))
+            .extract_arg_value(&cap.args[0], &cli_args, &mut || {
+                Ok(Some(stdin_data.to_vec()))
+            })
             .unwrap();
         let result = result.unwrap();
 
@@ -10032,9 +10071,18 @@ mod tests {
 
         // Write 3 chunks
         stream.start(false, None).unwrap();
-        stream.emit_cbor(&Value::Bytes(b"chunk1".to_vec())).await.unwrap();
-        stream.emit_cbor(&Value::Bytes(b"chunk2".to_vec())).await.unwrap();
-        stream.emit_cbor(&Value::Bytes(b"chunk3".to_vec())).await.unwrap();
+        stream
+            .emit_cbor(&Value::Bytes(b"chunk1".to_vec()))
+            .await
+            .unwrap();
+        stream
+            .emit_cbor(&Value::Bytes(b"chunk2".to_vec()))
+            .await
+            .unwrap();
+        stream
+            .emit_cbor(&Value::Bytes(b"chunk3".to_vec()))
+            .await
+            .unwrap();
 
         stream.close().expect("close must succeed");
 
@@ -10451,7 +10499,13 @@ mod tests {
 
         // Another LOG
         response_tx
-            .send(Frame::log(req_id.clone(), "info", crate::AttributionClass::Internal, "done", None))
+            .send(Frame::log(
+                req_id.clone(),
+                "info",
+                crate::AttributionClass::Internal,
+                "done",
+                None,
+            ))
             .unwrap();
 
         // STREAM_END
@@ -10496,7 +10550,13 @@ mod tests {
             .send(Frame::progress(req_id.clone(), 0.5, "half"))
             .unwrap();
         response_tx
-            .send(Frame::log(req_id.clone(), "debug", crate::AttributionClass::Internal, "processing", None))
+            .send(Frame::log(
+                req_id.clone(),
+                "debug",
+                crate::AttributionClass::Internal,
+                "processing",
+                None,
+            ))
             .unwrap();
 
         // Single CHUNK with a CBOR integer
@@ -10582,7 +10642,8 @@ mod tests {
             b"gpt-4".to_vec(),
             None,
         )];
-        let result = super::require_stream(&streams, "media:fmt=json;llm-generation-request;record");
+        let result =
+            super::require_stream(&streams, "media:fmt=json;llm-generation-request;record");
         assert!(result.is_err(), "Missing stream must fail hard");
         let err = result.unwrap_err().to_string();
         assert!(
@@ -10698,8 +10759,7 @@ mod tests {
         let diagnostics: Vec<_> = captured
             .iter()
             .filter(|frame| {
-                frame.frame_type == FrameType::Log
-                    && frame.log_level() != Some("progress")
+                frame.frame_type == FrameType::Log && frame.log_level() != Some("progress")
             })
             .collect();
         assert!(
@@ -10775,7 +10835,11 @@ mod tests {
 
         let ps = stream.progress_sender();
         ps.progress(0.5, "halfway there");
-        ps.log("info", crate::AttributionClass::Internal, "loading complete");
+        ps.log(
+            "info",
+            crate::AttributionClass::Internal,
+            "loading complete",
+        );
 
         let captured = frames.lock().unwrap();
         assert_eq!(captured.len(), 2, "ProgressSender should emit 2 frames");

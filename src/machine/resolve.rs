@@ -90,6 +90,11 @@ pub struct PreInternedWiring {
     /// The originating resolved-strand step's stable identity, carried onto the
     /// resulting `MachineEdge` (see `MachineEdge::token_id`).
     pub token_id: String,
+    /// Origin of the identity for a possible ForEach boundary on this wiring.
+    /// Resolved strands carry an exact boundary (or exact absence); notation and
+    /// programmatic machine assembly have no shape node yet, so resolution mints
+    /// the identity only if fabric cardinality proves that a loop is required.
+    pub foreach_identity: ForEachIdentity,
     pub cap_urn: CapUrn,
     /// Source NodeIds in the order the upstream layer wrote
     /// them. Position carries no semantics — the matching
@@ -98,6 +103,12 @@ pub struct PreInternedWiring {
     pub source_node_ids: Vec<NodeId>,
     /// Target NodeId.
     pub target_node_id: NodeId,
+}
+
+#[derive(Debug, Clone)]
+pub enum ForEachIdentity {
+    Exact(Option<String>),
+    MintIfRequired,
 }
 
 /// Resolve a planner-produced `Strand` into a single
@@ -138,6 +149,7 @@ pub fn resolve_strand(
     // The single shared strand input anchor node, allocated on first `StrandInput`
     // reference and refined to the most specific consuming `from_spec`.
     let mut strand_input_node: Option<NodeId> = None;
+    let mut pending_foreach_token_id: Option<String> = None;
 
     for step in &strand.steps {
         match &step.step_type {
@@ -165,11 +177,9 @@ pub fn resolve_strand(
                                 id
                             }
                         },
-                        ArgSourceRef::Step { token_id } => {
-                            *producer_node.get(token_id).ok_or(
-                                MachineAbstractionError::DisconnectedStrand { strand_index },
-                            )?
-                        }
+                        ArgSourceRef::Step { token_id } => *producer_node
+                            .get(token_id)
+                            .ok_or(MachineAbstractionError::DisconnectedStrand { strand_index })?,
                     };
                     source_node_ids.push(source_id);
                 }
@@ -180,6 +190,7 @@ pub fn resolve_strand(
 
                 pre_interned.push(PreInternedWiring {
                     token_id: step.token_id.clone(),
+                    foreach_identity: ForEachIdentity::Exact(pending_foreach_token_id.take()),
                     cap_urn: cap_urn.clone(),
                     source_node_ids,
                     target_node_id: target_id,
@@ -187,12 +198,29 @@ pub fn resolve_strand(
 
                 producer_node.insert(step.token_id.clone(), target_id);
             }
-            StrandStepType::ForEach { .. } | StrandStepType::Collect { .. } => {
-                // Cardinality transitions are elided — caps name their producers
-                // directly, and `is_loop` is derived from cardinality in
-                // `resolve_pre_interned`, so these steps carry no wiring here.
+            StrandStepType::ForEach { .. } => {
+                if let Some(previous_token_id) =
+                    pending_foreach_token_id.replace(step.token_id.clone())
+                {
+                    return Err(MachineAbstractionError::ConsecutiveForEach {
+                        strand_index,
+                        previous_token_id,
+                        token_id: step.token_id.clone(),
+                    });
+                }
+            }
+            StrandStepType::Collect { .. } => {
+                // Collect does not qualify the next cap. It closes the preceding
+                // mapped region and is represented by the plan's region boundary.
             }
         }
+    }
+
+    if let Some(token_id) = pending_foreach_token_id {
+        return Err(MachineAbstractionError::DanglingForEach {
+            strand_index,
+            token_id,
+        });
     }
 
     if pre_interned.is_empty() {
@@ -243,7 +271,9 @@ pub fn resolve_pre_interned(
 
     // Cardinality of every node, derived from the single canonical rule
     // (`Cap::sequence_shape`): a node holds a sequence iff the cap that PRODUCES it
-    // has a sequence output; root nodes (never a wiring target) are scalar. This is
+    // has a sequence output. Root-node shape is supplied by an exact explicit
+    // ForEach boundary when the strand was resolved for a sequence run; notation
+    // has no run shape and therefore treats roots as scalar. This is
     // exactly the `is_sequence` state `live_cap_fab::get_outgoing_edges` threads
     // through a path (its line 706: outgoing `is_sequence == output_is_sequence`),
     // evaluated over the resolved graph so `is_loop` is DERIVED from cardinality,
@@ -255,6 +285,7 @@ pub fn resolve_pre_interned(
             .ok_or_else(|| MachineAbstractionError::UnknownCap {
                 cap_urn: wiring.cap_urn.to_string(),
             })?;
+
         let (_input_is_sequence, output_is_sequence) = cap.sequence_shape();
         node_is_sequence[wiring.target_node_id as usize] = output_is_sequence;
     }
@@ -270,6 +301,36 @@ pub fn resolve_pre_interned(
             .ok_or_else(|| MachineAbstractionError::UnknownCap {
                 cap_urn: wiring.cap_urn.to_string(),
             })?;
+        let cap_in_spec = MediaUrn::from_string(cap.urn.in_spec()).map_err(|e| {
+            MachineAbstractionError::RuntimeMediaInference {
+                strand_index,
+                cap_urn: wiring.cap_urn.to_string(),
+                runtime_input: cap.urn.in_spec().to_string(),
+                reason: format!("cap `in=` is not a valid media URN: {e}"),
+            }
+        })?;
+        let void_media = MediaUrn::from_string(crate::urn::media_urn::MEDIA_VOID)
+            .expect("MEDIA_VOID is a valid MediaUrn");
+        let primary_arg_index = if cap_in_spec.is_equivalent(&void_media).map_err(|e| {
+            MachineAbstractionError::RuntimeMediaInference {
+                strand_index,
+                cap_urn: wiring.cap_urn.to_string(),
+                runtime_input: cap.urn.in_spec().to_string(),
+                reason: format!("cap `in=` cannot be compared with media:void: {e}"),
+            }
+        })? {
+            None
+        } else {
+            Some(
+                cap.args
+                    .iter()
+                    .position(|arg| arg.is_main_input(&cap_in_spec))
+                    .ok_or_else(|| MachineAbstractionError::CapDoesNotDeclareInput {
+                        strand_index,
+                        cap_urn: wiring.cap_urn.to_string(),
+                    })?,
+            )
+        };
 
         // Build the list of data-flow input slots for this cap.
         //
@@ -408,34 +469,64 @@ pub fn resolve_pre_interned(
 
         // Derive `is_loop` from cardinality — the single ForEach rule
         // (`Cap::needs_foreach`, mirroring `get_outgoing_edges` line 673): the
-        // primary data input (the first stdin arg) carries a sequence but this cap
+        // primary data input (the arg whose stdin matches `in=`) carries a sequence but this cap
         // consumes it as a scalar, so it maps per-item. The primary stdin source node
-        // is the binding feeding the first stdin arg's slot; a GATHER on the primary
+        // is the binding feeding the main arg's slot; a GATHER on the primary
         // arg (several bindings) forms a sequence by construction. A cap with no
         // stdin arg (config-only) never loops.
-        let primary_stdin_source_is_sequence = stdin_arg_slot_urns
-            .first()
-            .map(|primary_slot| {
-                let primary: Vec<&EdgeAssignmentBinding> = bindings
+        let primary_stdin_sources: Vec<&EdgeAssignmentBinding> = primary_arg_index
+            .map(|index| {
+                let primary_slot = &stdin_arg_slot_urns[index];
+                bindings
                     .iter()
-                    .filter(|b| {
-                        b.cap_arg_media_urn
+                    .filter(|binding| {
+                        binding
+                            .cap_arg_media_urn
                             .is_equivalent(primary_slot)
                             .unwrap_or(false)
                     })
-                    .collect();
-                match primary.len() {
-                    0 => false,
-                    1 => node_is_sequence[primary[0].source as usize],
-                    // Gathered: N scalar producers form one sequence.
-                    _ => true,
-                }
+                    .collect()
             })
-            .unwrap_or(false);
-        let is_loop = cap.needs_foreach(primary_stdin_source_is_sequence);
+            .unwrap_or_default();
+        let primary_stdin_source_is_sequence = match primary_stdin_sources.as_slice() {
+            [] => false,
+            [primary] => node_is_sequence[primary.source as usize],
+            // Gathered: N scalar producers form one sequence.
+            _ => true,
+        };
+        let primary_stdin_source_is_anchor = matches!(
+            primary_stdin_sources.as_slice(),
+            [primary]
+                if !wirings
+                    .iter()
+                    .any(|candidate| candidate.target_node_id == primary.source)
+        );
+        let derived_is_loop = cap.needs_foreach(primary_stdin_source_is_sequence);
+
+        let (is_loop, foreach_token_id) = match &wiring.foreach_identity {
+            ForEachIdentity::Exact(Some(token_id))
+                if derived_is_loop || primary_stdin_source_is_anchor =>
+            {
+                (true, Some(token_id.clone()))
+            }
+            ForEachIdentity::Exact(None) if !derived_is_loop => (false, None),
+            ForEachIdentity::MintIfRequired if derived_is_loop => {
+                (true, Some(uuid::Uuid::new_v4().to_string()))
+            }
+            ForEachIdentity::MintIfRequired => (false, None),
+            ForEachIdentity::Exact(explicit) => {
+                return Err(MachineAbstractionError::ForEachShapeMismatch {
+                    strand_index,
+                    cap_urn: wiring.cap_urn.to_string(),
+                    has_explicit_boundary: explicit.is_some(),
+                    is_loop: derived_is_loop,
+                });
+            }
+        };
 
         indexed_edges.push(MachineEdge {
             token_id: wiring.token_id.clone(),
+            foreach_token_id,
             cap_urn: wiring.cap_urn.clone(),
             assignment: bindings,
             target: wiring.target_node_id,
@@ -583,8 +674,7 @@ fn match_sources_to_args(
                 // value-exact arg (`media:ext=md`) while being LESS specific —
                 // runtime narrowing closes the gap. Either direction of
                 // mismatch is a worse fit than an exact one, so both cost.
-                let distance =
-                    source.specificity().abs_diff(arg.specificity()) as i64;
+                let distance = source.specificity().abs_diff(arg.specificity()) as i64;
                 cost[s_idx][a_idx] = Some(distance);
             }
         }
@@ -734,7 +824,8 @@ pub fn assign_sources_to_anchors(
     for (s_idx, source) in sources.iter().enumerate() {
         for (a_idx, anchor) in anchors.iter().enumerate() {
             if source.conforms_to(anchor).unwrap_or(false) {
-                cost[s_idx][a_idx] = Some(source.specificity() as i64 - anchor.specificity() as i64);
+                cost[s_idx][a_idx] =
+                    Some(source.specificity() as i64 - anchor.specificity() as i64);
             }
         }
         if cost[s_idx].iter().all(|c| c.is_none()) {
@@ -767,16 +858,16 @@ pub fn assign_sources_to_anchors(
         // violation). The first source is the canonical representative.
         return Err(MachineAbstractionError::UnbindableAnchorSource {
             strand_index,
-            source_urn: sources
-                .first()
-                .map(|s| s.to_string())
-                .unwrap_or_default(),
+            source_urn: sources.first().map(|s| s.to_string()).unwrap_or_default(),
         });
     }
     if best_assignments.len() != 1 {
         return Err(MachineAbstractionError::AmbiguousAnchorBinding { strand_index });
     }
-    Ok(best_assignments.into_iter().next().expect("checked len == 1"))
+    Ok(best_assignments
+        .into_iter()
+        .next()
+        .expect("checked len == 1"))
 }
 
 /// Recursively enumerate all source→arg assignments with a defined cost,
@@ -968,7 +1059,10 @@ fn sort_ready(ready: &mut Vec<usize>, edges: &[MachineEdge], nodes: &[MediaUrn])
 
 #[cfg(test)]
 mod tests {
-    use super::{match_sources_to_args, resolve_pre_interned, resolve_strand, PreInternedWiring};
+    use super::{
+        match_sources_to_args, resolve_pre_interned, resolve_strand, ForEachIdentity,
+        PreInternedWiring,
+    };
     use crate::machine::error::MachineAbstractionError;
     use crate::machine::test_fixtures::{
         build_cap, build_cap_with_slot_stdin_pairs, cap, cap_step, collect_step, for_each_step,
@@ -1004,7 +1098,8 @@ mod tests {
         // assigned to that arg with distance > 0.
         let sources = vec![media("media:enc=utf-8;page")];
         let args = vec![media("media:enc=utf-8")];
-        let cap_urn = cap("cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;enc=utf-8\"");
+        let cap_urn =
+            cap("cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;enc=utf-8\"");
         let pairs = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0)
             .expect("more-specific source must be matched to its arg");
         assert!(pairs[0].0.is_equivalent(&media("media:enc=utf-8")).unwrap());
@@ -1023,7 +1118,8 @@ mod tests {
         let sources = vec![media("media:numeric")];
         let args = vec![media("media:enc=utf-8")];
         let cap_urn = cap("cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"");
-        let err = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 7).unwrap_err();
+        let err = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 7)
+            .unwrap_err();
         match err {
             MachineAbstractionError::UnmatchedSourceInCapArgs {
                 strand_index,
@@ -1054,11 +1150,16 @@ mod tests {
         // enc=utf-8;model-spec ⪯ enc=utf-8 (dist 1)
         //
         // Unique optimum: (image;png → image;png), (enc=utf-8;model-spec → enc=utf-8)
-        let sources = vec![media("media:ext=png;image"), media("media:enc=utf-8;model-spec")];
+        let sources = vec![
+            media("media:ext=png;image"),
+            media("media:enc=utf-8;model-spec"),
+        ];
         let args = vec![media("media:ext=png;image"), media("media:enc=utf-8")];
-        let cap_urn =
-            cap("cap:in=\"media:ext=png;image\";describe;out=\"media:enc=utf-8;image-description\"");
-        let pairs = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0).unwrap();
+        let cap_urn = cap(
+            "cap:in=\"media:ext=png;image\";describe;out=\"media:enc=utf-8;image-description\"",
+        );
+        let pairs =
+            match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0).unwrap();
         assert_eq!(pairs.len(), 2);
         // Pairs are sorted by cap_arg_media_urn structurally.
         // image;png and enc=utf-8: structural Ord places
@@ -1094,7 +1195,8 @@ mod tests {
         let sources = vec![media("media:enc=utf-8"), media("media:enc=utf-8")];
         let args = vec![media("media:enc=utf-8"), media("media:enc=utf-8")];
         let cap_urn = cap("cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"");
-        let err = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0).unwrap_err();
+        let err = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0)
+            .unwrap_err();
         assert!(
             matches!(
                 err,
@@ -1108,10 +1210,15 @@ mod tests {
     // TEST1183: Matching fails when more sources are provided than the cap has input arguments.
     #[test]
     fn test1183_match_more_sources_than_args_fails_hard() {
-        let sources = vec![media("media:ext=pdf"), media("media:ext=pdf"), media("media:ext=pdf")];
+        let sources = vec![
+            media("media:ext=pdf"),
+            media("media:ext=pdf"),
+            media("media:ext=pdf"),
+        ];
         let args = vec![media("media:ext=pdf"), media("media:ext=pdf")];
         let cap_urn = cap("cap:in=\"media:ext=pdf\";t;out=\"media:ext=pdf\"");
-        let err = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0).unwrap_err();
+        let err = match_sources_to_args(&sources, &args, &vec![false; args.len()], &cap_urn, 0)
+            .unwrap_err();
         assert!(matches!(
             err,
             MachineAbstractionError::UnmatchedSourceInCapArgs { .. }
@@ -1338,7 +1445,10 @@ mod tests {
     fn test1188_resolve_strand_no_cap_steps_fails_hard() {
         let registry = registry_with(vec![]);
         let strand = strand_from_steps(
-            vec![for_each_step("media:ext=pdf"), collect_step("media:ext=pdf")],
+            vec![
+                for_each_step("media:ext=pdf"),
+                collect_step("media:ext=pdf"),
+            ],
             "no caps at all",
         );
         let err = resolve_strand(&strand, &registry, 0).unwrap_err();
@@ -1528,9 +1638,11 @@ mod tests {
             media("media:enc=utf-8;ext=txt"),
         ];
         let cap_urn =
-            CapUrn::from_string("cap:in=\"media:ext=pdf\";merge;out=\"media:enc=utf-8;ext=txt\"").unwrap();
+            CapUrn::from_string("cap:in=\"media:ext=pdf\";merge;out=\"media:enc=utf-8;ext=txt\"")
+                .unwrap();
         let wirings = vec![PreInternedWiring {
             token_id: "tok-1".to_string(),
+            foreach_identity: ForEachIdentity::MintIfRequired,
             cap_urn,
             source_node_ids: vec![0, 1], // pdf first, enc=utf-8 second
             target_node_id: 2,
@@ -1571,12 +1683,14 @@ mod tests {
         let wirings = vec![
             PreInternedWiring {
                 token_id: "tok-2".to_string(),
+                foreach_identity: ForEachIdentity::MintIfRequired,
                 cap_urn: CapUrn::from_string(urn_a).unwrap(),
                 source_node_ids: vec![0],
                 target_node_id: 1,
             },
             PreInternedWiring {
                 token_id: "tok-3".to_string(),
+                foreach_identity: ForEachIdentity::MintIfRequired,
                 cap_urn: CapUrn::from_string(urn_b).unwrap(),
                 source_node_ids: vec![1],
                 target_node_id: 0,
@@ -1627,7 +1741,8 @@ mod tests {
         ];
         let args = vec![media("media:enc=utf-8;page"), media("media:enc=utf-8")];
         let arg_seq = vec![false, true];
-        let cap_urn = cap("cap:in=\"media:enc=utf-8;page\";compose;out=\"media:enc=utf-8;ext=txt\"");
+        let cap_urn =
+            cap("cap:in=\"media:enc=utf-8;page\";compose;out=\"media:enc=utf-8;ext=txt\"");
         let pairs = match_sources_to_args(&sources, &args, &arg_seq, &cap_urn, 0)
             .expect("unique injection must resolve");
         assert_eq!(pairs.len(), 2);
@@ -1664,12 +1779,18 @@ mod tests {
             media("media:chunk;enc=utf-8;page"),
             media("media:chunk;enc=utf-8;page"),
         ];
-        let args = vec![media("media:enc=utf-8;page"), media("media:chunk;enc=utf-8")];
+        let args = vec![
+            media("media:enc=utf-8;page"),
+            media("media:chunk;enc=utf-8"),
+        ];
         let arg_seq = vec![true, true];
         let cap_urn = cap("cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\"");
         let err = match_sources_to_args(&sources, &args, &arg_seq, &cap_urn, 0).unwrap_err();
         assert!(
-            matches!(err, MachineAbstractionError::AmbiguousMachineNotation { .. }),
+            matches!(
+                err,
+                MachineAbstractionError::AmbiguousMachineNotation { .. }
+            ),
             "tied gather distributions must be ambiguous, got {err:?}"
         );
     }
@@ -1711,6 +1832,7 @@ mod tests {
         let wirings = vec![
             PreInternedWiring {
                 token_id: "tok-a".to_string(),
+                foreach_identity: ForEachIdentity::MintIfRequired,
                 cap_urn: CapUrn::from_string(
                     "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8;page\"",
                 )
@@ -1720,6 +1842,7 @@ mod tests {
             },
             PreInternedWiring {
                 token_id: "tok-b".to_string(),
+                foreach_identity: ForEachIdentity::MintIfRequired,
                 cap_urn: CapUrn::from_string(
                     "cap:in=\"media:ext=md\";op-b;out=\"media:enc=utf-8;page\"",
                 )
@@ -1729,6 +1852,7 @@ mod tests {
             },
             PreInternedWiring {
                 token_id: "tok-concat".to_string(),
+                foreach_identity: ForEachIdentity::MintIfRequired,
                 cap_urn: CapUrn::from_string(
                     "cap:in=\"media:enc=utf-8\";concat;out=\"media:enc=utf-8;ext=txt\"",
                 )
@@ -1759,7 +1883,10 @@ mod tests {
         assert_eq!(concat_edge.assignment[0].source, 2);
         assert_eq!(concat_edge.assignment[1].source, 3);
         // The gathered value IS the sequence the arg consumes — no ForEach.
-        assert!(!concat_edge.is_loop, "gather-fed sequence arg must not loop");
+        assert!(
+            !concat_edge.is_loop,
+            "gather-fed sequence arg must not loop"
+        );
         // Anchors: two inputs (pdf, md), one output (txt).
         assert_eq!(strand.input_anchors().len(), 2);
         assert_eq!(strand.output_anchors().len(), 1);
@@ -1805,6 +1932,7 @@ mod tests {
         let wirings = vec![
             PreInternedWiring {
                 token_id: "tok-a".to_string(),
+                foreach_identity: ForEachIdentity::MintIfRequired,
                 cap_urn: CapUrn::from_string(
                     "cap:in=\"media:ext=pdf\";op-a;out=\"media:enc=utf-8;page\"",
                 )
@@ -1814,6 +1942,7 @@ mod tests {
             },
             PreInternedWiring {
                 token_id: "tok-b".to_string(),
+                foreach_identity: ForEachIdentity::MintIfRequired,
                 cap_urn: CapUrn::from_string(
                     "cap:in=\"media:ext=md\";op-b;out=\"media:enc=utf-8;page\"",
                 )
@@ -1823,6 +1952,7 @@ mod tests {
             },
             PreInternedWiring {
                 token_id: "tok-concat".to_string(),
+                foreach_identity: ForEachIdentity::MintIfRequired,
                 cap_urn: CapUrn::from_string(
                     "cap:in=\"media:enc=utf-8\";concat;out=\"media:enc=utf-8;ext=txt\"",
                 )
@@ -1839,10 +1969,59 @@ mod tests {
             .iter()
             .find(|e| e.cap_urn.to_string().contains("concat"))
             .expect("concat edge present");
-        assert_eq!(concat_edge.assignment.len(), 2, "both members bound to the sequence arg");
+        assert_eq!(
+            concat_edge.assignment.len(),
+            2,
+            "both members bound to the sequence arg"
+        );
         assert!(
             !concat_edge.is_loop,
             "the gathered value IS the sequence the arg consumes — no ForEach"
         );
+    }
+
+    // TEST7122: Knitting and re-realizing a strand preserves the ForEach boundary
+    // identity independently from its body-entry cap. This is the complete route
+    // used by machine execution and catches the identity loss that made persisted
+    // body coordinates fail realized-path validation.
+    #[test]
+    fn test7122_foreach_identity_survives_knit_and_realize() {
+        let cap_urn =
+            "cap:constrained;in=\"media:enc=utf-8\";language=en;out=\"media:enc=utf-8;ext=txt;plain-text\";summarize";
+        let cap = build_cap(
+            cap_urn,
+            "summarize",
+            &["media:enc=utf-8"],
+            "media:enc=utf-8;ext=txt;plain-text",
+        );
+        let registry = registry_with(vec![cap]);
+        let mut boundary = for_each_step("media:enc=utf-8;page");
+        boundary.token_id = "tok-foreach".to_string();
+        let mut body = cap_step(
+            cap_urn,
+            "Summarize",
+            "media:enc=utf-8;page",
+            "media:enc=utf-8;ext=txt;plain-text",
+        );
+        body.token_id = "tok-cap".to_string();
+        let source = media("media:enc=utf-8;page");
+        let strand = strand_from_steps(vec![boundary, body], "foreach identity");
+
+        let machine_strand = resolve_strand(&strand, &registry, 0).unwrap();
+        assert_eq!(machine_strand.edges()[0].token_id, "tok-cap");
+        assert_eq!(
+            machine_strand.edges()[0].foreach_token_id.as_deref(),
+            Some("tok-foreach")
+        );
+
+        let realized =
+            crate::machine::realize::realize_strand(&machine_strand, &registry, &source, 0)
+                .unwrap();
+        assert_eq!(realized.steps[0].token_id, "tok-foreach");
+        assert!(matches!(
+            realized.steps[0].step_type,
+            crate::planner::StrandStepType::ForEach { .. }
+        ));
+        assert_eq!(realized.steps[1].token_id, "tok-cap");
     }
 }

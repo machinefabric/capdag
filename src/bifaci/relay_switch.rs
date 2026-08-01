@@ -55,6 +55,7 @@
 
 use crate::bifaci::frame::{FlowKey, Frame, FrameType, Limits, MessageId, SeqAssigner};
 use crate::bifaci::io::{identity_nonce, CborError, FrameReader, FrameWriter};
+use crate::bifaci::local_socket::{OwnedReadHalf, OwnedWriteHalf, UnixStream};
 use crate::cap::registry::FabricRegistry;
 use crate::planner::live_cap_fab::{LiveCapFab, ReachableTargetInfo, Strand};
 use crate::urn::media_urn::MediaUrn;
@@ -63,7 +64,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::{BufReader, BufWriter};
-use crate::bifaci::local_socket::{OwnedReadHalf, OwnedWriteHalf, UnixStream};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{error, info, warn};
 
@@ -112,8 +112,8 @@ impl From<std::io::Error> for RelaySwitchError {
 // RoutingEntry lives in `request_state` — the unified per-request state module
 // shared by every routing runtime (L7).
 use crate::bifaci::request_state::{
-    AdmissionController, AdmissionKey, AdmissionPermit, FrameDirection, RequestState,
-    RequestTable, RoutingEntry, TerminalKind,
+    AdmissionController, AdmissionKey, AdmissionPermit, FrameDirection, RequestState, RequestTable,
+    RoutingEntry, TerminalKind,
 };
 use crate::bifaci::stats::DropCounters;
 
@@ -1945,7 +1945,7 @@ impl RelaySwitch {
             Some(cap_urn.to_string()),
             Some(permit),
         )
-            .await?;
+        .await?;
 
         // Build frame with XID
         let mut frame_with_xid = req_frame;
@@ -1999,7 +1999,7 @@ impl RelaySwitch {
             Some(cap_urn.to_string()),
             Some(permit),
         )
-            .await?;
+        .await?;
 
         Ok((xid, rx))
     }
@@ -2072,7 +2072,7 @@ impl RelaySwitch {
             Some(cap_urn.to_string()),
             Some(permit),
         )
-            .await?;
+        .await?;
 
         Ok((xid, rx))
     }
@@ -2728,7 +2728,7 @@ impl RelaySwitch {
                     limits: RwLock::new(limits),
                     caps: RwLock::new(caps),
                     installed_cartridges: RwLock::new(payload.installed_cartridges),
-                host_protocol_stats: RwLock::new(payload.host_protocol_stats),
+                    host_protocol_stats: RwLock::new(payload.host_protocol_stats),
                     healthy: AtomicBool::new(healthy_at_register),
                     reader_handle: Mutex::new(Some(reader_handle)),
                     connected_at: std::sync::Mutex::new(Instant::now()),
@@ -2845,31 +2845,33 @@ impl RelaySwitch {
                     })
                 });
 
-                let (dest_idx, admission_cap, admission_cartridge) = if let Some(ref cartridge_id) = target_cartridge_id {
-                    // Direct routing by cartridge ID
-                    let masters = self.masters.read().await;
-                    let mut found = None;
-                    for (idx, master) in masters.iter().enumerate() {
-                        let cartridges = master.installed_cartridges.read().await;
-                        if cartridges.iter().any(|c| &c.id == cartridge_id) {
-                            found = Some(idx);
-                            break;
+                let (dest_idx, admission_cap, admission_cartridge) =
+                    if let Some(ref cartridge_id) = target_cartridge_id {
+                        // Direct routing by cartridge ID
+                        let masters = self.masters.read().await;
+                        let mut found = None;
+                        for (idx, master) in masters.iter().enumerate() {
+                            let cartridges = master.installed_cartridges.read().await;
+                            if cartridges.iter().any(|c| &c.id == cartridge_id) {
+                                found = Some(idx);
+                                break;
+                            }
                         }
-                    }
-                    let dest = found.ok_or_else(|| {
-                        RelaySwitchError::Protocol(format!(
-                            "Unknown cartridge '{}': not reported by any master",
-                            cartridge_id
-                        ))
-                    })?;
-                    (dest, None, Some(cartridge_id.clone()))
-                } else {
-                    // Standard cap-based dispatch
-                    let (dest, registered_cap) = self.find_route_for_cap(cap_urn, preferred_cap)
-                        .await
-                        .ok_or_else(|| RelaySwitchError::NoHandler(cap_urn.clone()))?;
-                    (dest, Some(registered_cap), None)
-                };
+                        let dest = found.ok_or_else(|| {
+                            RelaySwitchError::Protocol(format!(
+                                "Unknown cartridge '{}': not reported by any master",
+                                cartridge_id
+                            ))
+                        })?;
+                        (dest, None, Some(cartridge_id.clone()))
+                    } else {
+                        // Standard cap-based dispatch
+                        let (dest, registered_cap) = self
+                            .find_route_for_cap(cap_urn, preferred_cap)
+                            .await
+                            .ok_or_else(|| RelaySwitchError::NoHandler(cap_urn.clone()))?;
+                        (dest, Some(registered_cap), None)
+                    };
 
                 // A REQ arriving WITH an XID is the pre-registered path:
                 // the caller obtained the XID (and its response channel) from
@@ -2909,7 +2911,8 @@ impl RelaySwitch {
                         self.acquire_cap_admission(dest_idx, registered_cap).await?
                     }
                     (None, Some(cartridge_id)) => {
-                        self.acquire_cartridge_admission(dest_idx, cartridge_id).await?
+                        self.acquire_cartridge_admission(dest_idx, cartridge_id)
+                            .await?
                     }
                     _ => {
                         return Err(RelaySwitchError::Protocol(
@@ -2938,7 +2941,8 @@ impl RelaySwitch {
                     .map_err(RelaySwitchError::Protocol)?;
 
                 // Forward to destination with XID
-                self.write_initial_request(&key, dest_idx, &mut frame).await?;
+                self.write_initial_request(&key, dest_idx, &mut frame)
+                    .await?;
                 Ok(())
             }
 
@@ -3249,9 +3253,7 @@ impl RelaySwitch {
         }
 
         // If any match is preferred, pick the first preferred match.
-        if let Some((idx, registered_cap, _, _)) =
-            matches.iter().find(|(_, _, _, pref)| *pref)
-        {
+        if let Some((idx, registered_cap, _, _)) = matches.iter().find(|(_, _, _, pref)| *pref) {
             return Some((*idx, registered_cap.clone()));
         }
 
@@ -3389,7 +3391,8 @@ impl RelaySwitch {
                 }
 
                 // Forward to destination with XID
-                self.write_initial_request(&key, dest_idx, &mut frame).await?;
+                self.write_initial_request(&key, dest_idx, &mut frame)
+                    .await?;
 
                 // Do NOT return to engine (internal routing)
                 Ok(None)
@@ -3444,7 +3447,7 @@ impl RelaySwitch {
                                         Some(idx) => RouteBack::Master(idx),
                                     };
                                     (route, state.cap_urn)
-                                },
+                                }
                                 None => {
                                     let total = self
                                         .drops
@@ -3467,7 +3470,7 @@ impl RelaySwitch {
                                         Some(idx) => RouteBack::Master(idx),
                                     };
                                     (route, state.cap_urn.clone())
-                                },
+                                }
                                 None => {
                                     let total = self
                                         .drops
@@ -3893,9 +3896,9 @@ impl RelaySwitch {
         // would silently lose the initial routable set and the engine would
         // never see readiness. `send_replace` always stores the new value.
         if changed {
-            let _ = self
-                .aggregate_capabilities_tx
-                .send_replace(serde_json::to_vec(&all_caps).expect("cap URNs must serialize to JSON"));
+            let _ = self.aggregate_capabilities_tx.send_replace(
+                serde_json::to_vec(&all_caps).expect("cap URNs must serialize to JSON"),
+            );
         }
         // Installed-cartridges aggregate is the inventory view — what is
         // physically installed and known to any master, regardless of
@@ -4085,8 +4088,8 @@ fn parse_relay_notify_payload(
 mod tests {
     use super::*;
     use crate::bifaci::frame::{Frame, SeqAssigner};
-    use crate::standard::caps::CAP_IDENTITY;
     use crate::bifaci::local_socket::UnixStream;
+    use crate::standard::caps::CAP_IDENTITY;
 
     /// Create a test FabricRegistry for use in tests. Tests that need
     /// bookend-eligible URNs should populate via
@@ -4399,9 +4402,12 @@ mod tests {
         });
 
         let switch = Arc::new(
-            RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-                .await
-                .unwrap(),
+            RelaySwitch::new(
+                wrap_with_test_ids(vec![engine_sock]),
+                test_fabric_registry(),
+            )
+            .await
+            .unwrap(),
         );
         // Consume the capacity update before starting the two invocations.
         switch.read_from_masters().await.unwrap();
@@ -4436,18 +4442,19 @@ mod tests {
         })
         .await
         .expect("active failure must be routed to its body");
-        let failed = first_rx.recv().await.expect("first body receives terminal ERR");
+        let failed = first_rx
+            .recv()
+            .await
+            .expect("first body receives terminal ERR");
         assert_eq!(failed.frame_type, FrameType::Err);
         assert_eq!(failed.error_code(), Some("CARTRIDGE_DIED"));
 
-        let (_second_rid, mut second_rx) = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            second_call,
-        )
-        .await
-        .expect("the failed body must release the next admission slot")
-        .expect("second invocation task must not fail")
-        .expect("second invocation must register");
+        let (_second_rid, mut second_rx) =
+            tokio::time::timeout(std::time::Duration::from_secs(1), second_call)
+                .await
+                .expect("the failed body must release the next admission slot")
+                .expect("second invocation task must not fail")
+                .expect("second invocation must register");
         second_seen_rx.await.unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             loop {
@@ -4461,7 +4468,11 @@ mod tests {
         .await
         .expect("replacement request must receive its terminal frame");
         assert_eq!(
-            second_rx.recv().await.expect("replacement request completes").frame_type,
+            second_rx
+                .recv()
+                .await
+                .expect("replacement request completes")
+                .frame_type,
             FrameType::End
         );
         slave.await.unwrap();
@@ -4554,7 +4565,13 @@ mod tests {
                     probe_xid = f.routing_id.clone();
                     if !succeed {
                         // Broken identity handler: reply ERR on the same flow.
-                        let mut err = Frame::err(f.id.clone(), "BROKEN", crate::AttributionClass::Internal, "test cartridge", None);
+                        let mut err = Frame::err(
+                            f.id.clone(),
+                            "BROKEN",
+                            crate::AttributionClass::Internal,
+                            "test cartridge",
+                            None,
+                        );
                         err.routing_id = f.routing_id.clone();
                         let _ = writer.write(&err).await;
                         return;
@@ -4573,8 +4590,14 @@ mod tests {
                     );
                     ss.routing_id = probe_xid.clone();
                     let checksum = Frame::compute_checksum(&nonce);
-                    let mut chunk =
-                        Frame::chunk(rid.clone(), stream_id.clone(), 0, nonce.clone(), 0, checksum);
+                    let mut chunk = Frame::chunk(
+                        rid.clone(),
+                        stream_id.clone(),
+                        0,
+                        nonce.clone(),
+                        0,
+                        checksum,
+                    );
                     chunk.routing_id = probe_xid.clone();
                     let mut se = Frame::stream_end(rid.clone(), stream_id, 1);
                     se.routing_id = probe_xid.clone();
@@ -5311,7 +5334,8 @@ mod tests {
         .unwrap();
 
         // Specific request for PDF thumbnail
-        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
+        let request =
+            "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
 
         // Without preference: routes to master 1 (specific, closest-specificity)
         assert_eq!(switch.find_master_for_cap(request, None).await, Some(1));
@@ -5356,7 +5380,8 @@ mod tests {
         .await
         .unwrap();
 
-        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
+        let request =
+            "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
 
         // Preference for an unrelated cap — no equivalent match, falls back to closest-specificity
         let unrelated =
@@ -5397,7 +5422,8 @@ mod tests {
 
         // Specific PDF request — generic handler CAN dispatch it
         // because candidate's wildcard input (media:) accepts any input type
-        let request = "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
+        let request =
+            "cap:in=\"media:ext=pdf\";generate-thumbnail;out=\"media:ext=png;image;thumbnail\"";
         assert_eq!(
             switch.find_master_for_cap(request, None).await,
             Some(0),
@@ -5507,7 +5533,13 @@ mod tests {
             // Read identity REQ, respond with ERR
             let req = reader.read().await.unwrap().expect("expected identity REQ");
             assert_eq!(req.frame_type, FrameType::Req);
-            let err = Frame::err(req.id, "BROKEN", crate::AttributionClass::Internal, "identity verification broken", None);
+            let err = Frame::err(
+                req.id,
+                "BROKEN",
+                crate::AttributionClass::Internal,
+                "identity verification broken",
+                None,
+            );
             writer.write(&err).await.unwrap();
         });
 
@@ -5623,7 +5655,13 @@ mod tests {
                     Err(_) => return,
                 };
                 if frame.frame_type == FrameType::Req {
-                    let mut err = Frame::err(frame.id.clone(), "BROKEN", crate::AttributionClass::Internal, "test cartridge", None);
+                    let mut err = Frame::err(
+                        frame.id.clone(),
+                        "BROKEN",
+                        crate::AttributionClass::Internal,
+                        "test cartridge",
+                        None,
+                    );
                     err.routing_id = frame.routing_id.clone();
                     let _ = writer.write(&err).await;
                     return;
@@ -7100,8 +7138,7 @@ mod tests {
             routing_gc_runs_total: 2,
             routing_gc_evicted_total: 7,
         };
-        let payload = RelayNotifyCapabilitiesPayload::new(vec![])
-            .with_host_protocol_stats(stats);
+        let payload = RelayNotifyCapabilitiesPayload::new(vec![]).with_host_protocol_stats(stats);
         let bytes = serde_json::to_vec(&payload).unwrap();
 
         let parsed = parse_relay_notify_payload(&bytes).expect("payload must parse");
@@ -7147,7 +7184,13 @@ mod tests {
                     break f;
                 }
             };
-            let mut log = Frame::log(req.id.clone(), "info", crate::AttributionClass::Internal, "first result row", None);
+            let mut log = Frame::log(
+                req.id.clone(),
+                "info",
+                crate::AttributionClass::Internal,
+                "first result row",
+                None,
+            );
             log.routing_id = req.routing_id.clone();
             writer.write(&log).await.unwrap();
 
@@ -7162,9 +7205,12 @@ mod tests {
         });
 
         let switch = Arc::new(
-            RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-                .await
-                .unwrap(),
+            RelaySwitch::new(
+                wrap_with_test_ids(vec![engine_sock]),
+                test_fabric_registry(),
+            )
+            .await
+            .unwrap(),
         );
         switch.start_background_pump();
 
@@ -7268,9 +7314,12 @@ mod tests {
         });
 
         let switch = Arc::new(
-            RelaySwitch::new(wrap_with_test_ids(vec![engine_sock]), test_fabric_registry())
-                .await
-                .unwrap(),
+            RelaySwitch::new(
+                wrap_with_test_ids(vec![engine_sock]),
+                test_fabric_registry(),
+            )
+            .await
+            .unwrap(),
         );
 
         // The initial advertisement carried no host stats: absent, not zeroed.
@@ -7379,7 +7428,10 @@ mod tests {
             .expect("terminal must route");
 
         // The terminal was DELIVERED to the waiting channel...
-        let delivered = rx.recv().await.expect("END must reach the response channel");
+        let delivered = rx
+            .recv()
+            .await
+            .expect("END must reach the response channel");
         assert_eq!(delivered.frame_type, FrameType::End);
         assert_eq!(delivered.final_progress(), Some(1.0));
 
@@ -7406,7 +7458,12 @@ mod tests {
             .await
             .expect("post-terminal frame must not error");
         assert_eq!(
-            switch.protocol_stats().await.drops.by_reason.get("no_route"),
+            switch
+                .protocol_stats()
+                .await
+                .drops
+                .by_reason
+                .get("no_route"),
             Some(&1)
         );
     }
@@ -7440,7 +7497,13 @@ mod tests {
             )
             .unwrap();
 
-        let mut err = Frame::err(rid.clone(), "HANDLER_ERROR", crate::AttributionClass::Internal, "boom", None);
+        let mut err = Frame::err(
+            rid.clone(),
+            "HANDLER_ERROR",
+            crate::AttributionClass::Internal,
+            "boom",
+            None,
+        );
         err.routing_id = Some(xid);
         switch.handle_master_frame(0, err).await.unwrap();
 

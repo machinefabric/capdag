@@ -705,9 +705,9 @@ impl Cap {
     /// Cardinality shape of this cap's primary data path:
     /// `(input_is_sequence, output_is_sequence)`.
     ///
-    /// `input_is_sequence` is the `is_sequence` flag of the first arg that carries
-    /// a `Stdin` source — the primary data input the wire delivers. `output_is_sequence`
-    /// is the output's `is_sequence` flag.
+    /// `input_is_sequence` is the `is_sequence` flag of the arg whose `Stdin`
+    /// source matches the cap URN's `in=` spec — argument declaration order has
+    /// no semantics. `output_is_sequence` is the output's `is_sequence` flag.
     ///
     /// This is THE single definition of cap cardinality. Path search
     /// (`planner::live_cap_fab::get_outgoing_edges`), editor realization
@@ -715,15 +715,23 @@ impl Cap {
     /// (`machine::resolve`) all read it here so they can never diverge — the
     /// distinction that decides whether a ForEach is synthesized.
     pub fn sequence_shape(&self) -> (bool, bool) {
-        let input_is_sequence = self
-            .args
-            .iter()
-            .find(|arg| {
-                arg.sources
-                    .iter()
-                    .any(|s| matches!(s, ArgSource::Stdin { .. }))
-            })
-            .map_or(false, |arg| arg.is_sequence);
+        let in_spec = crate::urn::media_urn::MediaUrn::from_string(self.urn.in_spec())
+            .expect("cap registry invariant: cap in= is a valid MediaUrn");
+        let void_media =
+            crate::urn::media_urn::MediaUrn::from_string(crate::urn::media_urn::MEDIA_VOID)
+                .expect("MEDIA_VOID is a valid MediaUrn");
+        let input_is_sequence = if in_spec
+            .is_equivalent(&void_media)
+            .expect("cap registry invariant: cardinality media URNs are comparable")
+        {
+            false
+        } else {
+            self.args
+                .iter()
+                .find(|arg| arg.is_main_input(&in_spec))
+                .expect("cap registry invariant: every non-void cap declares its main input")
+                .is_sequence
+        };
         let output_is_sequence = self.output.as_ref().map_or(false, |o| o.is_sequence);
         (input_is_sequence, output_is_sequence)
     }
@@ -812,10 +820,7 @@ impl Cap {
     /// The primary (first) alias — used for single-name display (help text,
     /// listings). A cap always has at least one alias.
     pub fn primary_alias(&self) -> &str {
-        self.aliases
-            .first()
-            .map(|s| s.as_str())
-            .unwrap_or_default()
+        self.aliases.first().map(|s| s.as_str()).unwrap_or_default()
     }
 
     /// Whether `name` is one of this cap's aliases (exact match).
@@ -1446,7 +1451,11 @@ mod tests {
     #[test]
     fn test1127_cap_documentation_round_trip_with_markdown_body() {
         let urn = CapUrn::from_string(&test_urn("documented")).unwrap();
-        let mut cap = Cap::new(urn, "Documented Cap".to_string(), vec!["documented".to_string()]);
+        let mut cap = Cap::new(
+            urn,
+            "Documented Cap".to_string(),
+            vec!["documented".to_string()],
+        );
 
         // A non-trivial markdown body — multi-line, headings, code blocks,
         // backticks, embedded quotes, and a literal CRLF and Unicode dingbat
@@ -1666,5 +1675,50 @@ mod tests {
             !wrong_stdin.is_main_input(&in_spec),
             "a Stdin source whose URN is not `in=` does not mark the main input"
         );
+    }
+
+    /// TEST8065: cardinality follows the declared main input even when a
+    /// secondary stdin-capable argument appears first in declaration order.
+    #[test]
+    fn test8065_sequence_shape_uses_main_input_identity_not_arg_order() {
+        let urn = CapUrn::from_string(r#"cap:in="media:enc=utf-8";ordered;out="media:enc=utf-8""#)
+            .unwrap();
+        let secondary = CapArg::new(
+            "media:enc=utf-8;context",
+            false,
+            vec![ArgSource::Stdin {
+                stdin: "media:enc=utf-8;context".to_string(),
+            }],
+        );
+        let mut main = CapArg::new(
+            "media:enc=utf-8",
+            true,
+            vec![ArgSource::Stdin {
+                stdin: "media:enc=utf-8".to_string(),
+            }],
+        );
+        main.is_sequence = true;
+        let cap = Cap::with_args(
+            urn,
+            "Ordered args".to_string(),
+            vec!["ordered".to_string()],
+            vec![secondary, main],
+        );
+
+        assert_eq!(cap.sequence_shape(), (true, false));
+        assert!(!cap.needs_foreach(true));
+    }
+
+    /// TEST8066: a declared void-input producer has no main-input argument and
+    /// therefore has scalar input cardinality without inventing an arg.
+    #[test]
+    fn test8066_void_input_sequence_shape_is_scalar_without_arguments() {
+        let cap = Cap::new(
+            CapUrn::from_string(r#"cap:in="media:void";clock;out="media:time""#).unwrap(),
+            "Clock".to_string(),
+            vec!["clock".to_string()],
+        );
+
+        assert_eq!(cap.sequence_shape(), (false, false));
     }
 }

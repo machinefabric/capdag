@@ -39,8 +39,8 @@ pub use parser::parse_machine_to_cap_dag;
 pub use machine_plan::build_plans_from_notation;
 
 pub use execute_plan::{
-    execute_plan, BodyOutcomeFn, EngineRuntime, OutputItem, PipelineItemFn, PipelineResult,
-    SegmentOutput, WriterResult,
+    execute_plan, BodyOutcomeFn, EngineRuntime, ForEachBodyCoordinate, ForEachItemSnapshot,
+    ForEachItemsFn, OutputItem, PipelineItemFn, PipelineResult, SegmentOutput, WriterResult,
 };
 
 pub use cli_cap::{
@@ -66,8 +66,6 @@ pub use executor::{
 pub use stream_io::{
     collect_terminal_output, decode_terminal_output, send_one_stream, unwrap_cbor_value,
     ActivityTimer, CreditGrantFn, CreditPlumbing, FlowObserver, IncrementalWriter, PipelineLogFn,
-    PipelineLogRecord,
-    SegmentWriterFactory,
-    PipelineProgressTracker, StreamIoError, TerminalItem, TerminalMeta, TerminalOutput,
-    PIPELINE_STALL_TIMEOUT_SECS,
+    PipelineLogRecord, PipelineProgressTracker, SegmentWriterFactory, StreamIoError, TerminalItem,
+    TerminalMeta, TerminalOutput, PIPELINE_STALL_TIMEOUT_SECS,
 };

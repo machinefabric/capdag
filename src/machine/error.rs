@@ -119,6 +119,34 @@ pub enum MachineAbstractionError {
     #[error("strand {strand_index}: edges do not form a connected data-flow graph")]
     DisconnectedStrand { strand_index: usize },
 
+    /// The explicit cardinality boundary carried by a resolved `Strand` does not
+    /// agree with the cardinality derived from the fabric definitions. A boundary
+    /// identity may neither be discarded nor attached to a scalar edge.
+    #[error("strand {strand_index}: cap '{cap_urn}' has inconsistent ForEach shape (explicit boundary: {has_explicit_boundary}, derived loop: {is_loop})")]
+    ForEachShapeMismatch {
+        strand_index: usize,
+        cap_urn: String,
+        has_explicit_boundary: bool,
+        is_loop: bool,
+    },
+
+    /// A cardinality transition was not followed by the cap it qualifies.
+    #[error(
+        "strand {strand_index}: ForEach step '{token_id}' is not followed by a capability step"
+    )]
+    DanglingForEach {
+        strand_index: usize,
+        token_id: String,
+    },
+
+    /// Two ForEach boundaries cannot qualify the same cap step.
+    #[error("strand {strand_index}: ForEach step '{token_id}' follows unresolved ForEach step '{previous_token_id}'")]
+    ConsecutiveForEach {
+        strand_index: usize,
+        previous_token_id: String,
+        token_id: String,
+    },
+
     /// Anchor binding: the number of run-supplied sources does not equal the number
     /// of input anchors. A run binds exactly one source per input anchor — no
     /// positional guessing, no partial binding.
@@ -146,7 +174,9 @@ pub enum MachineAbstractionError {
 
     /// Realization: an input anchor has no bound source. Every input anchor must
     /// receive exactly one concrete source media before the strand can realize.
-    #[error("strand {strand_index}: input anchor {anchor_id} ('{anchor_urn}') has no bound source")]
+    #[error(
+        "strand {strand_index}: input anchor {anchor_id} ('{anchor_urn}') has no bound source"
+    )]
     MissingAnchorSource {
         strand_index: usize,
         anchor_id: u32,

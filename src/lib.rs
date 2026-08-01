@@ -29,8 +29,8 @@
 //! 6. Relay-specific: RelayNotify (slave→master) and RelayState (master→slave)
 
 pub mod bifaci;
-pub mod cap;
 pub mod bundled_cartridge_hashes;
+pub mod cap;
 pub mod cartridge_discovery;
 pub mod cartridge_registry_version;
 pub mod dev;
@@ -69,16 +69,16 @@ pub use media::profile::{ProfileSchemaError, ProfileSchemaRegistry};
 pub use media::spec::*;
 
 // Unified fabric registry — caps + media defs in one type
-pub use fabric::registry::{FabricRegistry, FabricRegistryError, RegistryConfig, StoredMediaDef};
 pub use fabric::alias::{
     classify_alias_target, is_alias_token, normalize_alias_name, token_is_urn, AliasNameError,
     AliasTargetKind, StoredAlias,
 };
+pub use fabric::registry::{FabricRegistry, FabricRegistryError, RegistryConfig, StoredMediaDef};
 
 // Build-time-baked fabric manifest version (see capdag/build.rs).
+pub use bundled_cartridge_hashes::BUNDLED_CARTRIDGE_HASHES;
 pub use cartridge_registry_version::CARTRIDGE_REGISTRY_VERSION;
 pub use fabric_manifest_version::FABRIC_MANIFEST_VERSION;
-pub use bundled_cartridge_hashes::BUNDLED_CARTRIDGE_HASHES;
 
 // Cartridge binary + manifest signing (minisign / ed25519): runtime
 // verification of registry-downloaded pure-binary artifacts and signed
@@ -124,25 +124,24 @@ pub use bifaci::cartridge_runtime::{
     PeerInvoker, PeerResponse, PeerResponseItem, ProgressSender, Request, RuntimeError,
     StreamError, StreamMeta, StreamSender, WET_KEY_REQUEST,
 };
+pub use bifaci::credit::{CreditClosed, CreditGate, CreditRouter};
 pub use bifaci::decode_chunk_payload;
 pub use bifaci::frame::{
     CreditDirection, DropReason, FlowKey, Frame, FrameType, Limits, MessageId, ReorderBuffer,
-    SeqAssigner,
-    DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_CHUNK, DEFAULT_MAX_FRAME, DEFAULT_MAX_REORDER_BUFFER,
-    PROTOCOL_VERSION,
+    SeqAssigner, DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_CHUNK, DEFAULT_MAX_FRAME,
+    DEFAULT_MAX_REORDER_BUFFER, PROTOCOL_VERSION,
 };
-pub use bifaci::credit::{CreditClosed, CreditGate, CreditRouter};
+pub use bifaci::io::{
+    decode_frame, encode_frame, handshake, handshake_accept, read_frame, verify_identity,
+    write_frame, CborError, FrameReader, FrameWriter, HandshakeResult,
+};
+pub use bifaci::manifest::*;
 pub use bifaci::request_state::{
     FrameDirection, RequestPhase, RequestSnapshot, RequestState, RequestTable,
     RequestTableSnapshot, RoutingEntry, StreamFlowStats, StreamSnapshot, TerminalKind,
     TerminatedSummary,
 };
 pub use bifaci::stats::{DropCounters, DropSnapshot, TerminatedFlows};
-pub use bifaci::io::{
-    decode_frame, encode_frame, handshake, handshake_accept, read_frame, verify_identity,
-    write_frame, CborError, FrameReader, FrameWriter, HandshakeResult,
-};
-pub use bifaci::manifest::*;
 
 // Re-export ops crate types used by Op-based handlers
 pub use async_trait::async_trait;
@@ -186,17 +185,17 @@ pub use cartridge_discovery::{
 };
 
 // Relay exports
+pub use bifaci::host_runtime::HostProtocolStats;
 pub use bifaci::in_process_host::{
     accumulate_input, FrameHandler, InProcessCartridgeHost, ResponseWriter,
 };
+pub use bifaci::protocol_trace::{ProtocolTraceError, ProtocolTraceSink};
 pub use bifaci::relay::{RelayMaster, RelaySlave};
 pub use bifaci::relay_switch::{
     CartridgeAttachmentError, CartridgeAttachmentErrorKind, CartridgeLifecycle,
     InstalledCartridgeRecord, MasterHealthStatus, RelayNotifyCapabilitiesPayload, RelaySwitch,
     RelaySwitchError, RelaySwitchProtocolStats,
 };
-pub use bifaci::host_runtime::HostProtocolStats;
-pub use bifaci::protocol_trace::{ProtocolTraceError, ProtocolTraceSink};
 
 // Planner — planning, discovery, and execution for machines
 pub use planner::{
@@ -267,51 +266,55 @@ pub use orchestrator::{
     collect_terminal_output,
     decode_terminal_output,
     execute_dag,
-    run_dag_on_context,
-    DagOutput,
-    FlowObserver,
-    SegmentWriterFactory,
     // Plan execution — the single ForEach/Collect-aware executor, shared by the
     // reference/CLI runtime and the engine.
     execute_plan,
     map_progress,
     parse_machine_to_cap_dag,
     plan_to_resolved_graph,
-    BodyOutcomeFn,
-    CliRuntime,
-    EngineRuntime,
-    OutputItem,
-    PipelineItemFn,
-    PipelineResult,
-    SegmentOutput,
-    WriterResult,
+    run_dag_on_context,
     send_one_stream,
     split_cbor_array,
     split_cbor_sequence,
     unwrap_cbor_value,
     wrap_raw_items_as_cbor_sequence,
     ActivityTimer,
-    CreditGrantFn,
-    CreditPlumbing,
-    TerminalItem,
-    TerminalOutput,
+    BodyOutcomeFn,
     CapProgressFn,
     CapStepProgressFn,
     CartridgeManager,
     CborUtilError,
+    CliRuntime,
+    CreditGrantFn,
+    CreditPlumbing,
+    DagOutput,
     EdgeGroup,
+    EngineRuntime,
     ExecutionContext,
     ExecutionError,
+    FlowObserver,
+    ForEachBodyCoordinate,
+    ForEachItemSnapshot,
+    ForEachItemsFn,
     IncrementalWriter,
     NodeData,
+    OutputItem,
     ParseOrchestrationError,
-    PipelineLogFn, PipelineLogRecord,
+    PipelineItemFn,
+    PipelineLogFn,
+    PipelineLogRecord,
     PipelineProgressTracker,
+    PipelineResult,
     ProgressMapper,
     ResolvedEdge,
     ResolvedGraph,
+    SegmentOutput,
+    SegmentWriterFactory,
     StreamIoError,
+    TerminalItem,
     TerminalMeta,
+    TerminalOutput,
+    WriterResult,
     PIPELINE_STALL_TIMEOUT_SECS,
 };
 
