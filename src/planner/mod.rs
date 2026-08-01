@@ -55,28 +55,28 @@ pub use cardinality::{
     StructureCompatibility,
 };
 pub use collection_input::{CapInputCollection, CollectionFile};
-pub use plan_analysis::{
-    derive_collected_media_urn, derive_foreach_media_urns, derive_output_media_urn,
-    derive_output_producing_cap_urn, find_collect_for_foreach, resolve_plan_output,
-};
 pub use live_cap_fab::{
     ArgSourceRef, CapInput, LiveCapFab, LiveMachinePlanEdge, LiveMachinePlanEdgeType,
     PathFindingEvent, ReachableTargetInfo, Strand, StrandStep, StrandStepType,
-};
-pub use plan_space::{
-    ConvergenceArity, ConvergenceLocation, ConvergenceMechanism, ConvergencePolicy,
-    ConvergencePresence, ConvergentTargetInfo, ConvergentTargets, DivergenceLocation,
-    DivergencePolicy, DivergencePresence, PlanApex, PlanCandidate, PlanCost, PlanError,
-    PlanMode, PlanOutcome, PlanProfile, PlanRequest, RankPolicy, SearchDirection,
-    SourceCardinality, SourceSpec, TargetSpec,
 };
 pub use plan::{
     BodyOutcome, EdgeType, ExecutionNodeType, MachineNode, MachinePlan, MachinePlanEdge,
     MachineResult, MergeStrategy, NodeExecutionResult, NodeId,
 };
+pub use plan_analysis::{
+    derive_collected_media_urn, derive_foreach_media_urns, derive_output_media_urn,
+    derive_output_producing_cap_urn, find_collect_for_foreach, resolve_plan_output,
+};
 pub use plan_builder::{
     ArgumentInfo, ArgumentResolution, MachinePlanBuilder, PathArgumentRequirements,
     StepArgumentRequirements,
+};
+pub use plan_space::{
+    ConvergenceArity, ConvergenceLocation, ConvergenceMechanism, ConvergencePolicy,
+    ConvergencePresence, ConvergentTargetInfo, ConvergentTargets, DivergenceLocation,
+    DivergencePolicy, DivergencePresence, PlanApex, PlanCandidate, PlanCost, PlanError, PlanMode,
+    PlanOutcome, PlanProfile, PlanRequest, RankPolicy, SearchDirection, SourceCardinality,
+    SourceSpec, TargetSpec,
 };
 pub use viz::{plans_to_dot, plans_to_mermaid};
 

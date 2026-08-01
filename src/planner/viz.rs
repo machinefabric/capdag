@@ -34,17 +34,24 @@ enum NodeRole {
 /// Human-readable label lines and role for a node, independent of backend.
 fn describe_node(node: &MachineNode) -> (Vec<String>, NodeRole) {
     match &node.node_type {
-        ExecutionNodeType::Cap { cap_urn, preferred_cap, .. } => {
+        ExecutionNodeType::Cap {
+            cap_urn,
+            preferred_cap,
+            ..
+        } => {
             let mut lines = vec![node.id.clone(), cap_urn.clone()];
             if let Some(pref) = preferred_cap {
                 lines.push(format!("prefer: {pref}"));
             }
             (lines, NodeRole::Cap)
         }
-        ExecutionNodeType::ForEach { .. } => {
-            (vec![node.id.clone(), "ForEach".to_string()], NodeRole::ForEach)
-        }
-        ExecutionNodeType::Collect { output_media_urn, .. } => {
+        ExecutionNodeType::ForEach { .. } => (
+            vec![node.id.clone(), "ForEach".to_string()],
+            NodeRole::ForEach,
+        ),
+        ExecutionNodeType::Collect {
+            output_media_urn, ..
+        } => {
             let mut lines = vec![node.id.clone(), "Collect".to_string()];
             if let Some(urn) = output_media_urn {
                 lines.push(urn.clone());
@@ -59,7 +66,11 @@ fn describe_node(node: &MachineNode) -> (Vec<String>, NodeRole) {
             vec![node.id.clone(), format!("Split ×{output_count}")],
             NodeRole::Split,
         ),
-        ExecutionNodeType::InputSlot { slot_name, expected_media_urn, cardinality } => (
+        ExecutionNodeType::InputSlot {
+            slot_name,
+            expected_media_urn,
+            cardinality,
+        } => (
             vec![
                 slot_name.clone(),
                 expected_media_urn.clone(),
@@ -97,7 +108,11 @@ fn assign_ids(plan_idx: usize, plan: &MachinePlan) -> HashMap<String, RenderedNo
             let (label_lines, role) = describe_node(node);
             (
                 node_id.clone(),
-                RenderedNode { id: format!("p{plan_idx}_n{seq}"), label_lines, role },
+                RenderedNode {
+                    id: format!("p{plan_idx}_n{seq}"),
+                    label_lines,
+                    role,
+                },
             )
         })
         .collect()
@@ -186,7 +201,9 @@ pub fn plans_to_dot(plans: &[MachinePlan]) -> String {
         } else {
             plan.name.as_str()
         });
-        out.push_str(&format!("  subgraph cluster_{i} {{\n    label=\"{title}\";\n"));
+        out.push_str(&format!(
+            "  subgraph cluster_{i} {{\n    label=\"{title}\";\n"
+        ));
         let mut nodes: Vec<&RenderedNode> = rendered.values().collect();
         nodes.sort_by(|a, b| a.id.cmp(&b.id));
         for rn in nodes {

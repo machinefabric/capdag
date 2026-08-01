@@ -482,7 +482,10 @@ mod tests {
                 "permissions": ["read", "write"]
             }
         });
-        assert!(validator.validate_argument(&arg, &valid, &registry).await.is_ok());
+        assert!(validator
+            .validate_argument(&arg, &valid, &registry)
+            .await
+            .is_ok());
 
         // Invalid: permission outside the enum.
         let invalid = json!({
@@ -491,7 +494,10 @@ mod tests {
                 "permissions": ["read", "invalid_permission"]
             }
         });
-        assert!(validator.validate_argument(&arg, &invalid, &registry).await.is_err());
+        assert!(validator
+            .validate_argument(&arg, &invalid, &registry)
+            .await
+            .is_err());
     }
 
     // TEST6317: Media urn resolution with registry
@@ -518,9 +524,13 @@ mod tests {
                 extensions: Vec::new(),
             });
         }
-        let resolved = resolve_media_urn("media:enc=utf-8", &registry).await.unwrap();
+        let resolved = resolve_media_urn("media:enc=utf-8", &registry)
+            .await
+            .unwrap();
         assert_eq!(resolved.media_type, "text/plain");
-        let json_resolved = resolve_media_urn("media:fmt=json;record", &registry).await.unwrap();
+        let json_resolved = resolve_media_urn("media:fmt=json;record", &registry)
+            .await
+            .unwrap();
         assert_eq!(json_resolved.media_type, "application/json");
     }
 }

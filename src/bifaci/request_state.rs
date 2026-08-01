@@ -64,7 +64,11 @@ impl AdmissionController {
         self.notify.notify_waiters();
     }
 
-    pub fn reconcile_master(&self, master_idx: usize, available: &std::collections::HashSet<AdmissionKey>) {
+    pub fn reconcile_master(
+        &self,
+        master_idx: usize,
+        available: &std::collections::HashSet<AdmissionKey>,
+    ) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         for (key, slot) in &mut inner.slots {
             if key.master_idx == master_idx && !available.contains(key) {
@@ -114,7 +118,10 @@ impl AdmissionController {
                     .expect("admission slot disappeared while request was queued");
                 if !slot.available {
                     drop(inner);
-                    return Err(format!("cartridge '{}' became unavailable while waiting for capacity", key.id));
+                    return Err(format!(
+                        "cartridge '{}' became unavailable while waiting for capacity",
+                        key.id
+                    ));
                 }
                 let has_capacity = slot.capacity == 0 || slot.active < slot.capacity;
                 if has_capacity && slot.queue.front() == Some(&ticket) {
@@ -181,7 +188,9 @@ pub struct AdmissionPermit {
 
 impl std::fmt::Debug for AdmissionPermit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AdmissionPermit").field("key", &self.key).finish()
+        f.debug_struct("AdmissionPermit")
+            .field("key", &self.key)
+            .finish()
     }
 }
 
@@ -465,14 +474,17 @@ impl RequestTable {
             self.rid_index.remove(&key.1);
         }
 
-        let totals = state.streams.values().fold((0u64, 0u64, 0u64, 0u64), |acc, s| {
-            (
-                acc.0 + s.frames_in,
-                acc.1 + s.frames_out,
-                acc.2 + s.bytes_in,
-                acc.3 + s.bytes_out,
-            )
-        });
+        let totals = state
+            .streams
+            .values()
+            .fold((0u64, 0u64, 0u64, 0u64), |acc, s| {
+                (
+                    acc.0 + s.frames_in,
+                    acc.1 + s.frames_out,
+                    acc.2 + s.bytes_in,
+                    acc.3 + s.bytes_out,
+                )
+            });
         if self.recent_terminated.len() == RECENT_TERMINATED_CAP {
             self.recent_terminated.pop_front();
         }
@@ -684,9 +696,8 @@ mod tests {
 
         let cancelled_controller = controller.clone();
         let cancelled_key = key.clone();
-        let cancelled = tokio::spawn(async move {
-            cancelled_controller.acquire(cancelled_key).await
-        });
+        let cancelled =
+            tokio::spawn(async move { cancelled_controller.acquire(cancelled_key).await });
         tokio::task::yield_now().await;
         cancelled.abort();
         let _ = cancelled.await;
@@ -715,21 +726,17 @@ mod tests {
 
         let waiting_controller = controller.clone();
         let waiting_key = key.clone();
-        let waiting = tokio::spawn(async move {
-            waiting_controller.acquire(waiting_key).await
-        });
+        let waiting = tokio::spawn(async move { waiting_controller.acquire(waiting_key).await });
         tokio::task::yield_now().await;
         assert!(!waiting.is_finished());
 
         controller.configure(key, 0);
-        let concurrently_admitted = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            waiting,
-        )
-        .await
-        .expect("unlimited HELLO capacity must wake queued work")
-        .expect("queued waiter task must not fail")
-        .expect("queued waiter must acquire its slot");
+        let concurrently_admitted =
+            tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+                .await
+                .expect("unlimited HELLO capacity must wake queued work")
+                .expect("queued waiter task must not fail")
+                .expect("queued waiter must acquire its slot");
         drop(concurrently_admitted);
         drop(active);
     }
@@ -746,9 +753,7 @@ mod tests {
 
         let waiting_controller = controller.clone();
         let waiting_key = key.clone();
-        let waiting = tokio::spawn(async move {
-            waiting_controller.acquire(waiting_key).await
-        });
+        let waiting = tokio::spawn(async move { waiting_controller.acquire(waiting_key).await });
         tokio::task::yield_now().await;
         assert!(!waiting.is_finished());
 
@@ -796,7 +801,9 @@ mod tests {
             )
             .unwrap();
         let anonymous = key(2, 10);
-        table.register(anonymous.clone(), state(0, Some(1), true)).unwrap();
+        table
+            .register(anonymous.clone(), state(0, Some(1), true))
+            .unwrap();
 
         let snapshot = table.snapshot();
         let by_rid = |rid: &str| snapshot.active.iter().find(|r| r.rid == rid).unwrap();
@@ -831,8 +838,17 @@ mod tests {
         table.record_frame(&k, FrameDirection::Inbound, &ss);
 
         let json = serde_json::to_value(table.snapshot()).unwrap();
-        for field in ["active", "recent_terminated", "total_registered", "terminated_by_kind"] {
-            assert!(json.get(field).is_some(), "missing top-level field {}", field);
+        for field in [
+            "active",
+            "recent_terminated",
+            "total_registered",
+            "terminated_by_kind",
+        ] {
+            assert!(
+                json.get(field).is_some(),
+                "missing top-level field {}",
+                field
+            );
         }
         let req = &json["active"][0];
         for field in [
@@ -863,7 +879,11 @@ mod tests {
             "unbounded",
             "ended",
         ] {
-            assert!(stream.get(field).is_some(), "missing stream field {}", field);
+            assert!(
+                stream.get(field).is_some(),
+                "missing stream field {}",
+                field
+            );
         }
 
         table.terminate(&k, TerminalKind::MasterDied).unwrap();
@@ -880,7 +900,11 @@ mod tests {
             "bytes_in",
             "bytes_out",
         ] {
-            assert!(summary.get(field).is_some(), "missing summary field {}", field);
+            assert!(
+                summary.get(field).is_some(),
+                "missing summary field {}",
+                field
+            );
         }
         assert_eq!(summary["kind"], "master_died", "kind serializes snake_case");
     }
@@ -938,7 +962,10 @@ mod tests {
 
         table.register(k.clone(), state(0, None, false)).unwrap();
         assert!(table.contains(&k));
-        assert_eq!(table.xid_for_rid(&MessageId::Uint(100)), Some(MessageId::Uint(1)));
+        assert_eq!(
+            table.xid_for_rid(&MessageId::Uint(100)),
+            Some(MessageId::Uint(1))
+        );
 
         // Duplicate registration of a live key is a protocol violation.
         let err = table
@@ -1012,7 +1039,12 @@ mod tests {
         table.record_frame(&k, FrameDirection::Inbound, &chunk);
         table.record_frame(&k, FrameDirection::Outbound, &chunk);
 
-        let credit = Frame::credit(rid.clone(), Some("s1".to_string()), 4, crate::bifaci::frame::CreditDirection::Response);
+        let credit = Frame::credit(
+            rid.clone(),
+            Some("s1".to_string()),
+            4,
+            crate::bifaci::frame::CreditDirection::Response,
+        );
         table.record_frame(&k, FrameDirection::Outbound, &credit);
 
         let se = Frame::stream_end_unbounded(rid, "s1".to_string());
@@ -1041,21 +1073,17 @@ mod tests {
             table.register(k.clone(), state(0, Some(2), true)).unwrap();
             let payload = vec![0u8; 10];
             let checksum = Frame::compute_checksum(&payload);
-            let chunk = Frame::chunk(
-                MessageId::Uint(n),
-                "s".to_string(),
-                0,
-                payload,
-                0,
-                checksum,
-            );
+            let chunk = Frame::chunk(MessageId::Uint(n), "s".to_string(), 0, payload, 0, checksum);
             table.record_frame(&k, FrameDirection::Inbound, &chunk);
             table.terminate(&k, TerminalKind::Cancelled).unwrap();
         }
         let snap = table.snapshot();
         assert_eq!(snap.recent_terminated.len(), RECENT_TERMINATED_CAP);
         // Oldest evicted: first retained summary is rid "3"
-        assert_eq!(snap.recent_terminated[0].rid, MessageId::Uint(3).to_string());
+        assert_eq!(
+            snap.recent_terminated[0].rid,
+            MessageId::Uint(3).to_string()
+        );
         let last = snap.recent_terminated.last().unwrap();
         assert_eq!(last.kind, TerminalKind::Cancelled);
         assert!(last.is_peer);

@@ -322,9 +322,9 @@ mod tests {
         let result = registry.register_cap_group(
             "group-b",
             &[
-                "media:fmt=yaml".to_string(),          // ok
+                "media:fmt=yaml".to_string(), // ok
                 "media:fmt=json".to_string(), // conflicts with media:fmt=json
-                "media:fmt=csv".to_string(),           // ok
+                "media:fmt=csv".to_string(),  // ok
             ],
             "cartridge-b",
         );
@@ -364,7 +364,11 @@ mod tests {
 
         // Register adapter for media:fmt=json (which should match .json extension candidates)
         registry
-            .register_cap_group("text-group", &["media:fmt=json".to_string()], "txtcartridge")
+            .register_cap_group(
+                "text-group",
+                &["media:fmt=json".to_string()],
+                "txtcartridge",
+            )
             .unwrap();
 
         let results = registry.find_adapters_for_extension("json");

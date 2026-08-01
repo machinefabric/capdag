@@ -192,11 +192,7 @@ impl CreditRouter {
     /// Waiters blocked on those gates are released with `CreditClosed` (L13).
     pub fn close_request(&self, rid: &MessageId, reason: &str) {
         let mut gates = self.gates.lock().unwrap_or_else(|e| e.into_inner());
-        let keys: Vec<_> = gates
-            .keys()
-            .filter(|(r, _)| r == rid)
-            .cloned()
-            .collect();
+        let keys: Vec<_> = gates.keys().filter(|(r, _)| r == rid).cloned().collect();
         for key in keys {
             if let Some(gate) = gates.remove(&key) {
                 gate.close(reason);
@@ -282,7 +278,10 @@ mod tests {
             .unwrap()
             .unwrap_err();
         assert_eq!(err.reason, "CANCELLED");
-        assert!(gate.acquire(1).await.is_err(), "closed gate rejects acquire");
+        assert!(
+            gate.acquire(1).await.is_err(),
+            "closed gate rejects acquire"
+        );
         gate.grant(5); // no-op after close
         assert!(gate.acquire(1).await.is_err());
     }
@@ -296,23 +295,43 @@ mod tests {
         router.register(rid.clone(), Some("s1".to_string()), Arc::clone(&gate));
 
         // Exact (rid, stream) match
-        let f = Frame::credit(rid.clone(), Some("s1".to_string()), 3, crate::bifaci::frame::CreditDirection::Response);
+        let f = Frame::credit(
+            rid.clone(),
+            Some("s1".to_string()),
+            3,
+            crate::bifaci::frame::CreditDirection::Response,
+        );
         assert!(router.grant(&f));
         assert_eq!(gate.available(), 3);
 
         // Stream-less grant matches the sole gate
-        let f = Frame::credit(rid.clone(), None, 2, crate::bifaci::frame::CreditDirection::Response);
+        let f = Frame::credit(
+            rid.clone(),
+            None,
+            2,
+            crate::bifaci::frame::CreditDirection::Response,
+        );
         assert!(router.grant(&f));
         assert_eq!(gate.available(), 5);
 
         // Second gate makes a stream-less grant ambiguous → unmatched
         let gate2 = Arc::new(CreditGate::new(0));
         router.register(rid.clone(), Some("s2".to_string()), gate2);
-        let f = Frame::credit(rid.clone(), None, 1, crate::bifaci::frame::CreditDirection::Response);
+        let f = Frame::credit(
+            rid.clone(),
+            None,
+            1,
+            crate::bifaci::frame::CreditDirection::Response,
+        );
         assert!(!router.grant(&f));
 
         // Unknown request → unmatched no-op
-        let f = Frame::credit(MessageId::new_uuid(), None, 1, crate::bifaci::frame::CreditDirection::Response);
+        let f = Frame::credit(
+            MessageId::new_uuid(),
+            None,
+            1,
+            crate::bifaci::frame::CreditDirection::Response,
+        );
         assert!(!router.grant(&f));
     }
 

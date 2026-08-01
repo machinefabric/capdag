@@ -35,7 +35,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::cap::registry::FabricRegistry;
-use crate::machine::resolve::{resolve_pre_interned, PreInternedWiring};
+use crate::machine::resolve::{resolve_pre_interned, ForEachIdentity, PreInternedWiring};
 use crate::machine::{Machine, MachineStrand, NodeId};
 use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::MediaUrn;
@@ -72,7 +72,11 @@ struct CandidateSink<'a> {
 
 impl<'a> CandidateSink<'a> {
     fn new(observer: Option<&'a mut dyn FnMut(&PlanCandidate)>) -> Self {
-        Self { candidates: Vec::new(), seen_notations: HashSet::new(), observer }
+        Self {
+            candidates: Vec::new(),
+            seen_notations: HashSet::new(),
+            observer,
+        }
     }
 
     /// A detached sink for strategy sub-searches whose results are inspected
@@ -114,7 +118,10 @@ struct Assembler {
 
 impl Assembler {
     fn new() -> Self {
-        Self { nodes: Vec::new(), wirings: Vec::new() }
+        Self {
+            nodes: Vec::new(),
+            wirings: Vec::new(),
+        }
     }
 
     fn add_node(&mut self, urn: MediaUrn) -> NodeId {
@@ -125,11 +132,17 @@ impl Assembler {
 
     /// Wire one cap: `sources` feed it, a fresh node holds its output.
     /// Returns the output node and the minted token id.
-    fn add_cap(&mut self, cap_urn: &CapUrn, sources: Vec<NodeId>, out: MediaUrn) -> (NodeId, String) {
+    fn add_cap(
+        &mut self,
+        cap_urn: &CapUrn,
+        sources: Vec<NodeId>,
+        out: MediaUrn,
+    ) -> (NodeId, String) {
         let target = self.add_node(out);
         let token_id = uuid::Uuid::new_v4().to_string();
         self.wirings.push(PreInternedWiring {
             token_id: token_id.clone(),
+            foreach_identity: ForEachIdentity::MintIfRequired,
             cap_urn: cap_urn.clone(),
             source_node_ids: sources,
             target_node_id: target,
@@ -404,7 +417,11 @@ impl LiveCapFab {
                         .map(|s| s.media_urn.to_string())
                         .collect::<Vec<_>>()
                         .join(", "),
-                    targets.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "),
+                    targets
+                        .iter()
+                        .map(|t| t.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
                     request.max_depth
                 ),
             });
@@ -417,7 +434,10 @@ impl LiveCapFab {
         for (i, c) in candidates.iter_mut().enumerate() {
             c.rank = i;
         }
-        Ok(PlanOutcome { candidates, dead_end_sources })
+        Ok(PlanOutcome {
+            candidates,
+            dead_end_sources,
+        })
     }
 
     /// Whether `source` can reach ANY of `targets` (scalar or sequence state)
@@ -434,9 +454,15 @@ impl LiveCapFab {
         {
             return true;
         }
-        let reach = self.forward_reach(&source.media_urn, source.cardinality.is_sequence(), max_depth);
+        let reach = self.forward_reach(
+            &source.media_urn,
+            source.cardinality.is_sequence(),
+            max_depth,
+        );
         reach.iter().any(|((media, _), _)| {
-            targets.iter().any(|t| media.is_equivalent(t).unwrap_or(false))
+            targets
+                .iter()
+                .any(|t| media.is_equivalent(t).unwrap_or(false))
         })
     }
 
@@ -484,7 +510,11 @@ impl LiveCapFab {
                         cap_steps,
                         total_steps: strand.total_steps as usize,
                         max_leg_depth: 0,
-                        intent_score: intent_score(if folded { Shape::Fold } else { Shape::Linear }, 0, cap_steps),
+                        intent_score: intent_score(
+                            if folded { Shape::Fold } else { Shape::Linear },
+                            0,
+                            cap_steps,
+                        ),
                     },
                     label: format!("{} → {}", source.media_urn, targets[0]),
                     rank: 0,
@@ -543,8 +573,11 @@ impl LiveCapFab {
         }
         let resolved = asm.resolve(registry)?;
         let notation = notation_of(vec![resolved])?;
-        let cap_steps: usize =
-            per_target.iter().map(|s| s.cap_step_count as usize).sum::<usize>() - shared * (targets.len() - 1);
+        let cap_steps: usize = per_target
+            .iter()
+            .map(|s| s.cap_step_count as usize)
+            .sum::<usize>()
+            - shared * (targets.len() - 1);
         out.push(PlanCandidate {
             notation,
             profile: PlanProfile {
@@ -563,7 +596,11 @@ impl LiveCapFab {
             label: format!(
                 "{} → {}",
                 source.media_urn,
-                targets.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" + ")
+                targets
+                    .iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" + ")
             ),
             rank: 0,
         });
@@ -620,11 +657,7 @@ impl LiveCapFab {
     /// Enumerate convergence apexes for the request's sources: the depth-0
     /// generalization join plus every media all sources reach as a scalar,
     /// filtered/ordered by the location slider and the `at_type` pin.
-    fn enumerate_apexes(
-        &self,
-        request: &PlanRequest,
-        targets: &[MediaUrn],
-    ) -> Vec<ApexInfo> {
+    fn enumerate_apexes(&self, request: &PlanRequest, targets: &[MediaUrn]) -> Vec<ApexInfo> {
         let sources = &request.sources;
         let policy = &request.convergence;
         let mechanism_admits = |m: ConvergenceMechanism| {
@@ -641,8 +674,7 @@ impl LiveCapFab {
         // trivial top (an empty constraint accepts anything and plans nothing
         // meaningful) and some cap actually consumes it.
         if mechanism_admits(ConvergenceMechanism::Generalize) {
-            let source_media: Vec<MediaUrn> =
-                sources.iter().map(|s| s.media_urn.clone()).collect();
+            let source_media: Vec<MediaUrn> = sources.iter().map(|s| s.media_urn.clone()).collect();
             let join = MediaUrn::least_upper_bound(&source_media);
             if !join.is_top()
                 && type_admits(&join)
@@ -661,11 +693,7 @@ impl LiveCapFab {
             let reaches: Vec<Reach> = sources
                 .iter()
                 .map(|s| {
-                    self.forward_reach(
-                        &s.media_urn,
-                        s.cardinality.is_sequence(),
-                        request.max_depth,
-                    )
+                    self.forward_reach(&s.media_urn, s.cardinality.is_sequence(), request.max_depth)
                 })
                 .collect();
             let mut seen: HashSet<MediaUrn> = HashSet::new();
@@ -677,13 +705,15 @@ impl LiveCapFab {
                     continue;
                 }
                 let mut depth = 0usize;
-                let all = reaches.iter().all(|r| match r.get(&(media.clone(), false)) {
-                    Some(d) => {
-                        depth = depth.max(*d);
-                        true
-                    }
-                    None => false,
-                });
+                let all = reaches
+                    .iter()
+                    .all(|r| match r.get(&(media.clone(), false)) {
+                        Some(d) => {
+                            depth = depth.max(*d);
+                            true
+                        }
+                        None => false,
+                    });
                 if all {
                     apexes.push(ApexInfo {
                         media: media.clone(),
@@ -698,9 +728,9 @@ impl LiveCapFab {
         let admitted = |a: &ApexInfo| match policy.location {
             ConvergenceLocation::AtSource => a.depth == 0,
             ConvergenceLocation::AtDepth(k) => a.depth == k,
-            ConvergenceLocation::AtTarget => {
-                targets.iter().any(|t| a.media.is_equivalent(t).unwrap_or(false))
-            }
+            ConvergenceLocation::AtTarget => targets
+                .iter()
+                .any(|t| a.media.is_equivalent(t).unwrap_or(false)),
             ConvergenceLocation::Earliest
             | ConvergenceLocation::Latest
             | ConvergenceLocation::Auto => true,
@@ -734,7 +764,14 @@ impl LiveCapFab {
                     self.generalize_candidates(request, targets, apex, registry, out)?;
                 }
                 ConvergenceMechanism::Collect => {
-                    self.collect_candidates(request, targets, apex, &request.sources, registry, out)?;
+                    self.collect_candidates(
+                        request,
+                        targets,
+                        apex,
+                        &request.sources,
+                        registry,
+                        out,
+                    )?;
                 }
                 _ => {}
             }
@@ -822,11 +859,19 @@ impl LiveCapFab {
                     .map_err(|e| PlanError::Internal(format!("strand serialization: {e}")))?;
                 let folded = !strand_final_is_sequence(strand, entry_seq);
                 let cap_steps = strand.cap_step_count as usize;
-                let shape = if folded { Shape::Generalized } else { Shape::GeneralizedMap };
+                let shape = if folded {
+                    Shape::Generalized
+                } else {
+                    Shape::GeneralizedMap
+                };
                 out.push(PlanCandidate {
                     notation,
                     profile: PlanProfile {
-                        source_media: request.sources.iter().map(|s| s.media_urn.clone()).collect(),
+                        source_media: request
+                            .sources
+                            .iter()
+                            .map(|s| s.media_urn.clone())
+                            .collect(),
                         target_media: vec![target.clone()],
                         apexes: vec![PlanApex {
                             media_urn: apex.media.clone(),
@@ -902,10 +947,15 @@ impl LiveCapFab {
                 .into_iter()
                 .filter(|t| {
                     t.steps.iter().find_map(|st| match &st.step_type {
-                        StrandStepType::Cap { input_is_sequence, .. } => Some(*input_is_sequence),
+                        StrandStepType::Cap {
+                            input_is_sequence, ..
+                        } => Some(*input_is_sequence),
                         _ => None,
                     }) == Some(true)
-                        && matches!(t.steps.first().map(|st| &st.step_type), Some(StrandStepType::Cap { .. }))
+                        && matches!(
+                            t.steps.first().map(|st| &st.step_type),
+                            Some(StrandStepType::Cap { .. })
+                        )
                 })
                 .take(MAX_FOLDS_PER_APEX)
                 .collect();
@@ -975,7 +1025,9 @@ impl LiveCapFab {
         let n = sources.len();
         let reaches: Vec<Reach> = sources
             .iter()
-            .map(|s| self.forward_reach(&s.media_urn, s.cardinality.is_sequence(), request.max_depth))
+            .map(|s| {
+                self.forward_reach(&s.media_urn, s.cardinality.is_sequence(), request.max_depth)
+            })
             .collect();
 
         'caps: for cap_urn in self.cap_urns() {
@@ -1009,8 +1061,7 @@ impl LiveCapFab {
                             None => true,
                             Some((_, bm, bd)) => {
                                 *depth < *bd
-                                    || (*depth == *bd
-                                        && media.specificity() > bm.specificity())
+                                    || (*depth == *bd && media.specificity() > bm.specificity())
                                     || (*depth == *bd
                                         && media.specificity() == bm.specificity()
                                         && media < bm)
@@ -1123,7 +1174,11 @@ impl LiveCapFab {
                 label: format!(
                     "Assemble with {} → {}",
                     cap.title,
-                    targets.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" + ")
+                    targets
+                        .iter()
+                        .map(|t| t.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" + ")
                 ),
                 rank: 0,
             });
@@ -1165,11 +1220,19 @@ impl LiveCapFab {
             }
         }
         let notation = notation_of(strands)?;
-        let shape = if convergence_exists { Shape::IndependentAlternate } else { Shape::IndependentOnly };
+        let shape = if convergence_exists {
+            Shape::IndependentAlternate
+        } else {
+            Shape::IndependentOnly
+        };
         out.push(PlanCandidate {
             notation,
             profile: PlanProfile {
-                source_media: request.sources.iter().map(|s| s.media_urn.clone()).collect(),
+                source_media: request
+                    .sources
+                    .iter()
+                    .map(|s| s.media_urn.clone())
+                    .collect(),
                 target_media: targets.to_vec(),
                 apexes: Vec::new(),
                 converged: false,
@@ -1183,7 +1246,11 @@ impl LiveCapFab {
             },
             label: format!(
                 "Convert each → {}",
-                targets.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" + ")
+                targets
+                    .iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" + ")
             ),
             rank: 0,
         });
@@ -1224,7 +1291,9 @@ impl LiveCapFab {
             };
             let mut sub_out = CandidateSink::detached();
             self.collect_candidates(&sub_req, targets, apex, &subset, registry, &mut sub_out)?;
-            let Some(converged) = sub_out.candidates.into_iter().next() else { continue };
+            let Some(converged) = sub_out.candidates.into_iter().next() else {
+                continue;
+            };
 
             // The dropped source runs independent to the first target.
             let dropped = &request.sources[drop_idx];
@@ -1252,7 +1321,11 @@ impl LiveCapFab {
             out.push(PlanCandidate {
                 notation,
                 profile: PlanProfile {
-                    source_media: request.sources.iter().map(|s| s.media_urn.clone()).collect(),
+                    source_media: request
+                        .sources
+                        .iter()
+                        .map(|s| s.media_urn.clone())
+                        .collect(),
                     target_media: targets.to_vec(),
                     apexes: converged.profile.apexes.clone(),
                     converged: true,
@@ -1262,7 +1335,11 @@ impl LiveCapFab {
                     cap_steps,
                     total_steps: cap_steps + 1,
                     max_leg_depth: converged.cost.max_leg_depth,
-                    intent_score: intent_score(Shape::Partial, converged.cost.max_leg_depth, cap_steps),
+                    intent_score: intent_score(
+                        Shape::Partial,
+                        converged.cost.max_leg_depth,
+                        cap_steps,
+                    ),
                 },
                 label: format!("Combine {} of {} sources; convert the rest", n - 1, n),
                 rank: 0,
@@ -1306,10 +1383,16 @@ impl LiveCapFab {
             }
         }
         if routable.is_empty() {
-            return Ok(ConvergentTargets { targets: Vec::new(), dead_end_sources });
+            return Ok(ConvergentTargets {
+                targets: Vec::new(),
+                dead_end_sources,
+            });
         }
         let targets = self.discover_targets_for_routable(&routable, max_depth)?;
-        Ok(ConvergentTargets { targets, dead_end_sources })
+        Ok(ConvergentTargets {
+            targets,
+            dead_end_sources,
+        })
     }
 
     /// The discovery enumeration proper, over sources already proven routable.
@@ -1344,13 +1427,20 @@ impl LiveCapFab {
             for (edge, out_seq) in self.get_outgoing_edges(&apex.media, true) {
                 let is_fold = matches!(
                     &edge.edge_type,
-                    LiveMachinePlanEdgeType::Cap { input_is_sequence: true, .. }
+                    LiveMachinePlanEdgeType::Cap {
+                        input_is_sequence: true,
+                        ..
+                    }
                 );
                 if !is_fold {
                     continue;
                 }
                 let mut cone: Vec<(MediaUrn, i32)> = self
-                    .get_reachable_targets(&edge.to_spec, out_seq, max_depth.saturating_sub(apex.depth + 1))
+                    .get_reachable_targets(
+                        &edge.to_spec,
+                        out_seq,
+                        max_depth.saturating_sub(apex.depth + 1),
+                    )
                     .into_iter()
                     .map(|t| (t.media_def, t.min_path_length))
                     .collect();
@@ -1359,17 +1449,20 @@ impl LiveCapFab {
                 }
                 for (media, extra) in cone {
                     let steps = apex.depth as i32 + 1 + extra;
-                    let entry = results.entry(media.clone()).or_insert_with(|| ConvergentTargetInfo {
-                        media_def: media.clone(),
-                        display_name: media.to_string(),
-                        min_total_steps: steps,
-                        apex: Some(PlanApex {
-                            media_urn: apex.media.clone(),
-                            mechanism: apex.mechanism,
-                            depth: apex.depth,
-                        }),
-                        convergent: true,
-                    });
+                    let entry =
+                        results
+                            .entry(media.clone())
+                            .or_insert_with(|| ConvergentTargetInfo {
+                                media_def: media.clone(),
+                                display_name: media.to_string(),
+                                min_total_steps: steps,
+                                apex: Some(PlanApex {
+                                    media_urn: apex.media.clone(),
+                                    mechanism: apex.mechanism,
+                                    depth: apex.depth,
+                                }),
+                                convergent: true,
+                            });
                     if steps < entry.min_total_steps || !entry.convergent {
                         entry.min_total_steps = entry.min_total_steps.min(steps);
                         entry.convergent = true;
@@ -1403,13 +1496,15 @@ impl LiveCapFab {
                 None => false,
             });
             if all {
-                results.entry(media.clone()).or_insert_with(|| ConvergentTargetInfo {
-                    media_def: media.clone(),
-                    display_name: media.to_string(),
-                    min_total_steps: total,
-                    apex: None,
-                    convergent: false,
-                });
+                results
+                    .entry(media.clone())
+                    .or_insert_with(|| ConvergentTargetInfo {
+                        media_def: media.clone(),
+                        display_name: media.to_string(),
+                        min_total_steps: total,
+                        apex: None,
+                        convergent: false,
+                    });
             }
         }
 
@@ -1508,7 +1603,9 @@ fn strand_final_is_sequence(strand: &Strand, entry_is_sequence: bool) -> bool {
     let mut seq = entry_is_sequence;
     for step in &strand.steps {
         match &step.step_type {
-            StrandStepType::Cap { output_is_sequence, .. } => {
+            StrandStepType::Cap {
+                output_is_sequence, ..
+            } => {
                 // Per-item mapping inside an unclosed ForEach keeps the run's
                 // overall output a sequence; the path finder models that by
                 // the ForEach step below, so here the cap's own flag decides
@@ -1519,8 +1616,11 @@ fn strand_final_is_sequence(strand: &Strand, entry_is_sequence: bool) -> bool {
                     // Sequence in: a sequence-consuming cap folds (its output
                     // flag then decides); a scalar cap is mapped per item and
                     // the overall result stays a sequence.
-                    if let StrandStepType::Cap { input_is_sequence: true, output_is_sequence, .. } =
-                        &step.step_type
+                    if let StrandStepType::Cap {
+                        input_is_sequence: true,
+                        output_is_sequence,
+                        ..
+                    } = &step.step_type
                     {
                         seq = *output_is_sequence;
                     }
@@ -1578,7 +1678,7 @@ fn shared_prefix_len(strands: &[Strand], location: &DivergenceLocation) -> usize
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::machine::test_fixtures::{build_cap, registry_with, media};
+    use crate::machine::test_fixtures::{build_cap, media, registry_with};
     use crate::planner::plan_space::{SourceSpec, TargetSpec};
 
     /// The synthetic fabric all region tests share:
@@ -1647,7 +1747,10 @@ mod tests {
             PlanRequest::DEFAULT_MAX_DEPTH,
             PlanRequest::DEFAULT_MAX_PATHS,
         );
-        let candidates = fab.plan(&request, &registry).expect("pdf → txt must plan").candidates;
+        let candidates = fab
+            .plan(&request, &registry)
+            .expect("pdf → txt must plan")
+            .candidates;
         let historical = fab.find_paths_to_exact_target(
             &media("media:ext=pdf"),
             &txt(),
@@ -1655,7 +1758,10 @@ mod tests {
             PlanRequest::DEFAULT_MAX_DEPTH,
             PlanRequest::DEFAULT_MAX_PATHS,
         );
-        assert!(!historical.is_empty(), "the fixture must offer pdf → txt paths");
+        assert!(
+            !historical.is_empty(),
+            "the fixture must offer pdf → txt paths"
+        );
         assert_eq!(candidates.len(), historical.len());
         for (c, s) in candidates.iter().zip(historical.iter()) {
             let expected = s.to_machine_notation(&registry).expect("strand serializes");
@@ -1683,11 +1789,24 @@ mod tests {
             ],
             TargetSpec::Exact(vec![txt()]),
         );
-        let candidates = fab.plan(&request, &registry).expect("pdf+md → txt must plan").candidates;
-        assert!(candidates.len() >= 2, "expected converged AND independent candidates");
+        let candidates = fab
+            .plan(&request, &registry)
+            .expect("pdf+md → txt must plan")
+            .candidates;
+        assert!(
+            candidates.len() >= 2,
+            "expected converged AND independent candidates"
+        );
         let top = &candidates[0];
-        assert!(top.profile.converged, "the magic pick must combine, got: {}", top.label);
-        assert!(!top.profile.apexes.is_empty(), "a converged plan names its apex");
+        assert!(
+            top.profile.converged,
+            "the magic pick must combine, got: {}",
+            top.label
+        );
+        assert!(
+            !top.profile.apexes.is_empty(),
+            "a converged plan names its apex"
+        );
         // The Collect-apex candidate gathers distinct legs — its notation must
         // carry a fan-in group. (The top candidate may be the generalize plan,
         // a single-source machine with no fan-in — both shapes must be offered.)
@@ -1707,7 +1826,9 @@ mod tests {
         );
         // An independent (map) alternate exists further down.
         assert!(
-            candidates.iter().any(|c| !c.profile.converged && c.profile.apexes.is_empty()),
+            candidates
+                .iter()
+                .any(|c| !c.profile.converged && c.profile.apexes.is_empty()),
             "the independent map must be offered as an alternate"
         );
         // Intent scores are strictly ordered with the ranking.
@@ -1747,11 +1868,7 @@ mod tests {
             !generalized.is_empty(),
             "pdf ∨ md = media:ext must produce a depth-0 generalize candidate via any2text"
         );
-        let best_generalized = generalized
-            .iter()
-            .map(|c| c.rank)
-            .min()
-            .expect("non-empty");
+        let best_generalized = generalized.iter().map(|c| c.rank).min().expect("non-empty");
         let best_collect = candidates
             .iter()
             .filter(|c| {
@@ -1824,12 +1941,16 @@ mod tests {
             txt_entry.convergent,
             "txt is reachable by COMBINING pdf+md (apex page → concat)"
         );
-        assert!(txt_entry.apex.is_some(), "a convergent target names its apex");
+        assert!(
+            txt_entry.apex.is_some(),
+            "a convergent target names its apex"
+        );
         // Internal, non-bookend media (page) must never be offered as a target.
         assert!(
-            !targets
-                .iter()
-                .any(|t| t.media_def.is_equivalent(&media("media:enc=utf-8;page")).unwrap()),
+            !targets.iter().any(|t| t
+                .media_def
+                .is_equivalent(&media("media:enc=utf-8;page"))
+                .unwrap()),
             "non-bookend media must not be discovered as targets"
         );
     }
@@ -1871,7 +1992,10 @@ mod tests {
             ],
             TargetSpec::Exact(vec![txt()]),
         );
-        let candidates = fab.plan(&request, &registry).expect("independent map must plan").candidates;
+        let candidates = fab
+            .plan(&request, &registry)
+            .expect("independent map must plan")
+            .candidates;
         let top = &candidates[0];
         assert!(
             !top.profile.converged,
@@ -1900,7 +2024,10 @@ mod tests {
         );
         request.mode = PlanMode::Configured;
         request.convergence.presence = ConvergencePresence::Independent;
-        let candidates = fab.plan(&request, &registry).expect("independent must plan").candidates;
+        let candidates = fab
+            .plan(&request, &registry)
+            .expect("independent must plan")
+            .candidates;
         assert!(
             candidates.iter().all(|c| !c.profile.converged),
             "Independent presence must exclude converged candidates"
@@ -1922,7 +2049,10 @@ mod tests {
         request.mode = PlanMode::Configured;
         request.convergence.presence = ConvergencePresence::Converged;
         request.convergence.mechanism = ConvergenceMechanism::Collect;
-        let candidates = fab.plan(&request, &registry).expect("collect convergence must plan").candidates;
+        let candidates = fab
+            .plan(&request, &registry)
+            .expect("collect convergence must plan")
+            .candidates;
         let top = &candidates[0];
         assert!(top.profile.converged);
         assert!(
@@ -1975,7 +2105,10 @@ mod tests {
         request.mode = PlanMode::Configured;
         request.convergence.presence = ConvergencePresence::Converged;
         request.convergence.mechanism = ConvergenceMechanism::Merge;
-        let candidates = fab.plan(&request, &registry).expect("product assembly must plan").candidates;
+        let candidates = fab
+            .plan(&request, &registry)
+            .expect("product assembly must plan")
+            .candidates;
         let top = &candidates[0];
         assert!(top.profile.converged);
         assert!(
@@ -2036,7 +2169,10 @@ mod tests {
                 media("media:enc=utf-8;ext=html"),
             ]),
         );
-        let candidates = fab.plan(&request, &registry).expect("fan-out must plan").candidates;
+        let candidates = fab
+            .plan(&request, &registry)
+            .expect("fan-out must plan")
+            .candidates;
         let top = &candidates[0];
         assert!(top.profile.diverged, "a multi-target plan is a fan-out");
         assert_eq!(top.profile.target_media.len(), 2);
@@ -2063,7 +2199,10 @@ mod tests {
         at_source.mode = PlanMode::Configured;
         at_source.convergence.presence = ConvergencePresence::Converged;
         at_source.convergence.location = ConvergenceLocation::AtSource;
-        let candidates = fab.plan(&at_source, &registry).expect("AtSource must plan").candidates;
+        let candidates = fab
+            .plan(&at_source, &registry)
+            .expect("AtSource must plan")
+            .candidates;
         assert!(
             candidates
                 .iter()
@@ -2076,7 +2215,10 @@ mod tests {
         at_depth.mode = PlanMode::Configured;
         at_depth.convergence.presence = ConvergencePresence::Converged;
         at_depth.convergence.location = ConvergenceLocation::AtDepth(1);
-        let candidates = fab.plan(&at_depth, &registry).expect("AtDepth(1) must plan").candidates;
+        let candidates = fab
+            .plan(&at_depth, &registry)
+            .expect("AtDepth(1) must plan")
+            .candidates;
         assert!(
             !candidates.is_empty()
                 && candidates
@@ -2102,11 +2244,15 @@ mod tests {
         request.mode = PlanMode::Configured;
         request.convergence.presence = ConvergencePresence::Converged;
         request.convergence.at_type = Some(media("media:page"));
-        let candidates = fab.plan(&request, &registry).expect("pinned apex must plan").candidates;
+        let candidates = fab
+            .plan(&request, &registry)
+            .expect("pinned apex must plan")
+            .candidates;
         assert!(
-            candidates.iter().flat_map(|c| c.profile.apexes.iter()).all(|a| {
-                a.media_urn.conforms_to(&media("media:page")).unwrap()
-            }),
+            candidates
+                .iter()
+                .flat_map(|c| c.profile.apexes.iter())
+                .all(|a| { a.media_urn.conforms_to(&media("media:page")).unwrap() }),
             "every apex must conform to the at_type pin"
         );
     }
@@ -2125,8 +2271,7 @@ mod tests {
             (RankPolicy::Cost, |c: &PlanCandidate| c.cost.total_steps),
         ];
         for (policy, key) in policies {
-            let mut request =
-                PlanRequest::auto(sources.clone(), TargetSpec::Exact(vec![txt()]));
+            let mut request = PlanRequest::auto(sources.clone(), TargetSpec::Exact(vec![txt()]));
             request.ranking = policy;
             let candidates = fab.plan(&request, &registry).expect("must plan").candidates;
             let min = candidates.iter().map(key).min().expect("non-empty");
@@ -2154,13 +2299,16 @@ mod tests {
             .expect("single-source discovery must succeed")
             .targets;
         assert!(
-            targets.iter().any(|t| t.media_def.is_equivalent(&txt()).unwrap()),
+            targets
+                .iter()
+                .any(|t| t.media_def.is_equivalent(&txt()).unwrap()),
             "txt must be discovered for a single pdf"
         );
         assert!(
-            !targets
-                .iter()
-                .any(|t| t.media_def.is_equivalent(&media("media:enc=utf-8;page")).unwrap()),
+            !targets.iter().any(|t| t
+                .media_def
+                .is_equivalent(&media("media:enc=utf-8;page"))
+                .unwrap()),
             "internal (non-bookend) media must not be discovered"
         );
     }
@@ -2245,7 +2393,10 @@ mod tests {
             vec![SourceSpec::sequence(media("media:ext=pdf"))],
             TargetSpec::Exact(vec![txt()]),
         );
-        let candidates = fab.plan(&request, &registry).expect("pdf-batch → txt must plan").candidates;
+        let candidates = fab
+            .plan(&request, &registry)
+            .expect("pdf-batch → txt must plan")
+            .candidates;
         assert!(
             candidates.iter().any(|c| c.profile.converged),
             "a sequence source folding through concat must yield a combined-result candidate"
@@ -2268,13 +2419,18 @@ mod tests {
             ],
             TargetSpec::Exact(vec![txt()]),
         );
-        let outcome = fab.plan(&request, &registry).expect("pdf+md must still plan");
+        let outcome = fab
+            .plan(&request, &registry)
+            .expect("pdf+md must still plan");
         assert_eq!(
             outcome.dead_end_sources,
             vec![media("media:audio")],
             "the unroutable source must be named a dead end"
         );
-        assert!(!outcome.candidates.is_empty(), "routable sources must still get plans");
+        assert!(
+            !outcome.candidates.is_empty(),
+            "routable sources must still get plans"
+        );
         for candidate in &outcome.candidates {
             assert!(
                 candidate.label.contains("media:audio"),
@@ -2342,9 +2498,16 @@ mod tests {
         let outcome = fab
             .plan_with_observer(&request, &registry, |c| streamed.push(c.notation.clone()))
             .expect("must plan");
-        assert!(!streamed.is_empty(), "the observer must see candidates during planning");
+        assert!(
+            !streamed.is_empty(),
+            "the observer must see candidates during planning"
+        );
         let unique: HashSet<&String> = streamed.iter().collect();
-        assert_eq!(unique.len(), streamed.len(), "no notation may be streamed twice");
+        assert_eq!(
+            unique.len(),
+            streamed.len(),
+            "no notation may be streamed twice"
+        );
         for candidate in &outcome.candidates {
             assert!(
                 streamed.contains(&candidate.notation),
@@ -2385,7 +2548,9 @@ mod tests {
     #[test]
     fn test1431_candidate_sink_dedups_by_notation() {
         let make = |label: &str| PlanCandidate {
-            notation: "[a cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;page\"][n0 -> a -> n1]".to_string(),
+            notation:
+                "[a cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;page\"][n0 -> a -> n1]"
+                    .to_string(),
             profile: PlanProfile {
                 source_media: vec![media("media:ext=pdf")],
                 target_media: vec![txt()],
@@ -2393,7 +2558,12 @@ mod tests {
                 converged: false,
                 diverged: false,
             },
-            cost: PlanCost { cap_steps: 1, total_steps: 1, max_leg_depth: 0, intent_score: 0.5 },
+            cost: PlanCost {
+                cap_steps: 1,
+                total_steps: 1,
+                max_leg_depth: 0,
+                intent_score: 0.5,
+            },
             label: label.to_string(),
             rank: 0,
         };
@@ -2402,7 +2572,11 @@ mod tests {
         let mut sink = CandidateSink::new(Some(&mut observer));
         sink.push(make("first"));
         sink.push(make("duplicate of first"));
-        assert_eq!(sink.len(), 1, "identical notations collapse to one candidate");
+        assert_eq!(
+            sink.len(),
+            1,
+            "identical notations collapse to one candidate"
+        );
         assert_eq!(observed.get(), 1, "the observer must not see the duplicate");
         assert_eq!(sink.candidates[0].label, "first", "the first emission wins");
     }

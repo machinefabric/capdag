@@ -230,13 +230,23 @@ pub fn realize_strand_with_anchor_sources(
         // ForEach synthesis — read the resolver's cardinality decision (`is_loop`); the
         // media URN is unchanged (a shape transition, not a type transition).
         if edge.is_loop {
-            steps.push(StrandStep::new(
+            let token_id = edge.foreach_token_id.clone().ok_or_else(|| {
+                MachineAbstractionError::ForEachShapeMismatch {
+                    strand_index,
+                    cap_urn: edge.cap_urn.to_string(),
+                    has_explicit_boundary: false,
+                    is_loop: true,
+                }
+            })?;
+            let mut foreach_step = StrandStep::new(
                 StrandStepType::ForEach {
                     media_def: primary_media.clone(),
                 },
                 primary_media.clone(),
                 primary_media.clone(),
-            ));
+            );
+            foreach_step.token_id = token_id;
+            steps.push(foreach_step);
         }
 
         let runtime_out = edge
@@ -302,9 +312,10 @@ pub fn realize_strand_with_anchor_sources(
     // The strand's realized target media is its output anchor's runtime media. A
     // well-formed strand has exactly one output anchor, produced by a cap above; a
     // missing anchor or media is a structural bug, exposed hard.
-    let &output_anchor = machine_strand.output_anchor_ids().first().ok_or(
-        MachineAbstractionError::DisconnectedStrand { strand_index },
-    )?;
+    let &output_anchor = machine_strand
+        .output_anchor_ids()
+        .first()
+        .ok_or(MachineAbstractionError::DisconnectedStrand { strand_index })?;
     let target_media_urn = node_media
         .get(&output_anchor)
         .ok_or(MachineAbstractionError::DisconnectedStrand { strand_index })?

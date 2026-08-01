@@ -41,7 +41,10 @@ impl DropCounters {
 
     /// Total drops across all reasons.
     pub fn total(&self) -> u64 {
-        self.counters.iter().map(|c| c.load(Ordering::Relaxed)).sum()
+        self.counters
+            .iter()
+            .map(|c| c.load(Ordering::Relaxed))
+            .sum()
     }
 
     /// Serializable snapshot keyed by the stable snake_case reason names —

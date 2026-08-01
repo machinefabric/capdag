@@ -135,6 +135,11 @@ pub struct MachineEdge {
     pub assignment: Vec<EdgeAssignmentBinding>,
     pub target: NodeId,
     pub is_loop: bool,
+    /// Stable identity of the cardinality boundary that maps this edge over a
+    /// sequence. Present exactly when `is_loop` is true. This is distinct from
+    /// `token_id`: a ForEach boundary and its body-entry cap are separate graph
+    /// elements and must never share an attribution identity.
+    pub foreach_token_id: Option<String>,
     /// Stable identity of the originating resolved-strand step (see
     /// `StrandStep::token_id`), carried onto the executable DAG unit so a running
     /// cap can report *which* step it is — the key the run's live updates route

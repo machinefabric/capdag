@@ -121,6 +121,9 @@ pub enum ShutdownReason {
     OomKill,
     /// Request was cancelled. Pending requests get ERR frames with code "CANCELLED".
     Cancelled,
+    /// The host's health probe expired. Pending requests get ERR frames with code
+    /// "CARTRIDGE_UNHEALTHY" and the process is fully retired before it may respawn.
+    HeartbeatTimeout,
 }
 
 /// A directory-registered cartridge in a roster sync. Mirrors the parameters of
@@ -323,9 +326,16 @@ impl StreamingResponse {
 /// Events from cartridge reader loops, delivered to the main run() loop.
 enum CartridgeEvent {
     /// A frame was received from a cartridge's stdout.
-    Frame { cartridge_idx: usize, frame: Frame },
+    Frame {
+        cartridge_idx: usize,
+        generation: u64,
+        frame: Frame,
+    },
     /// A cartridge's reader loop exited (process died or stdout closed).
-    Death { cartridge_idx: usize },
+    Death {
+        cartridge_idx: usize,
+        generation: u64,
+    },
 }
 
 /// A managed cartridge binary.
@@ -356,6 +366,9 @@ struct ManagedCartridge {
     installed_identity: Option<InstalledCartridgeRecord>,
     /// Whether the cartridge is currently running and healthy.
     running: bool,
+    /// Monotonic process generation. Reader events carry this value so a late
+    /// event from a retired process cannot affect its replacement.
+    generation: u64,
     /// Cartridge-advertised live handler capacity. Zero means unlimited.
     handler_capacity: usize,
     /// Reader task handle.
@@ -381,6 +394,7 @@ struct ManagedCartridge {
     /// `handle_cartridge_death` checks this to determine ERR frame behavior:
     /// - `None` → unexpected crash → ERR "CARTRIDGE_DIED"
     /// - `Some(OomKill)` → OOM watchdog kill → ERR "OOM_KILLED"
+    /// - `Some(HeartbeatTimeout)` → health failure → ERR "CARTRIDGE_UNHEALTHY"
     /// - `Some(AppExit)` → clean shutdown → no ERR frames
     shutdown_reason: Option<ShutdownReason>,
     /// Physical memory footprint in MB (self-reported via heartbeat response meta).
@@ -429,6 +443,7 @@ impl ManagedCartridge {
             cap_groups,
             installed_identity,
             running: false,
+            generation: 0,
             handler_capacity: 0,
             reader_handle: None,
             writer_handle: None,
@@ -548,6 +563,7 @@ impl ManagedCartridge {
             cap_groups,
             installed_identity,
             running: false,
+            generation: 0,
             handler_capacity: 0,
             reader_handle: None,
             writer_handle: None,
@@ -582,6 +598,7 @@ impl ManagedCartridge {
             cap_groups,
             installed_identity,
             running: true,
+            generation: 1,
             handler_capacity,
             reader_handle: None,
             writer_handle: None,
@@ -723,9 +740,7 @@ fn installed_cartridge_record_from_binary(
 /// available without a file on disk). This mirrors
 /// `installed_cartridge_record_from_binary` but anchors on the manifest
 /// rather than a binary path.
-fn installed_cartridge_record_from_manifest(
-    manifest: &[u8],
-) -> Option<InstalledCartridgeRecord> {
+fn installed_cartridge_record_from_manifest(manifest: &[u8]) -> Option<InstalledCartridgeRecord> {
     let parsed: crate::CapManifest = serde_json::from_slice(manifest).ok()?;
     let mut hasher = Sha256::new();
     hasher.update(manifest);
@@ -1225,7 +1240,8 @@ impl CartridgeHostRuntime {
         let wh = Self::start_writer_task(writer, writer_rx);
 
         // Start reader task
-        let rh = Self::start_reader_task(cartridge_idx, reader, self.event_tx.clone());
+        let generation = 1;
+        let rh = Self::start_reader_task(cartridge_idx, generation, reader, self.event_tx.clone());
 
         let mut cartridge = ManagedCartridge::new_attached(
             result.manifest,
@@ -1330,13 +1346,18 @@ impl CartridgeHostRuntime {
                 // Cartridge events (frames from cartridges, death notifications)
                 Some(event) = event_rx.recv() => {
                     match event {
-                        CartridgeEvent::Frame { cartridge_idx, frame } => {
+                        CartridgeEvent::Frame { cartridge_idx, generation, frame } => {
+                            if self.cartridges.get(cartridge_idx).map(|c| c.generation)
+                                != Some(generation)
+                            {
+                                continue;
+                            }
                             if let Err(e) = self.handle_cartridge_frame(cartridge_idx, frame, &outbound_tx) {
                                 break Err(e);
                             }
                         }
-                        CartridgeEvent::Death { cartridge_idx } => {
-                            if let Err(e) = self.handle_cartridge_death(cartridge_idx, &outbound_tx).await {
+                        CartridgeEvent::Death { cartridge_idx, generation } => {
+                            if let Err(e) = self.handle_cartridge_death(cartridge_idx, generation, &outbound_tx).await {
                                 break Err(e);
                             }
 
@@ -1380,7 +1401,9 @@ impl CartridgeHostRuntime {
 
                 // Periodic heartbeat probes
                 _ = heartbeat_interval.tick() => {
-                    self.send_heartbeats_and_check_timeouts(&outbound_tx);
+                    if let Err(e) = self.send_heartbeats_and_check_timeouts(&outbound_tx).await {
+                        break Err(e);
+                    }
                 }
 
                 // Periodic runtime-stats refresh — republish RelayNotify so
@@ -1604,9 +1627,8 @@ impl CartridgeHostRuntime {
                         Some(crate::bifaci::frame::CreditDirection::Response) => true,
                         Some(crate::bifaci::frame::CreditDirection::Request) => false,
                         None => {
-                            let total = self
-                                .drops
-                                .record(crate::bifaci::frame::DropReason::NoRoute);
+                            let total =
+                                self.drops.record(crate::bifaci::frame::DropReason::NoRoute);
                             tracing::warn!(
                                 target: "host_runtime",
                                 rid = ?frame.id,
@@ -1640,9 +1662,7 @@ impl CartridgeHostRuntime {
                     self.touch_incoming_rxid(&key);
                     (idx, true)
                 } else {
-                    let total = self
-                        .drops
-                        .record(crate::bifaci::frame::DropReason::NoRoute);
+                    let total = self.drops.record(crate::bifaci::frame::DropReason::NoRoute);
                     tracing::warn!(
                         target: "host_runtime",
                         ftype = ?frame.frame_type,
@@ -1990,25 +2010,39 @@ impl CartridgeHostRuntime {
 
     /// Handle a cartridge death (reader loop exited).
     ///
-    /// Three cases based on `shutdown_reason`:
+    /// Four cases based on `shutdown_reason`:
     /// 1. **`None`** (unexpected death): Genuine crash. Send ERR "CARTRIDGE_DIED"
     ///    for all pending requests, store death message.
     /// 2. **`Some(OomKill)`**: OOM watchdog killed the cartridge while it was
     ///    actively processing. Send ERR "OOM_KILLED" for all pending requests
     ///    so callers fail fast instead of hanging.
-    /// 3. **`Some(AppExit)`**: Clean shutdown. No ERR frames — the relay
+    /// 3. **`Some(HeartbeatTimeout)`**: Unresponsive process. Send ERR
+    ///    "CARTRIDGE_UNHEALTHY" and retire the full process generation.
+    /// 4. **`Some(AppExit)`**: Clean shutdown. No ERR frames — the relay
     ///    connection is closing anyway.
     async fn handle_cartridge_death(
         &mut self,
         cartridge_idx: usize,
+        generation: u64,
         outbound_tx: &mpsc::UnboundedSender<Frame>,
     ) -> Result<(), AsyncHostError> {
         use tokio::io::AsyncReadExt;
+
+        if self
+            .cartridges
+            .get(cartridge_idx)
+            .map(|cartridge| cartridge.generation)
+            != Some(generation)
+        {
+            return Ok(());
+        }
 
         // Scope the mutable borrow of the cartridge so we can access self later.
         let reason;
         let stderr_content;
         let exit_info: String;
+        let reader_handle;
+        let writer_handle;
         // Capture observer payload before we mutate state and clear the
         // process handle.
         let observer_pid_at_death;
@@ -2022,8 +2056,15 @@ impl CartridgeHostRuntime {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
+            cartridge.generation = cartridge
+                .generation
+                .checked_add(1)
+                .expect("cartridge process generation overflow");
             cartridge.running = false;
             cartridge.writer_tx = None;
+            writer_handle = cartridge.writer_handle.take();
+            reader_handle = cartridge.reader_handle.take();
+            cartridge.pending_heartbeats.clear();
             // One completed death (any reason) counts as one restart cycle.
             // The next on-demand spawn will increment `running` again with
             // a fresh process.
@@ -2088,6 +2129,14 @@ impl CartridgeHostRuntime {
             }
             cartridge.process = None;
             stderr_content = captured;
+        }
+
+        if let Some(handle) = writer_handle {
+            let _ = handle.await;
+        }
+        if let Some(handle) = reader_handle {
+            handle.abort();
+            let _ = handle.await;
         }
 
         // Clean up routing tables regardless of death cause.
@@ -2252,6 +2301,11 @@ impl CartridgeHostRuntime {
                     ),
                 ))
             }
+            Some(ShutdownReason::HeartbeatTimeout) => Some((
+                "CARTRIDGE_UNHEALTHY",
+                crate::failure::AttributionClass::Environment,
+                "Cartridge stopped responding to heartbeats".to_string(),
+            )),
             Some(ShutdownReason::AppExit) => {
                 // Clean shutdown — no ERR frames, relay is closing
                 None
@@ -2370,12 +2424,31 @@ impl CartridgeHostRuntime {
         desired: Vec<RegisteredDirSpec>,
         outbound_tx: &mpsc::UnboundedSender<Frame>,
     ) -> Result<(), AsyncHostError> {
-        fn identity(rec: &InstalledCartridgeRecord) -> (Option<String>, crate::bifaci::cartridge_repo::CartridgeChannel, String, String) {
-            (rec.registry_url.clone(), rec.channel, rec.id.clone(), rec.version.clone())
+        fn identity(
+            rec: &InstalledCartridgeRecord,
+        ) -> (
+            Option<String>,
+            crate::bifaci::cartridge_repo::CartridgeChannel,
+            String,
+            String,
+        ) {
+            (
+                rec.registry_url.clone(),
+                rec.channel,
+                rec.id.clone(),
+                rec.version.clone(),
+            )
         }
         let desired_keys: std::collections::HashSet<_> = desired
             .iter()
-            .map(|s| (s.registry_url.clone(), s.channel, s.id.clone(), s.version.clone()))
+            .map(|s| {
+                (
+                    s.registry_url.clone(),
+                    s.channel,
+                    s.id.clone(),
+                    s.version.clone(),
+                )
+            })
             .collect();
 
         // Retire registered-dir cartridges no longer desired.
@@ -2412,7 +2485,12 @@ impl CartridgeHostRuntime {
             .filter_map(|c| c.installed_cartridge_record().map(|r| identity(&r)))
             .collect();
         for spec in desired {
-            let key = (spec.registry_url.clone(), spec.channel, spec.id.clone(), spec.version.clone());
+            let key = (
+                spec.registry_url.clone(),
+                spec.channel,
+                spec.id.clone(),
+                spec.version.clone(),
+            );
             if present_keys.contains(&key) {
                 continue;
             }
@@ -2650,8 +2728,14 @@ impl CartridgeHostRuntime {
         let (writer_tx, writer_rx) = mpsc::unbounded_channel::<Frame>();
         let wh = Self::start_writer_task(writer, writer_rx);
 
-        // Start reader task
-        let rh = Self::start_reader_task(cartridge_idx, reader, self.event_tx.clone());
+        let generation = self.cartridges[cartridge_idx]
+            .generation
+            .checked_add(1)
+            .expect("cartridge process generation overflow");
+
+        // Start reader task. Every event is stamped with this process
+        // generation so an old process cannot tear down a later respawn.
+        let rh = Self::start_reader_task(cartridge_idx, generation, reader, self.event_tx.clone());
 
         // Update cartridge state
         let cartridge = &mut self.cartridges[cartridge_idx];
@@ -2660,6 +2744,7 @@ impl CartridgeHostRuntime {
         cartridge.handler_capacity = handshake_result.handler_capacity;
         cartridge.cap_groups = cap_groups;
         cartridge.running = true;
+        cartridge.generation = generation;
         cartridge.process = Some(child);
         cartridge.writer_tx = Some(writer_tx);
         cartridge.reader_handle = Some(rh);
@@ -2795,105 +2880,36 @@ impl CartridgeHostRuntime {
     // HEARTBEAT HEALTH MONITORING
     // =========================================================================
 
-    /// Send heartbeat probes to all running cartridges and check for timeouts.
-    fn send_heartbeats_and_check_timeouts(&mut self, outbound_tx: &mpsc::UnboundedSender<Frame>) {
+    /// Send heartbeat probes to all running cartridges and fully retire any
+    /// process whose previous probe expired. Teardown completes before the
+    /// cartridge becomes eligible for on-demand respawn.
+    async fn send_heartbeats_and_check_timeouts(
+        &mut self,
+        outbound_tx: &mpsc::UnboundedSender<Frame>,
+    ) -> Result<(), AsyncHostError> {
         let now = Instant::now();
 
-        for cartridge_idx in 0..self.cartridges.len() {
-            let cartridge = &mut self.cartridges[cartridge_idx];
-            if !cartridge.running {
-                continue;
-            }
+        let timed_out: Vec<(usize, u64)> = self
+            .cartridges
+            .iter()
+            .enumerate()
+            .filter(|(_, cartridge)| {
+                cartridge.running
+                    && cartridge
+                        .pending_heartbeats
+                        .values()
+                        .any(|sent| now.duration_since(*sent) > HEARTBEAT_TIMEOUT)
+            })
+            .map(|(idx, cartridge)| (idx, cartridge.generation))
+            .collect();
 
-            // Check for timed-out heartbeats
-            let timed_out: Vec<MessageId> = cartridge
-                .pending_heartbeats
-                .iter()
-                .filter(|(_, sent)| now.duration_since(**sent) > HEARTBEAT_TIMEOUT)
-                .map(|(id, _)| id.clone())
-                .collect();
+        for (cartridge_idx, generation) in timed_out {
+            self.cartridges[cartridge_idx].shutdown_reason = Some(ShutdownReason::HeartbeatTimeout);
+            self.handle_cartridge_death(cartridge_idx, generation, outbound_tx)
+                .await?;
+        }
 
-            if !timed_out.is_empty() {
-                // Cartridge is unresponsive — remove its caps temporarily
-                for id in timed_out {
-                    cartridge.pending_heartbeats.remove(&id);
-                }
-                cartridge.running = false;
-
-                // Send ERR for pending requests (both new lists)
-                let failed_incoming_keys: Vec<(MessageId, MessageId)> = self
-                    .incoming_rxids
-                    .iter()
-                    .filter(|(_, &idx)| idx == cartridge_idx)
-                    .map(|(key, _)| key.clone())
-                    .collect();
-
-                let failed_outgoing_rids: Vec<MessageId> = self
-                    .outgoing_rids
-                    .iter()
-                    .filter(|(_, &idx)| idx == cartridge_idx)
-                    .map(|(rid, _)| rid.clone())
-                    .collect();
-
-                for (xid, rid) in &failed_incoming_keys {
-                    let flow_key = FlowKey {
-                        rid: rid.clone(),
-                        xid: Some(xid.clone()),
-                    };
-                    let next_seq = self
-                        .outgoing_max_seq
-                        .remove(&flow_key)
-                        .map(|s| s + 1)
-                        .unwrap_or(0);
-                    self.outgoing_max_seq_touched.remove(&flow_key);
-                    // A hung cartridge process is a runtime-environment
-                    // failure — Environment.
-                    let mut err_frame = Frame::err(
-                        rid.clone(),
-                        "CARTRIDGE_UNHEALTHY",
-                        crate::failure::AttributionClass::Environment,
-                        "Cartridge stopped responding to heartbeats",
-                        None,
-                    );
-                    err_frame.routing_id = Some(xid.clone());
-                    err_frame.seq = next_seq;
-                    let _ = outbound_tx.send(err_frame);
-                    let key = (xid.clone(), rid.clone());
-                    self.incoming_rxids.remove(&key);
-                    self.incoming_rxids_touched.remove(&key);
-                    self.incoming_body_done.remove(&key);
-                    self.incoming_response_done.remove(&key);
-                    self.incoming_to_peer_rids.remove(&key);
-                    self.incoming_to_peer_rids_touched.remove(&key);
-                }
-
-                for rid in &failed_outgoing_rids {
-                    let flow_key = FlowKey {
-                        rid: rid.clone(),
-                        xid: None,
-                    };
-                    let next_seq = self
-                        .outgoing_max_seq
-                        .remove(&flow_key)
-                        .map(|s| s + 1)
-                        .unwrap_or(0);
-                    self.outgoing_max_seq_touched.remove(&flow_key);
-                    let mut err_frame = Frame::err(
-                        rid.clone(),
-                        "CARTRIDGE_UNHEALTHY",
-                        crate::failure::AttributionClass::Environment,
-                        "Cartridge stopped responding to heartbeats",
-                        None,
-                    );
-                    err_frame.seq = next_seq;
-                    let _ = outbound_tx.send(err_frame);
-                    self.outgoing_rids.remove(rid);
-                    self.outgoing_rids_touched.remove(rid);
-                }
-
-                continue;
-            }
-
+        for cartridge in self.cartridges.iter_mut().filter(|c| c.running) {
             // Send a new heartbeat probe
             if let Some(ref writer_tx) = cartridge.writer_tx {
                 let hb_id = MessageId::new_uuid();
@@ -2907,6 +2923,7 @@ impl CartridgeHostRuntime {
         // Rebuild after potential cap changes
         self.update_cap_table();
         self.rebuild_capabilities(Some(outbound_tx)); // Send RelayNotify to relay
+        Ok(())
     }
 
     // =========================================================================
@@ -3133,6 +3150,7 @@ impl CartridgeHostRuntime {
     /// Spawn a reader task that reads frames from a cartridge's stdout and sends events.
     fn start_reader_task<R: AsyncRead + Unpin + Send + 'static>(
         cartridge_idx: usize,
+        generation: u64,
         mut reader: FrameReader<R>,
         event_tx: mpsc::UnboundedSender<CartridgeEvent>,
     ) -> JoinHandle<()> {
@@ -3143,6 +3161,7 @@ impl CartridgeHostRuntime {
                         if event_tx
                             .send(CartridgeEvent::Frame {
                                 cartridge_idx,
+                                generation,
                                 frame,
                             })
                             .is_err()
@@ -3152,12 +3171,18 @@ impl CartridgeHostRuntime {
                     }
                     Ok(None) => {
                         // EOF — cartridge closed stdout
-                        let _ = event_tx.send(CartridgeEvent::Death { cartridge_idx });
+                        let _ = event_tx.send(CartridgeEvent::Death {
+                            cartridge_idx,
+                            generation,
+                        });
                         break;
                     }
                     Err(_) => {
                         // Read error — treat as death
-                        let _ = event_tx.send(CartridgeEvent::Death { cartridge_idx });
+                        let _ = event_tx.send(CartridgeEvent::Death {
+                            cartridge_idx,
+                            generation,
+                        });
                         break;
                     }
                 }
@@ -3543,13 +3568,19 @@ mod tests {
         assert_eq!(record.version, "2.3.4");
         assert_eq!(record.registry_url, None, "null registry_url ⇒ dev install");
         assert!(
-            matches!(record.channel, crate::bifaci::cartridge_repo::CartridgeChannel::Nightly),
+            matches!(
+                record.channel,
+                crate::bifaci::cartridge_repo::CartridgeChannel::Nightly
+            ),
             "channel must round-trip from the manifest"
         );
         // sha256 is over the manifest bytes — non-empty, deterministic.
         assert_eq!(record.sha256.len(), 64, "sha256 hex must be 64 chars");
         let again = installed_cartridge_record_from_manifest(manifest.as_bytes()).unwrap();
-        assert_eq!(record.sha256, again.sha256, "identity must be deterministic");
+        assert_eq!(
+            record.sha256, again.sha256,
+            "identity must be deterministic"
+        );
         // Attached ⇒ already verified ⇒ operational, no attachment error.
         assert!(record.attachment_error.is_none());
         assert!(matches!(record.lifecycle, CartridgeLifecycle::Operational));
@@ -4287,7 +4318,13 @@ mod tests {
             }
 
             // Send LOG + response (LOG should be forwarded too)
-            let mut log = Frame::log(req_id_for_cartridge.clone(), "info", crate::AttributionClass::Internal, "Processing", None);
+            let mut log = Frame::log(
+                req_id_for_cartridge.clone(),
+                "info",
+                crate::AttributionClass::Internal,
+                "Processing",
+                None,
+            );
             seq.assign(&mut log);
             w.write(&log).await.unwrap();
             let sid = "rs".to_string();
@@ -5192,7 +5229,13 @@ mod tests {
             // Read identity REQ, respond with ERR (broken identity handler)
             let req = reader.read().await.unwrap().expect("expected identity REQ");
             assert_eq!(req.frame_type, FrameType::Req);
-            let err = Frame::err(req.id, "BROKEN", crate::AttributionClass::Internal, "identity handler is broken", None);
+            let err = Frame::err(
+                req.id,
+                "BROKEN",
+                crate::AttributionClass::Internal,
+                "identity handler is broken",
+                None,
+            );
             writer.write(&err).await.unwrap();
         });
 
@@ -6121,14 +6164,22 @@ mod tests {
             lifecycle: CartridgeLifecycle::Discovered,
         }]);
         let records = runtime.build_installed_cartridge_identities();
-        assert_eq!(records.len(), 2, "static inventory merges into every advertisement");
+        assert_eq!(
+            records.len(),
+            2,
+            "static inventory merges into every advertisement"
+        );
         assert!(records.iter().any(|r| r.id == "rejectedcart"));
 
         // Roster retirement is NOT a failure: a removed cartridge disappears
         // from the inventory entirely (there is nothing to report).
         runtime.cartridges[0].removed = true;
         let records = runtime.build_installed_cartridge_identities();
-        assert_eq!(records.len(), 1, "retired installs vanish from the inventory");
+        assert_eq!(
+            records.len(),
+            1,
+            "retired installs vanish from the inventory"
+        );
         assert_eq!(records[0].id, "rejectedcart");
     }
 
@@ -6215,7 +6266,11 @@ mod tests {
             .expect("heartbeat response must be handled locally");
         let records = runtime.build_installed_cartridge_identities();
         assert_eq!(
-            records[0].runtime_stats.as_ref().unwrap().protocol_drops_total,
+            records[0]
+                .runtime_stats
+                .as_ref()
+                .unwrap()
+                .protocol_drops_total,
             Some(45),
         );
     }
@@ -6344,7 +6399,10 @@ mod tests {
             crate::bifaci::cartridge_repo::CartridgeChannel::Nightly
         ));
         assert_eq!(record.registry_url, None, "dev build → null registry_url");
-        assert!(!record.sha256.is_empty(), "sha256 taken over manifest bytes");
+        assert!(
+            !record.sha256.is_empty(),
+            "sha256 taken over manifest bytes"
+        );
         // Attached ⇒ HELLO + identity verification already succeeded ⇒ operational.
         assert!(matches!(record.lifecycle, CartridgeLifecycle::Operational));
 
@@ -6353,6 +6411,63 @@ mod tests {
         assert!(
             installed_cartridge_record_from_manifest(b"{not json").is_none(),
             "unparseable manifest must yield None, not a placeholder identity"
+        );
+    }
+
+    // TEST8067: A late death notification from a retired process generation
+    // cannot tear down its replacement. The current generation's heartbeat
+    // timeout performs the complete death transition and preserves its typed
+    // terminal for the request that process actually owned.
+    #[tokio::test]
+    async fn test8067_heartbeat_timeout_is_generation_safe() {
+        let mut runtime = CartridgeHostRuntime::new();
+        let mut cartridge = ManagedCartridge::new_registered_binary(
+            PathBuf::from("/nonexistent/test-cartridge"),
+            "test-cartridge".to_string(),
+            "1.0.0".to_string(),
+            crate::bifaci::cartridge_repo::CartridgeChannel::Release,
+            None,
+            cap_groups_from_urns(&["cap:in=\"media:void\";test;out=\"media:void\""]),
+        );
+        cartridge.running = true;
+        cartridge.generation = 7;
+        cartridge.handler_capacity = 1;
+        runtime.cartridges.push(cartridge);
+
+        let xid = MessageId::Uint(41);
+        let rid = MessageId::Uint(42);
+        runtime.incoming_rxids.insert((xid.clone(), rid.clone()), 0);
+
+        let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel();
+
+        runtime
+            .handle_cartridge_death(0, 6, &outbound_tx)
+            .await
+            .expect("stale death event must be ignored");
+        assert!(runtime.cartridges[0].running);
+        assert_eq!(runtime.cartridges[0].generation, 7);
+        assert!(outbound_rx.try_recv().is_err());
+
+        runtime.cartridges[0].shutdown_reason = Some(ShutdownReason::HeartbeatTimeout);
+        runtime
+            .handle_cartridge_death(0, 7, &outbound_tx)
+            .await
+            .expect("current generation must be retired");
+
+        assert!(!runtime.cartridges[0].running);
+        assert_eq!(runtime.cartridges[0].generation, 8);
+        assert_eq!(runtime.cartridges[0].restart_count, 1);
+        assert!(!runtime.incoming_rxids.contains_key(&(xid, rid)));
+
+        let frames: Vec<Frame> = std::iter::from_fn(|| outbound_rx.try_recv().ok()).collect();
+        let terminal = frames
+            .iter()
+            .find(|frame| frame.frame_type == FrameType::Err)
+            .expect("heartbeat timeout must emit a terminal ERR");
+        assert_eq!(terminal.error_code(), Some("CARTRIDGE_UNHEALTHY"));
+        assert_eq!(
+            terminal.error_message(),
+            Some("Cartridge stopped responding to heartbeats")
         );
     }
 }

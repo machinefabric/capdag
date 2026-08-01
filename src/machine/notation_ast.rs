@@ -878,7 +878,9 @@ pub fn build_editor_model(
                             wiring
                                 .sources
                                 .get(source_idx)
-                                .map(|(name, _)| node_is_sequence.get(name).copied().unwrap_or(false))
+                                .map(|(name, _)| {
+                                    node_is_sequence.get(name).copied().unwrap_or(false)
+                                })
                                 .unwrap_or(false),
                         ),
                         source_graph_id: Some(source_graph_id.clone()),
@@ -896,7 +898,12 @@ pub fn build_editor_model(
                     detail: Some("Result connection".to_string()),
                     linked_cap_urn: linked_cap_urn.clone(),
                     linked_media_urn: None,
-                    is_sequence: Some(node_is_sequence.get(&wiring.target).copied().unwrap_or(false)),
+                    is_sequence: Some(
+                        node_is_sequence
+                            .get(&wiring.target)
+                            .copied()
+                            .unwrap_or(false),
+                    ),
                     source_graph_id: Some(cap_fab_id.clone()),
                     target_graph_id: Some(target_graph_id),
                     color_index: Some(color_index),
@@ -1815,7 +1822,8 @@ mod tests {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
-        let (entities, _) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let (entities, _) =
+            build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
 
         let entity = entity_at(&entities, 0, 1);
         assert_eq!(entity.kind, NotationEntityKind::AliasDefinition);
@@ -1836,7 +1844,8 @@ mod tests {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
-        let (entities, _) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let (entities, _) =
+            build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
 
         let entity = entity_at(&entities, 1, 1);
         assert_eq!(entity.kind, NotationEntityKind::Node);
@@ -1899,7 +1908,8 @@ mod tests {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
-        let (_, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let (_, graph) =
+            build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
 
         let node_count = graph
             .iter()
@@ -1928,7 +1938,8 @@ mod tests {
         let input = r#"[extract cap:in="media:ext=pdf";extract;out="media:ext=txt"]
 [doc -> extract -> text]"#;
         let ast = parse_notation_ast(input);
-        let (entities, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let (entities, graph) =
+            build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
 
         let cap_alias_entity = entities
             .iter()
@@ -1981,7 +1992,8 @@ mod tests {
             "[mid -> b -> shared]"
         );
         let ast = parse_notation_ast(input);
-        let (entities, graph) = build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let (entities, graph) =
+            build_editor_model(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
 
         let shared_entities: Vec<&NotationEntityInfo> = entities
             .iter()

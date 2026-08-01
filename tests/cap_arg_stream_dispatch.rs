@@ -60,8 +60,7 @@ const BARE_TEMPERATURE: &str = "media:numeric;temperature";
 const RICH_TOP_P: &str = "media:inference;numeric;sampling;task;top-p;user";
 const BARE_TOP_P: &str = "media:numeric;top-p";
 
-const RICH_MAX_CONTEXT: &str =
-    "media:inference;limit;max-context-length;model;numeric;operator";
+const RICH_MAX_CONTEXT: &str = "media:inference;limit;max-context-length;model;numeric;operator";
 const BARE_MAX_CONTEXT: &str = "media:max-context-length;numeric";
 
 const RICH_BATCH_SIZE: &str = "media:batch-size;inference;limit;numeric;operator;task";

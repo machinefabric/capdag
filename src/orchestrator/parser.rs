@@ -500,22 +500,17 @@ mod tests {
         let header = r#"[p2t cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt"]"#;
 
         // Keyword-free wiring parses to one edge.
-        let ok = parse_machine_to_cap_dag(
-            &format!("{header}[pages -> p2t -> texts]"),
-            &registry,
-        )
-        .await;
+        let ok =
+            parse_machine_to_cap_dag(&format!("{header}[pages -> p2t -> texts]"), &registry).await;
         assert!(ok.is_ok(), "keyword-free wiring must parse: {:?}", ok.err());
         let graph = ok.unwrap();
         assert_eq!(graph.edges.len(), 1);
         assert_eq!(graph.nodes.len(), 2);
 
         // The retired `LOOP` keyword must not parse as a valid wiring.
-        let looped = parse_machine_to_cap_dag(
-            &format!("{header}[pages -> LOOP p2t -> texts]"),
-            &registry,
-        )
-        .await;
+        let looped =
+            parse_machine_to_cap_dag(&format!("{header}[pages -> LOOP p2t -> texts]"), &registry)
+                .await;
         assert!(
             looped.is_err(),
             "the retired LOOP keyword must not parse as a valid wiring"

@@ -6,7 +6,6 @@
 //! - **Cartridge × N** (`cartridge_runtime`): (CartridgeRuntime + handler × N)
 
 pub mod binary_signing;
-pub mod release_cert;
 pub mod cartridge_json;
 pub mod cartridge_repo;
 pub mod cartridge_runtime;
@@ -21,6 +20,7 @@ pub mod manifest;
 pub mod protocol_trace;
 pub mod relay;
 pub mod relay_switch;
+pub mod release_cert;
 pub mod request_state;
 pub mod router;
 pub mod stats;

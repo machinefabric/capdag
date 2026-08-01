@@ -67,13 +67,10 @@ use tokio::io::{BufReader, BufWriter};
 // Cap URNs under test (must match testcartridge's manifest verbatim)
 // =============================================================================
 
-const CAP_STREAM_N_CHUNKS: &str =
-    r#"cap:in="media:enc=utf-8;count-spec";test-stream-n-chunks;out="media:enc=utf-8;chunk-stream""#;
-const CAP_SLOW_CONSUME: &str =
-    r#"cap:in="media:enc=utf-8;chunk-stream";test-slow-consume;out="media:enc=utf-8;consume-report""#;
+const CAP_STREAM_N_CHUNKS: &str = r#"cap:in="media:enc=utf-8;count-spec";test-stream-n-chunks;out="media:enc=utf-8;chunk-stream""#;
+const CAP_SLOW_CONSUME: &str = r#"cap:in="media:enc=utf-8;chunk-stream";test-slow-consume;out="media:enc=utf-8;consume-report""#;
 const CAP_ECHO_STREAM: &str =
     r#"cap:in="media:enc=utf-8;chunk-stream";test-echo-stream;out="media:enc=utf-8;echoed-stream""#;
-
 
 // =============================================================================
 // Log capture — every pipeline log/progress event, in arrival order
@@ -87,12 +84,15 @@ fn capturing_log_fn() -> (PipelineLogFn, CapturedLogs) {
     let events: CapturedLogs = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&events);
     let log_fn: PipelineLogFn = Arc::new(move |record| {
-            let cap_urn = record.cap_urn.unwrap_or_else(|| "machine".to_string());
-            eprintln!("[V4E2ELog][{}] {} {}", record.level, cap_urn, record.message);
-            sink.lock()
-                .unwrap()
-                .push((cap_urn, record.level, record.message));
-        });
+        let cap_urn = record.cap_urn.unwrap_or_else(|| "machine".to_string());
+        eprintln!(
+            "[V4E2ELog][{}] {} {}",
+            record.level, cap_urn, record.message
+        );
+        sink.lock()
+            .unwrap()
+            .push((cap_urn, record.level, record.message));
+    });
     (log_fn, events)
 }
 
@@ -324,10 +324,7 @@ fn testcartridge_bin() -> PathBuf {
     let bin_path = target_dir.join("release").join("testcartridge");
 
     let needs_build = if !bin_path.exists() {
-        eprintln!(
-            "[V4E2ETest] Binary not found at {:?}, will build",
-            bin_path
-        );
+        eprintln!("[V4E2ETest] Binary not found at {:?}, will build", bin_path);
         true
     } else {
         testcartridge_needs_rebuild(&bin_path)
@@ -491,10 +488,7 @@ async fn test7056_bidirectional_echo_no_deadlock() {
     let registry = create_v4_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
-    let route = format!(
-        "\n[echo {}]\n[input -> echo -> output]\n",
-        CAP_ECHO_STREAM
-    );
+    let route = format!("\n[echo {}]\n[input -> echo -> output]\n", CAP_ECHO_STREAM);
     let graph = parse_machine_to_cap_dag(&route, &*registry)
         .await
         .expect("Parse failed");
@@ -576,10 +570,7 @@ async fn test7059_terminal_end_releases_credit_and_leaks_no_state() {
     let registry = create_v4_fabric_registry();
     let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
 
-    let route = format!(
-        "\n[echo {}]\n[input -> echo -> output]\n",
-        CAP_ECHO_STREAM
-    );
+    let route = format!("\n[echo {}]\n[input -> echo -> output]\n", CAP_ECHO_STREAM);
     let graph = parse_machine_to_cap_dag(&route, &*registry)
         .await
         .expect("Parse failed");

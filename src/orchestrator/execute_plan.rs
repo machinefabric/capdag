@@ -26,6 +26,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::cap::registry::FabricRegistry;
 use crate::orchestrator::plan_converter::plan_to_resolved_graph;
@@ -62,7 +63,9 @@ pub struct PipelineResult {
 impl PipelineResult {
     /// The terminal for a given `Output` node id.
     pub fn terminal(&self, output_node_id: &str) -> Option<&TerminalOutput> {
-        self.terminals.iter().find(|t| t.output_node_id == output_node_id)
+        self.terminals
+            .iter()
+            .find(|t| t.output_node_id == output_node_id)
     }
 }
 
@@ -112,11 +115,32 @@ pub struct WriterResult {
     pub item_metas: Vec<Option<StreamMeta>>,
 }
 
+/// Stable address of one body within a particular ForEach boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForEachBodyCoordinate {
+    pub foreach_token_id: String,
+    pub body_index: usize,
+}
+
+/// Transient description of one materialized ForEach input item. The bytes remain
+/// on the pipeline wire; only this bounded UI snapshot leaves the executor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForEachItemSnapshot {
+    pub foreach_token_id: String,
+    pub body_index: usize,
+    pub item_preview_text: Option<String>,
+    pub item_byte_count: u64,
+}
+
 /// Per-item callback — delivers each output item as it is produced.
 pub type PipelineItemFn = Arc<dyn Fn(&OutputItem, usize) + Send + Sync>;
 
 /// Per-body outcome callback — delivers the running set of body outcomes.
-pub type BodyOutcomeFn = Arc<dyn Fn(&[BodyOutcome]) + Send + Sync>;
+pub type BodyOutcomeFn = Arc<dyn Fn(&[BodyOutcome]) -> Result<(), ExecutionError> + Send + Sync>;
+
+/// Delivers the complete materialized input set before any body is spawned.
+pub type ForEachItemsFn =
+    Arc<dyn Fn(&str, &[ForEachItemSnapshot]) -> Result<(), ExecutionError> + Send + Sync>;
 
 /// Output of running one resolved (ForEach-free) segment through an [`EngineRuntime`].
 ///
@@ -161,10 +185,7 @@ pub trait EngineRuntime: Send + Sync {
     /// silently defaulted); the CLI reads it from the terminal cap's metadata. A value
     /// the source does not specify uses the documented default, but an *error* fetching
     /// it aborts the segment.
-    async fn activity_timeout_secs(
-        &self,
-        graph: &ResolvedGraph,
-    ) -> Result<u64, ExecutionError>;
+    async fn activity_timeout_secs(&self, graph: &ResolvedGraph) -> Result<u64, ExecutionError>;
 
     /// Disk writer factory for persisted terminal sinks. `Some` for the engine (each
     /// persisted sink gets a writer bound to the run artifact dir); `None` for the CLI
@@ -206,7 +227,7 @@ pub trait EngineRuntime: Send + Sync {
     /// optional protocol trace, and drive `run_dag_on_context`. Backends customise only
     /// via the hooks above — they do not override this.
     ///
-    /// - `item_index`: `Some(i)` when this is the body of ForEach iteration `i`.
+    /// - `body_coordinate`: stable ForEach token + local index for a body segment.
     /// - `persist_sinks`: the sink node ids whose output is plan terminal. A persisting
     ///   runtime writes each to disk (one writer per sink) and returns its
     ///   `writer_results`; every other node is kept in memory.
@@ -219,7 +240,7 @@ pub trait EngineRuntime: Send + Sync {
         progress_fn: Option<&CapProgressFn>,
         step_progress_fn: Option<&CapStepProgressFn>,
         log_fn: Option<&PipelineLogFn>,
-        item_index: Option<usize>,
+        body_coordinate: Option<ForEachBodyCoordinate>,
         stall_tracker: Option<Arc<PipelineProgressTracker>>,
         persist_sinks: &HashSet<String>,
     ) -> Result<SegmentOutput, ExecutionError> {
@@ -276,8 +297,7 @@ pub trait EngineRuntime: Send + Sync {
                 let sink = sink.clone();
                 let label = label.clone();
                 Some(tokio::spawn(async move {
-                    let mut ticker =
-                        tokio::time::interval(std::time::Duration::from_millis(250));
+                    let mut ticker = tokio::time::interval(std::time::Duration::from_millis(250));
                     loop {
                         ticker.tick().await;
                         let stats = switch.protocol_stats().await;
@@ -302,9 +322,9 @@ pub trait EngineRuntime: Send + Sync {
             progress_fn,
             step_progress_fn,
             log_fn,
-            item_index,
             stall_tracker,
             writer.as_deref(),
+            body_coordinate,
             persist_sinks,
             activity_timeout_secs,
             observer,
@@ -371,7 +391,10 @@ async fn compute_regions(
     let mut direct_adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for edge in &plan.edges {
         if matches!(edge.edge_type, crate::planner::EdgeType::Direct) {
-            direct_adj.entry(edge.from_node.as_str()).or_default().push(edge.to_node.as_str());
+            direct_adj
+                .entry(edge.from_node.as_str())
+                .or_default()
+                .push(edge.to_node.as_str());
         }
     }
 
@@ -382,7 +405,8 @@ async fn compute_regions(
             input_node,
             body_entry,
             ..
-        } = &node.node_type else {
+        } = &node.node_type
+        else {
             continue;
         };
 
@@ -462,10 +486,7 @@ async fn compute_regions(
 /// ForEach region's output: they can only run AFTER the regions (a fold cap
 /// consuming the collected per-item sequence, and everything downstream of
 /// it). Includes gather `Collect` nodes on the post side.
-fn compute_post_region_caps(
-    plan: &MachinePlan,
-    region_nodes: &HashSet<String>,
-) -> HashSet<String> {
+fn compute_post_region_caps(plan: &MachinePlan, region_nodes: &HashSet<String>) -> HashSet<String> {
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for edge in &plan.edges {
         if matches!(
@@ -474,7 +495,9 @@ fn compute_post_region_caps(
                 | crate::planner::EdgeType::Arg { .. }
                 | crate::planner::EdgeType::Collection
         ) {
-            adj.entry(edge.from_node.as_str()).or_default().push(edge.to_node.as_str());
+            adj.entry(edge.from_node.as_str())
+                .or_default()
+                .push(edge.to_node.as_str());
         }
     }
     let mut post: HashSet<String> = HashSet::new();
@@ -593,7 +616,10 @@ fn build_body_subplan(plan: &MachinePlan, region: &Region) -> MachinePlan {
             body.add_node(node.clone());
         }
     }
-    body.add_edge(MachinePlanEdge::direct(&region.body_input_id, &region.body_entry));
+    body.add_edge(MachinePlanEdge::direct(
+        &region.body_input_id,
+        &region.body_entry,
+    ));
     for edge in &plan.edges {
         // Data-flow edges among body nodes: the main input (`Direct`) and any in-body
         // convergence input (`Arg`).
@@ -633,7 +659,7 @@ async fn run_subplan(
     progress_fn: Option<&CapProgressFn>,
     step_progress_fn: Option<&CapStepProgressFn>,
     log_fn: Option<&PipelineLogFn>,
-    item_index: Option<usize>,
+    body_coordinate: Option<ForEachBodyCoordinate>,
     stall_tracker: Option<Arc<PipelineProgressTracker>>,
     progress_base: f32,
     progress_weight: f32,
@@ -664,7 +690,7 @@ async fn run_subplan(
             seg_pfn.as_ref(),
             step_progress_fn,
             log_fn,
-            item_index,
+            body_coordinate,
             stall_tracker,
             persist_sinks,
         )
@@ -689,6 +715,7 @@ pub async fn execute_plan(
     log_fn: Option<&PipelineLogFn>,
     item_fn: Option<&PipelineItemFn>,
     body_outcome_fn: Option<&BodyOutcomeFn>,
+    foreach_items_fn: Option<&ForEachItemsFn>,
 ) -> Result<PipelineResult, ExecutionError> {
     let registry = runtime.fabric_registry();
 
@@ -705,12 +732,16 @@ pub async fn execute_plan(
         .collect();
     outputs.sort();
     if outputs.is_empty() {
-        return Err(ExecutionError::HostError("plan has no Output node".to_string()));
+        return Err(ExecutionError::HostError(
+            "plan has no Output node".to_string(),
+        ));
     }
 
     let regions = compute_regions(plan, &registry).await?;
-    let region_nodes: HashSet<String> =
-        regions.iter().flat_map(|r| r.body_nodes.iter().cloned()).collect();
+    let region_nodes: HashSet<String> = regions
+        .iter()
+        .flat_map(|r| r.body_nodes.iter().cloned())
+        .collect();
     // Caps that consume region output (the fold and everything after it) run
     // AFTER the regions, in their own segment.
     let post_ids = compute_post_region_caps(plan, &region_nodes);
@@ -779,10 +810,18 @@ pub async fn execute_plan(
     // as their own run-graph nodes, so a trunk outcome would render as a phantom extra
     // media item (an empty "Item 1") in the ForEach group.
     if regions.is_empty() {
-        let trunk_saved: Vec<String> =
-            trunk_writers.values().flatten().flat_map(|w| w.saved_paths.clone()).collect();
-        let trunk_bytes: usize = trunk_writers.values().flatten().map(|w| w.total_bytes).sum();
+        let trunk_saved: Vec<String> = trunk_writers
+            .values()
+            .flatten()
+            .flat_map(|w| w.saved_paths.clone())
+            .collect();
+        let trunk_bytes: usize = trunk_writers
+            .values()
+            .flatten()
+            .map(|w| w.total_bytes)
+            .sum();
         body_outcomes.push(BodyOutcome {
+            foreach_token_id: None,
             body_index: 0,
             success: true,
             cap_urns: trunk_cap_urns,
@@ -804,7 +843,11 @@ pub async fn execute_plan(
     // ── ForEach regions ──
     let post_weight = if post_ids.is_empty() { 0.0 } else { 0.2 };
     let region_band = 1.0 - trunk_weight - post_weight;
-    let region_slice = if regions.is_empty() { 0.0 } else { region_band / regions.len() as f32 };
+    let region_slice = if regions.is_empty() {
+        0.0
+    } else {
+        region_band / regions.len() as f32
+    };
     for (ri, region) in regions.iter().enumerate() {
         let input_items = node_data.get(&region.input_node).cloned().ok_or_else(|| {
             ExecutionError::HostError(format!(
@@ -816,6 +859,20 @@ pub async fn execute_plan(
         })?;
         let body_plan = build_body_subplan(plan, region);
         let base = trunk_weight + region_slice * ri as f32;
+
+        let foreach_items: Vec<ForEachItemSnapshot> = input_items
+            .iter()
+            .enumerate()
+            .map(|(body_index, bytes)| ForEachItemSnapshot {
+                foreach_token_id: region.step_token_id.clone(),
+                body_index,
+                item_preview_text: item_preview_snippet(bytes),
+                item_byte_count: bytes.len() as u64,
+            })
+            .collect();
+        if let Some(callback) = foreach_items_fn {
+            callback(&region.step_token_id, &foreach_items)?;
+        }
 
         let per_item = run_region_bodies(
             &runtime,
@@ -851,7 +908,10 @@ pub async fn execute_plan(
         // Region writer results, keyed by sink node.
         for (_, writers_by_sink) in &per_item {
             for (sink, ws) in writers_by_sink {
-                node_writers.entry(sink.clone()).or_default().extend(ws.clone());
+                node_writers
+                    .entry(sink.clone())
+                    .or_default()
+                    .extend(ws.clone());
             }
         }
     }
@@ -980,7 +1040,10 @@ pub async fn execute_plan(
     if let Some(pfn) = progress_fn {
         pfn(1.0, "", "Completed");
     }
-    Ok(PipelineResult { terminals, body_outcomes })
+    Ok(PipelineResult {
+        terminals,
+        body_outcomes,
+    })
 }
 
 // =============================================================================
@@ -1007,13 +1070,21 @@ async fn run_region_bodies(
     progress_base: f32,
     progress_weight: f32,
     body_outcomes: &mut Vec<BodyOutcome>,
-) -> Result<Vec<(HashMap<String, Vec<Vec<u8>>>, HashMap<String, Vec<WriterResult>>)>, ExecutionError>
-{
+) -> Result<
+    Vec<(
+        HashMap<String, Vec<Vec<u8>>>,
+        HashMap<String, Vec<WriterResult>>,
+    )>,
+    ExecutionError,
+> {
     let item_count = input_items.len();
     let fe_token_id = region.step_token_id.clone();
 
-    let body_progress_slots: Arc<Vec<AtomicU32>> =
-        Arc::new((0..item_count).map(|_| AtomicU32::new(0f32.to_bits())).collect());
+    let body_progress_slots: Arc<Vec<AtomicU32>> = Arc::new(
+        (0..item_count)
+            .map(|_| AtomicU32::new(0f32.to_bits()))
+            .collect(),
+    );
     let stall_tracker = Arc::new(PipelineProgressTracker::new());
     let mut stall_warning_logged = false;
 
@@ -1025,8 +1096,7 @@ async fn run_region_bodies(
     );
     type BodyErr = (usize, ExecutionError, u64);
 
-    let (done_tx, mut done_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<BodyOk, BodyErr>>();
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<Result<BodyOk, BodyErr>>();
 
     for (i, raw_item_bytes) in input_items.iter().enumerate() {
         let runtime = runtime.clone();
@@ -1039,6 +1109,10 @@ async fn run_region_bodies(
         let body_log_fn = log_fn.cloned();
         let body_stall_tracker = stall_tracker.clone();
         let done_tx = done_tx.clone();
+        let body_coordinate = ForEachBodyCoordinate {
+            foreach_token_id: fe_token_id.clone(),
+            body_index: i,
+        };
 
         let item_pfn: Option<CapProgressFn> = progress_fn.map(|parent| {
             let parent = parent.clone();
@@ -1050,8 +1124,10 @@ async fn run_region_bodies(
             Arc::new(move |p: f32, cap_urn: &str, msg: &str| {
                 slots[i].store(p.to_bits(), Ordering::Relaxed);
                 tracker.touch();
-                let sum: f32 =
-                    slots.iter().map(|s| f32::from_bits(s.load(Ordering::Relaxed))).sum();
+                let sum: f32 = slots
+                    .iter()
+                    .map(|s| f32::from_bits(s.load(Ordering::Relaxed)))
+                    .sum();
                 let step = if n > 0.0 { sum / n } else { 0.0 };
                 if let Some(sink) = &step_sink {
                     sink(step.clamp(0.0, 1.0), cap_urn, &fe_token_id);
@@ -1075,7 +1151,7 @@ async fn run_region_bodies(
                 item_pfn.as_ref(),
                 None,
                 body_log_fn.as_ref(),
-                Some(i),
+                Some(body_coordinate),
                 Some(body_stall_tracker),
                 0.0,
                 1.0,
@@ -1091,7 +1167,10 @@ async fn run_region_bodies(
     drop(done_tx);
 
     let mut item_results: Vec<
-        Option<(HashMap<String, Vec<Vec<u8>>>, HashMap<String, Vec<WriterResult>>)>,
+        Option<(
+            HashMap<String, Vec<Vec<u8>>>,
+            HashMap<String, Vec<WriterResult>>,
+        )>,
     > = (0..item_count).map(|_| None).collect();
     let mut completed = 0usize;
     let mut succeeded = 0usize;
@@ -1115,6 +1194,7 @@ async fn run_region_bodies(
                         let saved_paths: Vec<String> =
                             writers.values().flatten().flat_map(|w| w.saved_paths.clone()).collect();
                         body_outcomes.push(BodyOutcome {
+                            foreach_token_id: Some(region.step_token_id.clone()),
                             body_index: i,
                             success: true,
                             cap_urns: region.body_cap_urns.clone(),
@@ -1128,7 +1208,7 @@ async fn run_region_bodies(
                             item_preview_text: input_items.get(i).and_then(|b| item_preview_snippet(b)),
                             item_byte_count: input_items.get(i).map(|b| b.len() as u64).unwrap_or(0),
                         });
-                        if let Some(bofn) = body_outcome_fn { bofn(body_outcomes); }
+                        if let Some(bofn) = body_outcome_fn { bofn(body_outcomes)?; }
                         if let Some(ifn) = item_fn {
                             // Surface the region's body-entry per-item output as it lands.
                             if let Some(items) = node_data.get(&region.body_entry) {
@@ -1146,6 +1226,7 @@ async fn run_region_bodies(
                         stall_warning_logged = false;
                         let error_str = format!("{e}");
                         body_outcomes.push(BodyOutcome {
+                            foreach_token_id: Some(region.step_token_id.clone()),
                             body_index: i,
                             success: false,
                             cap_urns: region.body_cap_urns.clone(),
@@ -1159,7 +1240,7 @@ async fn run_region_bodies(
                             item_preview_text: input_items.get(i).and_then(|b| item_preview_snippet(b)),
                             item_byte_count: input_items.get(i).map(|b| b.len() as u64).unwrap_or(0),
                         });
-                        if let Some(bofn) = body_outcome_fn { bofn(body_outcomes); }
+                        if let Some(bofn) = body_outcome_fn { bofn(body_outcomes)?; }
                         tracing::error!("[execute_plan] region '{}' body {i} failed: {e}", region.fe_id);
                         completed += 1;
                         failed += 1;
@@ -1243,11 +1324,15 @@ async fn terminal_media(
     match &node.node_type {
         ExecutionNodeType::Cap { cap_urn, .. } => {
             let cap = registry.get_cap(cap_urn).await.map_err(|e| {
-                ExecutionError::HostError(format!("resolve cap '{cap_urn}' for terminal media: {e}"))
+                ExecutionError::HostError(format!(
+                    "resolve cap '{cap_urn}' for terminal media: {e}"
+                ))
             })?;
             Ok(cap.urn.out_spec().to_string())
         }
-        ExecutionNodeType::InputSlot { expected_media_urn, .. } => Ok(expected_media_urn.clone()),
+        ExecutionNodeType::InputSlot {
+            expected_media_urn, ..
+        } => Ok(expected_media_urn.clone()),
         other => Err(ExecutionError::HostError(format!(
             "terminal source '{source_node}' is not a data producer: {other:?}"
         ))),
@@ -1361,11 +1446,14 @@ mod tests {
             progress_fn: Option<&CapProgressFn>,
             _step_progress_fn: Option<&CapStepProgressFn>,
             _log_fn: Option<&PipelineLogFn>,
-            _item_index: Option<usize>,
+            _body_coordinate: Option<ForEachBodyCoordinate>,
             _stall_tracker: Option<Arc<PipelineProgressTracker>>,
             _persist_sinks: &HashSet<String>,
         ) -> Result<SegmentOutput, ExecutionError> {
-            let edge = graph.edges.first().expect("body graph has a capability edge");
+            let edge = graph
+                .edges
+                .first()
+                .expect("body graph has a capability edge");
             if let Some(progress) = progress_fn {
                 progress(1.0, &edge.cap_urn, "complete");
             }
@@ -1388,8 +1476,14 @@ mod tests {
             "media:ext=pdf",
             crate::planner::InputCardinality::Single,
         ));
-        plan.add_node(MachineNode::cap("render", "cap:in=\"media:ext=pdf\";render;out=\"media:ext=png;image\""));
-        plan.add_node(MachineNode::cap("mapper", "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\""));
+        plan.add_node(MachineNode::cap(
+            "render",
+            "cap:in=\"media:ext=pdf\";render;out=\"media:ext=png;image\"",
+        ));
+        plan.add_node(MachineNode::cap(
+            "mapper",
+            "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\"",
+        ));
         plan.add_node(MachineNode::for_each_token(
             "fe",
             "render",
@@ -1397,8 +1491,14 @@ mod tests {
             "mapper",
             "stable-foreach-token".to_string(),
         ));
-        plan.add_node(MachineNode::cap("fold", "cap:in=\"media:ext=png;image\";animate;out=\"media:ext=gif;image\""));
-        plan.add_node(MachineNode::cap("meta", "cap:in=\"media:ext=pdf\";meta;out=\"media:enc=utf-8;record\""));
+        plan.add_node(MachineNode::cap(
+            "fold",
+            "cap:in=\"media:ext=png;image\";animate;out=\"media:ext=gif;image\"",
+        ));
+        plan.add_node(MachineNode::cap(
+            "meta",
+            "cap:in=\"media:ext=pdf\";meta;out=\"media:enc=utf-8;record\"",
+        ));
         plan.add_node(MachineNode::output("out_gif", "result", "fold"));
         plan.add_node(MachineNode::output("out_meta", "result", "meta"));
 
@@ -1423,7 +1523,10 @@ mod tests {
         let (plan, region_nodes) = plan_with_region_and_fold();
 
         let post = compute_post_region_caps(&plan, &region_nodes);
-        assert!(post.contains("fold"), "the fold consumes region output → post");
+        assert!(
+            post.contains("fold"),
+            "the fold consumes region output → post"
+        );
         assert!(!post.contains("meta"), "an independent cap stays pre-trunk");
         assert!(!post.contains("mapper"), "region caps are never post");
         assert_eq!(post.len(), 1);
@@ -1519,7 +1622,10 @@ mod tests {
         .expect("execute ForEach body");
 
         let tokens = reported_tokens.lock().expect("reported token lock");
-        assert!(!tokens.is_empty(), "ForEach aggregate progress must be emitted");
+        assert!(
+            !tokens.is_empty(),
+            "ForEach aggregate progress must be emitted"
+        );
         assert!(tokens.iter().all(|token| token == "stable-foreach-token"));
         assert!(tokens.iter().all(|token| token != "fe"));
     }

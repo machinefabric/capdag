@@ -136,11 +136,10 @@ impl MachinePlanBuilder {
         use crate::machine::graph::NodeId;
 
         let mut plan = MachinePlan::new(name);
-        let caps = self
-            .fabric_registry
-            .get_cached_caps()
-            .await
-            .map_err(|e| PlannerError::FabricRegistryError(format!("Failed to get caps: {e}")))?;
+        let caps =
+            self.fabric_registry.get_cached_caps().await.map_err(|e| {
+                PlannerError::FabricRegistryError(format!("Failed to get caps: {e}"))
+            })?;
 
         // Per data-node state, keyed by strand NodeId.
         let mut node_runtime: HashMap<NodeId, MediaUrn> = HashMap::new();
@@ -239,12 +238,15 @@ impl MachinePlanBuilder {
             // distinct producers feeding one SEQUENCE arg. The plan materializes
             // it as a real `Collect{input_nodes}` node so the executable plan
             // never carries an unexplained multi-bound arg.
-            let mut slot_groups: Vec<(MediaUrn, Vec<&crate::machine::graph::EdgeAssignmentBinding>)> =
-                Vec::new();
+            let mut slot_groups: Vec<(
+                MediaUrn,
+                Vec<&crate::machine::graph::EdgeAssignmentBinding>,
+            )> = Vec::new();
             for b in &edge.assignment {
-                match slot_groups.iter_mut().find(|(u, _)| {
-                    u.is_equivalent(&b.cap_arg_media_urn).unwrap_or(false)
-                }) {
+                match slot_groups
+                    .iter_mut()
+                    .find(|(u, _)| u.is_equivalent(&b.cap_arg_media_urn).unwrap_or(false))
+                {
                     Some((_, v)) => v.push(b),
                     None => slot_groups.push((b.cap_arg_media_urn.clone(), vec![b])),
                 }
@@ -338,7 +340,10 @@ impl MachinePlanBuilder {
                 in_media = node_runtime.get(&src).cloned().ok_or_else(|| {
                     PlannerError::Internal(format!("no runtime media at source node {src}"))
                 })?;
-                prev_node_id = producer.get(&src).cloned().expect("producer set with runtime");
+                prev_node_id = producer
+                    .get(&src)
+                    .cloned()
+                    .expect("producer set with runtime");
                 src_is_input_anchor = input_anchors.contains(&src);
                 src_region = node_region.get(&src).cloned();
             } else {
@@ -376,8 +381,7 @@ impl MachinePlanBuilder {
                     anchor_cardinality.get(&src),
                     Some(InputCardinality::Sequence)
                 );
-            let needs_foreach =
-                edge.is_loop || (src_anchor_is_sequence && !cap_input_is_seq);
+            let needs_foreach = edge.is_loop || (src_anchor_is_sequence && !cap_input_is_seq);
 
             // Nested ForEach — a sequence produced inside a body being re-mapped — is
             // out of scope; fail hard rather than silently mis-execute.
@@ -452,12 +456,23 @@ impl MachinePlanBuilder {
             if needs_foreach {
                 // ForEach entry — the cap becomes a body under a (deferred) ForEach node.
                 let fe_id = format!("foreach_{i}");
+                let foreach_token_id = if edge.is_loop {
+                    edge.foreach_token_id.clone().ok_or_else(|| {
+                        PlannerError::InvalidPath(format!(
+                            "strand '{name}': loop edge for cap '{cap_urn_str}' has no ForEach identity"
+                        ))
+                    })?
+                } else {
+                    // Runtime input cardinality introduced this boundary; this is
+                    // the point where that executed graph element is born.
+                    uuid::Uuid::new_v4().to_string()
+                };
                 pending_foreach.insert(
                     fe_id.clone(),
                     PendingForEach {
                         input_producer: prev_node_id.clone(),
                         body_entry: cap_node_id.clone(),
-                        token_id: edge.token_id.clone(),
+                        token_id: foreach_token_id,
                     },
                 );
                 region_exit.insert(fe_id.clone(), cap_node_id.clone());
@@ -516,7 +531,11 @@ impl MachinePlanBuilder {
                         .get(&group[0].source)
                         .cloned()
                         .expect("emittable: every source has a producer");
-                    plan.add_edge(MachinePlanEdge::arg(&producer_node, &cap_node_id, &stream_urn));
+                    plan.add_edge(MachinePlanEdge::arg(
+                        &producer_node,
+                        &cap_node_id,
+                        &stream_urn,
+                    ));
                 } else {
                     let collect_id = format!("collect_{}_{group_idx}", edge.token_id);
                     synthesize_gather_collect(
@@ -531,11 +550,14 @@ impl MachinePlanBuilder {
                 }
             }
 
-            let out_media = edge.cap_urn.apply_to_runtime_input_media(&in_media).map_err(|e| {
-                PlannerError::InvalidPath(format!(
-                    "runtime media inference for '{cap_urn_str}' on '{in_media}': {e}"
-                ))
-            })?;
+            let out_media = edge
+                .cap_urn
+                .apply_to_runtime_input_media(&in_media)
+                .map_err(|e| {
+                    PlannerError::InvalidPath(format!(
+                        "runtime media inference for '{cap_urn_str}' on '{in_media}': {e}"
+                    ))
+                })?;
             node_runtime.insert(tgt, out_media);
             producer.insert(tgt, cap_node_id);
             emitted[i] = true;
@@ -877,7 +899,11 @@ mod tests {
             "declared".to_string(),
             tags,
         )?;
-        Ok(Cap::new(urn, title.to_string(), vec!["test-command".to_string()]))
+        Ok(Cap::new(
+            urn,
+            title.to_string(),
+            vec!["test-command".to_string()],
+        ))
     }
 
     /// Simulates the graph-building duplicate detection logic
@@ -1408,7 +1434,8 @@ mod tests {
             CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text").unwrap();
 
         let specific_candidate =
-            CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text;version=2").unwrap();
+            CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text;version=2")
+                .unwrap();
 
         // candidate.is_dispatchable(&request) should be true: specific candidate refines general request
         assert!(
@@ -1428,7 +1455,8 @@ mod tests {
     fn test1104_is_dispatchable_rejects_non_dispatchable() {
         // Request requires specific tag that candidate doesn't have
         let request =
-            CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text;required=yes").unwrap();
+            CapUrn::from_string("cap:in=\"media:ext=pdf\";extract;out=media:text;required=yes")
+                .unwrap();
 
         let candidate = CapUrn::from_string(
             "cap:in=\"media:ext=pdf\";extract;out=media:text", // missing required=yes
@@ -1452,9 +1480,7 @@ mod tests {
     #[tokio::test]
     async fn test7104_main_input_and_option_partition_through_step_requirements() {
         use crate::cap::definition::{ArgSource, CapArg};
-        use crate::planner::live_cap_fab::{
-            ArgSourceRef, CapInput, StrandStep, StrandStepType,
-        };
+        use crate::planner::live_cap_fab::{ArgSourceRef, CapInput, StrandStep, StrandStepType};
 
         // The main input's stdin URN spells `in=` with the tags in a DIFFERENT
         // string order, and its slot URN differs from the stdin URN — only
@@ -1522,7 +1548,10 @@ mod tests {
             .into_iter()
             .partition(|a| a.required && a.default_value.is_none());
         assert_eq!(
-            required.iter().map(|a| a.media_urn.as_str()).collect::<Vec<_>>(),
+            required
+                .iter()
+                .map(|a| a.media_urn.as_str())
+                .collect::<Vec<_>>(),
             vec!["media:enc=utf-8;model-spec"],
             "required options = required && no default, excluding the main input"
         );
@@ -1574,8 +1603,7 @@ mod tests {
         let arguments = &requirements.steps[0].arguments;
         assert_eq!(arguments.len(), 4, "every declared arg is presented");
 
-        let main: Vec<&ArgumentInfo> =
-            arguments.iter().filter(|a| a.is_main_input).collect();
+        let main: Vec<&ArgumentInfo> = arguments.iter().filter(|a| a.is_main_input).collect();
         assert_eq!(
             main.len(),
             1,

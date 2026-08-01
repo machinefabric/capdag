@@ -252,7 +252,10 @@ mod tests {
             "capdag-protocol-trace-{}-{}-{}.trace",
             tag,
             std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ))
     }
 
@@ -263,8 +266,12 @@ mod tests {
         let path = temp_path("roundtrip");
         let sink = ProtocolTraceSink::open(&path).await.expect("open sink");
 
-        sink.record(&empty_stats(1), "seg-a").await.expect("record 1");
-        sink.record(&empty_stats(2), "seg-b").await.expect("record 2");
+        sink.record(&empty_stats(1), "seg-a")
+            .await
+            .expect("record 1");
+        sink.record(&empty_stats(2), "seg-b")
+            .await
+            .expect("record 2");
 
         let contents = std::fs::read_to_string(&path).expect("read trace back");
         std::fs::remove_file(&path).ok();
@@ -272,8 +279,7 @@ mod tests {
         let lines: Vec<&str> = contents.lines().collect();
         assert_eq!(lines.len(), 2, "one JSONL line per recorded snapshot");
 
-        let first: serde_json::Value =
-            serde_json::from_str(lines[0]).expect("line 1 is JSON");
+        let first: serde_json::Value = serde_json::from_str(lines[0]).expect("line 1 is JSON");
         assert!(first["ts"].is_u64(), "ts is a unix-millis integer");
         assert_eq!(first["segment"], "seg-a");
         assert_eq!(first["stats"]["requests"]["total_registered"], 1);
@@ -282,8 +288,7 @@ mod tests {
             "stats carries the requests + drops snapshots"
         );
 
-        let second: serde_json::Value =
-            serde_json::from_str(lines[1]).expect("line 2 is JSON");
+        let second: serde_json::Value = serde_json::from_str(lines[1]).expect("line 2 is JSON");
         assert_eq!(second["segment"], "seg-b");
         assert_eq!(second["stats"]["requests"]["total_registered"], 2);
     }
@@ -296,13 +301,21 @@ mod tests {
         let path = temp_path("dedup");
         let sink = ProtocolTraceSink::open(&path).await.expect("open sink");
 
-        sink.record_deduped(&empty_stats(1), "seg").await.expect("first");
+        sink.record_deduped(&empty_stats(1), "seg")
+            .await
+            .expect("first");
         // Identical state — must NOT write a second line.
-        sink.record_deduped(&empty_stats(1), "seg").await.expect("dup");
+        sink.record_deduped(&empty_stats(1), "seg")
+            .await
+            .expect("dup");
         // Changed counter — must write.
-        sink.record_deduped(&empty_stats(2), "seg").await.expect("changed");
+        sink.record_deduped(&empty_stats(2), "seg")
+            .await
+            .expect("changed");
         // A stream flow-counter change is also a transition.
-        sink.record_deduped(&active_stats(10, 0, 512), "seg").await.expect("active");
+        sink.record_deduped(&active_stats(10, 0, 512), "seg")
+            .await
+            .expect("active");
 
         let contents = std::fs::read_to_string(&path).expect("read trace back");
         std::fs::remove_file(&path).ok();

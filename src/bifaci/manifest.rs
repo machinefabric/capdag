@@ -606,7 +606,11 @@ mod tests {
     #[test]
     fn test475_validate_passes_with_identity() {
         let identity_urn = CapUrn::from_string(CAP_IDENTITY).unwrap();
-        let cap = Cap::new(identity_urn, "Identity".to_string(), vec!["identity".to_string()]);
+        let cap = Cap::new(
+            identity_urn,
+            "Identity".to_string(),
+            vec!["identity".to_string()],
+        );
         let manifest = CapManifest::new(
             "TestCartridge".to_string(),
             "1.0.0".to_string(),
@@ -625,7 +629,11 @@ mod tests {
     #[test]
     fn test476_validate_fails_without_identity() {
         let specific_urn = CapUrn::from_string(&test_urn("convert")).unwrap();
-        let cap = Cap::new(specific_urn, "Convert".to_string(), vec!["convert".to_string()]);
+        let cap = Cap::new(
+            specific_urn,
+            "Convert".to_string(),
+            vec!["convert".to_string()],
+        );
         let manifest = CapManifest::new(
             "TestCartridge".to_string(),
             "1.0.0".to_string(),
@@ -706,7 +714,11 @@ mod tests {
     #[test]
     fn test6363_cap_manifest_with_page_url() {
         let urn = CapUrn::from_string(&test_urn("extract;target=metadata")).unwrap();
-        let cap = Cap::new(urn, "Metadata Extractor".to_string(), vec!["extract-metadata".to_string()]);
+        let cap = Cap::new(
+            urn,
+            "Metadata Extractor".to_string(),
+            vec!["extract-metadata".to_string()],
+        );
         let manifest = CapManifest::new(
             "TestComponent".to_string(),
             "0.1.0".to_string(),
@@ -718,7 +730,10 @@ mod tests {
         .with_author("Test Author".to_string())
         .with_page_url("https://github.com/example/test".to_string());
 
-        assert_eq!(manifest.page_url.as_deref(), Some("https://github.com/example/test"));
+        assert_eq!(
+            manifest.page_url.as_deref(),
+            Some("https://github.com/example/test")
+        );
         let json = serde_json::to_string(&manifest).unwrap();
         assert!(
             json.contains("\"page_url\":\"https://github.com/example/test\""),
@@ -732,7 +747,11 @@ mod tests {
     #[test]
     fn test6371_cap_manifest_compatibility() {
         let urn = CapUrn::from_string(&test_urn("process")).unwrap();
-        let cap = Cap::new(urn, "Data Processor".to_string(), vec!["process".to_string()]);
+        let cap = Cap::new(
+            urn,
+            "Data Processor".to_string(),
+            vec!["process".to_string()],
+        );
         let cartridge = CapManifest::new(
             "CartridgeComponent".to_string(),
             "0.1.0".to_string(),

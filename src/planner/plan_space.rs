@@ -57,10 +57,16 @@ pub struct SourceSpec {
 
 impl SourceSpec {
     pub fn single(media_urn: MediaUrn) -> Self {
-        Self { media_urn, cardinality: SourceCardinality::Single }
+        Self {
+            media_urn,
+            cardinality: SourceCardinality::Single,
+        }
     }
     pub fn sequence(media_urn: MediaUrn) -> Self {
-        Self { media_urn, cardinality: SourceCardinality::Sequence }
+        Self {
+            media_urn,
+            cardinality: SourceCardinality::Sequence,
+        }
     }
 }
 
@@ -198,7 +204,10 @@ pub struct DivergencePolicy {
 
 impl Default for DivergencePolicy {
     fn default() -> Self {
-        Self { presence: DivergencePresence::Auto, location: DivergenceLocation::Auto }
+        Self {
+            presence: DivergencePresence::Auto,
+            location: DivergenceLocation::Auto,
+        }
     }
 }
 
@@ -286,7 +295,12 @@ impl PlanRequest {
 
     /// The single-source, single-target preset — the exact case the legacy
     /// `find_paths_to_exact_target` served, now expressed over the unified core.
-    pub fn single(source: SourceSpec, target: MediaUrn, max_depth: usize, max_paths: usize) -> Self {
+    pub fn single(
+        source: SourceSpec,
+        target: MediaUrn,
+        max_depth: usize,
+        max_paths: usize,
+    ) -> Self {
         Self {
             sources: vec![source],
             targets: TargetSpec::Exact(vec![target]),
@@ -458,7 +472,9 @@ impl std::fmt::Display for PlanError {
         match self {
             PlanError::NoSources => write!(f, "plan request has no sources"),
             PlanError::Unsatisfiable(d) => write!(f, "plan configuration is unsatisfiable: {d}"),
-            PlanError::NoPlan { detail } => write!(f, "no plan connects the sources to the target(s): {detail}"),
+            PlanError::NoPlan { detail } => {
+                write!(f, "no plan connects the sources to the target(s): {detail}")
+            }
             PlanError::Internal(d) => write!(f, "planner internal error: {d}"),
         }
     }

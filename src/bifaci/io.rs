@@ -815,9 +815,9 @@ pub async fn handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     let their_max_chunk = their_frame
         .hello_max_chunk()
         .ok_or_else(|| CborError::Handshake("HELLO missing required max_chunk".to_string()))?;
-    let their_max_reorder_buffer = their_frame
-        .hello_max_reorder_buffer()
-        .ok_or_else(|| CborError::Handshake("HELLO missing required max_reorder_buffer".to_string()))?;
+    let their_max_reorder_buffer = their_frame.hello_max_reorder_buffer().ok_or_else(|| {
+        CborError::Handshake("HELLO missing required max_reorder_buffer".to_string())
+    })?;
     let their_initial_credit = their_frame
         .hello_initial_credit()
         .ok_or_else(|| CborError::Handshake("HELLO missing required initial_credit".to_string()))?;
@@ -880,9 +880,9 @@ pub async fn handshake_accept<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     let their_max_chunk = their_frame
         .hello_max_chunk()
         .ok_or_else(|| CborError::Handshake("HELLO missing required max_chunk".to_string()))?;
-    let their_max_reorder_buffer = their_frame
-        .hello_max_reorder_buffer()
-        .ok_or_else(|| CborError::Handshake("HELLO missing required max_reorder_buffer".to_string()))?;
+    let their_max_reorder_buffer = their_frame.hello_max_reorder_buffer().ok_or_else(|| {
+        CborError::Handshake("HELLO missing required max_reorder_buffer".to_string())
+    })?;
     let their_initial_credit = their_frame
         .hello_initial_credit()
         .ok_or_else(|| CborError::Handshake("HELLO missing required initial_credit".to_string()))?;
@@ -1099,7 +1099,13 @@ mod tests {
     #[test]
     fn test207_err_frame_roundtrip() {
         let id = MessageId::new_uuid();
-        let original = Frame::err(id, "NOT_FOUND", crate::AttributionClass::Internal, "Cap not found", None);
+        let original = Frame::err(
+            id,
+            "NOT_FOUND",
+            crate::AttributionClass::Internal,
+            "Cap not found",
+            None,
+        );
         let bytes = encode_frame(&original).expect("encode should succeed");
         let decoded = decode_frame(&bytes).expect("decode should succeed");
 
@@ -1112,7 +1118,13 @@ mod tests {
     #[test]
     fn test208_log_frame_roundtrip() {
         let id = MessageId::new_uuid();
-        let original = Frame::log(id, "warn", crate::AttributionClass::Internal, "Something happened", None);
+        let original = Frame::log(
+            id,
+            "warn",
+            crate::AttributionClass::Internal,
+            "Something happened",
+            None,
+        );
         let bytes = encode_frame(&original).expect("encode should succeed");
         let decoded = decode_frame(&bytes).expect("decode should succeed");
 
@@ -1732,7 +1744,9 @@ mod tests {
         ]);
         let mut bytes = Vec::new();
         ciborium::into_writer(&map, &mut bytes).unwrap();
-        assert!(matches!(decode_frame(&bytes), Err(CborError::InvalidFrame(m)) if m.contains("id")));
+        assert!(
+            matches!(decode_frame(&bytes), Err(CborError::InvalidFrame(m)) if m.contains("id"))
+        );
     }
 
     // TEST7004: decode_frame rejects an id of the wrong CBOR type as a hard decode error.
@@ -1754,7 +1768,10 @@ mod tests {
         ]);
         let mut bytes = Vec::new();
         ciborium::into_writer(&map, &mut bytes).unwrap();
-        assert!(matches!(decode_frame(&bytes), Err(CborError::InvalidFrame(_))));
+        assert!(matches!(
+            decode_frame(&bytes),
+            Err(CborError::InvalidFrame(_))
+        ));
     }
 
     // TEST7005: decode_frame rejects a present-but-malformed routing_id (wrong length or
@@ -1791,7 +1808,10 @@ mod tests {
             ciborium::Value::Integer(keys::ROUTING_ID.into()),
             ciborium::Value::Bytes(vec![9, 9, 9]),
         ));
-        assert!(matches!(decode_frame(&encode(m)), Err(CborError::InvalidFrame(_))));
+        assert!(matches!(
+            decode_frame(&encode(m)),
+            Err(CborError::InvalidFrame(_))
+        ));
 
         // Wrong CBOR type.
         let mut m = base();
@@ -1799,7 +1819,10 @@ mod tests {
             ciborium::Value::Integer(keys::ROUTING_ID.into()),
             ciborium::Value::Text("not-a-routing-id".to_string()),
         ));
-        assert!(matches!(decode_frame(&encode(m)), Err(CborError::InvalidFrame(_))));
+        assert!(matches!(
+            decode_frame(&encode(m)),
+            Err(CborError::InvalidFrame(_))
+        ));
 
         // Well-formed routing_id still decodes.
         let mut m = base();
@@ -1835,8 +1858,10 @@ mod tests {
     // TEST230: Test async handshake exchanges HELLO frames and negotiates minimum limits
     #[tokio::test]
     async fn test230_async_handshake() {
-        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = b"{\"name\":\"Test\",\"version\":\"1.0\",\"caps\":[]}";
         let manifest_clone = manifest.to_vec();
@@ -1870,8 +1895,10 @@ mod tests {
     // TEST231: Test handshake fails when peer sends non-HELLO frame
     #[tokio::test]
     async fn test231_handshake_rejects_non_hello() {
-        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         // Cartridge side: send a REQ frame instead of HELLO
         let cartridge_handle = tokio::spawn(async move {
@@ -1905,8 +1932,10 @@ mod tests {
     // TEST232: Test handshake fails when cartridge HELLO is missing required manifest
     #[tokio::test]
     async fn test232_handshake_rejects_missing_manifest() {
-        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         // Cartridge side: send HELLO without manifest
         let cartridge_handle = tokio::spawn(async move {
@@ -2439,8 +2468,10 @@ mod tests {
     // TEST481: verify_identity succeeds with standard identity echo handler
     #[tokio::test]
     async fn test481_verify_identity_succeeds() {
-        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         // Cartridge side runs async in a spawned task
         let manifest = IDENTITY_MANIFEST.as_bytes().to_vec();
@@ -2466,8 +2497,10 @@ mod tests {
     // TEST482: verify_identity fails when cartridge returns ERR on identity call
     #[tokio::test]
     async fn test482_verify_identity_fails_on_err() {
-        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = IDENTITY_MANIFEST.as_bytes().to_vec();
         let cartridge_handle = tokio::spawn(async move {
@@ -2479,7 +2512,13 @@ mod tests {
 
             // Read REQ, respond with ERR
             let req = reader.read().await.unwrap().expect("expected REQ");
-            let err = Frame::err(req.id, "BROKEN", crate::AttributionClass::Internal, "identity handler broken", None);
+            let err = Frame::err(
+                req.id,
+                "BROKEN",
+                crate::AttributionClass::Internal,
+                "identity handler broken",
+                None,
+            );
             writer.write(&err).await.unwrap();
             // Flush to ensure host reads the error before connection closes
             use tokio::io::AsyncWriteExt;
@@ -2506,8 +2545,10 @@ mod tests {
     // TEST483: verify_identity fails when connection closes before response
     #[tokio::test]
     async fn test483_verify_identity_fails_on_close() {
-        let (host_to_cartridge, cartridge_from_host) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
-        let (cartridge_to_host, host_from_cartridge) = crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (host_to_cartridge, cartridge_from_host) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
+        let (cartridge_to_host, host_from_cartridge) =
+            crate::bifaci::local_socket::UnixStream::pair().unwrap();
 
         let manifest = IDENTITY_MANIFEST.as_bytes().to_vec();
         let cartridge_handle = tokio::spawn(async move {

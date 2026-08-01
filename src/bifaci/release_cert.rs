@@ -255,8 +255,11 @@ fn verify_certificate_entry(
         });
     }
     // 2-of-3: at least REQUIRED_ROOT_SIGNATURES distinct baked roots signed.
-    let signers =
-        distinct_trusted_root_signers(&entry.root_signatures, root_pubkeys, entry.certificate.as_bytes());
+    let signers = distinct_trusted_root_signers(
+        &entry.root_signatures,
+        root_pubkeys,
+        entry.certificate.as_bytes(),
+    );
     if signers.len() < REQUIRED_ROOT_SIGNATURES {
         return Err(ChainError::InsufficientRootSignatures {
             key_id: cert.key_id,
@@ -373,8 +376,14 @@ mod tests {
     #[test]
     fn test8049_full_2of3_chain_verifies() {
         let roots = [ROOT_A, ROOT_B, ROOT_C];
-        let chain = verify_manifest_envelope(ENVELOPE, MANIFEST, &roots, &meta().environment, mid_validity())
-            .expect("the committed 2-of-3 chain must verify");
+        let chain = verify_manifest_envelope(
+            ENVELOPE,
+            MANIFEST,
+            &roots,
+            &meta().environment,
+            mid_validity(),
+        )
+        .expect("the committed 2-of-3 chain must verify");
         assert_eq!(chain.trusted_release_keys.len(), 1);
     }
 
@@ -385,7 +394,13 @@ mod tests {
         let mut tampered = MANIFEST.to_vec();
         tampered[10] ^= 0x01;
         assert!(matches!(
-            verify_manifest_envelope(ENVELOPE, &tampered, &roots, &meta().environment, mid_validity()),
+            verify_manifest_envelope(
+                ENVELOPE,
+                &tampered,
+                &roots,
+                &meta().environment,
+                mid_validity()
+            ),
             Err(ChainError::ManifestSignatureInvalid(_))
         ));
     }
@@ -399,11 +414,19 @@ mod tests {
         let now = mid_validity();
         assert!(matches!(
             verify_manifest_envelope(ENVELOPE, MANIFEST, &[ROOT_C, WRONG], &env, now),
-            Err(ChainError::InsufficientRootSignatures { have: 0, need: 2, .. })
+            Err(ChainError::InsufficientRootSignatures {
+                have: 0,
+                need: 2,
+                ..
+            })
         ));
         assert!(matches!(
             verify_manifest_envelope(ENVELOPE, MANIFEST, &[ROOT_A], &env, now),
-            Err(ChainError::InsufficientRootSignatures { have: 1, need: 2, .. })
+            Err(ChainError::InsufficientRootSignatures {
+                have: 1,
+                need: 2,
+                ..
+            })
         ));
     }
 

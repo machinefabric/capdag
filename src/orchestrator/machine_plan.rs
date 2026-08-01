@@ -147,8 +147,14 @@ mod tests {
     #[tokio::test]
     async fn test1303_linear_machine_no_foreach() {
         let reg = registry(vec![
-            cap(r#"cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt""#, false),
-            cap(r#"cap:in="media:enc=utf-8;ext=txt";summarize;out="media:enc=utf-8;summary""#, false),
+            cap(
+                r#"cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt""#,
+                false,
+            ),
+            cap(
+                r#"cap:in="media:enc=utf-8;ext=txt";summarize;out="media:enc=utf-8;summary""#,
+                false,
+            ),
         ]);
         let notation = concat!(
             r#"[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]"#,
@@ -156,21 +162,16 @@ mod tests {
             "[doc -> extract -> text]",
             "[text -> summarize -> summary]",
         );
-        let plans = build_plans_from_notation(notation, reg).await.expect("build");
+        let plans = build_plans_from_notation(notation, reg)
+            .await
+            .expect("build");
         assert_eq!(plans.len(), 1, "one connected strand");
         assert!(
             foreach_nodes(&plans[0]).is_empty(),
             "a linear machine must not introduce a ForEach"
         );
         // Two cap nodes present.
-        assert_eq!(
-            plans[0]
-                .nodes
-                .values()
-                .filter(|n| n.is_cap())
-                .count(),
-            2
-        );
+        assert_eq!(plans[0].nodes.values().filter(|n| n.is_cap()).count(), 2);
     }
 
     // TEST1304: A sequence-output cap feeding a scalar-input cap lowers to a ForEach
@@ -179,8 +180,14 @@ mod tests {
     #[tokio::test]
     async fn test1304_sequence_into_scalar_wraps_foreach() {
         let reg = registry(vec![
-            cap(r#"cap:in="media:ext=pdf";render-page-image;out="media:ext=png;image""#, true),
-            cap(r#"cap:in="media:ext=png;image";convert-image;out="media:ext=jpeg;image""#, false),
+            cap(
+                r#"cap:in="media:ext=pdf";render-page-image;out="media:ext=png;image""#,
+                true,
+            ),
+            cap(
+                r#"cap:in="media:ext=png;image";convert-image;out="media:ext=jpeg;image""#,
+                false,
+            ),
         ]);
         let notation = concat!(
             r#"[render cap:in="media:ext=pdf";render-page-image;out="media:ext=png;image"]"#,
@@ -188,7 +195,9 @@ mod tests {
             "[input -> render -> thumbnail]",
             "[thumbnail -> to_jpeg -> output]",
         );
-        let plans = build_plans_from_notation(notation, reg).await.expect("build");
+        let plans = build_plans_from_notation(notation, reg)
+            .await
+            .expect("build");
         assert_eq!(plans.len(), 1);
         let plan = &plans[0];
         let fe = foreach_nodes(plan);
@@ -205,8 +214,14 @@ mod tests {
     #[tokio::test]
     async fn test1305_multi_strand_yields_one_plan_each() {
         let reg = registry(vec![
-            cap(r#"cap:in="media:ext=pdf";render-page-image;out="media:ext=png;image""#, true),
-            cap(r#"cap:in="media:ext=png;image";convert-image;out="media:ext=jpeg;image""#, false),
+            cap(
+                r#"cap:in="media:ext=pdf";render-page-image;out="media:ext=png;image""#,
+                true,
+            ),
+            cap(
+                r#"cap:in="media:ext=png;image";convert-image;out="media:ext=jpeg;image""#,
+                false,
+            ),
         ]);
         let notation = concat!(
             r#"[render cap:in="media:ext=pdf";render-page-image;out="media:ext=png;image"]"#,
@@ -216,10 +231,16 @@ mod tests {
             "[b_in -> render -> b_thumb]",
             "[b_thumb -> to_jpeg -> b_out]",
         );
-        let plans = build_plans_from_notation(notation, reg).await.expect("build");
+        let plans = build_plans_from_notation(notation, reg)
+            .await
+            .expect("build");
         assert_eq!(plans.len(), 2, "two disconnected strands → two plans");
         for plan in &plans {
-            assert_eq!(foreach_nodes(plan).len(), 1, "each strand keeps its own ForEach");
+            assert_eq!(
+                foreach_nodes(plan).len(),
+                1,
+                "each strand keeps its own ForEach"
+            );
         }
     }
 
@@ -239,8 +260,14 @@ mod tests {
     #[tokio::test]
     async fn test1307_fan_in_gather_synthesizes_collect() {
         let reg = registry(vec![
-            cap(r#"cap:in="media:ext=pdf";op-a;out="media:enc=utf-8;page""#, false),
-            cap(r#"cap:in="media:ext=md";op-b;out="media:enc=utf-8;page""#, false),
+            cap(
+                r#"cap:in="media:ext=pdf";op-a;out="media:enc=utf-8;page""#,
+                false,
+            ),
+            cap(
+                r#"cap:in="media:ext=md";op-b;out="media:enc=utf-8;page""#,
+                false,
+            ),
             seq_arg_cap(r#"cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;ext=txt""#),
         ]);
         let notation = concat!(
@@ -251,9 +278,9 @@ mod tests {
             "[doc_b -> b -> y]",
             "[(x, y) -> cat -> z]",
         );
-        let plans = build_plans_from_notation(notation, reg).await.expect(
-            "a fan-in gather into a sequence arg must build (the implicit Collect)",
-        );
+        let plans = build_plans_from_notation(notation, reg)
+            .await
+            .expect("a fan-in gather into a sequence arg must build (the implicit Collect)");
         assert_eq!(plans.len(), 1, "one connected strand");
         let plan = &plans[0];
 
@@ -262,7 +289,10 @@ mod tests {
             .nodes
             .iter()
             .filter_map(|(id, n)| match &n.node_type {
-                ExecutionNodeType::Collect { input_nodes, output_media_urn } => {
+                ExecutionNodeType::Collect {
+                    input_nodes,
+                    output_media_urn,
+                } => {
                     assert!(
                         output_media_urn.is_some(),
                         "gather Collect must carry its element media"
@@ -287,7 +317,9 @@ mod tests {
             .nodes
             .iter()
             .find_map(|(id, n)| {
-                n.cap_urn().filter(|u| u.contains("concat")).map(|_| id.clone())
+                n.cap_urn()
+                    .filter(|u| u.contains("concat"))
+                    .map(|_| id.clone())
             })
             .expect("concat cap node present");
         assert!(
@@ -305,7 +337,10 @@ mod tests {
                     && matches!(e.edge_type, crate::planner::EdgeType::Collection)
             })
             .count();
-        assert_eq!(collection_edges, 2, "one Collection edge per gathered producer");
+        assert_eq!(
+            collection_edges, 2,
+            "one Collection edge per gathered producer"
+        );
 
         // No ForEach: the gathered value IS the sequence the arg consumes.
         assert!(
@@ -329,9 +364,7 @@ mod tests {
             r#"cap:in="media:ext=png;image";upscale;out="media:ext=png;image;upscaled""#,
             false,
         );
-        let fold = seq_arg_cap(
-            r#"cap:in="media:ext=png;image";animate;out="media:ext=gif;image""#,
-        );
+        let fold = seq_arg_cap(r#"cap:in="media:ext=png;image";animate;out="media:ext=gif;image""#);
         let reg = registry(vec![render, upscale, fold]);
         let notation = concat!(
             r#"[render cap:in="media:ext=pdf";render;out="media:ext=png;image"]"#,
@@ -341,7 +374,9 @@ mod tests {
             "[pics -> upscale -> big]",
             "[big -> animate -> out]",
         );
-        let plans = build_plans_from_notation(notation, reg).await.expect("must build");
+        let plans = build_plans_from_notation(notation, reg)
+            .await
+            .expect("must build");
         assert_eq!(plans.len(), 1);
         let plan = &plans[0];
         let fe = foreach_nodes(plan);
@@ -354,7 +389,11 @@ mod tests {
         let animate_id = plan
             .nodes
             .iter()
-            .find_map(|(id, n)| n.cap_urn().filter(|u| u.contains("animate")).map(|_| id.clone()))
+            .find_map(|(id, n)| {
+                n.cap_urn()
+                    .filter(|u| u.contains("animate"))
+                    .map(|_| id.clone())
+            })
             .expect("animate node present");
         for n in plan.nodes.values() {
             if let ExecutionNodeType::ForEach { body_exit, .. } = &n.node_type {
@@ -368,10 +407,16 @@ mod tests {
         let upscale_id = plan
             .nodes
             .iter()
-            .find_map(|(id, n)| n.cap_urn().filter(|u| u.contains("upscale")).map(|_| id.clone()))
+            .find_map(|(id, n)| {
+                n.cap_urn()
+                    .filter(|u| u.contains("upscale"))
+                    .map(|_| id.clone())
+            })
             .expect("upscale node present");
         assert!(
-            plan.edges.iter().any(|e| e.from_node == upscale_id && e.to_node == animate_id),
+            plan.edges
+                .iter()
+                .any(|e| e.from_node == upscale_id && e.to_node == animate_id),
             "fold consumes the mapped output directly"
         );
     }
@@ -387,7 +432,10 @@ mod tests {
         let reg = registry(vec![
             cap(r#"cap:in="media:ext=pdf";a;out="media:enc=utf-8""#, false),
             cap(r#"cap:in="media:ext=pdf";b;out="media:enc=utf-8""#, false),
-            cap(r#"cap:in="media:enc=utf-8";merge;out="media:enc=utf-8;merged""#, false),
+            cap(
+                r#"cap:in="media:enc=utf-8";merge;out="media:enc=utf-8;merged""#,
+                false,
+            ),
         ]);
         let notation = concat!(
             r#"[a cap:in="media:ext=pdf";a;out="media:enc=utf-8"]"#,
@@ -422,8 +470,14 @@ mod anchor_cardinality_tests {
         );
         concat.args[0].is_sequence = true;
         let reg = registry(vec![
-            cap(r#"cap:in="media:ext=pdf";op-a;out="media:enc=utf-8;page""#, false),
-            cap(r#"cap:in="media:ext=md";op-b;out="media:enc=utf-8;page""#, false),
+            cap(
+                r#"cap:in="media:ext=pdf";op-a;out="media:enc=utf-8;page""#,
+                false,
+            ),
+            cap(
+                r#"cap:in="media:ext=md";op-b;out="media:enc=utf-8;page""#,
+                false,
+            ),
             concat,
         ]);
         let notation = concat!(
@@ -471,22 +525,31 @@ mod anchor_cardinality_tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(foreach_bodies.len(), 1, "only the Sequence anchor maps per file");
+        assert_eq!(
+            foreach_bodies.len(),
+            1,
+            "only the Sequence anchor maps per file"
+        );
         let body_cap = plan
             .nodes
             .get(&foreach_bodies[0])
             .and_then(|n| n.cap_urn())
             .expect("body entry is a cap");
-        assert!(body_cap.contains("op-a"), "the pdf leg maps per file, got {body_cap}");
+        assert!(
+            body_cap.contains("op-a"),
+            "the pdf leg maps per file, got {body_cap}"
+        );
 
         // Slot cardinalities recorded per anchor.
         let slot_cardinalities: Vec<(String, InputCardinality)> = plan
             .nodes
             .values()
             .filter_map(|n| match &n.node_type {
-                ExecutionNodeType::InputSlot { expected_media_urn, cardinality, .. } => {
-                    Some((expected_media_urn.clone(), *cardinality))
-                }
+                ExecutionNodeType::InputSlot {
+                    expected_media_urn,
+                    cardinality,
+                    ..
+                } => Some((expected_media_urn.clone(), *cardinality)),
                 _ => None,
             })
             .collect();

@@ -327,7 +327,13 @@ mod tests {
 
             let req = reader.read().await.unwrap().expect("Expected REQ");
             let mut seq = SeqAssigner::new();
-            let mut err = Frame::err(req.id, "FAIL_CODE", crate::AttributionClass::Internal, "Something went wrong", None);
+            let mut err = Frame::err(
+                req.id,
+                "FAIL_CODE",
+                crate::AttributionClass::Internal,
+                "Something went wrong",
+                None,
+            );
             seq.assign(&mut err);
             writer.write(&err).await.unwrap();
             seq.remove(&FlowKey::from_frame(&err));

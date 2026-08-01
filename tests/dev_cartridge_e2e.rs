@@ -90,7 +90,11 @@ fn run_capdag(
         .env("CDG_FABRIC_REGISTRY_URL", fabric)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
+    cmd.stdin(if stdin.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    });
     let mut child = cmd.spawn().expect("spawn capdag");
     if let Some(s) = stdin {
         child
@@ -141,10 +145,19 @@ fn test8110_dev_cartridge_create_install_run_update() {
     );
     assert!(ok, "`new` failed: {err}");
     let proj = PathBuf::from(&proj_out);
-    assert!(proj.join("cartridge.py").is_file(), "scaffold wrote cartridge.py");
+    assert!(
+        proj.join("cartridge.py").is_file(),
+        "scaffold wrote cartridge.py"
+    );
 
     // 2. Install it under the local `dev` slug.
-    let (_, ok, err) = run_capdag(&home, &fabric, &pp, &["dev-install", proj.to_str().unwrap()], None);
+    let (_, ok, err) = run_capdag(
+        &home,
+        &fabric,
+        &pp,
+        &["dev-install", proj.to_str().unwrap()],
+        None,
+    );
     assert!(ok, "`dev-install` failed: {err}");
 
     // 3. Run the custom cap through the capdag host — it is NOT in the fabric,
@@ -153,7 +166,13 @@ fn test8110_dev_cartridge_create_install_run_update() {
     assert!(ok, "run failed: {err}");
     assert_eq!(out, "positive", "positive input; stderr:\n{err}");
 
-    let (out, _, err) = run_capdag(&home, &fabric, &pp, &[name], Some("awful terrible bad hate"));
+    let (out, _, err) = run_capdag(
+        &home,
+        &fabric,
+        &pp,
+        &[name],
+        Some("awful terrible bad hate"),
+    );
     assert_eq!(out, "negative", "negative input; stderr:\n{err}");
 
     let (out, _, _) = run_capdag(&home, &fabric, &pp, &[name], Some("the sky is blue"));
@@ -167,12 +186,21 @@ fn test8110_dev_cartridge_create_install_run_update() {
     assert_ne!(src, edited, "the edit anchor changed — update the test");
     std::fs::write(&src_path, &edited).unwrap();
 
-    let (_, ok, err) = run_capdag(&home, &fabric, &pp, &["dev-install", proj.to_str().unwrap()], None);
+    let (_, ok, err) = run_capdag(
+        &home,
+        &fabric,
+        &pp,
+        &["dev-install", proj.to_str().unwrap()],
+        None,
+    );
     assert!(ok, "update `dev-install` failed: {err}");
 
     // 5. The same input now classifies differently — the update took effect.
     let (out, _, err) = run_capdag(&home, &fabric, &pp, &[name], Some("the sky is blue"));
-    assert_eq!(out, "positive", "update did not take effect; stderr:\n{err}");
+    assert_eq!(
+        out, "positive",
+        "update did not take effect; stderr:\n{err}"
+    );
 
     let _ = std::fs::remove_dir_all(&tmp);
 }

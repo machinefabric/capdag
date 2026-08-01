@@ -3,12 +3,8 @@
 //! A unified CLI for executing and validating machine notation pipelines.
 
 use capdag::machine::parse_machine_with_node_names;
-use capdag::orchestrator::{
-    build_plans_from_notation, execute_plan, CliRuntime, EngineRuntime,
-};
-use capdag::{
-    CapProgressFn, CartridgeChannel, ExecutionNodeType, FabricRegistry, PipelineLogFn,
-};
+use capdag::orchestrator::{build_plans_from_notation, execute_plan, CliRuntime, EngineRuntime};
+use capdag::{CapProgressFn, CartridgeChannel, ExecutionNodeType, FabricRegistry, PipelineLogFn};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -105,13 +101,7 @@ fn progress_hooks() -> (CapProgressFn, PipelineLogFn) {
             .unwrap_or_default();
         eprintln!(
             "  [log:{}{} step='{}'{}]{} {} {}",
-            record.level,
-            body_suffix,
-            step_token,
-            arg_suffix,
-            meta_suffix,
-            cap_urn,
-            record.message
+            record.level, body_suffix, step_token, arg_suffix, meta_suffix, cap_urn, record.message
         );
     });
     (progress, log_fn)
@@ -450,7 +440,10 @@ async fn cmd_dag_viz(args: &[String]) -> ! {
             }
             other if other.starts_with('-') => {
                 eprintln!("Unknown dag-viz option '{other}'.");
-                eprintln!("Usage: {} dag-viz <machine-file> [--mermaid|--dot]", args[0]);
+                eprintln!(
+                    "Usage: {} dag-viz <machine-file> [--mermaid|--dot]",
+                    args[0]
+                );
                 process::exit(2);
             }
             path => {
@@ -463,7 +456,10 @@ async fn cmd_dag_viz(args: &[String]) -> ! {
         }
     }
     let Some(machine_file) = machine_file else {
-        eprintln!("Usage: {} dag-viz <machine-file> [--mermaid|--dot]", args[0]);
+        eprintln!(
+            "Usage: {} dag-viz <machine-file> [--mermaid|--dot]",
+            args[0]
+        );
         process::exit(2);
     };
 
@@ -716,18 +712,18 @@ async fn execute_notation(
             .nodes
             .iter()
             .filter_map(|(id, n)| match &n.node_type {
-                ExecutionNodeType::InputSlot { expected_media_urn, .. } => {
-                    match capdag::MediaUrn::from_string(expected_media_urn) {
-                        Ok(u) => Some((id.clone(), u)),
-                        Err(e) => {
-                            eprintln!(
-                                "input slot '{id}' declares an invalid media URN \
+                ExecutionNodeType::InputSlot {
+                    expected_media_urn, ..
+                } => match capdag::MediaUrn::from_string(expected_media_urn) {
+                    Ok(u) => Some((id.clone(), u)),
+                    Err(e) => {
+                        eprintln!(
+                            "input slot '{id}' declares an invalid media URN \
                                  '{expected_media_urn}': {e}"
-                            );
-                            process::exit(1);
-                        }
+                        );
+                        process::exit(1);
                     }
-                }
+                },
                 _ => None,
             })
             .collect();
@@ -740,7 +736,10 @@ async fn execute_notation(
     if multi_anchor {
         // ── Multi-anchor machine: bind the WHOLE file set across all slots by
         // media type, then run each plan exactly once. ──
-        eprintln!("--- Multi-anchor machine: binding {} files by media type ---", all_files.len());
+        eprintln!(
+            "--- Multi-anchor machine: binding {} files by media type ---",
+            all_files.len()
+        );
         eprintln!("Run: {}", notation);
 
         // Detect each file's media once.
@@ -750,14 +749,20 @@ async fn execute_notation(
             let resolved = match capdag::detect_file_with_fabric_registry(file, registry.clone()) {
                 Ok(r) => r,
                 Err(e) => {
-                    eprintln!("Failed to detect the media type of '{}': {e}", file.display());
+                    eprintln!(
+                        "Failed to detect the media type of '{}': {e}",
+                        file.display()
+                    );
                     process::exit(1);
                 }
             };
             let media = match capdag::MediaUrn::from_string(&resolved.media_urn) {
                 Ok(m) => m,
                 Err(e) => {
-                    eprintln!("Detected an invalid media URN '{}': {e}", resolved.media_urn);
+                    eprintln!(
+                        "Detected an invalid media URN '{}': {e}",
+                        resolved.media_urn
+                    );
                     process::exit(1);
                 }
             };
@@ -778,7 +783,9 @@ async fn execute_notation(
             .iter()
             .enumerate()
             .flat_map(|(pi, p)| {
-                input_slots_of(p).into_iter().map(move |(id, urn)| (pi, id, urn))
+                input_slots_of(p)
+                    .into_iter()
+                    .map(move |(id, urn)| (pi, id, urn))
             })
             .collect();
         let mut slot_files: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
@@ -848,10 +855,15 @@ async fn execute_notation(
                     initial_inputs.insert(slot_id.clone(), files[0].clone());
                     initial_is_sequence.insert(slot_id, false);
                 } else {
-                    let seq = match capdag::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(files) {
+                    let seq = match capdag::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(
+                        files,
+                    ) {
                         Ok(s) => s,
                         Err(e) => {
-                            eprintln!("failed to assemble the {}-file sequence for '{slot_id}': {e}", files.len());
+                            eprintln!(
+                                "failed to assemble the {}-file sequence for '{slot_id}': {e}",
+                                files.len()
+                            );
                             process::exit(1);
                         }
                     };
@@ -869,6 +881,7 @@ async fn execute_notation(
                 Some(&progress),
                 None,
                 Some(&log_fn),
+                None,
                 None,
                 None,
             )
@@ -950,6 +963,7 @@ async fn execute_notation(
                     Some(&progress),
                     None,
                     Some(&log_fn),
+                    None,
                     None,
                     None,
                 )
@@ -1186,7 +1200,9 @@ async fn cmd_plan(args: &[String]) -> ! {
             "--pick" => pick = parse_usize_or_exit(&take_value(args, &mut i, "--pick"), "--pick"),
             "--save" => save = Some(take_value(args, &mut i, "--save")),
             "--run" => run_after = true,
-            "-o" | "--output" => output_dir = Some(PathBuf::from(take_value(args, &mut i, "--output"))),
+            "-o" | "--output" => {
+                output_dir = Some(PathBuf::from(take_value(args, &mut i, "--output")))
+            }
             "--force" => force = true,
             "--trace" => trace_file = Some(take_value(args, &mut i, "--trace")),
             "--dev-bins" => {
@@ -1240,18 +1256,27 @@ async fn cmd_plan(args: &[String]) -> ! {
         let resolved = match capdag::detect_file_with_fabric_registry(file, registry.clone()) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("Failed to detect the media type of '{}': {e}", file.display());
+                eprintln!(
+                    "Failed to detect the media type of '{}': {e}",
+                    file.display()
+                );
                 process::exit(1);
             }
         };
         let media = match capdag::MediaUrn::from_string(&resolved.media_urn) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("Detected an invalid media URN '{}': {e}", resolved.media_urn);
+                eprintln!(
+                    "Detected an invalid media URN '{}': {e}",
+                    resolved.media_urn
+                );
                 process::exit(1);
             }
         };
-        match groups.iter_mut().find(|(m, _)| m.is_equivalent(&media).unwrap_or(false)) {
+        match groups
+            .iter_mut()
+            .find(|(m, _)| m.is_equivalent(&media).unwrap_or(false))
+        {
             Some((_, count)) => *count += 1,
             None => groups.push((media, 1)),
         }
@@ -1334,8 +1359,10 @@ async fn cmd_plan(args: &[String]) -> ! {
     }
 
     // ── Plan mode ──
-    let target_urns: Vec<capdag::MediaUrn> =
-        to_targets.iter().map(|t| parse_target_media_or_exit(t)).collect();
+    let target_urns: Vec<capdag::MediaUrn> = to_targets
+        .iter()
+        .map(|t| parse_target_media_or_exit(t))
+        .collect();
 
     let presence = match converge.as_str() {
         "auto" => p::ConvergencePresence::Auto,
@@ -1355,7 +1382,9 @@ async fn cmd_plan(args: &[String]) -> ! {
         other => match other.strip_prefix("depth=") {
             Some(n) => p::ConvergenceLocation::AtDepth(parse_usize_or_exit(n, "--where depth=")),
             None => {
-                eprintln!("--where must be auto|earliest|latest|source|target|depth=N, got '{other}'");
+                eprintln!(
+                    "--where must be auto|earliest|latest|source|target|depth=N, got '{other}'"
+                );
                 process::exit(2);
             }
         },
@@ -1393,7 +1422,11 @@ async fn cmd_plan(args: &[String]) -> ! {
         divergence: p::DivergencePolicy::default(),
         ranking,
         search: p::SearchDirection::Auto,
-        mode: if configured { p::PlanMode::Configured } else { p::PlanMode::Auto },
+        mode: if configured {
+            p::PlanMode::Configured
+        } else {
+            p::PlanMode::Auto
+        },
         max_depth,
         max_paths,
         max_candidates,
@@ -1418,7 +1451,11 @@ async fn cmd_plan(args: &[String]) -> ! {
             c.rank,
             c.label,
             c.cost.cap_steps,
-            if c.profile.converged { ", combined result" } else { "" },
+            if c.profile.converged {
+                ", combined result"
+            } else {
+                ""
+            },
             if c.profile.diverged { ", fan-out" } else { "" },
         );
         println!("      {}", c.notation);
@@ -1438,8 +1475,10 @@ async fn cmd_plan(args: &[String]) -> ! {
     }
 
     if run_after {
-        let file_strings: Vec<String> =
-            files.iter().map(|f| f.to_string_lossy().into_owned()).collect();
+        let file_strings: Vec<String> = files
+            .iter()
+            .map(|f| f.to_string_lossy().into_owned())
+            .collect();
         execute_notation(
             chosen.notation.clone(),
             &format!("plan candidate [{pick}]"),
@@ -1475,7 +1514,7 @@ fn parse_target_media_or_exit(t: &str) -> capdag::MediaUrn {
         Err(e) => {
             eprintln!("Invalid --to target '{t}': {e}");
             process::exit(2);
-        },
+        }
     }
 }
 
@@ -1512,16 +1551,22 @@ async fn narrow_abstract_or_exit(
     let resolved = match capdag::detect_file_with_fabric_registry(&path, registry.clone()) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("Failed to detect the media type of '{}': {e}", path.display());
+            eprintln!(
+                "Failed to detect the media type of '{}': {e}",
+                path.display()
+            );
             process::exit(1);
-        },
+        }
     };
     let input_media = match capdag::MediaUrn::from_string(&resolved.media_urn) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("Detected an invalid media URN '{}': {e}", resolved.media_urn);
+            eprintln!(
+                "Detected an invalid media URN '{}': {e}",
+                resolved.media_urn
+            );
             process::exit(1);
-        },
+        }
     };
 
     let target_media = to_target.map(parse_target_media_or_exit);
@@ -1539,22 +1584,24 @@ async fn narrow_abstract_or_exit(
                     input_media
                 );
                 concrete
-            },
+            }
             Err(e) => {
                 eprintln!("Narrowed to '{concrete_urn}' but that cap is not in the registry: {e}");
                 process::exit(1);
-            },
+            }
         },
         Err(e) => {
             eprintln!("{e}");
             process::exit(1);
-        },
+        }
     }
 }
 
 /// A `CartridgeManager` bound to the baked registry + trust, initialized
 /// (manifest synced + chain-verified), or exit.
-async fn registry_manager_or_exit(dev_binaries: Vec<PathBuf>) -> capdag::orchestrator::CartridgeManager {
+async fn registry_manager_or_exit(
+    dev_binaries: Vec<PathBuf>,
+) -> capdag::orchestrator::CartridgeManager {
     let mut manager = capdag::orchestrator::CartridgeManager::new(
         user_cartridge_dir(),
         BAKED_REGISTRY_URL.map(str::to_string),
@@ -1867,6 +1914,7 @@ async fn cmd_cap(args: &[String]) -> ! {
             Some(&log_fn),
             None,
             None,
+            None,
         )
         .await
         {
@@ -1884,8 +1932,7 @@ async fn cmd_cap(args: &[String]) -> ! {
                     input_stem: stem,
                 };
                 let mut stdout = std::io::stdout();
-                if let Err(e) =
-                    capdag::orchestrator::emit_terminals(&result, &options, &mut stdout)
+                if let Err(e) = capdag::orchestrator::emit_terminals(&result, &options, &mut stdout)
                 {
                     eprintln!("{e}");
                     error_count += 1;
@@ -1924,7 +1971,10 @@ async fn cmd_resolve(args: &[String]) -> ! {
         .map(|s| s.as_str())
         .collect();
     if tokens.is_empty() {
-        eprintln!("Usage: {} resolve [--no-cache] <cap-alias-or-urn>...", args[0]);
+        eprintln!(
+            "Usage: {} resolve [--no-cache] <cap-alias-or-urn>...",
+            args[0]
+        );
         process::exit(2);
     }
     let registry = fabric_registry_or_exit_with_bypass(no_cache).await;
@@ -2021,7 +2071,9 @@ async fn cmd_find(args: &[String]) -> ! {
                 let build = info.build_for_platform(&platform);
                 let binary_state = match build {
                     Some(build) if build.binary.is_some() => "signed binary available",
-                    Some(_) => "NO signed binary (installer-only publish — not runnable via capdag)",
+                    Some(_) => {
+                        "NO signed binary (installer-only publish — not runnable via capdag)"
+                    }
                     None => "no build for this platform",
                 };
                 println!(
@@ -2029,7 +2081,10 @@ async fn cmd_find(args: &[String]) -> ! {
                     suggestion.cartridge_id, info.version, platform, binary_state
                 );
             }
-            None => println!("  {} (not in this channel's registry view)", suggestion.cartridge_id),
+            None => println!(
+                "  {} (not in this channel's registry view)",
+                suggestion.cartridge_id
+            ),
         }
     }
     process::exit(0);
@@ -2050,18 +2105,19 @@ async fn cmd_install(args: &[String]) -> ! {
     // A token with ':' is a cap URN; a bare token could be an alias OR a
     // cartridge id — try the registry's cartridge ids first (exact), then
     // the fabric alias route.
-    let cartridge_id: String = if token.contains(':') || manager.registry_cartridge(token).await.is_none() {
-        let registry = fabric_registry_or_exit().await;
-        let cap = resolve_cap_or_exit(&registry, token).await;
-        let suggestions = manager.suggestions_for_cap(&cap.urn.to_string()).await;
-        let Some(first) = suggestions.first() else {
-            eprintln!("No registry cartridge provides cap {}", cap.urn);
-            process::exit(1);
+    let cartridge_id: String =
+        if token.contains(':') || manager.registry_cartridge(token).await.is_none() {
+            let registry = fabric_registry_or_exit().await;
+            let cap = resolve_cap_or_exit(&registry, token).await;
+            let suggestions = manager.suggestions_for_cap(&cap.urn.to_string()).await;
+            let Some(first) = suggestions.first() else {
+                eprintln!("No registry cartridge provides cap {}", cap.urn);
+                process::exit(1);
+            };
+            first.cartridge_id.clone()
+        } else {
+            token.clone()
         };
-        first.cartridge_id.clone()
-    } else {
-        token.clone()
-    };
 
     match manager.get_cartridge_path(&cartridge_id).await {
         Ok(path) => {
@@ -2113,7 +2169,10 @@ async fn cmd_new(args: &[String]) -> ! {
 
     match capdag::dev::scaffold_python_cartridge(name, &parent) {
         Ok(project_dir) => {
-            eprintln!("Scaffolded Python cartridge '{name}' at {}", project_dir.display());
+            eprintln!(
+                "Scaffolded Python cartridge '{name}' at {}",
+                project_dir.display()
+            );
             eprintln!("Next:");
             eprintln!("  pip install capdag            # the cartridge runtime");
             eprintln!("  cd {}", project_dir.display());
