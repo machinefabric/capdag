@@ -28,13 +28,19 @@ fn repo_root() -> PathBuf {
 }
 
 /// Put the in-repo Python mirrors on PYTHONPATH so the scaffolded cartridge
-/// imports the LIVE `capdag`/`ops` source (cbor2 comes from the environment).
+/// imports the LIVE `capdag`/`tagged_urn` source.
+///
+/// Both must be named explicitly: `run_capdag` overrides HOME, which takes the
+/// user site-packages directory (and any editable install living there) out of
+/// the child's sys.path. `ops` and `cbor2` are NOT listed — `ops` lives in its
+/// own repository now and is consumed as the published `opsx-py` package from
+/// the interpreter's real site-packages, so a missing install fails loudly.
 fn pythonpath() -> String {
     let root = repo_root();
     format!(
         "{}:{}",
         root.join("capdag-py/src").display(),
-        root.join("ops-py/src").display()
+        root.join("tagged-urn-py/src").display()
     )
 }
 
@@ -64,7 +70,7 @@ fn spawn_mock_fabric() -> String {
 /// True if `python3` on PATH can import the cartridge runtime dependencies.
 fn python_runtime_available(pythonpath: &str) -> bool {
     Command::new("python3")
-        .args(["-c", "import capdag, cbor2; from ops import Op"])
+        .args(["-c", "import capdag, cbor2, tagged_urn; from ops import Op"])
         .env("PYTHONPATH", pythonpath)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -122,7 +128,8 @@ fn test8110_dev_cartridge_create_install_run_update() {
     assert!(
         python_runtime_available(&pp),
         "this e2e requires a Python runtime with capdag + cbor2 + ops importable. \
-         Run it via `dx test` (which activates the machinefabric conda env). PYTHONPATH={pp}"
+         `ops` comes from the published `opsx-py` package: pip install opsx-py. \
+         PYTHONPATH={pp}"
     );
     let fabric = spawn_mock_fabric();
 
