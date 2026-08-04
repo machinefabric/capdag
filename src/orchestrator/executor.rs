@@ -228,6 +228,13 @@ pub enum ExecutionError {
     #[error("Host error: {0}")]
     HostError(String),
 
+    /// The cartridge that would serve this step is not available — it left its
+    /// host's inventory and did not return within the admission grace window.
+    /// Its own class because the deployment changed under a valid request; the
+    /// engine did nothing wrong, so this is not `HostError`/`internal`.
+    #[error("Cartridge unavailable for cap '{cap_urn}': {details}")]
+    CartridgeUnavailable { cap_urn: String, details: String },
+
     #[error("Registry error: {0}")]
     FabricRegistryError(String),
 }
@@ -245,6 +252,7 @@ impl ExecutionError {
             ExecutionError::CartridgeExecutionFailed { class, .. } => *class,
             ExecutionError::CartridgeNotFound { .. }
             | ExecutionError::CartridgeDownloadFailed(_)
+            | ExecutionError::CartridgeUnavailable { .. }
             | ExecutionError::FabricRegistryError(_) => AttributionClass::Environment,
             ExecutionError::NoIncomingData { .. }
             | ExecutionError::IoError(_)
@@ -2031,7 +2039,19 @@ async fn run_group_chain(
         let (rid, rx) = switch
             .execute_cap(cap_urn, vec![], "application/cbor")
             .await
-            .map_err(|e| ExecutionError::HostError(format!("execute_cap '{}': {}", cap_urn, e)))?;
+            .map_err(|e| match e {
+                // Preserve the switch's classification instead of flattening
+                // every switch failure into `internal`.
+                crate::bifaci::relay_switch::RelaySwitchError::CartridgeUnavailable(details) => {
+                    ExecutionError::CartridgeUnavailable {
+                        cap_urn: cap_urn.clone(),
+                        details,
+                    }
+                }
+                other => {
+                    ExecutionError::HostError(format!("execute_cap '{}': {}", cap_urn, other))
+                }
+            })?;
         // Correlate this invocation to its strand step for the run's live flow
         // snapshots (L8): the only point where both ids exist.
         if let Some(obs) = observer {

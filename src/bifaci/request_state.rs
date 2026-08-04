@@ -33,12 +33,53 @@ pub struct AdmissionKey {
     pub sha256: String,
 }
 
+/// How long a queued request waits for an admission target that has gone
+/// unavailable before it is failed.
+///
+/// A cartridge disappearing from its host's inventory is not, by itself, a
+/// reason to fail work that has not started: the process may be respawning, the
+/// host may be re-publishing its roster, or a transient registry outage may have
+/// briefly retired and then restored the install. 17.2 requires that queued
+/// bodies are NOT assigned terminal failure from another body's process loss and
+/// that "once a replacement instance advertises capacity, subsequent queued work
+/// is admitted to that live instance" — this window is how long we hold the
+/// queue open for that replacement to appear.
+///
+/// It is a bound, not a retry: when it expires the wait fails hard and the
+/// failure is classified `environment`, so a target that is genuinely gone
+/// surfaces promptly instead of hanging the run.
+pub const ADMISSION_UNAVAILABLE_GRACE: std::time::Duration = std::time::Duration::from_secs(60);
+
 #[derive(Debug, Default)]
 struct AdmissionSlot {
-    available: bool,
+    /// `None` while the target is available; `Some(since)` from the moment it
+    /// went unavailable. Kept as an instant rather than a bool so the grace
+    /// window measures the OUTAGE, not the arrival time of each waiter — a
+    /// request that queues late into an outage does not get a fresh window.
+    /// `tokio::time::Instant` so the window is on the same clock as the timeout
+    /// that waits it out (and so tests can drive it deterministically).
+    unavailable_since: Option<tokio::time::Instant>,
     capacity: usize,
     active: usize,
     queue: VecDeque<u64>,
+}
+
+impl AdmissionSlot {
+    fn available(&self) -> bool {
+        self.unavailable_since.is_none()
+    }
+
+    /// Mark unavailable, preserving the start of an outage already in progress.
+    fn mark_unavailable(&mut self, now: tokio::time::Instant) {
+        self.unavailable_since.get_or_insert(now);
+    }
+
+    /// Remaining grace for an outage, or `None` when available.
+    /// `Some(Duration::ZERO)` means the window has expired.
+    fn grace_remaining(&self, now: tokio::time::Instant) -> Option<std::time::Duration> {
+        self.unavailable_since
+            .map(|since| ADMISSION_UNAVAILABLE_GRACE.saturating_sub(now.duration_since(since)))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -58,7 +99,10 @@ impl AdmissionController {
     pub fn configure(&self, key: AdmissionKey, capacity: usize) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let slot = inner.slots.entry(key).or_default();
-        slot.available = true;
+        // A configure is the target advertising itself: it ENDS any outage,
+        // which is what releases waiters queued through a respawn or a roster
+        // round-trip.
+        slot.unavailable_since = None;
         slot.capacity = capacity;
         drop(inner);
         self.notify.notify_waiters();
@@ -69,10 +113,11 @@ impl AdmissionController {
         master_idx: usize,
         available: &std::collections::HashSet<AdmissionKey>,
     ) {
+        let now = tokio::time::Instant::now();
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         for (key, slot) in &mut inner.slots {
             if key.master_idx == master_idx && !available.contains(key) {
-                slot.available = false;
+                slot.mark_unavailable(now);
             }
         }
         drop(inner);
@@ -80,16 +125,26 @@ impl AdmissionController {
     }
 
     pub fn disable_master(&self, master_idx: usize) {
+        let now = tokio::time::Instant::now();
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         for (key, slot) in &mut inner.slots {
             if key.master_idx == master_idx {
-                slot.available = false;
+                slot.mark_unavailable(now);
             }
         }
         drop(inner);
         self.notify.notify_waiters();
     }
 
+    /// Take a FIFO admission slot for `key`, waiting for capacity.
+    ///
+    /// An UNAVAILABLE target does not fail the caller immediately. The request
+    /// stays queued for [`ADMISSION_UNAVAILABLE_GRACE`] measured from the start
+    /// of the outage, so a cartridge that is respawning — or that a transient
+    /// registry outage briefly retired — resumes serving its queue instead of
+    /// terminally failing every body waiting on it (17.2: one body's process
+    /// loss must not terminate unrelated queued bodies). Only when the window
+    /// expires does the wait fail, and it fails hard.
     pub async fn acquire(&self, key: AdmissionKey) -> Result<AdmissionPermit, String> {
         let ticket = self.tickets.fetch_add(1, Ordering::Relaxed);
         {
@@ -97,9 +152,9 @@ impl AdmissionController {
             let slot = inner.slots.get_mut(&key).ok_or_else(|| {
                 format!("cartridge '{}' has no configured admission target", key.id)
             })?;
-            if !slot.available {
-                return Err(format!("cartridge '{}' is no longer available", key.id));
-            }
+            // Queue even while unavailable: the loop below owns the grace
+            // window, so a request arriving mid-outage gets the same treatment
+            // as one that was already waiting when the outage began.
             slot.queue.push_back(ticket);
         }
         let mut waiter = AdmissionWaiter {
@@ -110,21 +165,14 @@ impl AdmissionController {
         };
         loop {
             let notified = self.notify.notified();
-            {
+            let wait_budget = {
                 let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
                 let slot = inner
                     .slots
                     .get_mut(&key)
                     .expect("admission slot disappeared while request was queued");
-                if !slot.available {
-                    drop(inner);
-                    return Err(format!(
-                        "cartridge '{}' became unavailable while waiting for capacity",
-                        key.id
-                    ));
-                }
                 let has_capacity = slot.capacity == 0 || slot.active < slot.capacity;
-                if has_capacity && slot.queue.front() == Some(&ticket) {
+                if slot.available() && has_capacity && slot.queue.front() == Some(&ticket) {
                     slot.queue.pop_front();
                     slot.active += 1;
                     waiter.queued = false;
@@ -135,8 +183,32 @@ impl AdmissionController {
                         key: Some(key),
                     });
                 }
+                match slot.grace_remaining(tokio::time::Instant::now()) {
+                    // Available: wait indefinitely for capacity, as before.
+                    None => None,
+                    // Outage still inside its window: wait, but no longer than
+                    // what is left of it.
+                    Some(remaining) if !remaining.is_zero() => Some(remaining),
+                    // Outage outlived the window — the target is gone, not slow.
+                    Some(_) => {
+                        drop(inner);
+                        return Err(format!(
+                            "cartridge '{}' was unavailable for longer than {}s while this request \
+                             waited for capacity",
+                            key.id,
+                            ADMISSION_UNAVAILABLE_GRACE.as_secs()
+                        ));
+                    }
+                }
+            };
+            match wait_budget {
+                None => notified.await,
+                // A timeout here is not an error: it means the grace window is
+                // up, and the next loop iteration re-reads the slot and decides.
+                Some(remaining) => {
+                    let _ = tokio::time::timeout(remaining, notified).await;
+                }
             }
-            notified.await;
         }
     }
 
@@ -741,11 +813,53 @@ mod tests {
         drop(active);
     }
 
-    // TEST7114: a cartridge disappearing while work is queued wakes every
-    // waiter with a routing error; unregistered work never hangs outside the
-    // request table after a cartridge or relay-master loss.
+    // TEST7114: a cartridge that disappears and comes back does NOT terminally
+    // fail the work queued behind it. This is 17.2's "queued bodies are not
+    // assigned terminal failure from another body's process loss; once a
+    // replacement instance advertises capacity, subsequent queued work is
+    // admitted to that live instance".
+    //
+    // The regression this pins: a single failed registry-manifest fetch retired
+    // three live cartridges for ~24s, and every queued ForEach body was failed
+    // with "became unavailable while waiting for capacity" — 195 bodies lost to
+    // an outage that had already healed.
     #[tokio::test]
-    async fn test7114_unavailable_admission_target_rejects_queued_work() {
+    async fn test7114_transient_unavailability_does_not_fail_queued_work() {
+        let controller = AdmissionController::default();
+        let key = admission_key();
+        controller.configure(key.clone(), 1);
+        let active = controller.acquire(key.clone()).await.unwrap();
+
+        let waiting_controller = controller.clone();
+        let waiting_key = key.clone();
+        let waiting = tokio::spawn(async move { waiting_controller.acquire(waiting_key).await });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+
+        // The target vanishes from its host's inventory...
+        controller.disable_master(key.master_idx);
+        tokio::task::yield_now().await;
+        assert!(
+            !waiting.is_finished(),
+            "an outage inside the grace window must not fail queued work"
+        );
+
+        // ...and comes back, which is what must release the queue.
+        controller.configure(key.clone(), 1);
+        drop(active);
+        tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+            .await
+            .expect("a restored admission target must admit the work queued on it")
+            .expect("queued waiter task must not fail")
+            .expect("queued work must acquire the restored target");
+    }
+
+    // TEST1943: the grace window is a BOUND, not a hang. A target that stays
+    // gone fails its queued work once the window expires, so a cartridge that
+    // is genuinely retired surfaces as a failure instead of stalling the run
+    // forever.
+    #[tokio::test(start_paused = true)]
+    async fn test1943_outage_outliving_the_grace_window_fails_queued_work() {
         let controller = AdmissionController::default();
         let key = admission_key();
         controller.configure(key.clone(), 1);
@@ -758,12 +872,19 @@ mod tests {
         assert!(!waiting.is_finished());
 
         controller.disable_master(key.master_idx);
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished(), "the window must not expire early");
+
+        tokio::time::advance(ADMISSION_UNAVAILABLE_GRACE + std::time::Duration::from_secs(1)).await;
         let error = tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
             .await
-            .expect("disabled admission target must wake queued work")
+            .expect("an expired grace window must wake queued work")
             .expect("queued waiter task must not fail")
-            .expect_err("queued work must not acquire a disappeared cartridge");
-        assert!(error.contains("became unavailable"));
+            .expect_err("queued work must not acquire a target that never came back");
+        assert!(
+            error.contains("unavailable for longer than"),
+            "the failure must name the outage, not a generic routing error: {error}"
+        );
         drop(active);
     }
 

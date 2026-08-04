@@ -897,7 +897,7 @@
         "rust": {
           "function": "test119_cartridge_response_concatenated_and_final_payload_diverge_for_multi_chunk",
           "description": "TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk responses: concatenated returns all chunk data joined; final_payload returns only the last chunk. A consumer that confuses the two will silently drop all but the last chunk of a multi-chunk response.",
-          "location": "src/bifaci/host_runtime.rs:3820"
+          "location": "src/bifaci/host_runtime.rs:3962"
         },
         "go": {
           "function": "Test119_cartridge_response_concatenated_and_final_payload_diverge_for_multi_chunk",
@@ -964,7 +964,7 @@
         "rust": {
           "function": "test0129_gc_evicts_oldest_entries_by_touch_sequence",
           "description": "/ Contract #2 \u2014 the GC drops the OLDEST entries by / touch-sequence, not arbitrary keys. Seed a known age / distribution and assert the post-GC keyset is exactly / what the test computes should survive (test recomputes / independently of production code). / / A regression where the GC e.g. iterates the HashMap and / drops the first N (HashMap iteration order is arbitrary / in Rust) would still pass contract #1 but fail this one \u2014 / the more dangerous bug because it silently drops / in-flight continuation frames.",
-          "location": "src/bifaci/host_runtime.rs:5996"
+          "location": "src/bifaci/host_runtime.rs:6138"
         },
         "go": {
           "function": "Test129_gc_evicts_oldest_entries_by_touch_sequence",
@@ -1002,7 +1002,7 @@
         "rust": {
           "function": "test0131_runtime_identity_probe_required_on_empty_to_nonempty_transition",
           "description": "TEST0131: When a master initially advertises empty caps (so `add_master` skips the identity probe) and later sends a RelayNotify update with non-empty caps, the relay must run an end-to-end identity probe before the new caps become routable. A master that fails to answer the runtime probe with the expected nonce echo must end up unhealthy with `last_error` populated, and its caps must NOT appear in the cap_table. This test guards the wire-protocol regression where the RelayNotify-update path published caps without re-verifying identity end-to-end. Removing the runtime probe re-introduces the hole; this test fails loudly when that happens.",
-          "location": "src/bifaci/relay_switch.rs:5585"
+          "location": "src/bifaci/relay_switch.rs:5593"
         },
         "go": {
           "function": "Test0131_runtime_identity_probe_required_on_empty_to_nonempty_transition",
@@ -1040,7 +1040,7 @@
         "rust": {
           "function": "test0132_add_master_dynamic",
           "description": "TEST0132: add_master dynamically connects new host to running switch",
-          "location": "src/bifaci/relay_switch.rs:6096"
+          "location": "src/bifaci/relay_switch.rs:6104"
         },
         "go": {
           "function": "Test0132_add_master_dynamic",
@@ -1078,7 +1078,7 @@
         "rust": {
           "function": "test0133_reattach_by_id_preserves_slot_index",
           "description": "/ Reattach-by-id keeps the slot index stable. / / After a master at slot index 0 dies, a new socket added with / the same id MUST be placed into slot 0 (not appended at index 1). / Without this, request-table entries keyed by `master_idx=0` / would dangle pointing at a permanently-unhealthy zombie slot / while the live caps came back at slot 1 \u2014 exactly the / observed bug.",
-          "location": "src/bifaci/relay_switch.rs:6305"
+          "location": "src/bifaci/relay_switch.rs:6313"
         },
         "go": {
           "function": "Test133_ReattachByIDPreservesSlotIndex",
@@ -1116,7 +1116,7 @@
         "rust": {
           "function": "test0134_add_master_with_duplicate_healthy_id_errors",
           "description": "/ Adding a master with an id that matches an already-HEALTHY / slot is a wiring bug \u2014 the same master must not be / registered twice. The switch surfaces this as a hard / `Protocol` error rather than silently producing a duplicate / slot.",
-          "location": "src/bifaci/relay_switch.rs:6411"
+          "location": "src/bifaci/relay_switch.rs:6419"
         },
         "go": {
           "function": "Test134_AddMasterWithDuplicateHealthyIDErrors",
@@ -1154,7 +1154,7 @@
         "rust": {
           "function": "test0135_runtime_identity_probe_success_makes_caps_routable",
           "description": "TEST0135: the runtime identity probe SUCCESS path \u2014 a master that advertises caps AFTER connecting (empty\u2192non-empty) and then passes the probe must flip healthy and its caps must become routable. This is the companion to test0131 (which covers probe FAILURE \u2192 stays unhealthy): together they pin both outcomes of the deferred-probe state machine.",
-          "location": "src/bifaci/relay_switch.rs:5730"
+          "location": "src/bifaci/relay_switch.rs:5738"
         },
         "go": {
           "function": "Test0135_runtime_identity_probe_success_makes_caps_routable",
@@ -1193,7 +1193,7 @@
         "rust": {
           "function": "test0136_all_masters_ready_false_when_expected_count_unset",
           "description": "TEST0136: All masters ready false when expected count unset",
-          "location": "src/bifaci/relay_switch.rs:6759"
+          "location": "src/bifaci/relay_switch.rs:6767"
         },
         "go": {
           "function": "Test0136_all_masters_ready_false_when_expected_count_unset",
@@ -1227,7 +1227,7 @@
         "rust": {
           "function": "test0137_all_masters_ready_false_when_partially_connected",
           "description": "TEST0137: All masters ready false when partially connected",
-          "location": "src/bifaci/relay_switch.rs:6777"
+          "location": "src/bifaci/relay_switch.rs:6785"
         },
         "go": {
           "function": "Test0137_all_masters_ready_false_when_partially_connected",
@@ -1295,7 +1295,7 @@
         "rust": {
           "function": "test0139_all_masters_ready_true_when_masters_connected_but_capless",
           "description": "TEST0139: All masters ready true when masters connected but capless",
-          "location": "src/bifaci/relay_switch.rs:6828"
+          "location": "src/bifaci/relay_switch.rs:6836"
         },
         "go": {
           "function": "Test0139_all_masters_ready_true_when_masters_connected_but_capless",
@@ -1329,7 +1329,7 @@
         "rust": {
           "function": "test0140_all_masters_ready_does_not_overshoot",
           "description": "TEST0140: All masters ready does not overshoot",
-          "location": "src/bifaci/relay_switch.rs:6851"
+          "location": "src/bifaci/relay_switch.rs:6859"
         },
         "go": {
           "function": "Test0140_all_masters_ready_does_not_overshoot",
@@ -4806,7 +4806,7 @@
         "rust": {
           "function": "test235_response_chunk",
           "description": "TEST235: Test ResponseChunk stores payload, seq, offset, len, and eof fields correctly",
-          "location": "src/bifaci/host_runtime.rs:3610"
+          "location": "src/bifaci/host_runtime.rs:3752"
         },
         "go": {
           "function": "Test235_response_chunk_fields",
@@ -4844,7 +4844,7 @@
         "rust": {
           "function": "test236_response_chunk_with_all_fields",
           "description": "TEST236: Test ResponseChunk with all fields populated preserves offset, len, and eof",
-          "location": "src/bifaci/host_runtime.rs:3626"
+          "location": "src/bifaci/host_runtime.rs:3768"
         },
         "go": {
           "function": "Test236_response_chunk_all_fields_populated",
@@ -4882,7 +4882,7 @@
         "rust": {
           "function": "test237_cartridge_response_single",
           "description": "TEST237: Test CartridgeResponse::Single final_payload returns the single payload slice",
-          "location": "src/bifaci/host_runtime.rs:3642"
+          "location": "src/bifaci/host_runtime.rs:3784"
         },
         "go": {
           "function": "Test237_cartridge_response_single_final_payload",
@@ -4920,7 +4920,7 @@
         "rust": {
           "function": "test238_cartridge_response_single_empty",
           "description": "TEST238: Test CartridgeResponse::Single with empty payload returns empty slice and empty vec",
-          "location": "src/bifaci/host_runtime.rs:3650"
+          "location": "src/bifaci/host_runtime.rs:3792"
         },
         "go": {
           "function": "Test238_cartridge_response_single_empty_payload",
@@ -4958,7 +4958,7 @@
         "rust": {
           "function": "test239_cartridge_response_streaming",
           "description": "TEST239: Test CartridgeResponse::Streaming concatenated joins all chunk payloads in order",
-          "location": "src/bifaci/host_runtime.rs:3658"
+          "location": "src/bifaci/host_runtime.rs:3800"
         },
         "go": {
           "function": "Test239_cartridge_response_streaming_concatenated",
@@ -4996,7 +4996,7 @@
         "rust": {
           "function": "test240_cartridge_response_streaming_final_payload",
           "description": "TEST240: Test CartridgeResponse::Streaming final_payload returns the last chunk's payload",
-          "location": "src/bifaci/host_runtime.rs:3681"
+          "location": "src/bifaci/host_runtime.rs:3823"
         },
         "go": {
           "function": "Test240_cartridge_response_streaming_final_payload",
@@ -5034,7 +5034,7 @@
         "rust": {
           "function": "test241_cartridge_response_streaming_empty_chunks",
           "description": "TEST241: Test CartridgeResponse::Streaming with empty chunks vec returns empty concatenation",
-          "location": "src/bifaci/host_runtime.rs:3704"
+          "location": "src/bifaci/host_runtime.rs:3846"
         },
         "go": {
           "function": "Test241_cartridge_response_streaming_empty_chunks",
@@ -5072,7 +5072,7 @@
         "rust": {
           "function": "test242_cartridge_response_streaming_large_payload",
           "description": "TEST242: Test CartridgeResponse::Streaming concatenated capacity is pre-allocated correctly for large payloads",
-          "location": "src/bifaci/host_runtime.rs:3712"
+          "location": "src/bifaci/host_runtime.rs:3854"
         },
         "go": {
           "function": "Test242_cartridge_response_streaming_preallocation",
@@ -5110,7 +5110,7 @@
         "rust": {
           "function": "test243_async_host_error_display",
           "description": "TEST243: Test AsyncHostError variants display correct error messages",
-          "location": "src/bifaci/host_runtime.rs:3740"
+          "location": "src/bifaci/host_runtime.rs:3882"
         },
         "go": {
           "function": "Test243_host_error_variants",
@@ -5148,7 +5148,7 @@
         "rust": {
           "function": "test244_async_host_error_from_cbor",
           "description": "TEST244: Test AsyncHostError::from converts CborError to Cbor variant",
-          "location": "src/bifaci/host_runtime.rs:3766"
+          "location": "src/bifaci/host_runtime.rs:3908"
         },
         "go": {
           "function": "Test244_host_error_conversion",
@@ -5186,7 +5186,7 @@
         "rust": {
           "function": "test245_async_host_error_from_io",
           "description": "TEST245: Test AsyncHostError::from converts io::Error to Io variant",
-          "location": "src/bifaci/host_runtime.rs:3777"
+          "location": "src/bifaci/host_runtime.rs:3919"
         },
         "go": {
           "function": "Test245_host_error_io_variant",
@@ -5224,7 +5224,7 @@
         "rust": {
           "function": "test246_async_host_error_clone",
           "description": "TEST246: Test AsyncHostError Clone implementation produces equal values",
-          "location": "src/bifaci/host_runtime.rs:3788"
+          "location": "src/bifaci/host_runtime.rs:3930"
         },
         "go": {
           "function": "Test246_response_chunk_copy",
@@ -5262,7 +5262,7 @@
         "rust": {
           "function": "test247_response_chunk_clone",
           "description": "TEST247: Test ResponseChunk Clone produces independent copy with same data",
-          "location": "src/bifaci/host_runtime.rs:3799"
+          "location": "src/bifaci/host_runtime.rs:3941"
         },
         "go": {
           "function": "Test247_response_chunk_clone",
@@ -9478,7 +9478,7 @@
         "rust": {
           "function": "test413_register_cartridge_adds_to_cap_table",
           "description": "TEST413: Register cartridge adds entries to cap_table. The cap_table stores canonical URN strings (alphabetical tag order, no unnecessary quotes around single-tag media URNs). The input forms below get canonicalized at parse-time and the table reads back as the canonical form.",
-          "location": "src/bifaci/host_runtime.rs:3862"
+          "location": "src/bifaci/host_runtime.rs:4004"
         },
         "go": {
           "function": "Test413_register_cartridge_adds_cap_table",
@@ -9554,7 +9554,7 @@
         "rust": {
           "function": "test415_req_for_known_cap_triggers_spawn",
           "description": "TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary)",
-          "location": "src/bifaci/host_runtime.rs:3922"
+          "location": "src/bifaci/host_runtime.rs:4064"
         },
         "go": {
           "function": "Test415_req_triggers_spawn",
@@ -9592,7 +9592,7 @@
         "rust": {
           "function": "test416_attach_cartridge_handshake_updates_capabilities",
           "description": "TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities",
-          "location": "src/bifaci/host_runtime.rs:3999"
+          "location": "src/bifaci/host_runtime.rs:4141"
         },
         "go": {
           "function": "Test416_attach_cartridge_handshake",
@@ -9630,7 +9630,7 @@
         "rust": {
           "function": "test417_route_req_to_correct_cartridge",
           "description": "TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges)",
-          "location": "src/bifaci/host_runtime.rs:4056"
+          "location": "src/bifaci/host_runtime.rs:4198"
         },
         "go": {
           "function": "Test417_route_req_by_cap_urn",
@@ -9668,7 +9668,7 @@
         "rust": {
           "function": "test418_route_continuation_frames_by_req_id",
           "description": "TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ\u2192cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge \u2014 even though no cap_urn is present on those frames.",
-          "location": "src/bifaci/host_runtime.rs:4462"
+          "location": "src/bifaci/host_runtime.rs:4604"
         },
         "go": {
           "function": "Test418_route_continuation_by_req_id",
@@ -9706,7 +9706,7 @@
         "rust": {
           "function": "test419_cartridge_heartbeat_handled_locally",
           "description": "TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay)",
-          "location": "src/bifaci/host_runtime.rs:4216"
+          "location": "src/bifaci/host_runtime.rs:4358"
         },
         "go": {
           "function": "Test419_heartbeat_local_handling",
@@ -9744,7 +9744,7 @@
         "rust": {
           "function": "test420_cartridge_frames_forwarded_to_relay",
           "description": "TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through)",
-          "location": "src/bifaci/host_runtime.rs:4291"
+          "location": "src/bifaci/host_runtime.rs:4433"
         },
         "go": {
           "function": "Test420_cartridge_frames_forwarded_to_relay",
@@ -9782,7 +9782,7 @@
         "rust": {
           "function": "test421_cartridge_death_updates_capabilities",
           "description": "TEST421: Cartridge death updates capability list (caps removed)",
-          "location": "src/bifaci/host_runtime.rs:4624"
+          "location": "src/bifaci/host_runtime.rs:4766"
         },
         "go": {
           "function": "Test421_cartridge_death_updates_caps",
@@ -9820,7 +9820,7 @@
         "rust": {
           "function": "test422_cartridge_death_sends_err_for_pending_requests",
           "description": "TEST422: Cartridge death sends ERR for all pending requests via relay",
-          "location": "src/bifaci/host_runtime.rs:4701"
+          "location": "src/bifaci/host_runtime.rs:4843"
         },
         "go": {
           "function": "Test422_cartridge_death_sends_err",
@@ -9858,7 +9858,7 @@
         "rust": {
           "function": "test423_multiple_cartridges_route_independently",
           "description": "TEST423: Multiple cartridges registered with distinct caps route independently",
-          "location": "src/bifaci/host_runtime.rs:4792"
+          "location": "src/bifaci/host_runtime.rs:4934"
         },
         "go": {
           "function": "Test423_multi_cartridge_distinct_caps",
@@ -9896,7 +9896,7 @@
         "rust": {
           "function": "test424_concurrent_requests_to_same_cartridge",
           "description": "TEST424: Concurrent requests to the same cartridge are handled independently",
-          "location": "src/bifaci/host_runtime.rs:4985"
+          "location": "src/bifaci/host_runtime.rs:5127"
         },
         "go": {
           "function": "Test424_concurrent_requests_same_cartridge",
@@ -9934,7 +9934,7 @@
         "rust": {
           "function": "test425_find_cartridge_for_cap_unknown",
           "description": "TEST425: find_cartridge_for_cap returns None for unregistered cap",
-          "location": "src/bifaci/host_runtime.rs:5145"
+          "location": "src/bifaci/host_runtime.rs:5287"
         },
         "go": {
           "function": "Test425_find_cartridge_for_cap_unknown",
@@ -9972,7 +9972,7 @@
         "rust": {
           "function": "test426_single_master_req_response",
           "description": "TEST426: Single master REQ/response routing",
-          "location": "src/bifaci/relay_switch.rs:4687"
+          "location": "src/bifaci/relay_switch.rs:4695"
         },
         "go": {
           "function": "Test426_relay_switch_single_master_req_response",
@@ -10010,7 +10010,7 @@
         "rust": {
           "function": "test427_multi_master_cap_routing",
           "description": "TEST427: Multi-master cap routing",
-          "location": "src/bifaci/relay_switch.rs:4754"
+          "location": "src/bifaci/relay_switch.rs:4762"
         },
         "go": {
           "function": "Test427_relay_switch_multi_master_cap_routing",
@@ -10048,7 +10048,7 @@
         "rust": {
           "function": "test428_unknown_cap_returns_error",
           "description": "TEST428: Unknown cap returns error",
-          "location": "src/bifaci/relay_switch.rs:4865"
+          "location": "src/bifaci/relay_switch.rs:4873"
         },
         "go": {
           "function": "Test428_relay_switch_unknown_cap_returns_error",
@@ -10086,7 +10086,7 @@
         "rust": {
           "function": "test429_find_master_for_cap",
           "description": "TEST429: Cap routing logic (find_master_for_cap)",
-          "location": "src/bifaci/relay_switch.rs:4627"
+          "location": "src/bifaci/relay_switch.rs:4635"
         },
         "go": {
           "function": "Test429_relay_switch_find_master_for_cap",
@@ -10124,7 +10124,7 @@
         "rust": {
           "function": "test430_tie_breaking_same_cap_multiple_masters",
           "description": "TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent)",
-          "location": "src/bifaci/relay_switch.rs:4900"
+          "location": "src/bifaci/relay_switch.rs:4908"
         },
         "go": {
           "function": "Test430_relay_switch_tie_breaking",
@@ -10162,7 +10162,7 @@
         "rust": {
           "function": "test431_continuation_frame_routing",
           "description": "TEST431: Continuation frame routing (CHUNK, END follow REQ)",
-          "location": "src/bifaci/relay_switch.rs:5006"
+          "location": "src/bifaci/relay_switch.rs:5014"
         },
         "go": {
           "function": "Test431_relay_switch_continuation_frame_routing",
@@ -10200,7 +10200,7 @@
         "rust": {
           "function": "test432_empty_masters_allowed",
           "description": "TEST432: Empty masters list creates empty switch, add_master works",
-          "location": "src/bifaci/relay_switch.rs:5093"
+          "location": "src/bifaci/relay_switch.rs:5101"
         },
         "go": {
           "function": "Test432_relay_switch_empty_masters_list_error",
@@ -10238,7 +10238,7 @@
         "rust": {
           "function": "test433_capability_aggregation_deduplicates",
           "description": "TEST433: Capability aggregation deduplicates caps",
-          "location": "src/bifaci/relay_switch.rs:5111"
+          "location": "src/bifaci/relay_switch.rs:5119"
         },
         "go": {
           "function": "Test433_relay_switch_capability_aggregation_deduplicates",
@@ -10276,7 +10276,7 @@
         "rust": {
           "function": "test434_limits_negotiation_minimum",
           "description": "TEST434: Limits negotiation takes minimum",
-          "location": "src/bifaci/relay_switch.rs:5161"
+          "location": "src/bifaci/relay_switch.rs:5169"
         },
         "go": {
           "function": "Test434_relay_switch_limits_negotiation_minimum",
@@ -10314,7 +10314,7 @@
         "rust": {
           "function": "test435_urn_matching_exact_and_accepts",
           "description": "TEST435: URN matching (exact vs accepts())",
-          "location": "src/bifaci/relay_switch.rs:5205"
+          "location": "src/bifaci/relay_switch.rs:5213"
         },
         "go": {
           "function": "Test435_relay_switch_urn_matching",
@@ -10390,7 +10390,7 @@
         "rust": {
           "function": "test437_preferred_cap_routes_to_generic",
           "description": "TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic candidate (in=media:) CAN dispatch specific request (in=\"media:ext=pdf\") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates",
-          "location": "src/bifaci/relay_switch.rs:5311"
+          "location": "src/bifaci/relay_switch.rs:5319"
         },
         "go": {
           "function": "Test437_preferred_cap_routes_to_generic",
@@ -10428,7 +10428,7 @@
         "rust": {
           "function": "test438_preferred_cap_falls_back_when_not_comparable",
           "description": "TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set",
-          "location": "src/bifaci/relay_switch.rs:5370"
+          "location": "src/bifaci/relay_switch.rs:5378"
         },
         "go": {
           "function": "Test438_preferred_cap_falls_back_when_not_comparable",
@@ -10466,7 +10466,7 @@
         "rust": {
           "function": "test439_generic_candidate_can_dispatch_specific_request",
           "description": "TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in=\"media:ext=pdf\") because media: accepts any input type. With preference, can route to generic even when more specific exists.",
-          "location": "src/bifaci/relay_switch.rs:5411"
+          "location": "src/bifaci/relay_switch.rs:5419"
         },
         "go": {
           "function": "Test439_generic_candidate_can_dispatch_specific_request",
@@ -11340,7 +11340,7 @@
         "rust": {
           "function": "test462_attached_cartridge_identity_from_manifest",
           "description": "TEST462: An attached cartridge (pre-connected over raw streams, no on-disk anchor) gets a resolvable install identity derived from its HELLO manifest \u2014 `installed_cartridge_record_from_manifest`. Identity gates advertisement (`build_installed_cartridge_identities` drops a cartridge with no record), so a `None` here means the cartridge is silently dropped from every RelayNotify and the engine can never route to it. Regression lock for the attached-cartridge identity path (the swift mirror regressed here: its attached cartridges returned `nil` and never reached the engine).",
-          "location": "src/bifaci/host_runtime.rs:6390"
+          "location": "src/bifaci/host_runtime.rs:6679"
         },
         "go": {
           "function": "Test462_attached_cartridge_identity_from_manifest",
@@ -11750,7 +11750,7 @@
         "rust": {
           "function": "test485_attach_cartridge_identity_verification_succeeds",
           "description": "TEST485: attach_cartridge completes identity verification with working cartridge",
-          "location": "src/bifaci/host_runtime.rs:5169"
+          "location": "src/bifaci/host_runtime.rs:5311"
         },
         "go": {
           "function": "Test485_attach_cartridge_identity_verification_succeeds",
@@ -11788,7 +11788,7 @@
         "rust": {
           "function": "test486_attach_cartridge_identity_verification_fails",
           "description": "TEST486: attach_cartridge rejects cartridge that fails identity verification",
-          "location": "src/bifaci/host_runtime.rs:5210"
+          "location": "src/bifaci/host_runtime.rs:5352"
         },
         "go": {
           "function": "Test486_attach_cartridge_identity_verification_fails",
@@ -11826,7 +11826,7 @@
         "rust": {
           "function": "test487_relay_switch_identity_verification_succeeds",
           "description": "TEST487: RelaySwitch construction verifies identity through relay chain",
-          "location": "src/bifaci/relay_switch.rs:5456"
+          "location": "src/bifaci/relay_switch.rs:5464"
         },
         "go": {
           "function": "Test487_relay_switch_identity_verification_succeeds",
@@ -11864,7 +11864,7 @@
         "rust": {
           "function": "test488_relay_switch_identity_verification_fails",
           "description": "TEST488: RelaySwitch construction fails when master's identity verification fails",
-          "location": "src/bifaci/relay_switch.rs:5493"
+          "location": "src/bifaci/relay_switch.rs:5501"
         },
         "go": {
           "function": "Test488_relay_switch_identity_verification_fails",
@@ -16659,7 +16659,7 @@
         "rust": {
           "function": "test662_rebuild_capabilities_includes_non_running_cartridges",
           "description": "TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet).",
-          "location": "src/bifaci/host_runtime.rs:5316"
+          "location": "src/bifaci/host_runtime.rs:5458"
         },
         "go": {
           "function": "Test662_rebuild_capabilities_includes_non_running_cartridges",
@@ -16697,7 +16697,7 @@
         "rust": {
           "function": "test663_hello_failed_cartridge_removed_from_capabilities",
           "description": "TEST663: Cartridge with hello_failed is permanently removed from capabilities",
-          "location": "src/bifaci/host_runtime.rs:5375"
+          "location": "src/bifaci/host_runtime.rs:5517"
         },
         "go": {
           "function": "Test663_hello_failed_cartridge_removed_from_capabilities",
@@ -16735,7 +16735,7 @@
         "rust": {
           "function": "test664_running_cartridge_uses_manifest_caps",
           "description": "TEST664: Attached cartridge replaces pre-registration caps with manifest caps. The pre-attach `cap_groups` (from probe-time discovery) get superseded by the post-HELLO `cap_groups` from the actual handshake.",
-          "location": "src/bifaci/host_runtime.rs:5426"
+          "location": "src/bifaci/host_runtime.rs:5568"
         },
         "go": {
           "function": "Test664_running_cartridge_uses_manifest_caps",
@@ -16773,7 +16773,7 @@
         "rust": {
           "function": "test665_cap_table_mixed_running_and_non_running",
           "description": "TEST665: Cap table aggregates caps from every healthy cartridge \u2014 attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view.",
-          "location": "src/bifaci/host_runtime.rs:5491"
+          "location": "src/bifaci/host_runtime.rs:5633"
         },
         "go": {
           "function": "Test665_cap_table_mixed_running_and_non_running",
@@ -16812,7 +16812,7 @@
         "rust": {
           "function": "test666_preferred_cap_routing",
           "description": "TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match",
-          "location": "src/bifaci/relay_switch.rs:6494"
+          "location": "src/bifaci/relay_switch.rs:6502"
         },
         "go": {
           "function": "Test666_preferred_cap_routing",
@@ -17958,7 +17958,7 @@
         "rust": {
           "function": "test716_empty_collection",
           "description": "TEST716: Tests CapInputCollection empty collection has zero files and folders Verifies is_empty() returns true and counts are zero for new collection",
-          "location": "src/planner/collection_input.rs:158"
+          "location": "src/planner/collection_input.rs:157"
         },
         "go": {
           "function": "Test716_empty_collection",
@@ -17992,7 +17992,7 @@
         "rust": {
           "function": "test717_collection_with_files",
           "description": "TEST717: Tests CapInputCollection correctly counts files in flat collection Verifies total_file_count() returns 2 for collection with 2 files, no folders",
-          "location": "src/planner/collection_input.rs:169"
+          "location": "src/planner/collection_input.rs:168"
         },
         "go": {
           "function": "Test717_collection_with_files",
@@ -18026,7 +18026,7 @@
         "rust": {
           "function": "test718_nested_collection",
           "description": "TEST718: Tests CapInputCollection correctly counts files and folders in nested structure Verifies total_file_count() includes subfolder files and total_folder_count() counts subfolders",
-          "location": "src/planner/collection_input.rs:191"
+          "location": "src/planner/collection_input.rs:190"
         },
         "go": {
           "function": "Test718_nested_collection",
@@ -18060,7 +18060,7 @@
         "rust": {
           "function": "test719_flatten_to_files",
           "description": "TEST719: Tests CapInputCollection flatten_to_files recursively collects all files Verifies flatten() extracts files from root and all subfolders into flat list",
-          "location": "src/planner/collection_input.rs:221"
+          "location": "src/planner/collection_input.rs:220"
         },
         "go": {
           "function": "Test719_flatten_to_files",
@@ -23558,7 +23558,7 @@
         "rust": {
           "function": "test910_map_progress_monotonic",
           "description": "TEST910: map_progress output is monotonic for monotonically increasing input",
-          "location": "src/orchestrator/executor.rs:3479"
+          "location": "src/orchestrator/executor.rs:3499"
         },
         "go": {
           "function": "Test910_map_progress_monotonic",
@@ -23596,7 +23596,7 @@
         "rust": {
           "function": "test911_map_progress_bounded",
           "description": "TEST911: map_progress output is bounded within [base, base+weight]",
-          "location": "src/orchestrator/executor.rs:3497"
+          "location": "src/orchestrator/executor.rs:3517"
         },
         "go": {
           "function": "Test911_map_progress_bounded",
@@ -23634,7 +23634,7 @@
         "rust": {
           "function": "test912_progress_mapper_reports_through_parent",
           "description": "TEST912: ProgressMapper correctly maps through a CapProgressFn",
-          "location": "src/orchestrator/executor.rs:3518"
+          "location": "src/orchestrator/executor.rs:3538"
         },
         "go": {
           "function": "Test912_progress_mapper_reports_through_parent",
@@ -23672,7 +23672,7 @@
         "rust": {
           "function": "test913_progress_mapper_as_cap_progress_fn",
           "description": "TEST913: ProgressMapper.as_cap_progress_fn produces same mapping",
-          "location": "src/orchestrator/executor.rs:3542"
+          "location": "src/orchestrator/executor.rs:3562"
         },
         "go": {
           "function": "Test913_progress_mapper_as_cap_progress_fn",
@@ -23710,7 +23710,7 @@
         "rust": {
           "function": "test914_progress_mapper_sub_mapper",
           "description": "TEST914: ProgressMapper.sub_mapper chains correctly",
-          "location": "src/orchestrator/executor.rs:3565"
+          "location": "src/orchestrator/executor.rs:3585"
         },
         "go": {
           "function": "Test914_progress_mapper_sub_mapper",
@@ -23748,7 +23748,7 @@
         "rust": {
           "function": "test915_per_group_subdivision_monotonic_bounded",
           "description": "TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding.",
-          "location": "src/orchestrator/executor.rs:3647"
+          "location": "src/orchestrator/executor.rs:3667"
         },
         "go": {
           "function": "Test915_per_group_subdivision_monotonic_bounded",
@@ -23786,7 +23786,7 @@
         "rust": {
           "function": "test917_high_frequency_progress_bounded",
           "description": "TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario \u2014 verifies computation stays bounded)",
-          "location": "src/orchestrator/executor.rs:3768"
+          "location": "src/orchestrator/executor.rs:3788"
         },
         "go": {
           "function": "Test917_high_frequency_progress_bounded",
@@ -24305,7 +24305,7 @@
         "rust": {
           "function": "test933_serialization_roundtrip",
           "description": "TEST933: Tests CapInputCollection serializes to JSON and deserializes correctly Verifies JSON round-trip preserves folder_id, folder_name, files and file metadata",
-          "location": "src/planner/collection_input.rs:248"
+          "location": "src/planner/collection_input.rs:247"
         },
         "go": {
           "function": "Test933_serialization_roundtrip",
@@ -25650,7 +25650,7 @@
         "rust": {
           "function": "test987_gc_secondary_pass_enforces_hard_cap",
           "description": "/ Contract #3 \u2014 the secondary hard-cap pass kicks in if the / table somehow exceeds `HARD_CAP` (extreme runaway). Without / it, a single GC at the soft watermark would not be enough / to recover headroom and the table could grow without bound / between bursts.",
-          "location": "src/bifaci/host_runtime.rs:6050"
+          "location": "src/bifaci/host_runtime.rs:6192"
         },
         "go": {
           "function": "Test987_gc_secondary_pass_enforces_hard_cap",
@@ -25688,7 +25688,7 @@
         "rust": {
           "function": "test988_gc_reduces_table_below_soft_watermark_in_one_pass",
           "description": "/ Contract #1 \u2014 the GC keeps the table strictly below the / hard cap. Seed the table well above the soft watermark / (matching what a runaway producer would do mid-frame- / burst) and call the production GC entry point. The / post-state must be at most `SOFT_WATERMARK` entries / because the GC drops at least / `EVICTION_FRACTION \u00d7 pre_state` entries in one pass and / the pre-state is below the hard cap (i.e. one pass is / enough; the secondary \"hard cap\" pass would only fire if / pre-state crossed the hard cap before insertion completed, / which production prevents by gc-ing on every insert).",
-          "location": "src/bifaci/host_runtime.rs:5937"
+          "location": "src/bifaci/host_runtime.rs:6079"
         },
         "go": {
           "function": "Test988_gc_reduces_table_below_soft_watermark_in_one_pass",
@@ -28000,7 +28000,7 @@
         "rust": {
           "function": "test1126_map_progress_deterministic",
           "description": "TEST1126: map_progress is deterministic \u2014 same inputs always produce same output",
-          "location": "src/orchestrator/executor.rs:3468"
+          "location": "src/orchestrator/executor.rs:3488"
         },
         "go": {
           "function": "Test1126_map_progress_deterministic",
@@ -32556,7 +32556,7 @@
         "rust": {
           "function": "test1730_lifecycle_serde_renames_match_proto_snake_case",
           "description": "/ TEST1730: Every `CartridgeLifecycle` variant serializes to / its proto snake_case name byte-for-byte. Adding a variant / requires an entry here AND a `CARTRIDGE_LIFECYCLE_FOO` / constant in `cartridge.proto`. Cross-language drift on this / enum makes lifecycle states silently invisible to one side / of the wire.",
-          "location": "src/bifaci/relay_switch.rs:7002"
+          "location": "src/bifaci/relay_switch.rs:7010"
         },
         "go": {
           "function": "Test1730_attribution_class_wire_tokens_round_trip",
@@ -32586,7 +32586,7 @@
         "rust": {
           "function": "test1731_lifecycle_default_is_discovered",
           "description": "/ TEST1731: `CartridgeLifecycle` defaults to `Discovered` / (the safe sentinel) \u2014 never `Operational`. Pins the / safe-default rule the doc explicitly calls out: a / freshly-constructed record without an explicit lifecycle / MUST NOT silently expose an un-inspected cartridge for / dispatch.",
-          "location": "src/bifaci/relay_switch.rs:7028"
+          "location": "src/bifaci/relay_switch.rs:7036"
         },
         "go": {
           "function": "Test1731_only_input_is_permanent",
@@ -32652,7 +32652,7 @@
         "rust": {
           "function": "test1871_sync_roster_adds_and_removes_registered_dir_live",
           "description": "TEST1871: SyncRoster updates the LIVE host inventory in place \u2014 the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.",
-          "location": "src/bifaci/host_runtime.rs:6284"
+          "location": "src/bifaci/host_runtime.rs:6573"
         },
         "go": {
           "function": "Test1871_sync_roster_adds_and_removes_registered_dir_live",
@@ -33320,7 +33320,7 @@
         "rust": {
           "function": "test1897_unhealthy_master_inventory_retained_but_not_routable",
           "description": "TEST1897: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed runtime identity probe still has its cartridges visible in the aggregate inventory (so a transient master flap does not make cartridges \"disappear\" from the engine's view), even though its caps are excluded from ROUTING. This pins the deliberate asymmetry between the inventory aggregate (unfiltered) and the cap table / routable set (health-filtered).",
-          "location": "src/bifaci/relay_switch.rs:5791"
+          "location": "src/bifaci/relay_switch.rs:5799"
         },
         "go": {
           "function": "Test1897_unhealthy_master_inventory_retained_but_not_routable",
@@ -33358,7 +33358,7 @@
         "rust": {
           "function": "test1898_subscribe_capabilities_delivers_routable_set",
           "description": "TEST1898: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction \u2014 BEFORE any receiver existed (the channel must persist the value, i.e. use send_replace, not send, which drops the value when there are momentarily zero receivers). The delivered set must be the health-filtered routable cap URNs. This is the engine-readiness signal: a cap appears here only once its master is verified and routable.",
-          "location": "src/bifaci/relay_switch.rs:5865"
+          "location": "src/bifaci/relay_switch.rs:5873"
         },
         "go": {
           "function": "Test1898_subscribe_capabilities_delivers_routable_set",
@@ -33450,6 +33450,120 @@
           "function": "test1900_errFrameAttributionClassWireContract",
           "description": "TEST1900: ERR attribution is mandatory and strict. Missing and unknown tokens are protocol violations rather than compatibility defaults.",
           "location": "Tests/BifaciTests/FrameTests.swift:2017"
+        }
+      }
+    },
+    {
+      "number": 1945,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "objc"
+      ],
+      "missing": [
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test1945_roster_retire_drains_a_busy_cartridge_before_killing_it",
+          "description": "TEST1945: a roster retire DRAINS a busy cartridge instead of killing it. The incident this pins: a transient registry outage shrank the roster and the host killed three cartridges outright, ERRing every request they were serving. Retirement means \"no NEW work\" \u2014 the process must survive until the requests it is already handling terminate.",
+          "location": "src/bifaci/host_runtime.rs:6454"
+        },
+        "go": {
+          "function": "Test1945_roster_retire_drains_a_busy_cartridge_before_killing_it",
+          "description": "TEST1945: a roster retire DRAINS a busy cartridge instead of killing it. The incident this pins: a transient registry outage shrank the roster and the host killed three cartridges outright, ERRing every request they were serving. Retirement means \"no NEW work\" \u2014 the process must survive until the requests it is already handling terminate.",
+          "location": "bifaci/host_roster_test.go:169"
+        },
+        "py": {
+          "function": "test_1945_roster_retire_drains_a_busy_cartridge_before_killing_it",
+          "description": "TEST1945: a roster retire DRAINS a busy cartridge instead of killing it. The incident this pins: a transient registry outage shrank the roster and the host killed three cartridges outright, ERRing every request they were serving. Retirement means \"no NEW work\" \u2014 the process must survive until the requests it is already handling terminate.",
+          "location": "tests/test_cartridge_host.py:1493"
+        },
+        "objc": {
+          "function": "test1945_rosterRetireDrainsABusyCartridgeBeforeKillingIt",
+          "description": "TEST1945: a roster retire DRAINS a busy cartridge instead of killing it. The incident this pins: a transient registry outage shrank the roster and the host killed three cartridges outright, ERRing every request they were serving. Retirement means \"no NEW work\" \u2014 the process must survive until the requests it is already handling terminate.",
+          "location": "Tests/BifaciTests/SyncRosterTests.swift:143"
+        }
+      }
+    },
+    {
+      "number": 1946,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "objc"
+      ],
+      "missing": [
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test1946_roster_retire_kills_an_idle_cartridge_as_retired",
+          "description": "TEST1946: an IDLE cartridge is retired immediately (no reason to keep a process nothing routes to), and its reason is RosterRetired so pending work \u2014 and the operator-facing log \u2014 is attributed to the environment rather than reported as a user cancellation.",
+          "location": "src/bifaci/host_runtime.rs:6554"
+        },
+        "go": {
+          "function": "Test1946_roster_retire_kills_an_idle_cartridge_as_retired",
+          "description": "TEST1946: an IDLE cartridge is retired immediately (no reason to keep a process nothing routes to).",
+          "location": "bifaci/host_roster_test.go:207"
+        },
+        "py": {
+          "function": "test_1946_roster_retire_kills_an_idle_cartridge_as_retired",
+          "description": "TEST1946: an IDLE cartridge is retired immediately (no reason to keep a process nothing routes to).",
+          "location": "tests/test_cartridge_host.py:1530"
+        },
+        "objc": {
+          "function": "test1946_rosterRetireKillsAnIdleCartridgeAsRetired",
+          "description": "TEST1946: an IDLE cartridge is retired immediately (no reason to keep a process nothing routes to).",
+          "location": "Tests/BifaciTests/SyncRosterTests.swift:174"
+        }
+      }
+    },
+    {
+      "number": 1947,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "objc"
+      ],
+      "missing": [
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test1947_roster_flap_cancels_retirement_instead_of_respawning",
+          "description": "TEST1947: a roster that flaps \u2014 retire then restore the same identity \u2014 keeps the SAME live process. This is the incident's shape end to end: the registry became unreachable, the roster shrank, and 26 seconds later it came back. Nothing about that sequence should cost a running cartridge, its warm model, or the work queued on it.",
+          "location": "src/bifaci/host_runtime.rs:6499"
+        },
+        "go": {
+          "function": "Test1947_roster_flap_cancels_retirement_instead_of_respawning",
+          "description": "TEST1947: a roster that flaps \u2014 retire then restore the same identity \u2014 keeps the SAME live process. This is the incident's shape end to end: the registry became unreachable, the roster shrank, and 26 seconds later it came back. Nothing about that sequence should cost a running cartridge, its warm model, or the work queued on it.",
+          "location": "bifaci/host_roster_test.go:223"
+        },
+        "py": {
+          "function": "test_1947_roster_flap_cancels_retirement_instead_of_respawning",
+          "description": "TEST1947: a roster that flaps \u2014 retire then restore the same identity \u2014 keeps the SAME live process. This is the incident's shape end to end: the registry became unreachable, the roster shrank, and 26 seconds later it came back. Nothing about that sequence should cost a running cartridge, its warm model, or the work queued on it.",
+          "location": "tests/test_cartridge_host.py:1542"
+        },
+        "objc": {
+          "function": "test1947_rosterFlapCancelsRetirementInsteadOfRespawning",
+          "description": "TEST1947: a roster that flaps \u2014 retire then restore the same identity \u2014 keeps the SAME live process. This is the incident's shape end to end: the registry became unreachable, the roster shrank, and 26 seconds later it came back. Nothing about that sequence should cost a running cartridge, its warm model, or the work queued on it.",
+          "location": "Tests/BifaciTests/SyncRosterTests.swift:187"
         }
       }
     },
@@ -34099,7 +34213,7 @@
         "rust": {
           "function": "test6594_capabilities_empty_initially",
           "description": "TEST6594: aggregate_installed_cartridges() is empty before any cartridge with a resolvable identity is attached. A binary path that does not exist on disk has no identity (`installed_identity` is `None`) and therefore does not appear in the relay payload.",
-          "location": "src/bifaci/host_runtime.rs:3896"
+          "location": "src/bifaci/host_runtime.rs:4038"
         },
         "go": {
           "function": "Test6594_capabilities_empty_initially",
@@ -34138,7 +34252,7 @@
         "rust": {
           "function": "test6600_parse_cap_groups_rejects_manifest_without_identity",
           "description": "TEST6600: parse_cap_groups_from_manifest classifies failures by kind Manifest JSON that parses but lacks CAP_IDENTITY is `Incompatible` (schema-rejected). Manifest bytes that don't parse as CapManifest are `ManifestInvalid` (JSON-level failure). The split lets the host's attachment-error reporter surface the right kind to the UI.",
-          "location": "src/bifaci/host_runtime.rs:3506"
+          "location": "src/bifaci/host_runtime.rs:3648"
         },
         "go": {
           "function": "Test6600_parse_cap_groups_rejects_manifest_without_identity",
@@ -34172,7 +34286,7 @@
         "rust": {
           "function": "test6601_attached_cartridge_identity_derived_from_manifest",
           "description": "TEST6601: An attached cartridge (raw-stream, no on-disk anchor) must get a resolvable install identity derived from its HELLO manifest. Advertisement is identity-gated: build_installed_cartridge_identities drops any cartridge whose installed_cartridge_record() is None. If an attached cartridge had no identity it would be silently excluded from every RelayNotify, the host would advertise an empty inventory, and the engine could never route to it \u2014 the deadlock that hung the rust-rust-rust interop echo test forever.",
-          "location": "src/bifaci/host_runtime.rs:3560"
+          "location": "src/bifaci/host_runtime.rs:3702"
         },
         "go": {
           "function": "Test6601_attached_cartridge_identity_derived_from_manifest",
@@ -34270,7 +34384,7 @@
         "rust": {
           "function": "test6623_cartridge_death_keeps_caps_advertised",
           "description": "TEST6623: Cartridge death keeps caps advertised for on-demand respawn. The cartridge's `cap_groups` survive process death, so the host can continue advertising the cartridge's caps and the relay can route a fresh REQ to it (which triggers an on-demand respawn).",
-          "location": "src/bifaci/host_runtime.rs:5263"
+          "location": "src/bifaci/host_runtime.rs:5405"
         },
         "go": {
           "function": "Test6623_cartridge_death_keeps_caps_advertised",
@@ -34346,7 +34460,7 @@
         "rust": {
           "function": "test6745_relay_switch_new_rejects_duplicate_ids",
           "description": "/ `RelaySwitch::new` rejects duplicate ids in its cardinality / list. Without this guard the first reconnect would / reattach to whichever slot is found first by the linear / scan, leaving the other slot stuck unhealthy forever.",
-          "location": "src/bifaci/relay_switch.rs:6470"
+          "location": "src/bifaci/relay_switch.rs:6478"
         },
         "go": {
           "function": "Test6745_RelaySwitchNewRejectsDuplicateIDs",
@@ -35220,7 +35334,7 @@
         "rust": {
           "function": "test7025_unroutable_flow_frame_is_counted_drop",
           "description": "TEST7025: A flow frame for a request with no routing state is a counted no_route drop \u2014 not a protocol error and not a silent loss \u2014 observable in the protocol stats snapshot.",
-          "location": "src/bifaci/relay_switch.rs:7363"
+          "location": "src/bifaci/relay_switch.rs:7371"
         },
         "go": {
           "function": "Test7025_unroutable_flow_frame_is_counted_drop",
@@ -35372,7 +35486,7 @@
         "rust": {
           "function": "test7030_register_once_terminate_once",
           "description": "TEST7030: A request registers exactly once and terminates exactly once \u2014 duplicate registration and double termination are rejected, and after terminate zero state remains for the key.",
-          "location": "src/bifaci/request_state.rs:959"
+          "location": "src/bifaci/request_state.rs:1080"
         },
         "go": {
           "function": "Test7030_register_once_terminate_once",
@@ -35410,7 +35524,7 @@
         "rust": {
           "function": "test7031_rid_index_consistency",
           "description": "TEST7031: The rid index and the entry table never disagree across register/terminate cycles, and a terminated rid is immediately reusable.",
-          "location": "src/bifaci/request_state.rs:998"
+          "location": "src/bifaci/request_state.rs:1119"
         },
         "go": {
           "function": "Test7031_rid_index_consistency",
@@ -35448,7 +35562,7 @@
         "rust": {
           "function": "test7032_record_frame_stats_and_phase",
           "description": "TEST7032: record_frame accumulates per-stream frame/byte/chunk counters by direction, flips phase Created\u2192Streaming on the first flow frame, and tracks unbounded/ended/credit stream markers.",
-          "location": "src/bifaci/request_state.rs:1020"
+          "location": "src/bifaci/request_state.rs:1141"
         },
         "go": {
           "function": "Test7032_record_frame_stats_and_phase",
@@ -35486,7 +35600,7 @@
         "rust": {
           "function": "test7033_terminated_summaries_ring",
           "description": "TEST7033: Terminated requests leave a bounded ring of summaries carrying kind, lifetime, and flow totals, and the ring evicts oldest-first at capacity.",
-          "location": "src/bifaci/request_state.rs:1069"
+          "location": "src/bifaci/request_state.rs:1190"
         },
         "go": {
           "function": "Test7033_terminated_summaries_ring",
@@ -35524,7 +35638,7 @@
         "rust": {
           "function": "test7035_end_terminates_and_releases_all_state",
           "description": "TEST7035: After END, the switch holds zero state for the request \u2014 entry, rid index, and response channel all released atomically, with the terminal delivered and a terminated summary recorded.",
-          "location": "src/bifaci/relay_switch.rs:7402"
+          "location": "src/bifaci/relay_switch.rs:7410"
         },
         "go": {
           "function": "Test7035_end_terminates_and_releases_all_state",
@@ -35562,7 +35676,7 @@
         "rust": {
           "function": "test7036_err_terminates_and_releases_all_state",
           "description": "TEST7036: After ERR, the same total-cleanup invariant holds as after END, with kind err.",
-          "location": "src/bifaci/relay_switch.rs:7482"
+          "location": "src/bifaci/relay_switch.rs:7490"
         },
         "go": {
           "function": "Test7036_err_terminates_and_releases_all_state",
@@ -35600,7 +35714,7 @@
         "rust": {
           "function": "test7037_cancel_cascades_to_children_and_cleans_all_state",
           "description": "TEST7037: Cancelling a request terminates it AND its recursively-linked peer children \u2014 Cancel frames reach the destination, waiting channels get ERR CANCELLED, and zero state remains for parent or child.",
-          "location": "src/bifaci/relay_switch.rs:7530"
+          "location": "src/bifaci/relay_switch.rs:7538"
         },
         "go": {
           "function": "Test7037_cancel_cascades_to_children_and_cleans_all_state",
@@ -35638,7 +35752,7 @@
         "rust": {
           "function": "test7038_master_death_terminates_pending_requests",
           "description": "TEST7038: Master death terminates every request routed to it with kind master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and leaving zero state.",
-          "location": "src/bifaci/relay_switch.rs:7618"
+          "location": "src/bifaci/relay_switch.rs:7626"
         },
         "go": {
           "function": "Test7038_master_death_terminates_pending_requests",
@@ -35994,7 +36108,7 @@
         "rust": {
           "function": "test7085_relay_notify_carries_host_protocol_stats",
           "description": "TEST7085: The RelayNotify capabilities payload carries the host's protocol stats snapshot, surviving the wire round-trip.",
-          "location": "src/bifaci/relay_switch.rs:7135"
+          "location": "src/bifaci/relay_switch.rs:7143"
         },
         "go": {
           "function": "Test7085_relay_notify_carries_host_protocol_stats",
@@ -36070,7 +36184,7 @@
         "rust": {
           "function": "test7087_snapshot_field_names_are_stable",
           "description": "",
-          "location": "src/bifaci/request_state.rs:827"
+          "location": "src/bifaci/request_state.rs:948"
         },
         "go": {
           "function": "Test7087_snapshot_field_names_are_stable",
@@ -36108,7 +36222,7 @@
         "rust": {
           "function": "test7088_last_activity_monotonic",
           "description": "TEST7088: last_activity is monotonic non-decreasing across a long-lived streaming request \u2014 idle time resets on every recorded frame and never runs backwards.",
-          "location": "src/bifaci/request_state.rs:914"
+          "location": "src/bifaci/request_state.rs:1035"
         },
         "go": {
           "function": "Test7088_last_activity_monotonic",
@@ -36146,7 +36260,7 @@
         "rust": {
           "function": "test7089_hello_failed_stays_in_inventory_with_error",
           "description": "TEST7089: A cartridge whose HELLO permanently failed stays IN the inventory advertisement carrying a handshake_failed attachment error and no cap groups \u2014 failure is named, never silently absent; a roster-retired cartridge disappears entirely.",
-          "location": "src/bifaci/host_runtime.rs:6100"
+          "location": "src/bifaci/host_runtime.rs:6242"
         },
         "go": {
           "function": "Test7089_hello_failed_stays_in_inventory_with_error",
@@ -36184,7 +36298,7 @@
         "rust": {
           "function": "test7090_heartbeat_drops_total_reaches_inventory_stats",
           "description": "TEST7090: The cartridge's cumulative protocol drop counter (`drops_total` heartbeat meta, L8) is ingested by the host and surfaces on the cartridge's inventory runtime stats as `protocol_drops_total` \u2014 absent until the first reading, then tracking the running total as-is.",
-          "location": "src/bifaci/host_runtime.rs:6191"
+          "location": "src/bifaci/host_runtime.rs:6333"
         },
         "go": {
           "function": "Test7090_heartbeat_drops_total_reaches_inventory_stats",
@@ -36222,7 +36336,7 @@
         "rust": {
           "function": "test7091_switch_retains_host_protocol_stats_from_relay_notify",
           "description": "TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in `protocol_stats().hosts` keyed by master id; a master that has not yet advertised stats is absent from the map \u2014 never a zeroed placeholder.",
-          "location": "src/bifaci/relay_switch.rs:7263"
+          "location": "src/bifaci/relay_switch.rs:7271"
         },
         "go": {
           "function": "Test7091_switch_retains_host_protocol_stats_from_relay_notify",
@@ -36260,7 +36374,7 @@
         "rust": {
           "function": "test7092_cap_urn_attribution_survives_lifecycle",
           "description": "TEST7087: Protocol stats snapshots serialize with stable field names \u2014 the snapshot shape is the mirror contract.",
-          "location": "src/bifaci/request_state.rs:788"
+          "location": "src/bifaci/request_state.rs:909"
         },
         "go": {
           "function": "Test7092_cap_urn_attribution_survives_lifecycle",
@@ -36298,7 +36412,7 @@
         "rust": {
           "function": "test7093_dead_consumer_cancels_upstream",
           "description": "TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller future) is a counted channel_closed drop AND cancels the request upstream \u2014 the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it.",
-          "location": "src/bifaci/relay_switch.rs:7176"
+          "location": "src/bifaci/relay_switch.rs:7184"
         },
         "go": {
           "function": "Test7093_dead_consumer_cancels_upstream",
@@ -36654,7 +36768,7 @@
         "rust": {
           "function": "test8067_heartbeat_timeout_is_generation_safe",
           "description": "TEST8067: A late death notification from a retired process generation cannot tear down its replacement. The current generation's heartbeat timeout performs the complete death transition and preserves its typed terminal for the request that process actually owned.",
-          "location": "src/bifaci/host_runtime.rs:6422"
+          "location": "src/bifaci/host_runtime.rs:6711"
         },
         "go": {
           "function": "Test8067_stale_reader_death_cannot_kill_replacement_generation",
@@ -36844,7 +36958,7 @@
         "rust": {
           "function": "test8110_dev_cartridge_create_install_run_update",
           "description": "TEST8110: the full cartridge-development loop through the real CLI and a real Python cartridge \u2014 scaffold, install under the dev slug, run the custom cap (never published to the fabric), edit its logic, re-install to update, and observe the changed behavior.",
-          "location": "tests/dev_cartridge_e2e.rs:120"
+          "location": "tests/dev_cartridge_e2e.rs:126"
         },
         "py": {
           "function": "test_8110_realize_strand_disconnected_strand_fails_hard",
@@ -37007,7 +37121,7 @@
       "mirror": "rust",
       "function": "test0130_registry_cache_revision_rebuilds_live_cap_fab_without_capability_change",
       "description": "TEST0130: A cartridge can advertise a cap before the registry cache has finished hydrating that cap's canonical definition. LiveCapFab must retry the already-advertised aggregate capability set when the registry cache later warms; otherwise the cap remains absent from machine selection until an unrelated cartridge reconnect occurs.",
-      "location": "src/bifaci/relay_switch.rs:4141"
+      "location": "src/bifaci/relay_switch.rs:4149"
     },
     {
       "number": 183,
@@ -37154,14 +37268,14 @@
       "mirror": "rust",
       "function": "test905_send_to_master_build_request_frames_roundtrip",
       "description": "TEST905: send_to_master + build_request_frames through RelaySwitch \u2192 RelaySlave \u2192 InProcessCartridgeHost roundtrip",
-      "location": "src/bifaci/relay_switch.rs:5921"
+      "location": "src/bifaci/relay_switch.rs:5929"
     },
     {
       "number": 916,
       "mirror": "rust",
       "function": "test916_foreach_item_subdivision",
       "description": "TEST916: ForEach item subdivision produces correct, monotonic ranges Mirrors the production code in interpreter.rs: pre-compute item boundaries from the same formula so the end of item N and the start of item N+1 are the same f32 value (no divergent accumulation paths).",
-      "location": "src/orchestrator/executor.rs:3704"
+      "location": "src/orchestrator/executor.rs:3724"
     },
     {
       "number": 938,
@@ -37196,14 +37310,14 @@
       "mirror": "rust",
       "function": "test989_set_observer_none_clears_previous",
       "description": "/ Pins the observer-clearing contract: a setObserver(None) / after a previous registration must drop the strong ref so a / subsequent lifecycle moment doesn't fire into a torn-down / bridge. Matches the Swift `setObserver(nil)` test.",
-      "location": "src/bifaci/host_runtime.rs:3409"
+      "location": "src/bifaci/host_runtime.rs:3551"
     },
     {
       "number": 990,
       "mirror": "rust",
       "function": "test990_observer_is_optional",
       "description": "/ Pins the optional-observer contract: a brand-new runtime with / no observer attached must close cleanly on an empty cartridge / list. A regression here would mean the observer-firing path / became non-optional and broke every call site that doesn't / register an observer (engine in-process runtime, in-process / host tests, integration tests).",
-      "location": "src/bifaci/host_runtime.rs:3397"
+      "location": "src/bifaci/host_runtime.rs:3539"
     },
     {
       "number": 1110,
@@ -37224,7 +37338,7 @@
       "mirror": "rust",
       "function": "test1125_map_progress_basic_mapping",
       "description": "TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight]",
-      "location": "src/orchestrator/executor.rs:3450"
+      "location": "src/orchestrator/executor.rs:3470"
     },
     {
       "number": 1134,
@@ -37308,42 +37422,42 @@
       "mirror": "rust",
       "function": "test1250_process_handle_snapshot_empty_initially",
       "description": "TEST1250: Process snapshots start empty before any cartridges are attached or spawned.",
-      "location": "src/bifaci/host_runtime.rs:5563"
+      "location": "src/bifaci/host_runtime.rs:5705"
     },
     {
       "number": 1251,
       "mirror": "rust",
       "function": "test1251_process_handle_snapshot_excludes_attached_cartridges",
       "description": "TEST1251: Attached cartridges without child PIDs are excluded from process snapshots.",
-      "location": "src/bifaci/host_runtime.rs:5575"
+      "location": "src/bifaci/host_runtime.rs:5717"
     },
     {
       "number": 1252,
       "mirror": "rust",
       "function": "test1252_process_handle_is_clone_and_send",
       "description": "TEST1252: Cartridge process handles remain usable after clone-and-send across tasks.",
-      "location": "src/bifaci/host_runtime.rs:5607"
+      "location": "src/bifaci/host_runtime.rs:5749"
     },
     {
       "number": 1253,
       "mirror": "rust",
       "function": "test1253_process_handle_kill_unknown_pid_is_noop",
       "description": "TEST1253: Killing an unknown PID is accepted as an asynchronous no-op command.",
-      "location": "src/bifaci/host_runtime.rs:5623"
+      "location": "src/bifaci/host_runtime.rs:5765"
     },
     {
       "number": 1254,
       "mirror": "rust",
       "function": "test1254_oom_kill_sends_err_with_oom_killed_code",
       "description": "TEST1254: OOM shutdowns emit OOM_KILLED ERR frames for in-flight requests.",
-      "location": "src/bifaci/host_runtime.rs:5640"
+      "location": "src/bifaci/host_runtime.rs:5782"
     },
     {
       "number": 1255,
       "mirror": "rust",
       "function": "test1255_app_exit_suppresses_err_frames",
       "description": "TEST1255: App-exit shutdowns suppress ERR frames and close cleanly without noise.",
-      "location": "src/bifaci/host_runtime.rs:5767"
+      "location": "src/bifaci/host_runtime.rs:5909"
     },
     {
       "number": 1274,
@@ -37581,7 +37695,7 @@
       "mirror": "rust",
       "function": "test1433_multi_edge_group_heads_a_chain",
       "description": "TEST1433: a multi-edge group (fan-in / gather) ALWAYS heads its own chain \u2014 mid-chain streaming forwards exactly one producer stream, so a multi-input invocation must be fed from materialised node_data. A single-edge group with one dedicated producer still chains linearly.",
-      "location": "src/orchestrator/executor.rs:3390"
+      "location": "src/orchestrator/executor.rs:3410"
     },
     {
       "number": 1434,
@@ -37854,35 +37968,35 @@
       "mirror": "rust",
       "function": "test1720_kind_serde_renames_match_proto_snake_case",
       "description": "/ TEST1720: Every variant serializes to the snake_case / string the proto and the Swift / Go / Python ports use. / Adding a new variant requires an entry here AND a matching / CARTRIDGE_ATTACHMENT_ERROR_FOO entry in cartridge.proto; / the test fails with a clear \"expected X for Y\" message / when the two sides drift.",
-      "location": "src/bifaci/relay_switch.rs:6892"
+      "location": "src/bifaci/relay_switch.rs:6900"
     },
     {
       "number": 1721,
       "mirror": "rust",
       "function": "test1721_kind_decodes_wire_format_into_expected_variants",
       "description": "/ TEST1721: Wire-format JSON deserializes into the right / variant. This is the engine-receives-from-XPC path: the / machfab-mac side emits `{\"kind\":\"bad_installation\",...}` / and the engine must resolve it to `BadInstallation`. / Asserts every variant explicitly so a single-variant typo / in the rename map can't hide behind a passing healthy-case.",
-      "location": "src/bifaci/relay_switch.rs:6948"
+      "location": "src/bifaci/relay_switch.rs:6956"
     },
     {
       "number": 1722,
       "mirror": "rust",
       "function": "test1722_unknown_kind_fails_to_decode",
       "description": "/ TEST1722: An unknown wire kind FAILS to decode rather than / silently coercing to a default variant. Older capdag binaries / that don't know `bad_installation` or `disabled` will see / those strings on the wire from a newer Swift side; rejecting / the unknown variant is the correct behaviour because silently / coercing it would hide the version-skew bug. The engine's / per-master JSON parse failure path is what surfaces this to / the operator (the master's manifest fails to parse and the / master is held unhealthy until the version is patched).",
-      "location": "src/bifaci/relay_switch.rs:7123"
+      "location": "src/bifaci/relay_switch.rs:7131"
     },
     {
       "number": 1732,
       "mirror": "rust",
       "function": "test1732_installed_cartridge_record_lifecycle_defaults_when_missing",
       "description": "/ TEST1732: An `InstalledCartridgeRecord` deserialized from a / JSON payload that omits the `lifecycle` field defaults to / `Discovered` \u2014 never `Operational`. The wire-shape contract / covered by the safe-default rule.",
-      "location": "src/bifaci/relay_switch.rs:7042"
+      "location": "src/bifaci/relay_switch.rs:7050"
     },
     {
       "number": 1733,
       "mirror": "rust",
       "function": "test1733_registry_url_scheme_validator",
       "description": "/ TEST1733: `validate_registry_url_scheme` accepts https / unconditionally, rejects non-https in production builds, / and accepts non-https in dev mode. Pins the deepest layer / of the HTTPS rule.",
-      "location": "src/bifaci/relay_switch.rs:7069"
+      "location": "src/bifaci/relay_switch.rs:7077"
     },
     {
       "number": 1735,
@@ -37939,6 +38053,13 @@
       "function": "test1905_peerReqNoHandlerSendsErrToCaller",
       "description": "TEST0142 (Swift-specific, gap 3): a peer cartridge\u2192cartridge REQ for a cap with NO handler must NOT abort the pump. The switch sends an ERR(\"NO_HANDLER\") frame straight back to the calling master (stamped with the synthetic XID) so the caller fails fast, and handleMasterFrame returns nil \u2014 it must NOT throw.",
       "location": "Tests/BifaciTests/RelaySwitchTests.swift:1302"
+    },
+    {
+      "number": 1943,
+      "mirror": "rust",
+      "function": "test1943_outage_outliving_the_grace_window_fails_queued_work",
+      "description": "TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever.",
+      "location": "src/bifaci/request_state.rs:862"
     },
     {
       "number": 6182,
@@ -40556,7 +40677,7 @@
       "mirror": "rust",
       "function": "test6746_all_masters_ready_true_when_expectation_met",
       "description": "TEST6746: All masters ready true when expectation met",
-      "location": "src/bifaci/relay_switch.rs:6793"
+      "location": "src/bifaci/relay_switch.rs:6801"
     },
     {
       "number": 6747,
@@ -40668,35 +40789,35 @@
       "mirror": "rust",
       "function": "test7110_admission_fifo_releases_one_waiter",
       "description": "TEST7110: admission is strict FIFO and a terminal request releases exactly one capacity slot for the next body.",
-      "location": "src/bifaci/request_state.rs:656"
+      "location": "src/bifaci/request_state.rs:728"
     },
     {
       "number": 7111,
       "mirror": "rust",
       "function": "test7111_cancelled_admission_waiter_cannot_block_queue",
       "description": "TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head.",
-      "location": "src/bifaci/request_state.rs:691"
+      "location": "src/bifaci/request_state.rs:763"
     },
     {
       "number": 7112,
       "mirror": "rust",
       "function": "test7112_capacity_reconfiguration_wakes_existing_waiters",
       "description": "TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end.",
-      "location": "src/bifaci/request_state.rs:721"
+      "location": "src/bifaci/request_state.rs:793"
     },
     {
       "number": 7113,
       "mirror": "rust",
       "function": "test7113_cartridge_loss_releases_next_engine_invocation",
       "description": "TEST7113: a capacity-one cartridge owns only the active body. If that invocation dies, its ERR releases the slot and the next queued body is dispatched; the queued body is not failed as pending work of the dead process.",
-      "location": "src/bifaci/relay_switch.rs:4333"
+      "location": "src/bifaci/relay_switch.rs:4341"
     },
     {
       "number": 7114,
       "mirror": "rust",
-      "function": "test7114_unavailable_admission_target_rejects_queued_work",
-      "description": "TEST7114: a cartridge disappearing while work is queued wakes every waiter with a routing error; unregistered work never hangs outside the request table after a cartridge or relay-master loss.",
-      "location": "src/bifaci/request_state.rs:748"
+      "function": "test7114_transient_unavailability_does_not_fail_queued_work",
+      "description": "TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's \"queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance\". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with \"became unavailable while waiting for capacity\" \u2014 195 bodies lost to an outage that had already healed.",
+      "location": "src/bifaci/request_state.rs:827"
     },
     {
       "number": 7118,

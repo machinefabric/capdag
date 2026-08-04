@@ -91,6 +91,14 @@ pub enum RelaySwitchError {
 
     #[error("All masters are unhealthy")]
     AllMastersUnhealthy,
+
+    /// The cartridge that would serve this request is not available: it left
+    /// its host's inventory and did not come back within the admission grace
+    /// window. Distinct from `Protocol` because nothing violated the protocol —
+    /// the deployment changed under a valid request, which is an `environment`
+    /// failure, not an engine defect (docs/failure-taxonomy.md).
+    #[error("Cartridge unavailable: {0}")]
+    CartridgeUnavailable(String),
 }
 
 impl From<CborError> for RelaySwitchError {
@@ -1781,7 +1789,7 @@ impl RelaySwitch {
         self.admission
             .acquire(key)
             .await
-            .map_err(RelaySwitchError::Protocol)
+            .map_err(RelaySwitchError::CartridgeUnavailable)
     }
 
     /// Return the authoritative handler capacity for the cartridge selected
@@ -1853,7 +1861,7 @@ impl RelaySwitch {
         self.admission
             .acquire(key)
             .await
-            .map_err(RelaySwitchError::Protocol)
+            .map_err(RelaySwitchError::CartridgeUnavailable)
     }
 
     /// Register an externally-originated request (engine / execute_cap

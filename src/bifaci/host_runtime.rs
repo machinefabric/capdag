@@ -43,6 +43,17 @@ use tokio::time::{Duration, Instant};
 /// Interval between heartbeat probes sent to each running cartridge.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
+/// How long a retired cartridge is allowed to finish the requests it is already
+/// serving before the host kills it.
+///
+/// Retirement means "stop giving this install NEW work", not "destroy the work
+/// it is doing". The cartridge is dropped from the cap table immediately (so
+/// nothing new routes to it) and killed only once its in-flight requests have
+/// terminated. This bound is a backstop for a cartridge that never finishes;
+/// heartbeat monitoring still applies during the drain, so a wedged process is
+/// caught by health long before this expires.
+const RETIRE_DRAIN_TIMEOUT: Duration = Duration::from_secs(600);
+
 /// Maximum time to wait for a heartbeat response before considering a cartridge unhealthy.
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -124,6 +135,13 @@ pub enum ShutdownReason {
     /// The host's health probe expired. Pending requests get ERR frames with code
     /// "CARTRIDGE_UNHEALTHY" and the process is fully retired before it may respawn.
     HeartbeatTimeout,
+    /// A roster sync retired this install: the daemon/XPC service says it is no
+    /// longer a cartridge this host should run (unpublished, disabled, or
+    /// replaced on disk). Distinct from `Cancelled` because NOBODY cancelled
+    /// anything — reusing the cancel reason reported an environment change to
+    /// operators as a user cancellation. Pending requests get ERR frames with
+    /// code "CARTRIDGE_RETIRED" and class `environment`.
+    RosterRetired,
 }
 
 /// A directory-registered cartridge in a roster sync. Mirrors the parameters of
@@ -414,6 +432,11 @@ struct ManagedCartridge {
     /// round-trip carries the counter. Survives across readings (each
     /// heartbeat carries the cartridge's running total).
     protocol_drops_total: Option<u64>,
+    /// Set when a roster sync retired this cartridge while it still had work in
+    /// flight. It is already out of the cap table and the inventory, so nothing
+    /// new routes to it; the process stays alive until its in-flight requests
+    /// terminate or [`RETIRE_DRAIN_TIMEOUT`] expires.
+    retiring_since: Option<tokio::time::Instant>,
 }
 
 impl ManagedCartridge {
@@ -458,6 +481,7 @@ impl ManagedCartridge {
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
             protocol_drops_total: None,
+            retiring_since: None,
         }
     }
 
@@ -578,6 +602,7 @@ impl ManagedCartridge {
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
             protocol_drops_total: None,
+            retiring_since: None,
         }
     }
 
@@ -613,6 +638,7 @@ impl ManagedCartridge {
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
             protocol_drops_total: None,
+            retiring_since: None,
         }
     }
 
@@ -1411,6 +1437,10 @@ impl CartridgeHostRuntime {
                 // heartbeat ages. Only fires the publish if at least one
                 // cartridge is running, keeping idle hosts quiet.
                 _ = stats_interval.tick() => {
+                    // Retired-but-draining cartridges are reaped here: the tick
+                    // is the host's regular opportunity to notice that the last
+                    // in-flight request of a retired install has terminated.
+                    self.reap_drained_cartridges().await;
                     let any_running = self.cartridges.iter().any(|c| c.running);
                     if any_running {
                         self.rebuild_capabilities(Some(&outbound_tx));
@@ -2301,6 +2331,20 @@ impl CartridgeHostRuntime {
                     ),
                 ))
             }
+            Some(ShutdownReason::RosterRetired) => {
+                // The install left the desired roster. The cause is the
+                // deployment (registry listing, operator disable, on-disk
+                // replacement), so the class is `environment` — declared here,
+                // at the emit source, per docs/failure-taxonomy.md.
+                Some((
+                    "CARTRIDGE_RETIRED",
+                    crate::failure::AttributionClass::Environment,
+                    format!(
+                        "Cartridge {} retired: it is no longer in the host's desired roster.",
+                        self.cartridges[cartridge_idx].path.display()
+                    ),
+                ))
+            }
             Some(ShutdownReason::HeartbeatTimeout) => Some((
                 "CARTRIDGE_UNHEALTHY",
                 crate::failure::AttributionClass::Environment,
@@ -2419,6 +2463,65 @@ impl CartridgeHostRuntime {
     /// shift would corrupt routing; marking `hello_failed` + rebuilding the cap
     /// table is the established "remove from inventory" mechanism (see
     /// `update_cap_table`).
+    /// Requests this cartridge is currently serving or awaiting a peer response
+    /// for. Both directions count: killing mid-peer-call strands the caller just
+    /// as surely as killing mid-request.
+    fn in_flight_count(&self, cartridge_idx: usize) -> usize {
+        self.incoming_rxids
+            .values()
+            .filter(|idx| **idx == cartridge_idx)
+            .count()
+            + self
+                .outgoing_rids
+                .values()
+                .filter(|idx| **idx == cartridge_idx)
+                .count()
+    }
+
+    /// Kill a retired cartridge, declaring the retirement as the reason so its
+    /// pending work (if any) is attributed to the environment rather than
+    /// reported as a cancellation.
+    async fn retire_kill(&mut self, cartridge_idx: usize) {
+        self.cartridges[cartridge_idx].retiring_since = None;
+        self.cartridges[cartridge_idx].shutdown_reason = Some(ShutdownReason::RosterRetired);
+        if let Some(ref mut child) = self.cartridges[cartridge_idx].process {
+            let _ = child.kill().await;
+        }
+    }
+
+    /// Kill retired cartridges that have finished draining, and any whose drain
+    /// outlived [`RETIRE_DRAIN_TIMEOUT`]. Called on the host's periodic tick.
+    async fn reap_drained_cartridges(&mut self) {
+        let now = tokio::time::Instant::now();
+        let ready: Vec<usize> = self
+            .cartridges
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, cartridge)| {
+                let since = cartridge.retiring_since?;
+                if !cartridge.running {
+                    return Some(idx);
+                }
+                let drained = self.in_flight_count(idx) == 0;
+                let expired = now.duration_since(since) >= RETIRE_DRAIN_TIMEOUT;
+                (drained || expired).then_some(idx)
+            })
+            .collect();
+        for idx in ready {
+            if self.cartridges[idx].running {
+                tracing::info!(
+                    target: "host_runtime",
+                    cartridge = %self.cartridges[idx].path.display(),
+                    in_flight = self.in_flight_count(idx),
+                    "retired cartridge drained — shutting it down"
+                );
+                self.retire_kill(idx).await;
+            } else {
+                self.cartridges[idx].retiring_since = None;
+            }
+        }
+    }
+
     async fn sync_registered_roster(
         &mut self,
         desired: Vec<RegisteredDirSpec>,
@@ -2467,14 +2570,53 @@ impl CartridgeHostRuntime {
             if desired_keys.contains(&identity(&rec)) {
                 continue; // still desired — keep, preserving any live process
             }
-            if self.cartridges[idx].running {
-                self.cartridges[idx].shutdown_reason = Some(ShutdownReason::Cancelled);
-                if let Some(ref mut child) = self.cartridges[idx].process {
-                    let _ = child.kill().await;
-                }
-            }
+            // Retire = stop giving it NEW work. Dropping it from the cap table
+            // and the inventory does that immediately; whether the process dies
+            // now depends on whether it is mid-request.
             self.cartridges[idx].removed = true; // retire: drop from cap table + inventory
             self.cartridges[idx].hello_failed = true; // keep out of dispatch/spawn paths
+            if !self.cartridges[idx].running {
+                continue;
+            }
+            if self.in_flight_count(idx) == 0 {
+                self.retire_kill(idx).await;
+            } else {
+                // DRAIN. Killing here would ERR every in-flight request of a
+                // cartridge that is healthy and doing exactly what it was asked
+                // to do. It finishes, then dies (see `reap_drained_cartridges`).
+                self.cartridges[idx].retiring_since = Some(tokio::time::Instant::now());
+                tracing::info!(
+                    target: "host_runtime",
+                    cartridge = %self.cartridges[idx].path.display(),
+                    in_flight = self.in_flight_count(idx),
+                    "cartridge retired from the roster — draining in-flight requests before shutdown"
+                );
+            }
+        }
+
+        // A roster that flaps — retire, then restore the same identity moments
+        // later, exactly what a transient registry outage produces — must find
+        // the DRAINING process again rather than leave it to die and spawn a
+        // second one beside it. Un-retiring keeps the live process, its warm
+        // model, and its queue.
+        for idx in 0..self.cartridges.len() {
+            if self.cartridges[idx].retiring_since.is_none() {
+                continue;
+            }
+            let Some(rec) = self.cartridges[idx].installed_cartridge_record() else {
+                continue;
+            };
+            if !desired_keys.contains(&identity(&rec)) {
+                continue;
+            }
+            self.cartridges[idx].retiring_since = None;
+            self.cartridges[idx].removed = false;
+            self.cartridges[idx].hello_failed = false;
+            tracing::info!(
+                target: "host_runtime",
+                cartridge = %self.cartridges[idx].path.display(),
+                "cartridge returned to the desired roster while draining — retirement cancelled"
+            );
         }
 
         // Add newly-desired specs not already registered.
@@ -6272,6 +6414,153 @@ mod tests {
                 .unwrap()
                 .protocol_drops_total,
             Some(45),
+        );
+    }
+
+    /// A registered-dir cartridge, marked running, for roster-retire tests.
+    fn retire_fixture() -> (CartridgeHostRuntime, tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("cartridge.json"),
+            r#"{"name":"retiring","version":"1.0.0","channel":"release","registry_url":null,"entry":"bin","installed_at":"2026-01-01T00:00:00Z","installed_from":"dev"}"#,
+        )
+        .unwrap();
+        let entry = dir.path().join("bin");
+        std::fs::write(&entry, b"#!/bin/sh\n").unwrap();
+
+        let mut runtime = CartridgeHostRuntime::new();
+        runtime.register_cartridge_dir(
+            &entry,
+            dir.path(),
+            "retiring",
+            crate::bifaci::cartridge_repo::CartridgeChannel::Release,
+            None,
+            "1.0.0",
+            &cap_groups_from_urns(&["cap:in=\"media:void\";out=\"media:void\";retiring"]),
+        );
+        // Pretend it started: retirement only has to make a decision about a
+        // LIVE process.
+        runtime.cartridges[0].running = true;
+        (runtime, dir, entry)
+    }
+
+    // TEST1945: a roster retire DRAINS a busy cartridge instead of killing it.
+    //
+    // The incident this pins: a transient registry outage shrank the roster and
+    // the host killed three cartridges outright, ERRing every request they were
+    // serving. Retirement means "no NEW work" — the process must survive until
+    // the requests it is already handling terminate.
+    #[tokio::test]
+    async fn test1945_roster_retire_drains_a_busy_cartridge_before_killing_it() {
+        let (mut runtime, _dir, _entry) = retire_fixture();
+        let (outbound_tx, _outbound_rx) = mpsc::unbounded_channel();
+
+        // One request in flight on this cartridge.
+        runtime.incoming_rxids.insert(
+            (MessageId::Uint(1), MessageId::Uint(2)),
+            0,
+        );
+
+        runtime.sync_registered_roster(vec![], &outbound_tx).await.unwrap();
+
+        assert!(
+            runtime.cartridges[0].removed && runtime.cartridges[0].hello_failed,
+            "a retired cartridge must leave the cap table and inventory immediately"
+        );
+        assert!(
+            runtime.cartridges[0].retiring_since.is_some(),
+            "a busy retired cartridge must be marked draining"
+        );
+        assert!(
+            runtime.cartridges[0].shutdown_reason.is_none(),
+            "a cartridge mid-request must not be killed by a roster change"
+        );
+
+        // Still busy → still alive.
+        runtime.reap_drained_cartridges().await;
+        assert!(runtime.cartridges[0].shutdown_reason.is_none());
+
+        // The request terminates; the next reap collects it.
+        runtime.incoming_rxids.remove(&(MessageId::Uint(1), MessageId::Uint(2)));
+        runtime.reap_drained_cartridges().await;
+        assert_eq!(
+            runtime.cartridges[0].shutdown_reason,
+            Some(ShutdownReason::RosterRetired),
+            "a drained cartridge must be shut down as RETIRED — not as a cancellation"
+        );
+    }
+
+    // TEST1947: a roster that flaps — retire then restore the same identity —
+    // keeps the SAME live process. This is the incident's shape end to end: the
+    // registry became unreachable, the roster shrank, and 26 seconds later it
+    // came back. Nothing about that sequence should cost a running cartridge,
+    // its warm model, or the work queued on it.
+    #[tokio::test]
+    async fn test1947_roster_flap_cancels_retirement_instead_of_respawning() {
+        let (mut runtime, dir, entry) = retire_fixture();
+        let (outbound_tx, _outbound_rx) = mpsc::unbounded_channel();
+        let spec = RegisteredDirSpec {
+            entry_point: entry,
+            version_dir: dir.path().to_path_buf(),
+            id: "retiring".to_string(),
+            channel: crate::bifaci::cartridge_repo::CartridgeChannel::Release,
+            registry_url: None,
+            version: "1.0.0".to_string(),
+            cap_groups: cap_groups_from_urns(&[
+                "cap:in=\"media:void\";out=\"media:void\";retiring",
+            ]),
+        };
+
+        // Busy, so the outage puts it into a drain rather than killing it.
+        runtime
+            .incoming_rxids
+            .insert((MessageId::Uint(1), MessageId::Uint(2)), 0);
+        runtime.sync_registered_roster(vec![], &outbound_tx).await.unwrap();
+        assert!(runtime.cartridges[0].retiring_since.is_some());
+
+        // The registry answers again and the roster is restored.
+        runtime
+            .sync_registered_roster(vec![spec], &outbound_tx)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            runtime.cartridges.len(),
+            1,
+            "the restored identity must reuse the draining process, not spawn a second one"
+        );
+        assert!(
+            runtime.cartridges[0].retiring_since.is_none()
+                && !runtime.cartridges[0].removed
+                && !runtime.cartridges[0].hello_failed,
+            "retirement must be cancelled outright, putting the cartridge back in dispatch"
+        );
+        assert!(
+            runtime.cartridges[0].shutdown_reason.is_none(),
+            "the process must never have been killed"
+        );
+
+        // And it is not reaped afterwards.
+        runtime.incoming_rxids.clear();
+        runtime.reap_drained_cartridges().await;
+        assert!(runtime.cartridges[0].shutdown_reason.is_none());
+    }
+
+    // TEST1946: an IDLE cartridge is retired immediately (no reason to keep a
+    // process nothing routes to), and its reason is RosterRetired so pending
+    // work — and the operator-facing log — is attributed to the environment
+    // rather than reported as a user cancellation.
+    #[tokio::test]
+    async fn test1946_roster_retire_kills_an_idle_cartridge_as_retired() {
+        let (mut runtime, _dir, _entry) = retire_fixture();
+        let (outbound_tx, _outbound_rx) = mpsc::unbounded_channel();
+
+        runtime.sync_registered_roster(vec![], &outbound_tx).await.unwrap();
+
+        assert!(runtime.cartridges[0].retiring_since.is_none());
+        assert_eq!(
+            runtime.cartridges[0].shutdown_reason,
+            Some(ShutdownReason::RosterRetired)
         );
     }
 
