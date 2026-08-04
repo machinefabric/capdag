@@ -1007,12 +1007,12 @@
         "go": {
           "function": "Test0131_runtime_identity_probe_required_on_empty_to_nonempty_transition",
           "description": "TEST0131: When a master initially advertises empty caps (so the constructor skips the identity probe) and later sends a RelayNotify update with non-empty caps, the relay must run an end-to-end identity probe before the new caps become routable. A master that fails the runtime probe must end up unhealthy with lastError populated, and its caps must NOT appear in the cap_table.",
-          "location": "bifaci/relay_switch_test.go:1787"
+          "location": "bifaci/relay_switch_test.go:1805"
         },
         "py": {
           "function": "test_0131_runtime_identity_probe_required_on_empty_to_nonempty_transition",
           "description": "TEST0131: empty\u2192non-empty transition must run a runtime identity probe; a master that fails it ends up unhealthy with last_error and its caps are excluded from routing.",
-          "location": "tests/test_relay_switch.py:1394"
+          "location": "tests/test_relay_switch.py:1402"
         },
         "objc": {
           "function": "test0131_runtimeIdentityProbeRequiredOnEmptyToNonemptyTransition",
@@ -1045,12 +1045,12 @@
         "go": {
           "function": "Test0132_add_master_dynamic",
           "description": "TEST132: add_master dynamically connects new host to running switch",
-          "location": "bifaci/relay_switch_test.go:1504"
+          "location": "bifaci/relay_switch_test.go:1515"
         },
         "py": {
           "function": "test_132_add_master_dynamic",
           "description": "TEST132: add_master dynamically connects new host to running switch",
-          "location": "tests/test_relay_switch.py:1141"
+          "location": "tests/test_relay_switch.py:1145"
         },
         "objc": {
           "function": "test132_addMasterDynamic",
@@ -1083,12 +1083,12 @@
         "go": {
           "function": "Test133_ReattachByIDPreservesSlotIndex",
           "description": "Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index \u2014 preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.",
-          "location": "bifaci/relay_switch_test.go:1063"
+          "location": "bifaci/relay_switch_test.go:1074"
         },
         "py": {
           "function": "test_133_reattach_by_id_preserves_slot_index",
           "description": "Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index \u2014 preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against.",
-          "location": "tests/test_relay_switch.py:923"
+          "location": "tests/test_relay_switch.py:927"
         },
         "objc": {
           "function": "test133_ReattachByIdPreservesSlotIndex",
@@ -1121,12 +1121,12 @@
         "go": {
           "function": "Test134_AddMasterWithDuplicateHealthyIDErrors",
           "description": "TEST134: Add master with duplicate healthy i d errors",
-          "location": "bifaci/relay_switch_test.go:1146"
+          "location": "bifaci/relay_switch_test.go:1157"
         },
         "py": {
           "function": "test_134_add_master_with_duplicate_healthy_id_errors",
           "description": "TEST134: Add master with duplicate healthy id errors",
-          "location": "tests/test_relay_switch.py:992"
+          "location": "tests/test_relay_switch.py:996"
         },
         "objc": {
           "function": "test134_AddMasterWithDuplicateHealthyIdErrors",
@@ -1159,12 +1159,12 @@
         "go": {
           "function": "Test0135_runtime_identity_probe_success_makes_caps_routable",
           "description": "TEST0135: the runtime identity probe SUCCESS path \u2014 a master that advertises caps AFTER connecting (empty\u2192non-empty) and then passes the probe must flip healthy and its caps must become routable.",
-          "location": "bifaci/relay_switch_test.go:1837"
+          "location": "bifaci/relay_switch_test.go:1855"
         },
         "py": {
           "function": "test_0135_runtime_identity_probe_success_makes_caps_routable",
           "description": "TEST0135: the SUCCESS path \u2014 a master that advertises caps after connecting and then passes the probe flips healthy and its caps become routable.",
-          "location": "tests/test_relay_switch.py:1420"
+          "location": "tests/test_relay_switch.py:1428"
         },
         "objc": {
           "function": "test0135_runtimeIdentityProbeSuccessMakesCapsRoutable",
@@ -1198,12 +1198,12 @@
         "go": {
           "function": "Test0136_all_masters_ready_false_when_expected_count_unset",
           "description": "TEST136: All masters ready false when expected count unset",
-          "location": "bifaci/relay_switch_test.go:1381"
+          "location": "bifaci/relay_switch_test.go:1392"
         },
         "py": {
           "function": "test_0136_all_masters_ready_false_when_expected_count_unset",
           "description": "TEST136: All masters ready false when expected count unset",
-          "location": "tests/test_relay_switch.py:1049"
+          "location": "tests/test_relay_switch.py:1053"
         }
       }
     },
@@ -1232,12 +1232,12 @@
         "go": {
           "function": "Test0137_all_masters_ready_false_when_partially_connected",
           "description": "TEST137: All masters ready false when partially connected",
-          "location": "bifaci/relay_switch_test.go:1395"
+          "location": "bifaci/relay_switch_test.go:1406"
         },
         "py": {
           "function": "test_0137_all_masters_ready_false_when_partially_connected",
           "description": "TEST137: All masters ready false when partially connected",
-          "location": "tests/test_relay_switch.py:1091"
+          "location": "tests/test_relay_switch.py:1095"
         }
       }
     },
@@ -1300,12 +1300,12 @@
         "go": {
           "function": "Test0139_all_masters_ready_true_when_masters_connected_but_capless",
           "description": "TEST139: All masters ready true when masters connected but capless",
-          "location": "bifaci/relay_switch_test.go:1408"
+          "location": "bifaci/relay_switch_test.go:1419"
         },
         "py": {
           "function": "test_0139_all_masters_ready_true_when_masters_connected_but_capless",
           "description": "TEST139: All masters ready true when masters connected but capless",
-          "location": "tests/test_relay_switch.py:1107"
+          "location": "tests/test_relay_switch.py:1111"
         }
       }
     },
@@ -1334,12 +1334,12 @@
         "go": {
           "function": "Test0140_all_masters_ready_does_not_overshoot",
           "description": "TEST140: All masters ready does not overshoot",
-          "location": "bifaci/relay_switch_test.go:1424"
+          "location": "bifaci/relay_switch_test.go:1435"
         },
         "py": {
           "function": "test_0140_all_masters_ready_does_not_overshoot",
           "description": "TEST140: All masters ready does not overshoot",
-          "location": "tests/test_relay_switch.py:1125"
+          "location": "tests/test_relay_switch.py:1129"
         }
       }
     },
@@ -9977,12 +9977,12 @@
         "go": {
           "function": "Test426_relay_switch_single_master_req_response",
           "description": "TEST426: Single master REQ/response routing",
-          "location": "bifaci/relay_switch_test.go:167"
+          "location": "bifaci/relay_switch_test.go:178"
         },
         "py": {
           "function": "test_426_single_master_req_response",
           "description": "TEST426: Single master REQ/response routing",
-          "location": "tests/test_relay_switch.py:159"
+          "location": "tests/test_relay_switch.py:163"
         },
         "objc": {
           "function": "test426_single_master_req_response",
@@ -10015,12 +10015,12 @@
         "go": {
           "function": "Test427_relay_switch_multi_master_cap_routing",
           "description": "TEST427: Multi-master cap routing",
-          "location": "bifaci/relay_switch_test.go:227"
+          "location": "bifaci/relay_switch_test.go:238"
         },
         "py": {
           "function": "test_427_multi_master_cap_routing",
           "description": "TEST427: Multi-master cap routing",
-          "location": "tests/test_relay_switch.py:213"
+          "location": "tests/test_relay_switch.py:217"
         },
         "objc": {
           "function": "test427_multi_master_cap_routing",
@@ -10053,12 +10053,12 @@
         "go": {
           "function": "Test428_relay_switch_unknown_cap_returns_error",
           "description": "TEST428: Unknown cap returns error",
-          "location": "bifaci/relay_switch_test.go:313"
+          "location": "bifaci/relay_switch_test.go:324"
         },
         "py": {
           "function": "test_428_unknown_cap_returns_error",
           "description": "TEST428: Unknown cap returns error",
-          "location": "tests/test_relay_switch.py:299"
+          "location": "tests/test_relay_switch.py:303"
         },
         "objc": {
           "function": "test428_unknown_cap_returns_error",
@@ -10091,12 +10091,12 @@
         "go": {
           "function": "Test429_relay_switch_find_master_for_cap",
           "description": "TEST429: Cap routing logic (find_master_for_cap)",
-          "location": "bifaci/relay_switch_test.go:356"
+          "location": "bifaci/relay_switch_test.go:367"
         },
         "py": {
           "function": "test_429_find_master_for_cap",
           "description": "TEST429: Cap routing logic (find_master_for_cap)",
-          "location": "tests/test_relay_switch.py:334"
+          "location": "tests/test_relay_switch.py:338"
         },
         "objc": {
           "function": "test429_find_master_for_cap",
@@ -10129,12 +10129,12 @@
         "go": {
           "function": "Test430_relay_switch_tie_breaking",
           "description": "TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent)",
-          "location": "bifaci/relay_switch_test.go:442"
+          "location": "bifaci/relay_switch_test.go:453"
         },
         "py": {
           "function": "test_430_tie_breaking_same_cap_multiple_masters",
           "description": "TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent)",
-          "location": "tests/test_relay_switch.py:516"
+          "location": "tests/test_relay_switch.py:520"
         },
         "objc": {
           "function": "test430_tie_breaking_same_cap_multiple_masters",
@@ -10167,12 +10167,12 @@
         "go": {
           "function": "Test431_relay_switch_continuation_frame_routing",
           "description": "TEST431: Continuation frame routing (CHUNK, END follow REQ)",
-          "location": "bifaci/relay_switch_test.go:515"
+          "location": "bifaci/relay_switch_test.go:526"
         },
         "py": {
           "function": "test_431_continuation_frame_routing",
           "description": "TEST431: Continuation frame routing (CHUNK, END follow REQ)",
-          "location": "tests/test_relay_switch.py:594"
+          "location": "tests/test_relay_switch.py:598"
         },
         "objc": {
           "function": "test431_continuation_frame_routing",
@@ -10205,12 +10205,12 @@
         "go": {
           "function": "Test432_relay_switch_empty_masters_list_error",
           "description": "TEST432: Empty masters list creates empty switch, add_master works",
-          "location": "bifaci/relay_switch_test.go:591"
+          "location": "bifaci/relay_switch_test.go:602"
         },
         "py": {
           "function": "test_432_empty_masters_list_error",
           "description": "TEST432: Empty masters list creates empty switch, add_master works",
-          "location": "tests/test_relay_switch.py:657"
+          "location": "tests/test_relay_switch.py:661"
         },
         "objc": {
           "function": "test432_empty_masters_allowed",
@@ -10243,12 +10243,12 @@
         "go": {
           "function": "Test433_relay_switch_capability_aggregation_deduplicates",
           "description": "TEST433: Capability aggregation deduplicates caps",
-          "location": "bifaci/relay_switch_test.go:606"
+          "location": "bifaci/relay_switch_test.go:617"
         },
         "py": {
           "function": "test_433_capability_aggregation_deduplicates",
           "description": "TEST433: Capability aggregation deduplicates caps",
-          "location": "tests/test_relay_switch.py:665"
+          "location": "tests/test_relay_switch.py:669"
         },
         "objc": {
           "function": "test433_capability_aggregation_deduplicates",
@@ -10281,12 +10281,12 @@
         "go": {
           "function": "Test434_relay_switch_limits_negotiation_minimum",
           "description": "TEST434: Limits negotiation takes minimum",
-          "location": "bifaci/relay_switch_test.go:669"
+          "location": "bifaci/relay_switch_test.go:680"
         },
         "py": {
           "function": "test_434_limits_negotiation_minimum",
           "description": "TEST434: Limits negotiation takes minimum",
-          "location": "tests/test_relay_switch.py:733"
+          "location": "tests/test_relay_switch.py:737"
         },
         "objc": {
           "function": "test434_limits_negotiation_minimum",
@@ -10319,12 +10319,12 @@
         "go": {
           "function": "Test435_relay_switch_urn_matching",
           "description": "TEST435: URN matching (exact vs accepts())",
-          "location": "bifaci/relay_switch_test.go:731"
+          "location": "bifaci/relay_switch_test.go:742"
         },
         "py": {
           "function": "test_435_urn_matching_exact_and_accepts",
           "description": "TEST435: URN matching (exact vs accepts())",
-          "location": "tests/test_relay_switch.py:778"
+          "location": "tests/test_relay_switch.py:782"
         },
         "objc": {
           "function": "test435_urn_matching_exact_and_accepts",
@@ -10395,12 +10395,12 @@
         "go": {
           "function": "Test437_preferred_cap_routes_to_generic",
           "description": "TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic candidate (in=media:) CAN dispatch specific request (in=\"media:ext=pdf\") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates",
-          "location": "bifaci/relay_switch_test.go:791"
+          "location": "bifaci/relay_switch_test.go:802"
         },
         "py": {
           "function": "test_437_preferred_cap_routes_to_generic",
           "description": "TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic candidate (in=media:) CAN dispatch specific request (in=\"media:ext=pdf\") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates",
-          "location": "tests/test_relay_switch.py:395"
+          "location": "tests/test_relay_switch.py:399"
         },
         "objc": {
           "function": "test437_preferredCapRoutesToExactMatch",
@@ -10433,12 +10433,12 @@
         "go": {
           "function": "Test438_preferred_cap_falls_back_when_not_comparable",
           "description": "TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set",
-          "location": "bifaci/relay_switch_test.go:855"
+          "location": "bifaci/relay_switch_test.go:866"
         },
         "py": {
           "function": "test_438_preferred_cap_falls_back_when_not_comparable",
           "description": "TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set",
-          "location": "tests/test_relay_switch.py:435"
+          "location": "tests/test_relay_switch.py:439"
         },
         "objc": {
           "function": "test438_preferredCapExactMatch",
@@ -10471,12 +10471,12 @@
         "go": {
           "function": "Test439_generic_candidate_can_dispatch_specific_request",
           "description": "TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in=\"media:ext=pdf\") because media: accepts any input type. With preference, can route to generic even when more specific exists.",
-          "location": "bifaci/relay_switch_test.go:893"
+          "location": "bifaci/relay_switch_test.go:904"
         },
         "py": {
           "function": "test_439_generic_candidate_can_dispatch_specific_request",
           "description": "TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in=\"media:ext=pdf\") because media: accepts any input type. With preference, can route to generic even when more specific exists.",
-          "location": "tests/test_relay_switch.py:475"
+          "location": "tests/test_relay_switch.py:479"
         },
         "objc": {
           "function": "test439_specificRequestNoMatchingHandler",
@@ -11831,12 +11831,12 @@
         "go": {
           "function": "Test487_relay_switch_identity_verification_succeeds",
           "description": "TEST487: RelaySwitch construction verifies identity through relay chain",
-          "location": "bifaci/relay_switch_test.go:1210"
+          "location": "bifaci/relay_switch_test.go:1221"
         },
         "py": {
           "function": "test_487_relay_switch_identity_verification_succeeds",
           "description": "TEST487: RelaySwitch construction verifies identity through relay chain",
-          "location": "tests/test_relay_switch.py:833"
+          "location": "tests/test_relay_switch.py:837"
         },
         "objc": {
           "function": "test487_relaySwitchIdentityVerificationSucceeds",
@@ -11869,12 +11869,12 @@
         "go": {
           "function": "Test488_relay_switch_identity_verification_fails",
           "description": "TEST488: RelaySwitch construction fails when master's identity verification fails",
-          "location": "bifaci/relay_switch_test.go:1255"
+          "location": "bifaci/relay_switch_test.go:1266"
         },
         "py": {
           "function": "test_488_relay_switch_identity_verification_fails",
           "description": "TEST488: RelaySwitch construction fails when master's identity verification fails",
-          "location": "tests/test_relay_switch.py:850"
+          "location": "tests/test_relay_switch.py:854"
         },
         "objc": {
           "function": "test488_relaySwitchIdentityVerificationFails",
@@ -16817,12 +16817,12 @@
         "go": {
           "function": "Test666_preferred_cap_routing",
           "description": "TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match",
-          "location": "bifaci/relay_switch_test.go:1588"
+          "location": "bifaci/relay_switch_test.go:1599"
         },
         "py": {
           "function": "test_666_preferred_cap_routing",
           "description": "TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match",
-          "location": "tests/test_relay_switch.py:872"
+          "location": "tests/test_relay_switch.py:876"
         }
       }
     },
@@ -33325,12 +33325,12 @@
         "go": {
           "function": "Test1897_unhealthy_master_inventory_retained_but_not_routable",
           "description": "TEST1897: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed runtime identity probe still has its cartridges visible in the aggregate inventory (so a transient master flap does not make cartridges \"disappear\" from the engine's view), even though its caps are excluded from ROUTING.",
-          "location": "bifaci/relay_switch_test.go:1885"
+          "location": "bifaci/relay_switch_test.go:1903"
         },
         "py": {
           "function": "test_1897_unhealthy_master_inventory_retained_but_not_routable",
           "description": "TEST1897: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed probe still has its cartridges visible in the inventory aggregate, even though its caps are excluded from routing.",
-          "location": "tests/test_relay_switch.py:1443"
+          "location": "tests/test_relay_switch.py:1451"
         },
         "objc": {
           "function": "test1897_unhealthyMasterInventoryRetainedButNotRoutable",
@@ -33363,12 +33363,12 @@
         "go": {
           "function": "Test1898_subscribe_capabilities_delivers_routable_set",
           "description": "TEST1898: the routable-capability watch (SubscribeCapabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction \u2014 BEFORE any receiver existed (the watch must persist the value, i.e. send_replace semantics). The delivered snapshot must be the health-filtered routable set.",
-          "location": "bifaci/relay_switch_test.go:1951"
+          "location": "bifaci/relay_switch_test.go:1969"
         },
         "py": {
           "function": "test_1898_subscribe_capabilities_delivers_routable_set",
           "description": "TEST1898: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction \u2014 BEFORE any receiver existed (the watch must persist the value, i.e. send_replace, not a plain broadcast that drops it with zero receivers). The delivered set is the health-filtered routable cap URNs.",
-          "location": "tests/test_relay_switch.py:1477"
+          "location": "tests/test_relay_switch.py:1485"
         },
         "objc": {
           "function": "test1898_subscribeCapabilitiesDeliversRoutableSet",
@@ -33450,6 +33450,44 @@
           "function": "test1900_errFrameAttributionClassWireContract",
           "description": "TEST1900: ERR attribution is mandatory and strict. Missing and unknown tokens are protocol violations rather than compatibility defaults.",
           "location": "Tests/BifaciTests/FrameTests.swift:2017"
+        }
+      }
+    },
+    {
+      "number": 1943,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "objc"
+      ],
+      "missing": [
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test1943_outage_outliving_the_grace_window_fails_queued_work",
+          "description": "TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever.",
+          "location": "src/bifaci/request_state.rs:862"
+        },
+        "go": {
+          "function": "Test1943_outage_outliving_the_grace_window_fails_queued_work",
+          "description": "TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever.",
+          "location": "bifaci/request_state_test.go:452"
+        },
+        "py": {
+          "function": "test_1943_outage_outliving_the_grace_window_fails_queued_work",
+          "description": "TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever.",
+          "location": "tests/test_request_state.py:386"
+        },
+        "objc": {
+          "function": "test1943_outageOutlivingTheGraceWindowFailsQueuedWork",
+          "description": "TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever.",
+          "location": "Tests/BifaciTests/RequestStateTests.swift:422"
         }
       }
     },
@@ -34465,12 +34503,12 @@
         "go": {
           "function": "Test6745_RelaySwitchNewRejectsDuplicateIDs",
           "description": "TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list.",
-          "location": "bifaci/relay_switch_test.go:1191"
+          "location": "bifaci/relay_switch_test.go:1202"
         },
         "py": {
           "function": "test_6745_relay_switch_init_rejects_duplicate_ids",
           "description": "TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list.",
-          "location": "tests/test_relay_switch.py:1032"
+          "location": "tests/test_relay_switch.py:1036"
         },
         "objc": {
           "function": "test6745_RelaySwitchInitRejectsDuplicateIds",
@@ -35339,12 +35377,12 @@
         "go": {
           "function": "Test7025_unroutable_flow_frame_is_counted_drop",
           "description": "TEST7025: A flow frame for a request with no routing state is a counted no_route drop \u2014 not a protocol error and not a silent loss \u2014 observable in the protocol stats snapshot. The Rust reference constructs an empty (zero-master) RelaySwitch for this test; this Go mirror's NewRelaySwitch hard-rejects an empty cardinality list (a pre-existing, unrelated divergence \u2014 see TEST432), so a single capless connected master stands in. Neither dropped frame below references the master (both fail the routing-table lookup before any master index is touched), so the substitution changes nothing about the behavior under test.",
-          "location": "bifaci/relay_switch_test.go:2377"
+          "location": "bifaci/relay_switch_test.go:2395"
         },
         "py": {
           "function": "test_7025_unroutable_flow_frame_is_counted_drop",
           "description": "TEST7025: A flow frame for a request with no routing state is a counted no_route drop \u2014 not a protocol error and not a silent loss \u2014 observable in the protocol stats snapshot. (The reference builds a switch with ZERO masters; this mirror's constructor requires at least one \u2014 see TEST432 \u2014 so this uses a single connected, healthy master instead. The drop-counting behavior under test is unaffected by that setup difference.)",
-          "location": "tests/test_relay_switch.py:1619"
+          "location": "tests/test_relay_switch.py:1627"
         },
         "objc": {
           "function": "test7025_unroutableFlowFrameIsCountedDrop",
@@ -35643,12 +35681,12 @@
         "go": {
           "function": "Test7035_end_terminates_and_releases_all_state",
           "description": "TEST7035: After END, the switch holds zero state for the request \u2014 entry, rid index, and response channel all released atomically, with the terminal delivered and a terminated summary recorded. Uses a single capless connected master in place of the Rust reference's zero-master switch \u2014 see TEST7025's doc comment.",
-          "location": "bifaci/relay_switch_test.go:2427"
+          "location": "bifaci/relay_switch_test.go:2445"
         },
         "py": {
           "function": "test_7035_end_terminates_and_releases_all_state",
           "description": "TEST7035: After END, the switch holds zero state for the request \u2014 entry, rid index, and response channel all released atomically, with the terminal delivered and a terminated summary recorded.",
-          "location": "tests/test_relay_switch.py:1644"
+          "location": "tests/test_relay_switch.py:1652"
         },
         "objc": {
           "function": "test7035_endTerminatesAndReleasesAllState",
@@ -35681,12 +35719,12 @@
         "go": {
           "function": "Test7036_err_terminates_and_releases_all_state",
           "description": "TEST7036: After ERR, the same total-cleanup invariant holds as after END, with kind err.",
-          "location": "bifaci/relay_switch_test.go:2509"
+          "location": "bifaci/relay_switch_test.go:2527"
         },
         "py": {
           "function": "test_7036_err_terminates_and_releases_all_state",
           "description": "TEST7036: After ERR, the same total-cleanup invariant holds as after END, with kind err.",
-          "location": "tests/test_relay_switch.py:1681"
+          "location": "tests/test_relay_switch.py:1689"
         },
         "objc": {
           "function": "test7036_errTerminatesAndReleasesAllState",
@@ -35719,12 +35757,12 @@
         "go": {
           "function": "Test7037_cancel_cascades_to_children_and_cleans_all_state",
           "description": "TEST7037: Cancelling a request terminates it AND its recursively-linked peer children \u2014 Cancel frames reach the destination, waiting channels get ERR CANCELLED, and zero state remains for parent or child.",
-          "location": "bifaci/relay_switch_test.go:2561"
+          "location": "bifaci/relay_switch_test.go:2579"
         },
         "py": {
           "function": "test_7037_cancel_cascades_to_children_and_cleans_all_state",
           "description": "TEST7037: Cancelling a request terminates it AND its recursively-linked peer children \u2014 Cancel frames reach the destination, waiting channels get ERR CANCELLED, and zero state remains for parent or child.",
-          "location": "tests/test_relay_switch.py:1705"
+          "location": "tests/test_relay_switch.py:1713"
         },
         "objc": {
           "function": "test7037_cancelCascadesToChildrenAndCleansAllState",
@@ -35757,12 +35795,12 @@
         "go": {
           "function": "Test7038_master_death_terminates_pending_requests",
           "description": "TEST7038: Master death terminates every request routed to it with kind master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and leaving zero state.",
-          "location": "bifaci/relay_switch_test.go:2671"
+          "location": "bifaci/relay_switch_test.go:2689"
         },
         "py": {
           "function": "test_7038_master_death_terminates_pending_requests",
           "description": "TEST7038: Master death terminates every request routed to it with kind master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and leaving zero state.",
-          "location": "tests/test_relay_switch.py:1767"
+          "location": "tests/test_relay_switch.py:1775"
         },
         "objc": {
           "function": "test7038_masterDeathTerminatesPendingRequests",
@@ -36113,12 +36151,12 @@
         "go": {
           "function": "Test7085_relay_notify_carries_host_protocol_stats",
           "description": "TEST7085: The RelayNotify capabilities payload carries the host's protocol stats snapshot, surviving the wire round-trip.",
-          "location": "bifaci/relay_switch_test.go:2088"
+          "location": "bifaci/relay_switch_test.go:2106"
         },
         "py": {
           "function": "test_7085_relay_notify_carries_host_protocol_stats",
           "description": "TEST7085: The RelayNotify capabilities payload carries the host's protocol stats snapshot, surviving the wire round-trip. (Adapted: this mirror has no typed RelayNotifyCapabilitiesPayload \u2014 it builds/parses the manifest dict directly via `_parse_relay_notify_payload`.)",
-          "location": "tests/test_relay_switch.py:1883"
+          "location": "tests/test_relay_switch.py:1891"
         },
         "objc": {
           "function": "test7085_relayNotifyCarriesHostProtocolStats",
@@ -36341,12 +36379,12 @@
         "go": {
           "function": "Test7091_switch_retains_host_protocol_stats_from_relay_notify",
           "description": "TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in ProtocolStats().Hosts keyed by master id; a master that has not yet advertised stats is absent from the map \u2014 never a zeroed placeholder.",
-          "location": "bifaci/relay_switch_test.go:2279"
+          "location": "bifaci/relay_switch_test.go:2297"
         },
         "py": {
           "function": "test_7091_switch_retains_host_protocol_stats_from_relay_notify",
           "description": "TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in `protocol_stats().hosts` keyed by master id; a master that has not yet advertised stats is absent from the map \u2014 never a zeroed placeholder.",
-          "location": "tests/test_relay_switch.py:1918"
+          "location": "tests/test_relay_switch.py:1926"
         },
         "objc": {
           "function": "test7091_switchRetainsHostProtocolStatsFromRelayNotify",
@@ -36417,12 +36455,12 @@
         "go": {
           "function": "Test7093_dead_consumer_cancels_upstream",
           "description": "TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller future) is a counted channel_closed drop AND cancels the request upstream \u2014 the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it. This mirror has no execute_cap-style external-caller API (see RelaySwitch.requests' doc comment), so the registration execute_cap would perform \u2014 response channel + routing registered atomically BEFORE sending, then the REQ written to the destination master \u2014 is done by hand here, mirroring what runIdentityProbeViaRelay already does for the deferred-probe's own external registration.",
-          "location": "bifaci/relay_switch_test.go:2155"
+          "location": "bifaci/relay_switch_test.go:2173"
         },
         "py": {
           "function": "test_7093_dead_consumer_cancels_upstream",
           "description": "TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller callback) is a counted channel_closed drop AND cancels the request upstream \u2014 the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it.",
-          "location": "tests/test_relay_switch.py:1791"
+          "location": "tests/test_relay_switch.py:1799"
         },
         "objc": {
           "function": "test7093_deadConsumerCancelsUpstream",
@@ -36504,6 +36542,158 @@
           "function": "test7106_errFrameWithoutAttributionHasNoArgUrn",
           "description": "TEST7106: an ERR frame built WITHOUT attribution has NO \"arg_urn\" key in the encoded meta \u2014 absent, never an empty string \u2014 and attributionArgUrn returns nil (docs/failure-taxonomy.md).",
           "location": "Tests/BifaciTests/FrameTests.swift:2098"
+        }
+      }
+    },
+    {
+      "number": 7110,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "objc"
+      ],
+      "missing": [
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test7110_admission_fifo_releases_one_waiter",
+          "description": "TEST7110: admission is strict FIFO and a terminal request releases exactly one capacity slot for the next body.",
+          "location": "src/bifaci/request_state.rs:728"
+        },
+        "go": {
+          "function": "Test7110_admission_fifo_releases_one_waiter",
+          "description": "TEST7110: admission is strict FIFO and a terminal request releases exactly one waiter.",
+          "location": "bifaci/request_state_test.go:309"
+        },
+        "py": {
+          "function": "test_7110_admission_fifo_releases_one_waiter",
+          "description": "TEST7110: admission is strict FIFO and a terminal request releases exactly one waiter.",
+          "location": "tests/test_request_state.py:308"
+        },
+        "objc": {
+          "function": "test7110_admissionFifoReleasesOneWaiter",
+          "description": "TEST7110: admission is strict FIFO and a terminal request releases exactly one waiter.",
+          "location": "Tests/BifaciTests/RequestStateTests.swift:318"
+        }
+      }
+    },
+    {
+      "number": 7111,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "objc"
+      ],
+      "missing": [
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test7111_cancelled_admission_waiter_cannot_block_queue",
+          "description": "TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head.",
+          "location": "src/bifaci/request_state.rs:763"
+        },
+        "go": {
+          "function": "Test7111_cancelled_admission_waiter_cannot_block_queue",
+          "description": "TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head.",
+          "location": "bifaci/request_state_test.go:355"
+        },
+        "py": {
+          "function": "test_7111_cancelled_admission_waiter_cannot_block_queue",
+          "description": "TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head.",
+          "location": "tests/test_request_state.py:412"
+        },
+        "objc": {
+          "function": "test7111_cancelledAdmissionWaiterCannotBlockQueue",
+          "description": "TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head.",
+          "location": "Tests/BifaciTests/RequestStateTests.swift:347"
+        }
+      }
+    },
+    {
+      "number": 7112,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "objc"
+      ],
+      "missing": [
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test7112_capacity_reconfiguration_wakes_existing_waiters",
+          "description": "TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end.",
+          "location": "src/bifaci/request_state.rs:793"
+        },
+        "go": {
+          "function": "Test7112_capacity_reconfiguration_wakes_existing_waiters",
+          "description": "TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end.",
+          "location": "bifaci/request_state_test.go:387"
+        },
+        "py": {
+          "function": "test_7112_capacity_reconfiguration_wakes_existing_waiters",
+          "description": "TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end.",
+          "location": "tests/test_request_state.py:339"
+        },
+        "objc": {
+          "function": "test7112_capacityReconfigurationWakesExistingWaiters",
+          "description": "TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end.",
+          "location": "Tests/BifaciTests/RequestStateTests.swift:375"
+        }
+      }
+    },
+    {
+      "number": 7114,
+      "present": [
+        "rust",
+        "go",
+        "py",
+        "objc"
+      ],
+      "missing": [
+        "js"
+      ],
+      "aliased_in": {},
+      "true_missing": [
+        "js"
+      ],
+      "canonical": {
+        "rust": {
+          "function": "test7114_transient_unavailability_does_not_fail_queued_work",
+          "description": "TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's \"queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance\". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with \"became unavailable while waiting for capacity\" \u2014 195 bodies lost to an outage that had already healed.",
+          "location": "src/bifaci/request_state.rs:827"
+        },
+        "go": {
+          "function": "Test7114_transient_unavailability_does_not_fail_queued_work",
+          "description": "TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's \"queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance\". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with \"became unavailable while waiting for capacity\" \u2014 195 bodies lost to an outage that had already healed.",
+          "location": "bifaci/request_state_test.go:414"
+        },
+        "py": {
+          "function": "test_7114_transient_unavailability_does_not_fail_queued_work",
+          "description": "TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's \"queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance\". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with \"became unavailable while waiting for capacity\" \u2014 195 bodies lost to an outage that had already healed.",
+          "location": "tests/test_request_state.py:360"
+        },
+        "objc": {
+          "function": "test7114_transientUnavailabilityDoesNotFailQueuedWork",
+          "description": "TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's \"queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance\". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with \"became unavailable while waiting for capacity\" \u2014 195 bodies lost to an outage that had already healed.",
+          "location": "Tests/BifaciTests/RequestStateTests.swift:396"
         }
       }
     },
@@ -38024,7 +38214,7 @@
       "mirror": "go",
       "function": "Test1901_add_master_reattach_verifies_identity",
       "description": "TEST1901: AddMaster runs an end-to-end identity probe on reattach whenever the host advertises caps (mirrors Rust add_master). When the reattaching host FAILS the probe, the master rejoins as UNHEALTHY \u2014 its installed cartridges stay visible in the inventory aggregate while its caps are held out of the routing table \u2014 rather than the reattach erroring out.",
-      "location": "bifaci/relay_switch_test.go:2007"
+      "location": "bifaci/relay_switch_test.go:2025"
     },
     {
       "number": 1902,
@@ -38045,7 +38235,7 @@
       "mirror": "py",
       "function": "test_1904_add_master_probe_failure_registers_unhealthy_not_raises",
       "description": "Gap-5 lock: an add_master identity-probe FAILURE registers the master as UNHEALTHY (inventory visible) rather than RAISING \u2014 matching the reference add_master (and unlike the constructor, which raises; see test_488).",
-      "location": "tests/test_relay_switch.py:1531"
+      "location": "tests/test_relay_switch.py:1539"
     },
     {
       "number": 1905,
@@ -38053,13 +38243,6 @@
       "function": "test1905_peerReqNoHandlerSendsErrToCaller",
       "description": "TEST0142 (Swift-specific, gap 3): a peer cartridge\u2192cartridge REQ for a cap with NO handler must NOT abort the pump. The switch sends an ERR(\"NO_HANDLER\") frame straight back to the calling master (stamped with the synthetic XID) so the caller fails fast, and handleMasterFrame returns nil \u2014 it must NOT throw.",
       "location": "Tests/BifaciTests/RelaySwitchTests.swift:1302"
-    },
-    {
-      "number": 1943,
-      "mirror": "rust",
-      "function": "test1943_outage_outliving_the_grace_window_fails_queued_work",
-      "description": "TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever.",
-      "location": "src/bifaci/request_state.rs:862"
     },
     {
       "number": 6182,
@@ -39095,7 +39278,7 @@
       "mirror": "go",
       "function": "Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase",
       "description": "Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase pins every variant's string value against its proto snake_case name. New variants must be added here AND in the Rust / Swift / proto sides.",
-      "location": "bifaci/relay_switch_test.go:951"
+      "location": "bifaci/relay_switch_test.go:962"
     },
     {
       "number": 6375,
@@ -39123,7 +39306,7 @@
       "mirror": "go",
       "function": "Test6379_CartridgeAttachmentErrorJSONRoundTrips",
       "description": "Test6379_CartridgeAttachmentErrorJSONRoundTrips verifies a CartridgeAttachmentError marshals to JSON and unmarshals back without changing the kind for every variant. RelayNotify wire payload is JSON; a single-variant regression breaks the entire per-master parse.",
-      "location": "bifaci/relay_switch_test.go:979"
+      "location": "bifaci/relay_switch_test.go:990"
     },
     {
       "number": 6380,
@@ -39340,7 +39523,7 @@
       "mirror": "go",
       "function": "Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings",
       "description": "Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings is the engine\u2192Go-host (or Swift\u2192Go-host) decode path: incoming JSON uses the snake_case wire format, and the Go side must resolve each string into the matching variant. CartridgeAttachmentErrorKind is just `type ... string`, so this test is also a check that the JSON unmarshaller doesn't normalise/lowercase/etc the bytes behind our backs.",
-      "location": "bifaci/relay_switch_test.go:1027"
+      "location": "bifaci/relay_switch_test.go:1038"
     },
     {
       "number": 6424,
@@ -40785,39 +40968,11 @@
       "location": "tests/test_cbor_io.py:1264"
     },
     {
-      "number": 7110,
-      "mirror": "rust",
-      "function": "test7110_admission_fifo_releases_one_waiter",
-      "description": "TEST7110: admission is strict FIFO and a terminal request releases exactly one capacity slot for the next body.",
-      "location": "src/bifaci/request_state.rs:728"
-    },
-    {
-      "number": 7111,
-      "mirror": "rust",
-      "function": "test7111_cancelled_admission_waiter_cannot_block_queue",
-      "description": "TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head.",
-      "location": "src/bifaci/request_state.rs:763"
-    },
-    {
-      "number": 7112,
-      "mirror": "rust",
-      "function": "test7112_capacity_reconfiguration_wakes_existing_waiters",
-      "description": "TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end.",
-      "location": "src/bifaci/request_state.rs:793"
-    },
-    {
       "number": 7113,
       "mirror": "rust",
       "function": "test7113_cartridge_loss_releases_next_engine_invocation",
       "description": "TEST7113: a capacity-one cartridge owns only the active body. If that invocation dies, its ERR releases the slot and the next queued body is dispatched; the queued body is not failed as pending work of the dead process.",
       "location": "src/bifaci/relay_switch.rs:4341"
-    },
-    {
-      "number": 7114,
-      "mirror": "rust",
-      "function": "test7114_transient_unavailability_does_not_fail_queued_work",
-      "description": "TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's \"queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance\". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with \"became unavailable while waiting for capacity\" \u2014 195 bodies lost to an outage that had already healed.",
-      "location": "src/bifaci/request_state.rs:827"
     },
     {
       "number": 7118,

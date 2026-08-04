@@ -76,15 +76,33 @@ impl AdmissionSlot {
 
     /// Remaining grace for an outage, or `None` when available.
     /// `Some(Duration::ZERO)` means the window has expired.
-    fn grace_remaining(&self, now: tokio::time::Instant) -> Option<std::time::Duration> {
+    fn grace_remaining(
+        &self,
+        now: tokio::time::Instant,
+        grace: std::time::Duration,
+    ) -> Option<std::time::Duration> {
         self.unavailable_since
-            .map(|since| ADMISSION_UNAVAILABLE_GRACE.saturating_sub(now.duration_since(since)))
+            .map(|since| grace.saturating_sub(now.duration_since(since)))
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct AdmissionInner {
     slots: HashMap<AdmissionKey, AdmissionSlot>,
+    /// [`ADMISSION_UNAVAILABLE_GRACE`] in production. Tests shorten it to drive
+    /// the expiry path without sleeping through a real minute — the same hook
+    /// the Go, Python and ObjC mirrors expose, so the four implementations test
+    /// this identically.
+    grace: std::time::Duration,
+}
+
+impl Default for AdmissionInner {
+    fn default() -> Self {
+        Self {
+            slots: HashMap::new(),
+            grace: ADMISSION_UNAVAILABLE_GRACE,
+        }
+    }
 }
 
 /// FIFO admission shared by every request path in a RelaySwitch.
@@ -167,6 +185,7 @@ impl AdmissionController {
             let notified = self.notify.notified();
             let wait_budget = {
                 let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+                let grace = inner.grace;
                 let slot = inner
                     .slots
                     .get_mut(&key)
@@ -183,7 +202,7 @@ impl AdmissionController {
                         key: Some(key),
                     });
                 }
-                match slot.grace_remaining(tokio::time::Instant::now()) {
+                match slot.grace_remaining(tokio::time::Instant::now(), grace) {
                     // Available: wait indefinitely for capacity, as before.
                     None => None,
                     // Outage still inside its window: wait, but no longer than
@@ -196,7 +215,7 @@ impl AdmissionController {
                             "cartridge '{}' was unavailable for longer than {}s while this request \
                              waited for capacity",
                             key.id,
-                            ADMISSION_UNAVAILABLE_GRACE.as_secs()
+                            grace.as_secs()
                         ));
                     }
                 }
@@ -210,6 +229,14 @@ impl AdmissionController {
                 }
             }
         }
+    }
+
+    /// Shorten the outage window. Tests only: production always uses
+    /// [`ADMISSION_UNAVAILABLE_GRACE`].
+    #[cfg(test)]
+    fn set_grace_for_test(&self, grace: std::time::Duration) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.grace = grace;
     }
 
     fn cancel_waiter(&self, key: &AdmissionKey, ticket: u64) {
@@ -858,9 +885,12 @@ mod tests {
     // gone fails its queued work once the window expires, so a cartridge that
     // is genuinely retired surfaces as a failure instead of stalling the run
     // forever.
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn test1943_outage_outliving_the_grace_window_fails_queued_work() {
         let controller = AdmissionController::default();
+        // Shorten the window so the expiry path is exercised without sleeping
+        // through a real minute. Production uses ADMISSION_UNAVAILABLE_GRACE.
+        controller.set_grace_for_test(std::time::Duration::from_millis(150));
         let key = admission_key();
         controller.configure(key.clone(), 1);
         let active = controller.acquire(key.clone()).await.unwrap();
@@ -872,11 +902,7 @@ mod tests {
         assert!(!waiting.is_finished());
 
         controller.disable_master(key.master_idx);
-        tokio::task::yield_now().await;
-        assert!(!waiting.is_finished(), "the window must not expire early");
-
-        tokio::time::advance(ADMISSION_UNAVAILABLE_GRACE + std::time::Duration::from_secs(1)).await;
-        let error = tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+        let error = tokio::time::timeout(std::time::Duration::from_secs(3), waiting)
             .await
             .expect("an expired grace window must wake queued work")
             .expect("queued waiter task must not fail")

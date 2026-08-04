@@ -9,20 +9,20 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
 | Mirror | Numbered tests |
 |---|---|
 | rust | 1315 |
-| go | 1234 |
-| py | 1194 |
+| go | 1239 |
+| py | 1199 |
 | js | 364 |
-| objc | 898 |
+| objc | 903 |
 
 ## Summary
 
 - Distinct numbered tests across all mirrors: **1775**
-- Shared (in ≥2 mirrors): **1170**
-- Solo (in exactly 1 mirror): **605**
-  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **552**
+- Shared (in ≥2 mirrors): **1175**
+- Solo (in exactly 1 mirror): **600**
+  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **547**
   - …already in the 8000+ impl-specific range (correctly placed): **53**
-- Shared numbers with a parity gap (missing from ≥1 mirror): **1018**
-- Shared numbers with divergent descriptions: **234**
+- Shared numbers with a parity gap (missing from ≥1 mirror): **1023**
+- Shared numbers with divergent descriptions: **235**
 - Within-mirror duplicate numbers: **0**
 
 ---
@@ -183,12 +183,11 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test1735 | go | `Test1735_classify_handler_error_reads_the_chain` | TEST1735: the handler-failure ERR emit resolves the declared identity from the error chain — ClassifiedError and a propagated peer RemoteError keep their code/class through fmt.Errorf wrapping; an undeclared error is HANDLER_ERROR/internal. (mirrors Rust RuntimeError::failure_code/ attribution_class/failure_reason at the frame-emit boundary) | bifaci/failure_test.go:44 |
 | test1848 | js | `test1848_capVersionNonZeroOnWire` | TEST1848: Cap with version=N round-trips with `version: N` on wire | capdag.test.js:6559 |
 | test1879 | rust | `test1879_other_registry_version_subtree_is_skipped` | TEST1879: only the host's registry-VERSION subtree is scanned. A cartridge installed under `{slug}/v{N+1}/nightly/…` (a different registry regime) is invisible to a host that speaks v{N} — the version level is pinned exactly like the channel, so v1 and v2 cartridges of the same registry never mix. | src/cartridge_discovery.rs:805 |
-| test1901 | go | `Test1901_add_master_reattach_verifies_identity` | TEST1901: AddMaster runs an end-to-end identity probe on reattach whenever the host advertises caps (mirrors Rust add_master). When the reattaching host FAILS the probe, the master rejoins as UNHEALTHY — its installed cartridges stay visible in the inventory aggregate while its caps are held out of the routing table — rather than the reattach erroring out. | bifaci/relay_switch_test.go:2007 |
+| test1901 | go | `Test1901_add_master_reattach_verifies_identity` | TEST1901: AddMaster runs an end-to-end identity probe on reattach whenever the host advertises caps (mirrors Rust add_master). When the reattaching host FAILS the probe, the master rejoins as UNHEALTHY — its installed cartridges stay visible in the inventory aggregate while its caps are held out of the routing table — rather than the reattach erroring out. | bifaci/relay_switch_test.go:2025 |
 | test1902 | rust | `test1902_cartridges_resolve_through_launcher_symlink` | / TEST1902: a launcher SYMLINK — the packaging pattern (`/usr/bin/capdag` / → `/opt/capdag/capdag`, Homebrew `bin/capdag` → `libexec/capdag`) — must / resolve to the REAL bundle's `bundled-cartridges/`, not a `bundled-cartridges/` beside the / symlink. This fails if `bundled_cartridges_dir_for_exe` stops canonicalizing. | src/bin/capdag.rs:2273 |
 | test1903 | rust | `test1903_no_bundled_cartridges_dir_when_absent` | / TEST1903: no `bundled-cartridges/` beside the binary ⇒ `None` (a bare `cargo` / build / unpackaged binary — not an error, discovery just skips it). | src/bin/capdag.rs:2295 |
-| test1904 | py | `test_1904_add_master_probe_failure_registers_unhealthy_not_raises` | Gap-5 lock: an add_master identity-probe FAILURE registers the master as UNHEALTHY (inventory visible) rather than RAISING — matching the reference add_master (and unlike the constructor, which raises; see test_488). | tests/test_relay_switch.py:1531 |
+| test1904 | py | `test_1904_add_master_probe_failure_registers_unhealthy_not_raises` | Gap-5 lock: an add_master identity-probe FAILURE registers the master as UNHEALTHY (inventory visible) rather than RAISING — matching the reference add_master (and unlike the constructor, which raises; see test_488). | tests/test_relay_switch.py:1539 |
 | test1905 | objc | `test1905_peerReqNoHandlerSendsErrToCaller` | TEST0142 (Swift-specific, gap 3): a peer cartridge→cartridge REQ for a cap with NO handler must NOT abort the pump. The switch sends an ERR("NO_HANDLER") frame straight back to the calling master (stamped with the synthetic XID) so the caller fails fast, and handleMasterFrame returns nil — it must NOT throw. | Tests/BifaciTests/RelaySwitchTests.swift:1302 |
-| test1943 | rust | `test1943_outage_outliving_the_grace_window_fails_queued_work` | TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever. | src/bifaci/request_state.rs:862 |
 | test6182 | go | `Test6182_InputValidator_WithSchemaValidation` | TEST6182: Input validator  with schema validation | cap/schema_validation_test.go:298 |
 | test6183 | go | `Test6183_OutputValidator_WithSchemaValidation` | TEST6183: Output validator  with schema validation | cap/schema_validation_test.go:358 |
 | test6184 | go | `Test6184_CapValidationCoordinator_EndToEnd` | TEST6184: Cap validation coordinator  end to end | cap/schema_validation_test.go:417 |
@@ -336,11 +335,11 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6370 | objc | `test6370_IntegrationWithInputValidation` | TEST6370: Integration with input validation | Tests/CapDAGTests/CSSchemaValidationTests.m:275 |
 | test6372 | js | `test6372_Machine_edgeEquivalenceSourceOrderIndependent` | TEST6372: Machine edge equivalence source order independent | capdag.test.js:3612 |
 | test6373 | objc | `test6373_IntegrationWithOutputValidation` | TEST6373: Integration with output validation | Tests/CapDAGTests/CSSchemaValidationTests.m:346 |
-| test6374 | go | `Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase` | Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase pins every variant's string value against its proto snake_case name. New variants must be added here AND in the Rust / Swift / proto sides. | bifaci/relay_switch_test.go:951 |
+| test6374 | go | `Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase` | Test6374_CartridgeAttachmentErrorKindMatchesProtoSnakeCase pins every variant's string value against its proto snake_case name. New variants must be added here AND in the Rust / Swift / proto sides. | bifaci/relay_switch_test.go:962 |
 | test6375 | js | `test6375_Machine_edgeEquivalenceDifferentSourceCount` | TEST6375: Machine edge equivalence different source count | capdag.test.js:3629 |
 | test6377 | js | `test6377_Machine_graphEquivalenceSameEdges` | TEST6377: Machine graph equivalence same edges | capdag.test.js:3646 |
 | test6378 | objc | `test6378_SchemaValidationErrorDetails` | TEST6378: Schema validation error details | Tests/CapDAGTests/CSSchemaValidationTests.m:508 |
-| test6379 | go | `Test6379_CartridgeAttachmentErrorJSONRoundTrips` | Test6379_CartridgeAttachmentErrorJSONRoundTrips verifies a CartridgeAttachmentError marshals to JSON and unmarshals back without changing the kind for every variant. RelayNotify wire payload is JSON; a single-variant regression breaks the entire per-master parse. | bifaci/relay_switch_test.go:979 |
+| test6379 | go | `Test6379_CartridgeAttachmentErrorJSONRoundTrips` | Test6379_CartridgeAttachmentErrorJSONRoundTrips verifies a CartridgeAttachmentError marshals to JSON and unmarshals back without changing the kind for every variant. RelayNotify wire payload is JSON; a single-variant regression breaks the entire per-master parse. | bifaci/relay_switch_test.go:990 |
 | test6380 | js | `test6380_Machine_graphEquivalenceReorderedEdges` | TEST6380: Machine graph equivalence reordered edges | capdag.test.js:3662 |
 | test6381 | objc | `test6381_BuiltinSpecIdsResolve` | TEST6381: Builtin spec ids resolve | Tests/CapDAGTests/CSSchemaValidationTests.m:555 |
 | test6383 | js | `test6383_Machine_graphNotEquivalentDifferentEdgeCount` | TEST6383: Machine graph not equivalent different edge count | capdag.test.js:3678 |
@@ -371,7 +370,7 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test6419 | js | `test6419_Machine_serializationIsDeterministic` | TEST6419: Machine serialization is deterministic | capdag.test.js:3895 |
 | test6421 | js | `test6421_Machine_reorderedEdgesProduceSameNotation` | TEST6421: Machine reordered edges produce same notation | capdag.test.js:3909 |
 | test6422 | objc | `test6422_componentMetadataAccessors` | TEST6422: CSCapManifest exposes name / version / channel / description / cap_groups via its accessors. The Obj-C bridge is schema-equivalent to the Swift `Manifest` struct. | Tests/BifaciTests/ManifestTests.swift:254 |
-| test6423 | go | `Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings` | Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings is the engine→Go-host (or Swift→Go-host) decode path: incoming JSON uses the snake_case wire format, and the Go side must resolve each string into the matching variant. CartridgeAttachmentErrorKind is just `type ... string`, so this test is also a check that the JSON unmarshaller doesn't normalise/lowercase/etc the bytes behind our backs. | bifaci/relay_switch_test.go:1027 |
+| test6423 | go | `Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings` | Test6423_CartridgeAttachmentErrorDecodesProtoSnakeCaseStrings is the engine→Go-host (or Swift→Go-host) decode path: incoming JSON uses the snake_case wire format, and the Go side must resolve each string into the matching variant. CartridgeAttachmentErrorKind is just `type ... string`, so this test is also a check that the JSON unmarshaller doesn't normalise/lowercase/etc the bytes behind our backs. | bifaci/relay_switch_test.go:1038 |
 | test6424 | objc | `test6424_ResolveMediaUrnNotFound` | TEST6424: Resolve media urn not found | Tests/CapDAGTests/CSMediaDefTests.m:112 |
 | test6425 | objc | `test6425_ExtensionsPropagationFromObjectDef` | Extensions field tests | Tests/CapDAGTests/CSMediaDefTests.m:124 |
 | test6426 | objc | `test6426_ExtensionsEmptyWhenNotSet` | TEST6426: Extensions empty when not set | Tests/CapDAGTests/CSMediaDefTests.m:148 |
@@ -578,11 +577,7 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test7094 | py | `test_7094_decode_frame_rejects_missing_id` | TEST7094: decode_frame rejects a CBOR map missing the required id field (key 2) — matches Rust test228_decode_missing_id | tests/test_cbor_io.py:1181 |
 | test7097 | py | `test_7097_decode_frame_accepts_valid_id_variants` | TEST7097: A well-formed id (16-byte UUID or non-negative uint) still decodes correctly after the strict-decode change — the fix rejects only malformed input, not valid frames | tests/test_cbor_io.py:1278 |
 | test7098 | py | `test_7098_decode_frame_rejects_negative_int_id` | TEST7098: decode_frame rejects a negative-integer id — the uint variant is unsigned on the wire (Go's `case uint64`); a negative id is a hard InvalidFrameError, never a wrapped/fabricated value, and must not leak a raw ValueError outside the CborError family | tests/test_cbor_io.py:1264 |
-| test7110 | rust | `test7110_admission_fifo_releases_one_waiter` | TEST7110: admission is strict FIFO and a terminal request releases exactly one capacity slot for the next body. | src/bifaci/request_state.rs:728 |
-| test7111 | rust | `test7111_cancelled_admission_waiter_cannot_block_queue` | TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head. | src/bifaci/request_state.rs:763 |
-| test7112 | rust | `test7112_capacity_reconfiguration_wakes_existing_waiters` | TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end. | src/bifaci/request_state.rs:793 |
 | test7113 | rust | `test7113_cartridge_loss_releases_next_engine_invocation` | TEST7113: a capacity-one cartridge owns only the active body. If that invocation dies, its ERR releases the slot and the next queued body is dispatched; the queued body is not failed as pending work of the dead process. | src/bifaci/relay_switch.rs:4341 |
-| test7114 | rust | `test7114_transient_unavailability_does_not_fail_queued_work` | TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's "queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with "became unavailable while waiting for capacity" — 195 bodies lost to an outage that had already healed. | src/bifaci/request_state.rs:827 |
 | test7118 | rust | `test7118_collect_bytes_forwarding_preserves_peer_side_channels` | TEST7118: finite peer collection preserves source diagnostics instead of consuming them as data or dropping them. Progress is mapped into the caller's range and argument attribution survives byte-for-byte. | src/bifaci/cartridge_runtime.rs:10402 |
 | test7119 | rust | `test7119_foreach_progress_emits_the_stable_strand_token` | TEST7119: the actual ForEach body-progress path emits the immutable strand token consumed by the rendered graph, never its structural node id. | src/orchestrator/execute_plan.rs:1560 |
 
@@ -1516,6 +1511,7 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test1898 | rust, go, py, objc | js | TEST1898: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction — BEFORE any receiver existed (the channel must persist the value, i.e. use send_replace, not send, which drops the value when there are momentarily zero receivers). The delivered set must be the health-filtered routable cap URNs. This is the engine-readiness signal: a cap appears here only once its master is verified and routable. |
 | test1899 | rust, go, py, objc | js | TEST1899: a media def published under a manifest (v>=1) resolves to the VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a registry that silently runs in v0 mode fetches it and 404s every lookup against a versioned registry — the exact regression where a fabric-registry mirror defaulted its manifest version to 0. This pins both the URL rule and the manifest-driven defver resolution. |
 | test1900 | rust, go, py, objc | js | TEST1900: the ERR and non-progress LOG attribution-class wire contract (docs/failure-taxonomy.md): err writes meta code+attribution_class+message; missing and unknown attribution are rejected as protocol violations. Mirrored in all runtime SDKs. |
+| test1943 | rust, go, py, objc | js | TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever. |
 | test1945 | rust, go, py, objc | js | TEST1945: a roster retire DRAINS a busy cartridge instead of killing it. The incident this pins: a transient registry outage shrank the roster and the host killed three cartridges outright, ERRing every request they were serving. Retirement means "no NEW work" — the process must survive until the requests it is already handling terminate. |
 | test1946 | rust, go, py, objc | js | TEST1946: an IDLE cartridge is retired immediately (no reason to keep a process nothing routes to), and its reason is RosterRetired so pending work — and the operator-facing log — is attributed to the environment rather than reported as a user cancellation. |
 | test1947 | rust, go, py, objc | js | TEST1947: a roster that flaps — retire then restore the same identity — keeps the SAME live process. This is the incident's shape end to end: the registry became unreachable, the roster shrank, and 26 seconds later it came back. Nothing about that sequence should cost a running cartridge, its warm model, or the work queued on it. |
@@ -1598,6 +1594,10 @@ A shared-range number present in some mirrors but absent in others. A gap is leg
 | test7093 | rust, go, py, objc | js | TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller future) is a counted channel_closed drop AND cancels the request upstream — the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it. |
 | test7105 | rust, go, py, objc | js | / TEST7105: an ERR frame built WITH argument attribution round-trips it / through encode→decode: meta carries `arg_urn`, `attribution_arg_urn()` / serves it, and code/class/message arrive intact beside it. Mirrored / in the Go/Python/Swift runtimes (shared 7105/7106 range). |
 | test7106 | rust, go, py, objc | js | / TEST7106: attribution is OPTIONAL and source-declared at every hop. / An ERR frame built WITHOUT attribution has NO `arg_urn` key in meta / (absent, not empty) and `attribution_arg_urn()` is `Ok(None)` after a wire round / trip; the `OpError::Classified` and `ExecutionError` accessors serve / the emit source's attribution in the Some case and None — never a / guess — in the unattributed case. |
+| test7110 | rust, go, py, objc | js | TEST7110: admission is strict FIFO and a terminal request releases exactly one capacity slot for the next body. |
+| test7111 | rust, go, py, objc | js | TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head. |
+| test7112 | rust, go, py, objc | js | TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end. |
+| test7114 | rust, go, py, objc | js | TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's "queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with "became unavailable while waiting for capacity" — 195 bodies lost to an outage that had already healed. |
 | test7117 | rust, go, py, objc | js | TEST7117: non-progress LOG carries the same source attribution tuple as ERR, including an optional argument URN, through the actual wire codec. |
 | test7120 | rust, js | go, py, objc | TEST7120: A runtime-cardinality ForEach is part of the executed graph, so persistence receives the exact plan token rather than a cap token or a separately minted render-only token. |
 | test7121 | rust, js | go, py, objc | TEST7121: Existing shape identity is never silently rewritten. A run whose strand and plan disagree must fail before it can persist invalid provenance. |
@@ -3113,6 +3113,13 @@ Same number, materially different descriptions across mirrors. Heuristic (normal
 - **py**: TEST7106: an ERR frame built WITHOUT attribution has NO `arg_urn` key in the encoded meta — absent, never an empty string — and attribution_arg_urn() returns None (docs/failure-taxonomy.md).
 - **objc**: TEST7106: an ERR frame built WITHOUT attribution has NO "arg_urn" key in the encoded meta — absent, never an empty string — and attributionArgUrn returns nil (docs/failure-taxonomy.md).
 
+### test7110
+
+- **rust**: TEST7110: admission is strict FIFO and a terminal request releases exactly one capacity slot for the next body.
+- **go**: TEST7110: admission is strict FIFO and a terminal request releases exactly one waiter.
+- **py**: TEST7110: admission is strict FIFO and a terminal request releases exactly one waiter.
+- **objc**: TEST7110: admission is strict FIFO and a terminal request releases exactly one waiter.
+
 ### test7120
 
 - **rust**: TEST7120: A runtime-cardinality ForEach is part of the executed graph, so persistence receives the exact plan token rather than a cap token or a separately minted render-only token.
@@ -4423,7 +4430,7 @@ _None._
 | test1903 | shared | ✓ | · | · | · | · | solo |
 | test1904 | shared | · | · | ✓ | · | · | solo |
 | test1905 | shared | · | · | · | · | ✓ | solo |
-| test1943 | shared | ✓ | · | · | · | · | solo |
+| test1943 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1945 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1946 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1947 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
@@ -4903,11 +4910,11 @@ _None._
 | test7104 | shared | ✓ | ✓ | ✓ | ✓ | ✓ | shared |
 | test7105 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test7106 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
-| test7110 | shared | ✓ | · | · | · | · | solo |
-| test7111 | shared | ✓ | · | · | · | · | solo |
-| test7112 | shared | ✓ | · | · | · | · | solo |
+| test7110 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test7111 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test7112 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test7113 | shared | ✓ | · | · | · | · | solo |
-| test7114 | shared | ✓ | · | · | · | · | solo |
+| test7114 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test7117 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test7118 | shared | ✓ | · | · | · | · | solo |
 | test7119 | shared | ✓ | · | · | · | · | solo |
