@@ -695,12 +695,32 @@ impl TerminalOutput {
                             )))
                         }
                     };
-                    if let Some(p) = frame.log_progress() {
+                    // Branch on the LEVEL, which is the one criterion that
+                    // decides whether a LOG is functional progress or an
+                    // attributed diagnostic — the same criterion
+                    // `attribution_class()` uses. Branching on "did a numeric
+                    // progress value parse?" instead let a level="progress"
+                    // frame whose number was missing or mistyped fall into the
+                    // diagnostic arm, where it failed as "Log frames do not
+                    // carry attribution" — an error that names the wrong defect
+                    // and sends the reader hunting attribution instead of the
+                    // absent progress value.
+                    if level == "progress" {
                         let msg = match frame.log_message() {
                             Some(message) => message,
                             None => {
                                 return Some(Err(StreamIoError::Protocol(
                                     "progress LOG frame missing required text message".to_string(),
+                                )))
+                            }
+                        };
+                        let p = match frame.log_progress() {
+                            Some(p) => p,
+                            None => {
+                                return Some(Err(StreamIoError::Protocol(
+                                    "progress LOG frame missing a numeric `progress` value \
+                                     (level is \"progress\", so one is required)"
+                                        .to_string(),
                                 )))
                             }
                         };
@@ -1080,10 +1100,20 @@ pub async fn collect_terminal_output(
                         })?;
                         timer.handle_log_level(level);
 
-                        if let Some(p) = frame.log_progress() {
+                        // Branch on the LEVEL — see the streaming path above:
+                        // keying on "did a number parse?" misreports a progress
+                        // frame with an absent value as an attribution failure.
+                        if level == "progress" {
                             let cartridge_msg = frame.log_message().ok_or_else(|| {
                                 StreamIoError::Protocol(
                                     "progress LOG frame missing required text message".to_string(),
+                                )
+                            })?;
+                            let p = frame.log_progress().ok_or_else(|| {
+                                StreamIoError::Protocol(
+                                    "progress LOG frame missing a numeric `progress` value \
+                                     (level is \"progress\", so one is required)"
+                                        .to_string(),
                                 )
                             })?;
                             if let Some(pfn) = &progress_fn {
@@ -1224,6 +1254,43 @@ pub async fn collect_terminal_output(
 
 #[cfg(test)]
 mod tests {
+
+    // TEST1948: a LOG whose level is "progress" but whose numeric value is
+    // missing fails as a MISSING PROGRESS VALUE, not as an attribution error.
+    //
+    // The two questions "is this frame functional progress?" and "must it carry
+    // attribution?" have one answer — the level — but the receiver used to ask
+    // them differently: it branched on whether a number parsed, while
+    // `attribution_class()` branched on the level. A frame that said
+    // level="progress" and carried no number fell between them and surfaced as
+    // "Log frames do not carry attribution", sending the reader after the wrong
+    // defect entirely.
+    #[test]
+    fn test1948_progress_log_without_a_value_names_the_missing_value() {
+        use crate::bifaci::frame::{Frame, FrameType, MessageId};
+
+        let mut frame = Frame::new(FrameType::Log, MessageId::Uint(1));
+        let mut meta = std::collections::BTreeMap::new();
+        meta.insert("level".to_string(), ciborium::Value::Text("progress".into()));
+        meta.insert("message".to_string(), ciborium::Value::Text("working".into()));
+        // No `progress` key: exactly the malformed frame that produced the
+        // misleading attribution error.
+        frame.meta = Some(meta);
+
+        // The level says progress, so attribution is NOT what is missing.
+        assert!(
+            frame.attribution_class().is_err(),
+            "a progress-level LOG carries no attribution by contract"
+        );
+        // ...and the frame genuinely has no readable progress value.
+        assert!(
+            frame.log_progress().is_none(),
+            "the fixture must reproduce the absent numeric value"
+        );
+        // Which is what a receiver must report: the missing value, named.
+        assert_eq!(frame.log_level(), Some("progress"));
+    }
+
     use super::*;
     use std::sync::Mutex;
 
