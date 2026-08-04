@@ -1846,14 +1846,14 @@ mod tests {
         assert_eq!(decoded.attribution_class(), Ok(AttributionClass::Resource));
 
         // L1 — the op layer serves the emit source's attribution verbatim.
-        let attributed = ops::OpError::Classified {
+        let attributed = ops_rs::OpError::Classified {
             code: "CONTEXT_OVERFLOW".to_string(),
             class: AttributionClass::Input,
             message: "prompt too large".to_string(),
             arg_urn: Some("media:prompt;textable".to_string()),
         };
         assert_eq!(attributed.failure_arg_urn(), Some("media:prompt;textable"));
-        let unattributed = ops::OpError::Classified {
+        let unattributed = ops_rs::OpError::Classified {
             code: "CONTEXT_OVERFLOW".to_string(),
             class: AttributionClass::Input,
             message: "prompt too large".to_string(),

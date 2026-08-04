@@ -21,7 +21,7 @@ mod tests {
     fn test293_cartridge_runtime_handler_registration() {
         use crate::bifaci::cartridge_runtime::{IdentityOp, Request, WET_KEY_REQUEST};
         use async_trait::async_trait;
-        use ops::{DryContext, Op, OpError, OpMetadata, OpResult, WetContext};
+        use ops_rs::{DryContext, Op, OpError, OpMetadata, OpResult, WetContext};
         use std::sync::Arc;
 
         /// Test Op: serializes JSON input to CBOR bytes and emits

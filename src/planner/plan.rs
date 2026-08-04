@@ -654,9 +654,20 @@ impl MachinePlan {
             if matches!(step.step_type, StrandStepType::ForEach { .. })
                 && !plan_boundary_tokens.contains(step.token_id.as_str())
             {
+                // Name BOTH sides of the disagreement. A boundary identity that
+                // exists on one side only is almost always a rename, not a
+                // deletion, and the operator can only see that if the message
+                // carries the identities the plan actually uses.
+                let mut plan_tokens: Vec<&str> = plan_boundary_tokens.iter().copied().collect();
+                plan_tokens.sort_unstable();
+                let plan_tokens = if plan_tokens.is_empty() {
+                    "none".to_string()
+                } else {
+                    plan_tokens.join(", ")
+                };
                 return Err(PlannerError::InvalidPath(format!(
-                    "resolved strand ForEach '{}' is absent from the execution plan",
-                    step.token_id
+                    "resolved strand ForEach '{}' is absent from the execution plan (plan boundaries: {})",
+                    step.token_id, plan_tokens
                 )));
             }
         }

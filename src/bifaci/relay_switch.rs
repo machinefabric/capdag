@@ -4176,12 +4176,21 @@ mod tests {
 
         switch.start_background_pump();
 
-        let cap = crate::cap::definition::Cap::with_description(
+        let mut cap = crate::cap::definition::Cap::with_description(
             crate::urn::cap_urn::CapUrn::from_string(cap_urn).expect("test cap URN must parse"),
             "Test Transform".to_string(),
             vec!["test-transform".to_string()],
             "Transforms test source into test output.".to_string(),
         );
+        // A cached cap the planner will traverse must declare its main input —
+        // `sequence_shape()` reads that arg to decide cardinality.
+        cap.args.push(crate::cap::definition::CapArg::new(
+            "media:enc=utf-8;test-source".to_string(),
+            true,
+            vec![crate::cap::definition::ArgSource::Stdin {
+                stdin: "media:enc=utf-8;test-source".to_string(),
+            }],
+        ));
         registry.add_caps_to_cache(vec![cap]);
 
         tokio::time::timeout(std::time::Duration::from_secs(2), async {

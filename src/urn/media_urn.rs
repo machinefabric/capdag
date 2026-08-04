@@ -336,16 +336,16 @@ pub const MEDIA_EMBEDDING_VECTOR: &str = "media:embedding-vector;enc=utf-8;recor
 /// path), and `file-type=txt` (binds the URN to the `.txt` extension at the
 /// registry).
 pub const MEDIA_IMAGE_DESCRIPTION: &str = "media:enc=utf-8;ext=txt;image-description;plain-text";
-/// Media URN for OCR output — verbatim text extracted from an image, scalar by default.
+/// Media URN for OCR output — verbatim text digitized from an image, scalar by default.
 /// Distinct from `MEDIA_IMAGE_DESCRIPTION` (which is a generated caption / answer about
-/// the image) — `extracted-text` carries text that is *present* in the image.
+/// the image) — `digitized-text` carries text that is *present* in the image.
 ///
-/// The composite URN carries `extracted-text` (the OCR-specific marker), `plain-text`
+/// The composite URN carries `digitized-text` (the OCR-specific marker), `plain-text`
 /// (the finalised-text marker that opts into `cap:save-as-txt`'s persistence path),
 /// and `file-type=txt` (binds the URN to the `.txt` extension at the registry).
-pub const MEDIA_EXTRACTED_TEXT: &str = "media:enc=utf-8;ext=txt;extracted-text;plain-text";
+pub const MEDIA_DIGITIZED_TEXT: &str = "media:digitized-text;enc=utf-8;ext=txt;plain-text";
 /// Media URN for finalised plain text — the canonical input/output of `cap:save-as-txt`.
-/// Producers of user-facing prose (LLM text-generation, OCR's extracted text,
+/// Producers of user-facing prose (LLM text-generation, OCR's digitized text,
 /// summarisation) declare this URN as their `out` so the planner restricts the
 /// `.txt` persistence path to those caps. See `fabric/media/plain-text.toml`.
 pub const MEDIA_PLAIN_TEXT: &str = "media:enc=utf-8;ext=txt;plain-text";

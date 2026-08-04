@@ -47,7 +47,7 @@ use crate::urn::cap_urn::CapUrn;
 use crate::urn::media_urn::{MediaUrn, MEDIA_FILE_PATH};
 use async_trait::async_trait;
 // crossbeam is used for demux_multi_stream (bridging sync stdin reads to async handlers)
-use ops::{DryContext, Op, OpError, OpMetadata, OpResult, WetContext};
+use ops_rs::{DryContext, Op, OpError, OpMetadata, OpResult, WetContext};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -210,16 +210,16 @@ impl RuntimeError {
 /// wrappers: a classified runtime error crosses into the op layer with its
 /// declared identity intact (docs/failure-taxonomy.md); an unclassified one
 /// stays a plain execution failure.
-impl From<RuntimeError> for ops::OpError {
+impl From<RuntimeError> for ops_rs::OpError {
     fn from(e: RuntimeError) -> Self {
         match e.failure_code() {
-            Some(code) => ops::OpError::Classified {
+            Some(code) => ops_rs::OpError::Classified {
                 code: code.to_string(),
                 class: e.attribution_class(),
                 message: e.failure_reason(),
                 arg_urn: e.failure_arg_urn().map(str::to_string),
             },
-            None => ops::OpError::ExecutionFailed(e.to_string()),
+            None => ops_rs::OpError::ExecutionFailed(e.to_string()),
         }
     }
 }
@@ -2293,7 +2293,7 @@ impl FrameSender for CliFrameSender {
 }
 
 // =============================================================================
-// OP-BASED HANDLER SYSTEM — handlers implement ops::Op<()>
+// OP-BASED HANDLER SYSTEM — handlers implement ops_rs::Op<()>
 // =============================================================================
 
 /// Bundles capdag I/O for WetContext. Op handlers extract this from WetContext
