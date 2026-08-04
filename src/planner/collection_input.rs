@@ -3,10 +3,9 @@
 //! This module defines the machine-facing collection structure for representing
 //! folder hierarchies as structured input to caps.
 //!
-//! The collection structure is a machine internal representation, separate from
-//! database persistence. The database stores folder hierarchy via `parent_folder_id`
-//! and `folder_listings` junction table. The structure is constructed on-demand
-//! when a machine needs collection input.
+//! The collection structure is a machine internal representation of a
+//! FILESYSTEM directory tree, built on-demand when a machine needs collection
+//! input. It is not persisted: the engine has no folder entity.
 
 use super::argument_binding::{CapInputFile, SourceEntityType};
 use serde::{Deserialize, Serialize};
