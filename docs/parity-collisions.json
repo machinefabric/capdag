@@ -331,7 +331,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ OCR's narrowed output URN refines plain-text. Both carry the / `plain-text` marker, the `textable` coercion, and `file-type=txt`; / extracted-text adds the OCR-specific marker on top. Save-as-txt's / `in = media:enc=utf-8;ext=txt;plain-text` therefore accepts OCR output / without further intermediation.",
+      "keep_desc": "/ OCR's narrowed output URN refines plain-text. Both carry the / `plain-text` marker, the `textable` coercion, and `file-type=txt`; / digitized-text adds the OCR-specific marker on top. Save-as-txt's / `in = media:enc=utf-8;ext=txt;plain-text` therefore accepts OCR output / without further intermediation.",
       "move_info": {
         "go": {
           "fn": "Test0057_ResponseWrapperIsEmpty",
@@ -366,7 +366,7 @@
         "objc",
         "py"
       ],
-      "keep_desc": "/ Plain-text does NOT refine extracted-text — extracted-text is a / strict subset of plain-text (OCR-marker added). A consumer that / asked specifically for OCR output should NOT silently get any / other plain-text. This is the order-theoretic complement of the / previous test and catches a regression where the markers on / extracted-text get dropped.",
+      "keep_desc": "/ Plain-text does NOT refine digitized-text — digitized-text is a / strict subset of plain-text (OCR-marker added). A consumer that / asked specifically for OCR output should NOT silently get any / other plain-text. This is the order-theoretic complement of the / previous test and catches a regression where the markers on / digitized-text get dropped.",
       "move_info": {
         "go": {
           "fn": "Test0058_ResponseWrapperGetContentType",
