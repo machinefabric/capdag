@@ -47,8 +47,8 @@ pub mod urn;
 // The failure taxonomy — declared at every error's definition site, carried
 // structurally through the ERR frame to the engine (docs/17.2). Defined in
 // the leaf `ops` crate; re-exported here as the cartridge-contract surface.
-pub use ops::failure;
-pub use ops::failure::AttributionClass;
+pub use ops_rs::failure;
+pub use ops_rs::failure::AttributionClass;
 
 // URN types
 pub use urn::cap_urn::*;
@@ -152,7 +152,7 @@ pub use bifaci::cartridge_repo::{
     CartridgeRepoError, CartridgeSuggestion, CartridgeVersionData, CompatStatus, RegistryArgSource,
     RegistryCap, RegistryCapArg, RegistryCapGroup, RegistryCapOutput,
 };
-pub use ops::{DryContext, Op, OpError, OpMetadata, OpResult, WetContext};
+pub use ops_rs::{DryContext, Op, OpError, OpMetadata, OpResult, WetContext};
 
 // CartridgeHost is the primary API for host-side cartridge communication (async/tokio-native)
 pub use bifaci::host_runtime::{

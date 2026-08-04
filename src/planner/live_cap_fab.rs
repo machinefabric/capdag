@@ -1476,7 +1476,13 @@ mod tests {
         s
     }
 
+    /// Build a `Cap` that satisfies the registry invariant every real cap
+    /// satisfies: a non-void cap declares its MAIN input as an arg carrying a
+    /// `Stdin` source whose URN is the cap URN's `in=`. `sequence_shape()` reads
+    /// that arg to decide cardinality, so a fixture without it is not a cap the
+    /// planner can reason about at all — it would panic rather than mis-plan.
     fn make_test_cap(in_spec: &str, out_spec: &str, op: &str, title: &str) -> Cap {
+        use crate::cap::definition::{ArgSource, CapArg};
         use crate::urn::cap_urn::CapUrnBuilder;
 
         let cap_urn = CapUrnBuilder::new()
@@ -1496,41 +1502,6 @@ mod tests {
             aliases: vec!["test".to_string()],
             is_abstract: false,
             output: None,
-            args: vec![],
-            metadata_json: None,
-            registered_by: None,
-            supported_model_types: Vec::new(),
-            default_model_spec: None,
-        }
-    }
-
-    /// Build a `Cap` whose `args` list is populated with a
-    /// stdin arg matching the `in_spec`. Required for tests
-    /// that pass a strand built from this cap into
-    /// `Strand::knit` or `Strand::to_machine_notation`, since
-    /// the resolver looks up the cap's args list to compute
-    /// the source-to-arg matching.
-    fn make_test_cap_with_arg(in_spec: &str, out_spec: &str, op: &str, title: &str) -> Cap {
-        use crate::cap::definition::{ArgSource, CapArg, CapOutput};
-        use crate::urn::cap_urn::CapUrnBuilder;
-
-        let cap_urn = CapUrnBuilder::new()
-            .in_spec(in_spec)
-            .out_spec(out_spec)
-            .marker(op)
-            .build()
-            .expect("Failed to build test cap URN");
-
-        Cap {
-            urn: cap_urn,
-            version: 1,
-            title: title.to_string(),
-            cap_description: None,
-            documentation: None,
-            metadata: Default::default(),
-            aliases: vec!["test".to_string()],
-            is_abstract: false,
-            output: Some(CapOutput::new(out_spec.to_string(), title.to_string())),
             args: vec![CapArg::new(
                 in_spec.to_string(),
                 true,
@@ -1545,6 +1516,17 @@ mod tests {
         }
     }
 
+    /// `make_test_cap` plus a declared `CapOutput`. Required for tests that pass
+    /// a strand built from this cap into `Strand::knit` or
+    /// `Strand::to_machine_notation`, since the resolver reads the output slot.
+    fn make_test_cap_with_arg(in_spec: &str, out_spec: &str, op: &str, title: &str) -> Cap {
+        use crate::cap::definition::CapOutput;
+
+        let mut cap = make_test_cap(in_spec, out_spec, op, title);
+        cap.output = Some(CapOutput::new(out_spec.to_string(), title.to_string()));
+        cap
+    }
+
     // TEST1150: Adding one cap creates one edge and makes its output reachable in one step.
     #[test]
     fn test1150_add_cap_and_basic_traversal() {
@@ -1552,7 +1534,7 @@ mod tests {
 
         let cap = make_test_cap(
             "media:ext=pdf",
-            "media:extracted-text",
+            "media:digitized-text",
             "extract_text",
             "Extract Text",
         );
@@ -1565,15 +1547,15 @@ mod tests {
         let source = MediaUrn::from_string("media:ext=pdf").unwrap();
         let targets = graph.get_reachable_targets(&source, false, 5);
 
-        // Reachable targets include only media:extracted-text
+        // Reachable targets include only media:digitized-text
         // (via the cap, depth 1). Collect is not synthesized
         // during reachability traversal — cardinality variants
         // are handled by the plan builder at execution time.
-        let extracted_text = MediaUrn::from_string("media:extracted-text").unwrap();
+        let digitized_text = MediaUrn::from_string("media:digitized-text").unwrap();
         let cap_target = targets
             .iter()
-            .find(|t| t.media_def.is_equivalent(&extracted_text).unwrap_or(false));
-        assert!(cap_target.is_some(), "extracted-text should be reachable");
+            .find(|t| t.media_def.is_equivalent(&digitized_text).unwrap_or(false));
+        assert!(cap_target.is_some(), "digitized-text should be reachable");
         assert_eq!(cap_target.unwrap().min_path_length, 1);
     }
 
@@ -1660,16 +1642,16 @@ mod tests {
     fn test1152_multi_step_path() {
         let mut graph = LiveCapFab::new();
 
-        // pdf -> extracted-text
+        // pdf -> digitized-text
         let cap1 = make_test_cap(
             "media:ext=pdf",
-            "media:extracted-text",
+            "media:digitized-text",
             "extract",
             "Extract",
         );
-        // extracted-text -> summary-text
+        // digitized-text -> summary-text
         let cap2 = make_test_cap(
-            "media:extracted-text",
+            "media:digitized-text",
             "media:summary-text",
             "summarize",
             "Summarize",
@@ -1697,13 +1679,13 @@ mod tests {
         // Two paths to the same target with different specificities
         let cap1 = make_test_cap(
             "media:ext=pdf",
-            "media:extracted-text",
+            "media:digitized-text",
             "extract_a",
             "Extract A",
         );
         let cap2 = make_test_cap(
             "media:ext=pdf",
-            "media:extracted-text",
+            "media:digitized-text",
             "extract_b",
             "Extract B",
         );
@@ -1712,7 +1694,7 @@ mod tests {
         graph.add_cap(&cap2);
 
         let source = MediaUrn::from_string("media:ext=pdf").unwrap();
-        let target = MediaUrn::from_string("media:extracted-text").unwrap();
+        let target = MediaUrn::from_string("media:digitized-text").unwrap();
 
         // Run multiple times - should always get the same order
         let paths1 = graph.find_paths_to_exact_target(&source, &target, false, 5, 10);
@@ -1742,8 +1724,8 @@ mod tests {
         let mut graph = LiveCapFab::new();
 
         let caps = vec![
-            make_test_cap("media:ext=pdf", "media:extracted-text", "op1", "Op1"),
-            make_test_cap("media:extracted-text", "media:summary-text", "op2", "Op2"),
+            make_test_cap("media:ext=pdf", "media:digitized-text", "op1", "Op1"),
+            make_test_cap("media:digitized-text", "media:summary-text", "op2", "Op2"),
         ];
 
         let __caps = &caps;
@@ -1756,7 +1738,7 @@ mod tests {
         // Sync again with different caps - should replace
         let new_caps = vec![make_test_cap(
             "media:image",
-            "media:extracted-text",
+            "media:digitized-text",
             "ocr",
             "OCR",
         )];
@@ -2552,7 +2534,10 @@ mod tests {
     // TEST8064: a sequence-consuming cap may be reached directly from sequence
     // data, but never through a dangling ForEach boundary. The latter was emitted
     // as `ForEach -> concat` and then correctly rejected by machine resolution,
-    // aborting the transmute strand stream.
+    // aborting the transmute strand stream. A ForEach followed by a SCALAR cap
+    // stays legal — that is the map half of the ordinary map-then-fold plan
+    // (TEST1418) — so the invariant is about what may follow the boundary, not
+    // about ForEach appearing at all.
     #[test]
     fn test8064_sequence_consumer_never_follows_foreach_directly() {
         use crate::cap::registry::FabricRegistry;
@@ -2570,6 +2555,7 @@ mod tests {
             "summarize",
             "Summarize Text",
         );
+        let scalar_consumer_for_registry = scalar_consumer.clone();
         let mut graph = LiveCapFab::new();
         graph.sync_from_caps(
             &[concat.clone(), scalar_consumer.clone()],
@@ -2584,15 +2570,39 @@ mod tests {
             !paths.is_empty(),
             "the direct sequence -> concat path must exist"
         );
-        assert!(paths.iter().all(|path| {
-            !path
-                .steps
-                .iter()
-                .any(|step| matches!(step.step_type, StrandStepType::ForEach { .. }))
-        }));
+        assert!(
+            paths.iter().any(|path| {
+                path.steps.len() == 1
+                    && matches!(
+                        &path.steps[0].step_type,
+                        StrandStepType::Cap {
+                            input_is_sequence: true,
+                            ..
+                        }
+                    )
+            }),
+            "sequence data must reach the sequence consumer directly, with no boundary"
+        );
+        for path in &paths {
+            for pair in path.steps.windows(2) {
+                if matches!(pair[0].step_type, StrandStepType::ForEach { .. }) {
+                    assert!(
+                        matches!(
+                            &pair[1].step_type,
+                            StrandStepType::Cap {
+                                input_is_sequence: false,
+                                ..
+                            }
+                        ),
+                        "a ForEach boundary must qualify a scalar-input cap, got {:?}",
+                        pair[1].step_type
+                    );
+                }
+            }
+        }
 
         let registry = FabricRegistry::new_for_test();
-        registry.add_caps_to_cache(vec![concat]);
+        registry.add_caps_to_cache(vec![concat, scalar_consumer_for_registry]);
         for path in paths {
             path.to_machine_notation(&registry)
                 .expect("every enumerated path must satisfy machine cardinality invariants");

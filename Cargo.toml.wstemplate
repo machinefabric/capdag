@@ -30,8 +30,8 @@ uuid = { version = "1.0", features = ["v4"] }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Threading"] }
 
-[dependencies.ops]
-path = "../ops"
+[dependencies.ops-rs]
+version = "1.63.594"
 
 [dependencies.reqwest]
 features = ["json"]

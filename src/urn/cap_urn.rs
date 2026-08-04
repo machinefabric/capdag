@@ -2891,7 +2891,7 @@ mod tier_tests {
         let out_urn = cap
             .out_media_urn()
             .expect("out_spec should parse as MediaUrn");
-        // extracted-text output is a UTF-8 text file (enc=utf-8;ext=txt).
+        // digitized-text output is a UTF-8 text file (enc=utf-8;ext=txt).
         assert!(out_urn.get_tag("enc").is_some());
         assert!(out_urn.has_tag("ext", "txt"));
 

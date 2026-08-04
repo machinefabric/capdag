@@ -138,6 +138,19 @@ pub fn resolve_strand(
     registry: &FabricRegistry,
     strand_index: usize,
 ) -> Result<MachineStrand, MachineAbstractionError> {
+    // A strand carries meaning only through its cap steps: ForEach and Collect
+    // are shape boundaries AROUND caps, never work in themselves. Checked before
+    // the walk so a strand made only of boundaries reports the defect that
+    // actually explains it ("no capability steps") rather than the consequence
+    // the walk would hit first (a ForEach with nothing to map).
+    if !strand
+        .steps
+        .iter()
+        .any(|step| matches!(step.step_type, StrandStepType::Cap { .. }))
+    {
+        return Err(MachineAbstractionError::NoCapabilitySteps);
+    }
+
     let mut nodes: Vec<MediaUrn> = Vec::new();
     let mut pre_interned: Vec<PreInternedWiring> = Vec::new();
 
@@ -1284,7 +1297,7 @@ mod tests {
             "media:enc=utf-8;ext=txt",
         );
         let embed = build_cap(
-            "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\"",
+            "cap:in=\"media:enc=utf-8\";embed;out=\"media:vec;record\"",
             "embed",
             &["media:enc=utf-8"],
             "media:vec;record",
@@ -1300,7 +1313,7 @@ mod tests {
                     "media:enc=utf-8;ext=txt",
                 ),
                 cap_step(
-                    "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\"",
+                    "cap:in=\"media:enc=utf-8\";embed;out=\"media:vec;record\"",
                     "embed",
                     "media:enc=utf-8;ext=txt",
                     "media:vec;record",

@@ -11,7 +11,7 @@
 //!
 //! The fix introduced `media:enc=utf-8;ext=txt;plain-text` as a narrow
 //! concrete terminal type: producers of user-facing prose
-//! (LLM text-generation, OCR's extracted text, summarisation) opt in
+//! (LLM text-generation, OCR's digitized text, summarisation) opt in
 //! by declaring this URN as their `out`; everything else stays on
 //! `media:enc=utf-8` and is therefore not a candidate feeder.
 //!
@@ -39,7 +39,7 @@ fn conforms(concrete: &str, pattern: &str) -> bool {
 }
 
 const PLAIN_TEXT: &str = "media:enc=utf-8;ext=txt;plain-text";
-const EXTRACTED_TEXT: &str = "media:enc=utf-8;ext=txt;extracted-text;plain-text";
+const DIGITIZED_TEXT: &str = "media:digitized-text;enc=utf-8;ext=txt;plain-text";
 const IMAGE_DESCRIPTION: &str = "media:enc=utf-8;ext=txt;image-description;plain-text";
 const DISBIND_PAGE: &str = "media:enc=utf-8;ext=txt;page;plain-text";
 const TRANSCRIPTION: &str = "media:enc=utf-8;record;transcription";
@@ -86,29 +86,29 @@ fn test0056_bare_textable_does_not_conform_to_plain_text() {
 
 /// OCR's narrowed output URN refines plain-text. Both carry the
 /// `plain-text` marker, the `textable` coercion, and `file-type=txt`;
-/// extracted-text adds the OCR-specific marker on top. Save-as-txt's
+/// digitized-text adds the OCR-specific marker on top. Save-as-txt's
 /// `in = media:enc=utf-8;ext=txt;plain-text` therefore accepts OCR output
 /// without further intermediation.
 #[test]
-fn test0057_extracted_text_refines_plain_text() {
+fn test0057_digitized_text_refines_plain_text() {
     assert!(
-        conforms(EXTRACTED_TEXT, PLAIN_TEXT),
-        "extracted-text (OCR) must refine plain-text so cap:save-as-txt \
+        conforms(DIGITIZED_TEXT, PLAIN_TEXT),
+        "digitized-text (OCR) must refine plain-text so cap:save-as-txt \
          accepts OCR output as a feeder"
     );
 }
 
-/// Plain-text does NOT refine extracted-text — extracted-text is a
+/// Plain-text does NOT refine digitized-text — digitized-text is a
 /// strict subset of plain-text (OCR-marker added). A consumer that
 /// asked specifically for OCR output should NOT silently get any
 /// other plain-text. This is the order-theoretic complement of the
 /// previous test and catches a regression where the markers on
-/// extracted-text get dropped.
+/// digitized-text get dropped.
 #[test]
-fn test0058_plain_text_does_not_refine_extracted_text() {
+fn test0058_plain_text_does_not_refine_digitized_text() {
     assert!(
-        !conforms(PLAIN_TEXT, EXTRACTED_TEXT),
-        "plain-text must NOT refine extracted-text — generic plain text \
+        !conforms(PLAIN_TEXT, DIGITIZED_TEXT),
+        "plain-text must NOT refine digitized-text — generic plain text \
          is not a substitute for OCR output"
     );
 }
