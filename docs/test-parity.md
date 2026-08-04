@@ -8,18 +8,18 @@ Numbers **1–7999** are the SHARED range: the same number must test the same th
 
 | Mirror | Numbered tests |
 |---|---|
-| rust | 1315 |
+| rust | 1316 |
 | go | 1239 |
 | py | 1199 |
 | js | 364 |
-| objc | 903 |
+| objc | 906 |
 
 ## Summary
 
-- Distinct numbered tests across all mirrors: **1775**
+- Distinct numbered tests across all mirrors: **1779**
 - Shared (in ≥2 mirrors): **1175**
-- Solo (in exactly 1 mirror): **600**
-  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **547**
+- Solo (in exactly 1 mirror): **604**
+  - …in the shared range 1–7999 — **port targets** (shared behavior present in one mirror, to be ported to the others keeping the number), unless a given test is genuinely implementation-specific, in which case it moves to 8000+: **551**
   - …already in the 8000+ impl-specific range (correctly placed): **53**
 - Shared numbers with a parity gap (missing from ≥1 mirror): **1023**
 - Shared numbers with divergent descriptions: **235**
@@ -188,6 +188,10 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test1903 | rust | `test1903_no_bundled_cartridges_dir_when_absent` | / TEST1903: no `bundled-cartridges/` beside the binary ⇒ `None` (a bare `cargo` / build / unpackaged binary — not an error, discovery just skips it). | src/bin/capdag.rs:2295 |
 | test1904 | py | `test_1904_add_master_probe_failure_registers_unhealthy_not_raises` | Gap-5 lock: an add_master identity-probe FAILURE registers the master as UNHEALTHY (inventory visible) rather than RAISING — matching the reference add_master (and unlike the constructor, which raises; see test_488). | tests/test_relay_switch.py:1539 |
 | test1905 | objc | `test1905_peerReqNoHandlerSendsErrToCaller` | TEST0142 (Swift-specific, gap 3): a peer cartridge→cartridge REQ for a cap with NO handler must NOT abort the pump. The switch sends an ERR("NO_HANDLER") frame straight back to the calling master (stamped with the synthetic XID) so the caller fails fast, and handleMasterFrame returns nil — it must NOT throw. | Tests/BifaciTests/RelaySwitchTests.swift:1302 |
+| test1948 | rust | `test1948_progress_log_without_a_value_names_the_missing_value` | TEST1948: a LOG whose level is "progress" but whose numeric value is missing fails as a MISSING PROGRESS VALUE, not as an attribution error. The two questions "is this frame functional progress?" and "must it carry attribution?" have one answer — the level — but the receiver used to ask them differently: it branched on whether a number parsed, while `attribution_class()` branched on the level. A frame that said level="progress" and carried no number fell between them and surfaced as "Log frames do not carry attribution", sending the reader after the wrong defect entirely. | src/orchestrator/stream_io.rs:1271 |
+| test1949 | objc | `test1949_peerProgressIsRemappedIntoTheCallersRange` | TEST1949: a peer's progress is REMAPPED into the caller's declared range, not forwarded raw. A nested cap reporting 0.0→1.0 must advance only the slice of the caller's bar it was given, otherwise a caller with three peer calls shows its progress bar reset and refill three times. | Tests/BifaciTests/StreamingAPITests.swift:977 |
+| test1950 | objc | `test1950_forwardedPeerLogKeepsSourceClassAndArgUrn` | TEST1950: a non-progress peer LOG keeps the SOURCE's class and argument attribution. A diagnostic is never re-classified as it passes through a caller — the class is declared at the emit source (docs/failure-taxonomy.md), so forwarding must copy it, not re-derive it. | Tests/BifaciTests/StreamingAPITests.swift:998 |
+| test1951 | objc | `test1951_peerProgressWithoutNumericValueFailsHard` | TEST1951: a peer progress LOG with no numeric value FAILS HARD. Forwarding must not silently drop it or substitute a value — a malformed frame is an emitter defect and must surface as one, which is exactly the failure the engine raises for the same frame. | Tests/BifaciTests/StreamingAPITests.swift:1024 |
 | test6182 | go | `Test6182_InputValidator_WithSchemaValidation` | TEST6182: Input validator  with schema validation | cap/schema_validation_test.go:298 |
 | test6183 | go | `Test6183_OutputValidator_WithSchemaValidation` | TEST6183: Output validator  with schema validation | cap/schema_validation_test.go:358 |
 | test6184 | go | `Test6184_CapValidationCoordinator_EndToEnd` | TEST6184: Cap validation coordinator  end to end | cap/schema_validation_test.go:417 |
@@ -566,14 +570,14 @@ These numbered tests exist in exactly ONE mirror but occupy the shared range (1�
 | test7006 | go | `Test7006_encode_rejects_uninitialized_id` | TEST7006: EncodeFrame refuses to ship a fabricated id=0 for an uninitialized MessageId. Rust's MessageId enum is total (always Uuid or Uint); Go's struct can be left zero-valued. Emitting id=0 for that bug would forge a routing key -- the encode mirror of the strict decode contract (7003/7004). A legitimate MessageId::Uint(0) (used by HELLO/RelayNotify) must still encode fine. | bifaci/io_test.go:706 |
 | test7007 | go | `Test7007_encode_rejects_uninitialized_routing_id` | TEST7007: EncodeFrame refuses to silently drop a present-but-uninitialized routing_id. A nil RoutingId pointer legitimately means "no relay hint" and encodes to an absent key; a non-nil pointer to a zero-valued MessageId is a bug that must fail hard rather than strip the relay hint and misroute. | bifaci/io_test.go:734 |
 | test7008 | go | `Test7008_extractUint64FromMeta_rejects_invalid_numeric_values` | TEST7008: v4 unsigned metadata rejects values that are not non-negative integers. | bifaci/io_test.go:2005 |
-| test7022 | rust | `test7022_final_progress_from_end_meta_default` | TEST7022: The receiver delivers final progress exactly once, sourced from END terminal metadata, defaulting to 1.0 on a plain successful END. | src/orchestrator/stream_io.rs:1278 |
-| test7023 | rust | `test7023_final_progress_handler_override` | TEST7023: A handler-declared terminal status (progress + message) in END metadata reaches the progress callback as the final event. | src/orchestrator/stream_io.rs:1318 |
-| test7024 | rust | `test7024_drain_after_end_delivers_logs_without_progress_regression` | TEST7024: Frames already queued behind END are drained before returning — LOG messages are delivered, and no post-terminal progress value can regress the final progress. | src/orchestrator/stream_io.rs:1356 |
+| test7022 | rust | `test7022_final_progress_from_end_meta_default` | TEST7022: The receiver delivers final progress exactly once, sourced from END terminal metadata, defaulting to 1.0 on a plain successful END. | src/orchestrator/stream_io.rs:1380 |
+| test7023 | rust | `test7023_final_progress_handler_override` | TEST7023: A handler-declared terminal status (progress + message) in END metadata reaches the progress callback as the final event. | src/orchestrator/stream_io.rs:1420 |
+| test7024 | rust | `test7024_drain_after_end_delivers_logs_without_progress_regression` | TEST7024: Frames already queued behind END are drained before returning — LOG messages are delivered, and no post-terminal progress value can regress the final progress. | src/orchestrator/stream_io.rs:1458 |
 | test7054 | rust | `test7054_slow_consumer_throttles_input_send` | TEST7054: Input-direction credit: a slow handler recv() throttles the engine's stream send (observed pause on the engine wire). E2E form of the law: the wire pause itself is asserted at the substrate layer (TEST7050); here the observable contract is that a 100-chunk sequence input — 3x the 32-chunk initial window — flows COMPLETELY and CORRECTLY through a deliberately slow consumer. If input-direction grants broke, the engine's send gate would stall forever (timeout fails the test); if the engine ignored the window, the cartridge would terminate with ERR CREDIT_VIOLATION (execution fails); if items were dropped, the count/bytes report would differ. | tests/protocol_v4_e2e.rs:404 |
 | test7056 | rust | `test7056_bidirectional_echo_no_deadlock` | TEST7056: Bidirectional streaming (handler consumes input while emitting output) completes without deadlock at window 2. The window-2 wire variant is the substrate test; at e2e scale the negotiated window is 32 chunks and the input is 100 chunks (>3x the window), so completion is only possible when the engine feeds input concurrently with collecting output (L15) and credit flows in BOTH directions (L14). A deadlock hangs; the timeout converts it into a clear failure. Payload equality proves every item made the round trip in order. | tests/protocol_v4_e2e.rs:487 |
-| test7071 | rust | `test7071_terminal_output_yields_before_stream_end` | TEST7071: The incremental terminal consumer yields items BEFORE the stream has ended — required for unbounded output (L16) — and completes on an unbounded STREAM_END + END. | src/orchestrator/stream_io.rs:1422 |
+| test7071 | rust | `test7071_terminal_output_yields_before_stream_end` | TEST7071: The incremental terminal consumer yields items BEFORE the stream has ended — required for unbounded output (L16) — and completes on an unbounded STREAM_END + END. | src/orchestrator/stream_io.rs:1524 |
 | test7076 | rust | `test7076_pipelined_chain_downstream_consumes_before_upstream_finishes` | TEST7076: Pipelined chain execution: the downstream cap receives its first item before the upstream cap emits its last. [input -> test-stream-n-chunks -> mid -> test-echo-stream -> output] is a linear chain, so `execute_dag` pipelines it: the intermediate node's data streams cap-to-cap live and is never materialized. The producer emits 48 chunks (> the 32-chunk window) with a progress log per chunk; the echo cap logs on its first consumed item. With credit flowing per hop, the producer CANNOT emit chunk 33+ until the echo cap has consumed — so the echo's first-item log must appear in the captured event sequence BEFORE the producer's final per-chunk log. A materializing (non-pipelined) executor would show the producer finishing all 48 chunks first and fail the ordering assertion. | tests/protocol_v4_e2e.rs:828 |
-| test7077 | rust | `test7077_per_item_meta_incremental` | TEST7077: Per-item stream metadata arrives WITH its item through incremental delivery, not batched at the end. | src/orchestrator/stream_io.rs:1462 |
+| test7077 | rust | `test7077_per_item_meta_incremental` | TEST7077: Per-item stream metadata arrives WITH its item through incremental delivery, not batched at the end. | src/orchestrator/stream_io.rs:1564 |
 | test7094 | py | `test_7094_decode_frame_rejects_missing_id` | TEST7094: decode_frame rejects a CBOR map missing the required id field (key 2) — matches Rust test228_decode_missing_id | tests/test_cbor_io.py:1181 |
 | test7097 | py | `test_7097_decode_frame_accepts_valid_id_variants` | TEST7097: A well-formed id (16-byte UUID or non-negative uint) still decodes correctly after the strict-decode change — the fix rejects only malformed input, not valid frames | tests/test_cbor_io.py:1278 |
 | test7098 | py | `test_7098_decode_frame_rejects_negative_int_id` | TEST7098: decode_frame rejects a negative-integer id — the uint variant is unsigned on the wire (Go's `case uint64`); a negative id is a hard InvalidFrameError, never a wrapped/fabricated value, and must not leak a raw ValueError outside the CborError family | tests/test_cbor_io.py:1264 |
@@ -4434,6 +4438,10 @@ _None._
 | test1945 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1946 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
 | test1947 | shared | ✓ | ✓ | ✓ | · | ✓ | shared |
+| test1948 | shared | ✓ | · | · | · | · | solo |
+| test1949 | shared | · | · | · | · | ✓ | solo |
+| test1950 | shared | · | · | · | · | ✓ | solo |
+| test1951 | shared | · | · | · | · | ✓ | solo |
 | test6182 | shared | · | ✓ | · | · | · | solo |
 | test6183 | shared | · | ✓ | · | · | · | solo |
 | test6184 | shared | · | ✓ | · | · | · | solo |

@@ -2450,7 +2450,7 @@
         "rust": {
           "function": "test171_frame_type_roundtrip",
           "description": "TEST171: Test all FrameType discriminants roundtrip through u8 conversion preserving identity",
-          "location": "src/bifaci/frame.rs:1480"
+          "location": "src/bifaci/frame.rs:1507"
         },
         "go": {
           "function": "Test171_frame_type_roundtrip",
@@ -2488,7 +2488,7 @@
         "rust": {
           "function": "test172_invalid_frame_type",
           "description": "TEST172: Test FrameType::from_u8 returns None for values outside the valid discriminant range",
-          "location": "src/bifaci/frame.rs:1505"
+          "location": "src/bifaci/frame.rs:1532"
         },
         "go": {
           "function": "Test172_frame_type_valid_range",
@@ -2526,7 +2526,7 @@
         "rust": {
           "function": "test173_frame_type_discriminant_values",
           "description": "TEST173: Test FrameType discriminant values match the wire protocol specification exactly",
-          "location": "src/bifaci/frame.rs:1516"
+          "location": "src/bifaci/frame.rs:1543"
         },
         "go": {
           "function": "Test173_frame_type_wire_protocol_values",
@@ -2564,7 +2564,7 @@
         "rust": {
           "function": "test174_message_id_uuid",
           "description": "TEST174: Test MessageId::new_uuid generates valid UUID that roundtrips through string conversion",
-          "location": "src/bifaci/frame.rs:1534"
+          "location": "src/bifaci/frame.rs:1561"
         },
         "go": {
           "function": "Test174_message_id_new_uuid_roundtrip",
@@ -2602,7 +2602,7 @@
         "rust": {
           "function": "test175_message_id_uuid_uniqueness",
           "description": "TEST175: Test two MessageId::new_uuid calls produce distinct IDs (no collisions)",
-          "location": "src/bifaci/frame.rs:1543"
+          "location": "src/bifaci/frame.rs:1570"
         },
         "go": {
           "function": "Test175_message_id_uuid_distinct",
@@ -2640,7 +2640,7 @@
         "rust": {
           "function": "test176_message_id_uint_has_no_uuid_string",
           "description": "TEST176: Test MessageId::Uint does not produce a UUID string, to_uuid_string returns None",
-          "location": "src/bifaci/frame.rs:1551"
+          "location": "src/bifaci/frame.rs:1578"
         },
         "go": {
           "function": "Test176_message_id_uint_no_uuid_string",
@@ -2678,7 +2678,7 @@
         "rust": {
           "function": "test177_message_id_from_invalid_uuid_str",
           "description": "TEST177: Test MessageId::from_uuid_str rejects invalid UUID strings",
-          "location": "src/bifaci/frame.rs:1561"
+          "location": "src/bifaci/frame.rs:1588"
         },
         "go": {
           "function": "Test177_message_id_from_invalid_uuid_str",
@@ -2716,7 +2716,7 @@
         "rust": {
           "function": "test178_message_id_as_bytes",
           "description": "TEST178: Test MessageId::as_bytes produces correct byte representations for Uuid and Uint variants",
-          "location": "src/bifaci/frame.rs:1569"
+          "location": "src/bifaci/frame.rs:1596"
         },
         "go": {
           "function": "Test178_message_id_as_bytes",
@@ -2754,7 +2754,7 @@
         "rust": {
           "function": "test179_message_id_default_is_uuid",
           "description": "TEST179: Test MessageId::default creates a UUID variant (not Uint)",
-          "location": "src/bifaci/frame.rs:1585"
+          "location": "src/bifaci/frame.rs:1612"
         },
         "go": {
           "function": "Test179_message_id_default",
@@ -2792,7 +2792,7 @@
         "rust": {
           "function": "test180_hello_frame",
           "description": "TEST180: Test Frame::hello without manifest produces correct HELLO frame for host side",
-          "location": "src/bifaci/frame.rs:1595"
+          "location": "src/bifaci/frame.rs:1622"
         },
         "go": {
           "function": "Test180_frame_hello_without_manifest",
@@ -2830,7 +2830,7 @@
         "rust": {
           "function": "test181_hello_frame_with_manifest",
           "description": "TEST181: Test Frame::hello_with_manifest produces HELLO with manifest bytes for cartridge side",
-          "location": "src/bifaci/frame.rs:1617"
+          "location": "src/bifaci/frame.rs:1644"
         },
         "go": {
           "function": "Test181_frame_hello_with_manifest",
@@ -2868,7 +2868,7 @@
         "rust": {
           "function": "test182_req_frame",
           "description": "TEST182: Test Frame::req stores cap URN, payload, and content_type correctly",
-          "location": "src/bifaci/frame.rs:1640"
+          "location": "src/bifaci/frame.rs:1667"
         },
         "go": {
           "function": "Test182_frame_req",
@@ -2906,7 +2906,7 @@
         "rust": {
           "function": "test184_chunk_frame",
           "description": "TEST184: Test Frame::chunk stores seq and payload for streaming (with stream_id)",
-          "location": "src/bifaci/frame.rs:1664"
+          "location": "src/bifaci/frame.rs:1691"
         },
         "go": {
           "function": "Test184_frame_chunk",
@@ -2944,7 +2944,7 @@
         "rust": {
           "function": "test185_err_frame",
           "description": "TEST185: Test Frame::err stores error code and message in metadata",
-          "location": "src/bifaci/frame.rs:1680"
+          "location": "src/bifaci/frame.rs:1707"
         },
         "go": {
           "function": "Test185_frame_err",
@@ -2982,7 +2982,7 @@
         "rust": {
           "function": "test186_log_frame",
           "description": "TEST186: Test Frame::log stores level and message in metadata",
-          "location": "src/bifaci/frame.rs:1890"
+          "location": "src/bifaci/frame.rs:1917"
         },
         "go": {
           "function": "Test186_frame_log",
@@ -3020,7 +3020,7 @@
         "rust": {
           "function": "test187_end_frame_with_payload",
           "description": "TEST187: Test Frame::end with payload sets eof and optional final payload",
-          "location": "src/bifaci/frame.rs:1907"
+          "location": "src/bifaci/frame.rs:1934"
         },
         "go": {
           "function": "Test187_frame_end_with_payload",
@@ -3058,7 +3058,7 @@
         "rust": {
           "function": "test188_end_frame_without_payload",
           "description": "TEST188: Test Frame::end without payload still sets eof marker",
-          "location": "src/bifaci/frame.rs:1917"
+          "location": "src/bifaci/frame.rs:1944"
         },
         "go": {
           "function": "Test188_frame_end_without_payload",
@@ -3096,7 +3096,7 @@
         "rust": {
           "function": "test189_chunk_with_offset",
           "description": "TEST189: Test chunk_with_offset sets offset on all chunks but len only on seq=0 (with stream_id)",
-          "location": "src/bifaci/frame.rs:1927"
+          "location": "src/bifaci/frame.rs:1954"
         },
         "go": {
           "function": "Test189_frame_chunk_with_offset",
@@ -3134,7 +3134,7 @@
         "rust": {
           "function": "test190_heartbeat_frame",
           "description": "TEST190: Test Frame::heartbeat creates minimal frame with no payload or metadata",
-          "location": "src/bifaci/frame.rs:1977"
+          "location": "src/bifaci/frame.rs:2004"
         },
         "go": {
           "function": "Test190_frame_heartbeat",
@@ -3172,7 +3172,7 @@
         "rust": {
           "function": "test191_error_accessors_on_non_err_frame",
           "description": "TEST191: Test error_code and error_message return None for non-Err frame types",
-          "location": "src/bifaci/frame.rs:2028"
+          "location": "src/bifaci/frame.rs:2055"
         },
         "go": {
           "function": "Test191_error_accessors_on_non_err_frame",
@@ -3210,7 +3210,7 @@
         "rust": {
           "function": "test192_log_accessors_on_non_log_frame",
           "description": "TEST192: Test log_level and log_message return None for non-Log frame types",
-          "location": "src/bifaci/frame.rs:2052"
+          "location": "src/bifaci/frame.rs:2079"
         },
         "go": {
           "function": "Test192_log_accessors_on_non_log_frame",
@@ -3248,7 +3248,7 @@
         "rust": {
           "function": "test193_hello_accessors_on_non_hello_frame",
           "description": "TEST193: Test hello_max_frame and hello_max_chunk return None for non-Hello frame types",
-          "location": "src/bifaci/frame.rs:2065"
+          "location": "src/bifaci/frame.rs:2092"
         },
         "go": {
           "function": "Test193_hello_accessors_on_non_hello_frame",
@@ -3286,7 +3286,7 @@
         "rust": {
           "function": "test194_frame_new_defaults",
           "description": "TEST194: Test Frame::new sets version and defaults correctly, optional fields are None",
-          "location": "src/bifaci/frame.rs:2080"
+          "location": "src/bifaci/frame.rs:2107"
         },
         "go": {
           "function": "Test194_frame_new_defaults",
@@ -3324,7 +3324,7 @@
         "rust": {
           "function": "test195_frame_default",
           "description": "TEST195: Test Frame::default creates a Req frame (the documented default)",
-          "location": "src/bifaci/frame.rs:2098"
+          "location": "src/bifaci/frame.rs:2125"
         },
         "go": {
           "function": "Test195_frame_default_type",
@@ -3362,7 +3362,7 @@
         "rust": {
           "function": "test196_is_eof_when_none",
           "description": "TEST196: Test is_eof returns false when eof field is None (unset)",
-          "location": "src/bifaci/frame.rs:2106"
+          "location": "src/bifaci/frame.rs:2133"
         },
         "go": {
           "function": "Test196_is_eof_when_none",
@@ -3400,7 +3400,7 @@
         "rust": {
           "function": "test197_is_eof_when_false",
           "description": "TEST197: Test is_eof returns false when eof field is explicitly Some(false)",
-          "location": "src/bifaci/frame.rs:2113"
+          "location": "src/bifaci/frame.rs:2140"
         },
         "go": {
           "function": "Test197_is_eof_when_false",
@@ -3438,7 +3438,7 @@
         "rust": {
           "function": "test198_limits_default",
           "description": "TEST198: Test Limits::default provides the documented default values",
-          "location": "src/bifaci/frame.rs:2121"
+          "location": "src/bifaci/frame.rs:2148"
         },
         "go": {
           "function": "Test198_limits_default",
@@ -3476,7 +3476,7 @@
         "rust": {
           "function": "test199_protocol_version_constant",
           "description": "TEST199: Test PROTOCOL_VERSION is 4",
-          "location": "src/bifaci/frame.rs:2135"
+          "location": "src/bifaci/frame.rs:2162"
         },
         "go": {
           "function": "Test199_protocol_version_constant",
@@ -3514,7 +3514,7 @@
         "rust": {
           "function": "test200_key_constants",
           "description": "TEST200: Test integer key constants match the protocol specification",
-          "location": "src/bifaci/frame.rs:2141"
+          "location": "src/bifaci/frame.rs:2168"
         },
         "go": {
           "function": "Test200_key_constants",
@@ -3552,7 +3552,7 @@
         "rust": {
           "function": "test201_hello_manifest_binary_data",
           "description": "TEST201: Test hello_with_manifest preserves binary manifest data (not just JSON text)",
-          "location": "src/bifaci/frame.rs:2157"
+          "location": "src/bifaci/frame.rs:2184"
         },
         "go": {
           "function": "Test201_hello_manifest_binary_data",
@@ -3590,7 +3590,7 @@
         "rust": {
           "function": "test202_message_id_equality_and_hash",
           "description": "TEST202: Test MessageId Eq/Hash semantics: equal UUIDs are equal, different ones are not",
-          "location": "src/bifaci/frame.rs:2174"
+          "location": "src/bifaci/frame.rs:2201"
         },
         "go": {
           "function": "Test202_message_id_equality_and_hash",
@@ -3628,7 +3628,7 @@
         "rust": {
           "function": "test203_message_id_cross_variant_inequality",
           "description": "TEST203: Test Uuid and Uint variants of MessageId are never equal even for coincidental byte values",
-          "location": "src/bifaci/frame.rs:2197"
+          "location": "src/bifaci/frame.rs:2224"
         },
         "go": {
           "function": "Test203_message_id_cross_variant_inequality",
@@ -3666,7 +3666,7 @@
         "rust": {
           "function": "test204_req_frame_empty_payload",
           "description": "TEST204: Test Frame::req with empty payload stores Some(empty vec) not None",
-          "location": "src/bifaci/frame.rs:2205"
+          "location": "src/bifaci/frame.rs:2232"
         },
         "go": {
           "function": "Test204_req_frame_empty_payload",
@@ -8566,7 +8566,7 @@
         "rust": {
           "function": "test365_stream_start_frame",
           "description": "TEST365: Frame::stream_start stores request_id, stream_id, and media_urn",
-          "location": "src/bifaci/frame.rs:2221"
+          "location": "src/bifaci/frame.rs:2248"
         },
         "go": {
           "function": "Test365_stream_start_frame",
@@ -8604,7 +8604,7 @@
         "rust": {
           "function": "test366_stream_end_frame",
           "description": "TEST366: Frame::stream_end stores request_id and stream_id",
-          "location": "src/bifaci/frame.rs:2238"
+          "location": "src/bifaci/frame.rs:2265"
         },
         "go": {
           "function": "Test366_stream_end_frame",
@@ -8642,7 +8642,7 @@
         "rust": {
           "function": "test367_stream_start_with_empty_stream_id",
           "description": "TEST367: StreamStart frame with empty stream_id still constructs (validation happens elsewhere)",
-          "location": "src/bifaci/frame.rs:2257"
+          "location": "src/bifaci/frame.rs:2284"
         },
         "go": {
           "function": "Test367_stream_start_with_empty_stream_id",
@@ -8680,7 +8680,7 @@
         "rust": {
           "function": "test368_stream_start_with_empty_media_urn",
           "description": "TEST368: StreamStart frame with empty media_urn still constructs (validation happens elsewhere)",
-          "location": "src/bifaci/frame.rs:2268"
+          "location": "src/bifaci/frame.rs:2295"
         },
         "go": {
           "function": "Test368_stream_start_with_empty_media_urn",
@@ -8946,7 +8946,7 @@
         "rust": {
           "function": "test399_relay_notify_discriminant_roundtrip",
           "description": "TEST399: Verify RelayNotify frame type discriminant roundtrips through u8 (value 10)",
-          "location": "src/bifaci/frame.rs:2280"
+          "location": "src/bifaci/frame.rs:2307"
         },
         "go": {
           "function": "Test399_relay_notify_discriminant_roundtrip",
@@ -8984,7 +8984,7 @@
         "rust": {
           "function": "test400_relay_state_discriminant_roundtrip",
           "description": "TEST400: Verify RelayState frame type discriminant roundtrips through u8 (value 11)",
-          "location": "src/bifaci/frame.rs:2289"
+          "location": "src/bifaci/frame.rs:2316"
         },
         "go": {
           "function": "Test400_relay_state_discriminant_roundtrip",
@@ -9022,7 +9022,7 @@
         "rust": {
           "function": "test401_relay_notify_frame",
           "description": "TEST401: Verify relay_notify factory stores manifest and limits, and accessors extract them",
-          "location": "src/bifaci/frame.rs:2298"
+          "location": "src/bifaci/frame.rs:2325"
         },
         "go": {
           "function": "Test401_relay_notify_factory_and_accessors",
@@ -9060,7 +9060,7 @@
         "rust": {
           "function": "test402_relay_state_frame",
           "description": "TEST402: Verify relay_state factory stores resource payload in frame payload field",
-          "location": "src/bifaci/frame.rs:2318"
+          "location": "src/bifaci/frame.rs:2345"
         },
         "go": {
           "function": "Test402_relay_state_factory_and_payload",
@@ -9098,7 +9098,7 @@
         "rust": {
           "function": "test403_invalid_frame_type_past_cancel",
           "description": "TEST403: Verify from_u8 returns None for values past the last valid frame type",
-          "location": "src/bifaci/frame.rs:2333"
+          "location": "src/bifaci/frame.rs:2360"
         },
         "go": {
           "function": "Test403_frame_type_one_past_cancel",
@@ -10352,7 +10352,7 @@
         "rust": {
           "function": "test436_compute_checksum",
           "description": "TEST436: Verify FNV-1a checksum function produces consistent results",
-          "location": "src/bifaci/frame.rs:2356"
+          "location": "src/bifaci/frame.rs:2383"
         },
         "go": {
           "function": "Test436_compute_checksum",
@@ -10580,7 +10580,7 @@
         "rust": {
           "function": "test442_seq_assigner_monotonic_same_rid",
           "description": "TEST442: SeqAssigner assigns seq 0,1,2,3 for consecutive frames with same RID",
-          "location": "src/bifaci/frame.rs:2432"
+          "location": "src/bifaci/frame.rs:2459"
         },
         "go": {
           "function": "Test442_seq_assigner_monotonic_same_rid",
@@ -10618,7 +10618,7 @@
         "rust": {
           "function": "test443_seq_assigner_independent_rids",
           "description": "TEST443: SeqAssigner maintains independent counters for different RIDs",
-          "location": "src/bifaci/frame.rs:2454"
+          "location": "src/bifaci/frame.rs:2481"
         },
         "go": {
           "function": "Test443_seq_assigner_independent_rids",
@@ -10656,7 +10656,7 @@
         "rust": {
           "function": "test444_seq_assigner_skips_non_flow",
           "description": "TEST444: SeqAssigner skips non-flow frames (Heartbeat, RelayNotify, RelayState, Hello)",
-          "location": "src/bifaci/frame.rs:2480"
+          "location": "src/bifaci/frame.rs:2507"
         },
         "go": {
           "function": "Test444_seq_assigner_skips_non_flow",
@@ -10694,7 +10694,7 @@
         "rust": {
           "function": "test445_seq_assigner_remove_by_flow_key",
           "description": "TEST445: SeqAssigner.remove with FlowKey(rid, None) resets that flow; FlowKey(rid, Some(xid)) is unaffected",
-          "location": "src/bifaci/frame.rs:2501"
+          "location": "src/bifaci/frame.rs:2528"
         },
         "go": {
           "function": "Test445_seq_assigner_remove_by_flow_key",
@@ -10732,7 +10732,7 @@
         "rust": {
           "function": "test446_seq_assigner_mixed_types",
           "description": "TEST446: SeqAssigner handles mixed frame types (REQ, CHUNK, LOG, END) for same RID",
-          "location": "src/bifaci/frame.rs:2581"
+          "location": "src/bifaci/frame.rs:2608"
         },
         "go": {
           "function": "Test446_seq_assigner_mixed_types",
@@ -10770,7 +10770,7 @@
         "rust": {
           "function": "test447_flow_key_with_xid",
           "description": "TEST447: FlowKey::from_frame extracts (rid, Some(xid)) when routing_id present",
-          "location": "src/bifaci/frame.rs:2613"
+          "location": "src/bifaci/frame.rs:2640"
         },
         "go": {
           "function": "Test447_flow_key_with_xid",
@@ -10808,7 +10808,7 @@
         "rust": {
           "function": "test448_flow_key_without_xid",
           "description": "TEST448: FlowKey::from_frame extracts (rid, None) when routing_id absent",
-          "location": "src/bifaci/frame.rs:2626"
+          "location": "src/bifaci/frame.rs:2653"
         },
         "go": {
           "function": "Test448_flow_key_without_xid",
@@ -10846,7 +10846,7 @@
         "rust": {
           "function": "test449_flow_key_equality",
           "description": "TEST449: FlowKey equality: same rid+xid equal, different xid different key",
-          "location": "src/bifaci/frame.rs:2637"
+          "location": "src/bifaci/frame.rs:2664"
         },
         "go": {
           "function": "Test449_flow_key_equality",
@@ -10884,7 +10884,7 @@
         "rust": {
           "function": "test450_flow_key_hash_lookup",
           "description": "TEST450: FlowKey hash: same keys hash equal (HashMap lookup)",
-          "location": "src/bifaci/frame.rs:2675"
+          "location": "src/bifaci/frame.rs:2702"
         },
         "go": {
           "function": "Test450_flow_key_hash_lookup",
@@ -10922,7 +10922,7 @@
         "rust": {
           "function": "test451_reorder_buffer_in_order",
           "description": "TEST451: ReorderBuffer in-order delivery: seq 0,1,2 delivered immediately",
-          "location": "src/bifaci/frame.rs:2711"
+          "location": "src/bifaci/frame.rs:2738"
         },
         "go": {
           "function": "Test451_reorder_buffer_in_order",
@@ -10960,7 +10960,7 @@
         "rust": {
           "function": "test452_reorder_buffer_out_of_order",
           "description": "TEST452: ReorderBuffer out-of-order: seq 1 then 0 delivers both in order",
-          "location": "src/bifaci/frame.rs:2730"
+          "location": "src/bifaci/frame.rs:2757"
         },
         "go": {
           "function": "Test452_reorder_buffer_out_of_order",
@@ -10998,7 +10998,7 @@
         "rust": {
           "function": "test453_reorder_buffer_gap_fill",
           "description": "TEST453: ReorderBuffer gap fill: seq 0,2,1 delivers 0, buffers 2, then delivers 1+2",
-          "location": "src/bifaci/frame.rs:2745"
+          "location": "src/bifaci/frame.rs:2772"
         },
         "go": {
           "function": "Test453_reorder_buffer_gap_fill",
@@ -11036,7 +11036,7 @@
         "rust": {
           "function": "test454_reorder_buffer_stale_seq",
           "description": "TEST454: ReorderBuffer stale seq is hard error",
-          "location": "src/bifaci/frame.rs:2763"
+          "location": "src/bifaci/frame.rs:2790"
         },
         "go": {
           "function": "Test454_reorder_buffer_stale_seq",
@@ -11074,7 +11074,7 @@
         "rust": {
           "function": "test455_reorder_buffer_overflow",
           "description": "TEST455: ReorderBuffer overflow triggers protocol error",
-          "location": "src/bifaci/frame.rs:2782"
+          "location": "src/bifaci/frame.rs:2809"
         },
         "go": {
           "function": "Test455_reorder_buffer_overflow",
@@ -11112,7 +11112,7 @@
         "rust": {
           "function": "test456_reorder_buffer_independent_flows",
           "description": "TEST456: Multiple concurrent flows reorder independently",
-          "location": "src/bifaci/frame.rs:2802"
+          "location": "src/bifaci/frame.rs:2829"
         },
         "go": {
           "function": "Test456_reorder_buffer_independent_flows",
@@ -11150,7 +11150,7 @@
         "rust": {
           "function": "test457_reorder_buffer_cleanup",
           "description": "TEST457: cleanup_flow removes state; new frames start at seq 0",
-          "location": "src/bifaci/frame.rs:2825"
+          "location": "src/bifaci/frame.rs:2852"
         },
         "go": {
           "function": "Test457_reorder_buffer_cleanup",
@@ -11188,7 +11188,7 @@
         "rust": {
           "function": "test458_reorder_buffer_non_flow_bypass",
           "description": "TEST458: Non-flow frames bypass reorder entirely",
-          "location": "src/bifaci/frame.rs:2845"
+          "location": "src/bifaci/frame.rs:2872"
         },
         "go": {
           "function": "Test458_reorder_buffer_non_flow_bypass",
@@ -11226,7 +11226,7 @@
         "rust": {
           "function": "test459_reorder_buffer_end_frame",
           "description": "TEST459: Terminal END frame flows through correctly",
-          "location": "src/bifaci/frame.rs:2877"
+          "location": "src/bifaci/frame.rs:2904"
         },
         "go": {
           "function": "Test459_reorder_buffer_end_frame",
@@ -11264,7 +11264,7 @@
         "rust": {
           "function": "test460_reorder_buffer_err_frame",
           "description": "TEST460: Terminal ERR frame flows through correctly",
-          "location": "src/bifaci/frame.rs:2895"
+          "location": "src/bifaci/frame.rs:2922"
         },
         "go": {
           "function": "Test460_reorder_buffer_err_frame",
@@ -11974,7 +11974,7 @@
         "rust": {
           "function": "test491_chunk_requires_chunk_index_and_checksum",
           "description": "TEST491: Frame::chunk constructor requires and sets chunk_index and checksum",
-          "location": "src/bifaci/frame.rs:2923"
+          "location": "src/bifaci/frame.rs:2950"
         },
         "go": {
           "function": "Test491_chunk_requires_chunk_index_and_checksum",
@@ -12012,7 +12012,7 @@
         "rust": {
           "function": "test492_stream_end_requires_chunk_count",
           "description": "TEST492: Frame::stream_end constructor requires and sets chunk_count",
-          "location": "src/bifaci/frame.rs:2945"
+          "location": "src/bifaci/frame.rs:2972"
         },
         "go": {
           "function": "Test492_stream_end_requires_chunk_count",
@@ -12050,7 +12050,7 @@
         "rust": {
           "function": "test493_compute_checksum_fnv1a_test_vectors",
           "description": "TEST493: compute_checksum produces correct FNV-1a hash for known test vectors",
-          "location": "src/bifaci/frame.rs:2957"
+          "location": "src/bifaci/frame.rs:2984"
         },
         "go": {
           "function": "Test493_compute_checksum_fnv1a_test_vectors",
@@ -12088,7 +12088,7 @@
         "rust": {
           "function": "test494_compute_checksum_deterministic",
           "description": "TEST494: compute_checksum is deterministic",
-          "location": "src/bifaci/frame.rs:2978"
+          "location": "src/bifaci/frame.rs:3005"
         },
         "go": {
           "function": "Test494_compute_checksum_deterministic",
@@ -12126,7 +12126,7 @@
         "rust": {
           "function": "test495_cbor_rejects_chunk_without_chunk_index",
           "description": "TEST495: CBOR decode REJECTS CHUNK frame missing chunk_index field",
-          "location": "src/bifaci/frame.rs:2990"
+          "location": "src/bifaci/frame.rs:3017"
         },
         "go": {
           "function": "Test495_cbor_rejects_chunk_without_chunk_index",
@@ -12164,7 +12164,7 @@
         "rust": {
           "function": "test496_cbor_rejects_chunk_without_checksum",
           "description": "TEST496: CBOR decode REJECTS CHUNK frame missing checksum field",
-          "location": "src/bifaci/frame.rs:3022"
+          "location": "src/bifaci/frame.rs:3049"
         },
         "go": {
           "function": "Test496_cbor_rejects_chunk_without_checksum",
@@ -12240,7 +12240,7 @@
         "rust": {
           "function": "test498_routing_id_cbor_roundtrip",
           "description": "TEST498: routing_id field roundtrips through CBOR encoding",
-          "location": "src/bifaci/frame.rs:3274"
+          "location": "src/bifaci/frame.rs:3301"
         },
         "go": {
           "function": "Test498_routing_id_cbor_roundtrip",
@@ -12278,7 +12278,7 @@
         "rust": {
           "function": "test499_chunk_index_checksum_cbor_roundtrip",
           "description": "TEST499: chunk_index and checksum roundtrip through CBOR encoding",
-          "location": "src/bifaci/frame.rs:3301"
+          "location": "src/bifaci/frame.rs:3328"
         },
         "go": {
           "function": "Test499_chunk_index_checksum_cbor_roundtrip",
@@ -12316,7 +12316,7 @@
         "rust": {
           "function": "test500_chunk_count_cbor_roundtrip",
           "description": "TEST500: chunk_count roundtrips through CBOR encoding",
-          "location": "src/bifaci/frame.rs:3327"
+          "location": "src/bifaci/frame.rs:3354"
         },
         "go": {
           "function": "Test500_chunk_count_cbor_roundtrip",
@@ -12354,7 +12354,7 @@
         "rust": {
           "function": "test501_frame_new_initializes_optional_fields_none",
           "description": "TEST501: Frame::new initializes new fields to None",
-          "location": "src/bifaci/frame.rs:3343"
+          "location": "src/bifaci/frame.rs:3370"
         },
         "go": {
           "function": "Test501_frame_new_initializes_optional_fields_none",
@@ -12392,7 +12392,7 @@
         "rust": {
           "function": "test502_keys_module_new_field_constants",
           "description": "TEST502: Keys module has constants for new fields",
-          "location": "src/bifaci/frame.rs:3354"
+          "location": "src/bifaci/frame.rs:3381"
         },
         "go": {
           "function": "Test502_keys_module_new_field_constants",
@@ -12430,7 +12430,7 @@
         "rust": {
           "function": "test503_compute_checksum_empty_data",
           "description": "TEST503: compute_checksum handles empty data correctly",
-          "location": "src/bifaci/frame.rs:3364"
+          "location": "src/bifaci/frame.rs:3391"
         },
         "go": {
           "function": "Test503_compute_checksum_empty_data",
@@ -12468,7 +12468,7 @@
         "rust": {
           "function": "test504_compute_checksum_large_payload",
           "description": "TEST504: compute_checksum handles large payloads without overflow",
-          "location": "src/bifaci/frame.rs:3374"
+          "location": "src/bifaci/frame.rs:3401"
         },
         "go": {
           "function": "Test504_compute_checksum_large_payload",
@@ -12506,7 +12506,7 @@
         "rust": {
           "function": "test505_chunk_with_offset_sets_chunk_index",
           "description": "TEST505: chunk_with_offset sets chunk_index correctly",
-          "location": "src/bifaci/frame.rs:3386"
+          "location": "src/bifaci/frame.rs:3413"
         },
         "go": {
           "function": "Test505_chunk_with_offset_sets_chunk_index",
@@ -12544,7 +12544,7 @@
         "rust": {
           "function": "test506_compute_checksum_different_data_different_hash",
           "description": "TEST506: Different data produces different checksums",
-          "location": "src/bifaci/frame.rs:3410"
+          "location": "src/bifaci/frame.rs:3437"
         },
         "go": {
           "function": "Test506_compute_checksum_different_data_different_hash",
@@ -12582,7 +12582,7 @@
         "rust": {
           "function": "test507_reorder_buffer_xid_isolation",
           "description": "TEST507: ReorderBuffer isolates flows by XID (routing_id) - same RID different XIDs",
-          "location": "src/bifaci/frame.rs:3426"
+          "location": "src/bifaci/frame.rs:3453"
         },
         "go": {
           "function": "Test507_reorder_buffer_xid_isolation",
@@ -12620,7 +12620,7 @@
         "rust": {
           "function": "test508_reorder_buffer_duplicate_buffered_seq",
           "description": "TEST508: ReorderBuffer rejects duplicate seq already in buffer",
-          "location": "src/bifaci/frame.rs:3454"
+          "location": "src/bifaci/frame.rs:3481"
         },
         "go": {
           "function": "Test508_reorder_buffer_duplicate_buffered_seq",
@@ -12658,7 +12658,7 @@
         "rust": {
           "function": "test509_reorder_buffer_large_gap_rejected",
           "description": "TEST509: ReorderBuffer handles large seq gaps without DOS",
-          "location": "src/bifaci/frame.rs:3474"
+          "location": "src/bifaci/frame.rs:3501"
         },
         "go": {
           "function": "Test509_reorder_buffer_large_gap_rejected",
@@ -12696,7 +12696,7 @@
         "rust": {
           "function": "test510_reorder_buffer_multiple_gaps",
           "description": "TEST510: ReorderBuffer with multiple interleaved gaps fills correctly",
-          "location": "src/bifaci/frame.rs:3506"
+          "location": "src/bifaci/frame.rs:3533"
         },
         "go": {
           "function": "Test510_reorder_buffer_multiple_gaps",
@@ -12734,7 +12734,7 @@
         "rust": {
           "function": "test511_reorder_buffer_cleanup_with_buffered_frames",
           "description": "TEST511: ReorderBuffer cleanup with buffered frames discards them",
-          "location": "src/bifaci/frame.rs:3539"
+          "location": "src/bifaci/frame.rs:3566"
         },
         "go": {
           "function": "Test511_reorder_buffer_cleanup_with_buffered_frames",
@@ -12772,7 +12772,7 @@
         "rust": {
           "function": "test512_reorder_buffer_burst_delivery",
           "description": "TEST512: ReorderBuffer delivers burst of consecutive buffered frames",
-          "location": "src/bifaci/frame.rs:3565"
+          "location": "src/bifaci/frame.rs:3592"
         },
         "go": {
           "function": "Test512_reorder_buffer_burst_delivery",
@@ -12810,7 +12810,7 @@
         "rust": {
           "function": "test513_reorder_buffer_mixed_types_same_flow",
           "description": "TEST513: ReorderBuffer different frame types in same flow maintain order",
-          "location": "src/bifaci/frame.rs:3585"
+          "location": "src/bifaci/frame.rs:3612"
         },
         "go": {
           "function": "Test513_reorder_buffer_mixed_types_same_flow",
@@ -12848,7 +12848,7 @@
         "rust": {
           "function": "test514_reorder_buffer_xid_cleanup_isolation",
           "description": "TEST514: ReorderBuffer with XID cleanup doesn't affect different XID",
-          "location": "src/bifaci/frame.rs:3610"
+          "location": "src/bifaci/frame.rs:3637"
         },
         "go": {
           "function": "Test514_reorder_buffer_xid_cleanup_isolation",
@@ -12886,7 +12886,7 @@
         "rust": {
           "function": "test515_reorder_buffer_overflow_error_details",
           "description": "TEST515: ReorderBuffer overflow error includes diagnostic information",
-          "location": "src/bifaci/frame.rs:3638"
+          "location": "src/bifaci/frame.rs:3665"
         },
         "go": {
           "function": "Test515_reorder_buffer_overflow_error_details",
@@ -12924,7 +12924,7 @@
         "rust": {
           "function": "test516_reorder_buffer_stale_error_details",
           "description": "TEST516: ReorderBuffer stale error includes diagnostic information",
-          "location": "src/bifaci/frame.rs:3664"
+          "location": "src/bifaci/frame.rs:3691"
         },
         "go": {
           "function": "Test516_reorder_buffer_stale_error_details",
@@ -12962,7 +12962,7 @@
         "rust": {
           "function": "test517_flow_key_none_vs_some_xid",
           "description": "TEST517: FlowKey with None XID differs from Some(xid)",
-          "location": "src/bifaci/frame.rs:3687"
+          "location": "src/bifaci/frame.rs:3714"
         },
         "go": {
           "function": "Test517_flow_key_none_vs_some_xid",
@@ -13000,7 +13000,7 @@
         "rust": {
           "function": "test518_reorder_buffer_empty_ready_vec",
           "description": "TEST518: ReorderBuffer handles zero-length ready vec correctly",
-          "location": "src/bifaci/frame.rs:3719"
+          "location": "src/bifaci/frame.rs:3746"
         },
         "go": {
           "function": "Test518_reorder_buffer_empty_ready_vec",
@@ -13038,7 +13038,7 @@
         "rust": {
           "function": "test519_reorder_buffer_state_persistence",
           "description": "TEST519: ReorderBuffer state persists across accept calls",
-          "location": "src/bifaci/frame.rs:3731"
+          "location": "src/bifaci/frame.rs:3758"
         },
         "go": {
           "function": "Test519_reorder_buffer_state_persistence",
@@ -13076,7 +13076,7 @@
         "rust": {
           "function": "test520_reorder_buffer_per_flow_limit",
           "description": "TEST520: ReorderBuffer max_buffer_per_flow is per-flow not global",
-          "location": "src/bifaci/frame.rs:3749"
+          "location": "src/bifaci/frame.rs:3776"
         },
         "go": {
           "function": "Test520_reorder_buffer_per_flow_limit",
@@ -13114,7 +13114,7 @@
         "rust": {
           "function": "test521_relay_notify_cbor_roundtrip",
           "description": "TEST521: RelayNotify CBOR roundtrip preserves manifest and limits",
-          "location": "src/bifaci/frame.rs:3777"
+          "location": "src/bifaci/frame.rs:3804"
         },
         "go": {
           "function": "Test521_relay_notify_cbor_roundtrip",
@@ -13152,7 +13152,7 @@
         "rust": {
           "function": "test522_relay_state_cbor_roundtrip",
           "description": "TEST522: RelayState CBOR roundtrip preserves payload",
-          "location": "src/bifaci/frame.rs:3818"
+          "location": "src/bifaci/frame.rs:3845"
         },
         "go": {
           "function": "Test522_relay_state_cbor_roundtrip",
@@ -13190,7 +13190,7 @@
         "rust": {
           "function": "test523_relay_notify_not_flow_frame",
           "description": "TEST523: is_flow_frame returns false for RelayNotify",
-          "location": "src/bifaci/frame.rs:3838"
+          "location": "src/bifaci/frame.rs:3865"
         },
         "go": {
           "function": "Test523_relay_notify_not_flow_frame",
@@ -13228,7 +13228,7 @@
         "rust": {
           "function": "test524_relay_state_not_flow_frame",
           "description": "TEST524: is_flow_frame returns false for RelayState",
-          "location": "src/bifaci/frame.rs:3851"
+          "location": "src/bifaci/frame.rs:3878"
         },
         "go": {
           "function": "Test524_relay_state_not_flow_frame",
@@ -13266,7 +13266,7 @@
         "rust": {
           "function": "test525_relay_notify_empty_manifest",
           "description": "TEST525: RelayNotify with empty manifest is valid",
-          "location": "src/bifaci/frame.rs:3863"
+          "location": "src/bifaci/frame.rs:3890"
         },
         "go": {
           "function": "Test525_relay_notify_empty_manifest",
@@ -13304,7 +13304,7 @@
         "rust": {
           "function": "test526_relay_state_empty_payload",
           "description": "TEST526: RelayState with empty payload is valid",
-          "location": "src/bifaci/frame.rs:3877"
+          "location": "src/bifaci/frame.rs:3904"
         },
         "go": {
           "function": "Test526_relay_state_empty_payload",
@@ -13342,7 +13342,7 @@
         "rust": {
           "function": "test527_relay_notify_large_manifest",
           "description": "TEST527: RelayNotify with large manifest roundtrips correctly",
-          "location": "src/bifaci/frame.rs:3887"
+          "location": "src/bifaci/frame.rs:3914"
         },
         "go": {
           "function": "Test527_relay_notify_large_manifest",
@@ -13380,7 +13380,7 @@
         "rust": {
           "function": "test528_relay_frames_use_uint_zero_id",
           "description": "TEST528: RelayNotify and RelayState use MessageId::Uint(0)",
-          "location": "src/bifaci/frame.rs:3918"
+          "location": "src/bifaci/frame.rs:3945"
         },
         "go": {
           "function": "Test528_relay_frames_use_uint_zero_id",
@@ -16845,7 +16845,7 @@
         "rust": {
           "function": "test667_verify_chunk_checksum_detects_corruption",
           "description": "TEST667: verify_chunk_checksum detects corrupted payload",
-          "location": "src/bifaci/frame.rs:3940"
+          "location": "src/bifaci/frame.rs:3967"
         },
         "go": {
           "function": "Test667_verify_chunk_checksum_detects_corruption",
@@ -23037,7 +23037,7 @@
         "rust": {
           "function": "test860_seq_assigner_same_rid_different_xids_independent",
           "description": "TEST860: Same RID with different XIDs get independent seq counters",
-          "location": "src/bifaci/frame.rs:2549"
+          "location": "src/bifaci/frame.rs:2576"
         },
         "go": {
           "function": "Test860_seq_assigner_same_rid_different_xids_independent",
@@ -23406,7 +23406,7 @@
         "rust": {
           "function": "test902_compute_checksum_empty",
           "description": "TEST902: Verify FNV-1a checksum handles empty data",
-          "location": "src/bifaci/frame.rs:2378"
+          "location": "src/bifaci/frame.rs:2405"
         },
         "go": {
           "function": "Test902_compute_checksum_empty",
@@ -23444,7 +23444,7 @@
         "rust": {
           "function": "test903_chunk_with_chunk_index_and_checksum",
           "description": "TEST903: Verify CHUNK frame can store chunk_index and checksum fields",
-          "location": "src/bifaci/frame.rs:2389"
+          "location": "src/bifaci/frame.rs:2416"
         },
         "go": {
           "function": "Test903_chunk_with_chunk_index_and_checksum",
@@ -23482,7 +23482,7 @@
         "rust": {
           "function": "test904_stream_end_with_chunk_count",
           "description": "TEST904: Verify STREAM_END frame can store chunk_count field",
-          "location": "src/bifaci/frame.rs:2414"
+          "location": "src/bifaci/frame.rs:2441"
         },
         "go": {
           "function": "Test904_stream_end_with_chunk_count",
@@ -29083,7 +29083,7 @@
         "rust": {
           "function": "test1162_heartbeat_frame_with_memory_meta",
           "description": "TEST1162: Heartbeat frames preserve self-reported memory values stored in metadata.",
-          "location": "src/bifaci/frame.rs:1989"
+          "location": "src/bifaci/frame.rs:2016"
         },
         "go": {
           "function": "Test1162_heartbeat_frame_with_memory_meta",
@@ -33434,7 +33434,7 @@
         "rust": {
           "function": "test1900_err_frame_attribution_class_wire_contract",
           "description": "TEST1900: the ERR and non-progress LOG attribution-class wire contract (docs/failure-taxonomy.md): err writes meta code+attribution_class+message; missing and unknown attribution are rejected as protocol violations. Mirrored in all runtime SDKs.",
-          "location": "src/bifaci/frame.rs:1699"
+          "location": "src/bifaci/frame.rs:1726"
         },
         "go": {
           "function": "Test1900_err_frame_attribution_class_wire_contract",
@@ -34460,7 +34460,7 @@
         "rust": {
           "function": "test6672_cbor_accepts_stream_end_without_chunk_count",
           "description": "TEST6672: CBOR decode ACCEPTS STREAM_END without chunk_count \u2014 unbounded streams make no length promise (v4, L16)",
-          "location": "src/bifaci/frame.rs:3050"
+          "location": "src/bifaci/frame.rs:3077"
         },
         "go": {
           "function": "Test6672_cbor_accepts_stream_end_without_chunk_count",
@@ -34916,7 +34916,7 @@
         "rust": {
           "function": "test7010_credit_frame_roundtrip",
           "description": "TEST7010: CREDIT frame round-trips encode/decode with rid, stream_id, and credit count",
-          "location": "src/bifaci/frame.rs:3070"
+          "location": "src/bifaci/frame.rs:3097"
         },
         "go": {
           "function": "Test7010_credit_frame_roundtrip",
@@ -34954,7 +34954,7 @@
         "rust": {
           "function": "test7011_credit_is_non_flow",
           "description": "TEST7011: CREDIT is a non-flow frame \u2014 no seq assigned, passes the reorder buffer untouched regardless of flow state",
-          "location": "src/bifaci/frame.rs:3114"
+          "location": "src/bifaci/frame.rs:3141"
         },
         "go": {
           "function": "Test7011_credit_is_non_flow",
@@ -34992,7 +34992,7 @@
         "rust": {
           "function": "test7012_stream_start_unbounded_roundtrip",
           "description": "TEST7012: STREAM_START unbounded flag round-trips through CBOR; absent flag means bounded",
-          "location": "src/bifaci/frame.rs:3154"
+          "location": "src/bifaci/frame.rs:3181"
         },
         "go": {
           "function": "Test7012_stream_start_unbounded_roundtrip",
@@ -35030,7 +35030,7 @@
         "rust": {
           "function": "test7013_cbor_rejects_credit_without_count",
           "description": "TEST7013: CBOR decode REJECTS a CREDIT frame missing its credit count",
-          "location": "src/bifaci/frame.rs:3184"
+          "location": "src/bifaci/frame.rs:3211"
         },
         "go": {
           "function": "Test7013_cbor_rejects_credit_without_count",
@@ -35068,7 +35068,7 @@
         "rust": {
           "function": "test7014_end_terminal_meta_roundtrip",
           "description": "TEST7014: END terminal meta (progress, message) round-trips; successful END without progress reads as 1.0; failed END without progress reads as None",
-          "location": "src/bifaci/frame.rs:3243"
+          "location": "src/bifaci/frame.rs:3270"
         },
         "go": {
           "function": "Test7014_end_terminal_meta_roundtrip",
@@ -35410,7 +35410,7 @@
         "rust": {
           "function": "test7026_reorder_flushes_pre_terminal_before_cleanup",
           "description": "TEST7026: An out-of-order terminal is buffered until the gap fills; buffered pre-terminal frames flush ahead of it in seq order, and only then may the flow be cleaned up",
-          "location": "src/bifaci/frame.rs:3207"
+          "location": "src/bifaci/frame.rs:3234"
         },
         "go": {
           "function": "Test7026_reorder_flushes_pre_terminal_before_cleanup",
@@ -36488,7 +36488,7 @@
         "rust": {
           "function": "test7105_err_frame_arg_urn_round_trip",
           "description": "/ TEST7105: an ERR frame built WITH argument attribution round-trips it / through encode\u2192decode: meta carries `arg_urn`, `attribution_arg_urn()` / serves it, and code/class/message arrive intact beside it. Mirrored / in the Go/Python/Swift runtimes (shared 7105/7106 range).",
-          "location": "src/bifaci/frame.rs:1751"
+          "location": "src/bifaci/frame.rs:1778"
         },
         "go": {
           "function": "Test7105_err_frame_arg_urn_roundtrip",
@@ -36526,7 +36526,7 @@
         "rust": {
           "function": "test7106_arg_urn_absent_when_unattributed_and_accessor_threading",
           "description": "/ TEST7106: attribution is OPTIONAL and source-declared at every hop. / An ERR frame built WITHOUT attribution has NO `arg_urn` key in meta / (absent, not empty) and `attribution_arg_urn()` is `Ok(None)` after a wire round / trip; the `OpError::Classified` and `ExecutionError` accessors serve / the emit source's attribution in the Some case and None \u2014 never a / guess \u2014 in the unattributed case.",
-          "location": "src/bifaci/frame.rs:1822"
+          "location": "src/bifaci/frame.rs:1849"
         },
         "go": {
           "function": "Test7106_err_frame_without_attribution_has_no_arg_urn",
@@ -36716,7 +36716,7 @@
         "rust": {
           "function": "test7117_log_frame_arg_urn_round_trip",
           "description": "TEST7117: non-progress LOG carries the same source attribution tuple as ERR, including an optional argument URN, through the actual wire codec.",
-          "location": "src/bifaci/frame.rs:1790"
+          "location": "src/bifaci/frame.rs:1817"
         },
         "go": {
           "function": "Test7117_log_frame_arg_urn_roundtrip",
@@ -38243,6 +38243,34 @@
       "function": "test1905_peerReqNoHandlerSendsErrToCaller",
       "description": "TEST0142 (Swift-specific, gap 3): a peer cartridge\u2192cartridge REQ for a cap with NO handler must NOT abort the pump. The switch sends an ERR(\"NO_HANDLER\") frame straight back to the calling master (stamped with the synthetic XID) so the caller fails fast, and handleMasterFrame returns nil \u2014 it must NOT throw.",
       "location": "Tests/BifaciTests/RelaySwitchTests.swift:1302"
+    },
+    {
+      "number": 1948,
+      "mirror": "rust",
+      "function": "test1948_progress_log_without_a_value_names_the_missing_value",
+      "description": "TEST1948: a LOG whose level is \"progress\" but whose numeric value is missing fails as a MISSING PROGRESS VALUE, not as an attribution error. The two questions \"is this frame functional progress?\" and \"must it carry attribution?\" have one answer \u2014 the level \u2014 but the receiver used to ask them differently: it branched on whether a number parsed, while `attribution_class()` branched on the level. A frame that said level=\"progress\" and carried no number fell between them and surfaced as \"Log frames do not carry attribution\", sending the reader after the wrong defect entirely.",
+      "location": "src/orchestrator/stream_io.rs:1271"
+    },
+    {
+      "number": 1949,
+      "mirror": "objc",
+      "function": "test1949_peerProgressIsRemappedIntoTheCallersRange",
+      "description": "TEST1949: a peer's progress is REMAPPED into the caller's declared range, not forwarded raw. A nested cap reporting 0.0\u21921.0 must advance only the slice of the caller's bar it was given, otherwise a caller with three peer calls shows its progress bar reset and refill three times.",
+      "location": "Tests/BifaciTests/StreamingAPITests.swift:977"
+    },
+    {
+      "number": 1950,
+      "mirror": "objc",
+      "function": "test1950_forwardedPeerLogKeepsSourceClassAndArgUrn",
+      "description": "TEST1950: a non-progress peer LOG keeps the SOURCE's class and argument attribution. A diagnostic is never re-classified as it passes through a caller \u2014 the class is declared at the emit source (docs/failure-taxonomy.md), so forwarding must copy it, not re-derive it.",
+      "location": "Tests/BifaciTests/StreamingAPITests.swift:998"
+    },
+    {
+      "number": 1951,
+      "mirror": "objc",
+      "function": "test1951_peerProgressWithoutNumericValueFailsHard",
+      "description": "TEST1951: a peer progress LOG with no numeric value FAILS HARD. Forwarding must not silently drop it or substitute a value \u2014 a malformed frame is an emitter defect and must surface as one, which is exactly the failure the engine raises for the same frame.",
+      "location": "Tests/BifaciTests/StreamingAPITests.swift:1024"
     },
     {
       "number": 6182,
@@ -40895,21 +40923,21 @@
       "mirror": "rust",
       "function": "test7022_final_progress_from_end_meta_default",
       "description": "TEST7022: The receiver delivers final progress exactly once, sourced from END terminal metadata, defaulting to 1.0 on a plain successful END.",
-      "location": "src/orchestrator/stream_io.rs:1278"
+      "location": "src/orchestrator/stream_io.rs:1380"
     },
     {
       "number": 7023,
       "mirror": "rust",
       "function": "test7023_final_progress_handler_override",
       "description": "TEST7023: A handler-declared terminal status (progress + message) in END metadata reaches the progress callback as the final event.",
-      "location": "src/orchestrator/stream_io.rs:1318"
+      "location": "src/orchestrator/stream_io.rs:1420"
     },
     {
       "number": 7024,
       "mirror": "rust",
       "function": "test7024_drain_after_end_delivers_logs_without_progress_regression",
       "description": "TEST7024: Frames already queued behind END are drained before returning \u2014 LOG messages are delivered, and no post-terminal progress value can regress the final progress.",
-      "location": "src/orchestrator/stream_io.rs:1356"
+      "location": "src/orchestrator/stream_io.rs:1458"
     },
     {
       "number": 7054,
@@ -40930,7 +40958,7 @@
       "mirror": "rust",
       "function": "test7071_terminal_output_yields_before_stream_end",
       "description": "TEST7071: The incremental terminal consumer yields items BEFORE the stream has ended \u2014 required for unbounded output (L16) \u2014 and completes on an unbounded STREAM_END + END.",
-      "location": "src/orchestrator/stream_io.rs:1422"
+      "location": "src/orchestrator/stream_io.rs:1524"
     },
     {
       "number": 7076,
@@ -40944,7 +40972,7 @@
       "mirror": "rust",
       "function": "test7077_per_item_meta_incremental",
       "description": "TEST7077: Per-item stream metadata arrives WITH its item through incremental delivery, not batched at the end.",
-      "location": "src/orchestrator/stream_io.rs:1462"
+      "location": "src/orchestrator/stream_io.rs:1564"
     },
     {
       "number": 7094,

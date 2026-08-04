@@ -1006,6 +1006,33 @@ impl Frame {
     }
 
     /// Get progress value (0.0–1.0) if this is a LOG frame with level="progress"
+    /// Describe what the `progress` meta slot actually holds, for the protocol
+    /// error a receiver raises when [`Frame::log_progress`] returns `None` on a
+    /// `level="progress"` LOG.
+    ///
+    /// A violation must carry its own evidence: "absent" and "a text value" are
+    /// different defects in the emitter, and an error that cannot tell them
+    /// apart forces the reader to reproduce the failure to learn which one it
+    /// is. Returns the CBOR type name, or `"absent"` when the key is missing.
+    pub fn log_progress_slot_description(&self) -> &'static str {
+        let Some(meta) = self.meta.as_ref() else {
+            return "absent (frame carries no meta)";
+        };
+        match meta.get("progress") {
+            None => "absent",
+            Some(ciborium::Value::Text(_)) => "a text value",
+            Some(ciborium::Value::Bytes(_)) => "a byte string",
+            Some(ciborium::Value::Bool(_)) => "a boolean",
+            Some(ciborium::Value::Null) => "null",
+            Some(ciborium::Value::Array(_)) => "an array",
+            Some(ciborium::Value::Map(_)) => "a map",
+            Some(ciborium::Value::Tag(_, _)) => "a tagged value",
+            Some(ciborium::Value::Float(_)) => "a float (readable — not this error)",
+            Some(ciborium::Value::Integer(_)) => "an integer (readable — not this error)",
+            Some(_) => "an unrecognized CBOR type",
+        }
+    }
+
     pub fn log_progress(&self) -> Option<f32> {
         if self.frame_type != FrameType::Log {
             return None;

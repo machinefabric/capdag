@@ -717,11 +717,12 @@ impl TerminalOutput {
                         let p = match frame.log_progress() {
                             Some(p) => p,
                             None => {
-                                return Some(Err(StreamIoError::Protocol(
-                                    "progress LOG frame missing a numeric `progress` value \
-                                     (level is \"progress\", so one is required)"
-                                        .to_string(),
-                                )))
+                                return Some(Err(StreamIoError::Protocol(format!(
+                                    "cap '{}' sent a progress LOG whose `progress` value is {} \
+                                     — level is \"progress\", so a numeric value is required",
+                                    self.cap_urn,
+                                    frame.log_progress_slot_description()
+                                ))))
                             }
                         };
                         if let Some(pfn) = &self.progress_fn {
@@ -1110,11 +1111,12 @@ pub async fn collect_terminal_output(
                                 )
                             })?;
                             let p = frame.log_progress().ok_or_else(|| {
-                                StreamIoError::Protocol(
-                                    "progress LOG frame missing a numeric `progress` value \
-                                     (level is \"progress\", so one is required)"
-                                        .to_string(),
-                                )
+                                StreamIoError::Protocol(format!(
+                                    "cap '{}' sent a progress LOG whose `progress` value is {} \
+                                     — level is \"progress\", so a numeric value is required",
+                                    cap_urn,
+                                    frame.log_progress_slot_description()
+                                ))
                             })?;
                             if let Some(pfn) = &progress_fn {
                                 pfn(p, cap_urn, cartridge_msg);
@@ -1289,6 +1291,39 @@ mod tests {
         );
         // Which is what a receiver must report: the missing value, named.
         assert_eq!(frame.log_level(), Some("progress"));
+        assert_eq!(
+            frame.log_progress_slot_description(),
+            "absent",
+            "an absent value must be reported as absent"
+        );
+
+        // A DIFFERENT emitter defect — the key present but the wrong type —
+        // must not produce the same description, or the error cannot tell the
+        // two apart and the reader has to reproduce the failure to find out.
+        let mut wrong_type = Frame::new(FrameType::Log, MessageId::Uint(2));
+        let mut meta2 = std::collections::BTreeMap::new();
+        meta2.insert("level".to_string(), ciborium::Value::Text("progress".into()));
+        meta2.insert("message".to_string(), ciborium::Value::Text("working".into()));
+        meta2.insert("progress".to_string(), ciborium::Value::Text("0.5".into()));
+        wrong_type.meta = Some(meta2);
+        assert!(
+            wrong_type.log_progress().is_none(),
+            "a text progress value is not readable as a number"
+        );
+        assert_eq!(
+            wrong_type.log_progress_slot_description(),
+            "a text value",
+            "a wrong-typed value must be named as such, distinctly from absent"
+        );
+        assert_ne!(
+            wrong_type.log_progress_slot_description(),
+            frame.log_progress_slot_description(),
+            "the two emitter defects must be distinguishable from the error alone"
+        );
+
+        // And a well-formed progress frame must NOT trip any of this.
+        let good = Frame::progress(MessageId::Uint(3), 0.5, "working");
+        assert_eq!(good.log_progress(), Some(0.5));
     }
 
     use super::*;

@@ -10460,6 +10460,59 @@ mod tests {
         );
     }
 
+    // TEST1949: a peer progress LOG with no numeric value FAILS HARD. Forwarding
+    // must not silently drop it or substitute a value — a malformed frame is an
+    // emitter defect and must surface as one, which is exactly the failure the
+    // engine raises for the same frame.
+    #[tokio::test]
+    async fn test1949_peer_progress_without_numeric_value_fails_hard() {
+        let request_id = MessageId::new_uuid();
+        let (item_tx, item_rx) = unbounded_channel();
+
+        // level="progress" with no `progress` key — malformed at the emitter.
+        let mut malformed = Frame::new(FrameType::Log, request_id);
+        let mut meta = std::collections::BTreeMap::new();
+        meta.insert(
+            "level".to_string(),
+            ciborium::Value::Text("progress".to_string()),
+        );
+        meta.insert(
+            "message".to_string(),
+            ciborium::Value::Text("no number here".to_string()),
+        );
+        malformed.meta = Some(meta);
+        item_tx.send(PeerResponseItem::Log(malformed)).unwrap();
+        drop(item_tx);
+
+        let response = PeerResponse {
+            rx: item_rx,
+            grants: None,
+        };
+        let (sender, frames) = MockFrameSender::new();
+        let output = OutputStream::new(
+            Arc::new(sender),
+            "output".to_string(),
+            "media:test".to_string(),
+            MessageId::new_uuid(),
+            None,
+            256_000,
+        );
+
+        let error = response
+            .collect_bytes_forwarding(&output, 0.0, 1.0)
+            .await
+            .expect_err("a progress LOG without a numeric value must fail, not pass silently");
+        let message = error.to_string();
+        assert!(
+            message.contains("progress"),
+            "the failure must name the missing progress value: {message}"
+        );
+        assert!(
+            frames.lock().unwrap().is_empty(),
+            "no frame may be emitted from a malformed peer frame"
+        );
+    }
+
     // TEST840: PeerResponse::collect_bytes rejects unhandled LOG frames.
     #[tokio::test]
     async fn test840_peer_response_collect_bytes_rejects_unhandled_logs() {
