@@ -33472,7 +33472,7 @@
         "rust": {
           "function": "test1943_outage_outliving_the_grace_window_fails_queued_work",
           "description": "TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever.",
-          "location": "src/bifaci/request_state.rs:862"
+          "location": "src/bifaci/request_state.rs:889"
         },
         "go": {
           "function": "Test1943_outage_outliving_the_grace_window_fails_queued_work",
@@ -35524,7 +35524,7 @@
         "rust": {
           "function": "test7030_register_once_terminate_once",
           "description": "TEST7030: A request registers exactly once and terminates exactly once \u2014 duplicate registration and double termination are rejected, and after terminate zero state remains for the key.",
-          "location": "src/bifaci/request_state.rs:1080"
+          "location": "src/bifaci/request_state.rs:1106"
         },
         "go": {
           "function": "Test7030_register_once_terminate_once",
@@ -35562,7 +35562,7 @@
         "rust": {
           "function": "test7031_rid_index_consistency",
           "description": "TEST7031: The rid index and the entry table never disagree across register/terminate cycles, and a terminated rid is immediately reusable.",
-          "location": "src/bifaci/request_state.rs:1119"
+          "location": "src/bifaci/request_state.rs:1145"
         },
         "go": {
           "function": "Test7031_rid_index_consistency",
@@ -35600,7 +35600,7 @@
         "rust": {
           "function": "test7032_record_frame_stats_and_phase",
           "description": "TEST7032: record_frame accumulates per-stream frame/byte/chunk counters by direction, flips phase Created\u2192Streaming on the first flow frame, and tracks unbounded/ended/credit stream markers.",
-          "location": "src/bifaci/request_state.rs:1141"
+          "location": "src/bifaci/request_state.rs:1167"
         },
         "go": {
           "function": "Test7032_record_frame_stats_and_phase",
@@ -35638,7 +35638,7 @@
         "rust": {
           "function": "test7033_terminated_summaries_ring",
           "description": "TEST7033: Terminated requests leave a bounded ring of summaries carrying kind, lifetime, and flow totals, and the ring evicts oldest-first at capacity.",
-          "location": "src/bifaci/request_state.rs:1190"
+          "location": "src/bifaci/request_state.rs:1216"
         },
         "go": {
           "function": "Test7033_terminated_summaries_ring",
@@ -36222,7 +36222,7 @@
         "rust": {
           "function": "test7087_snapshot_field_names_are_stable",
           "description": "",
-          "location": "src/bifaci/request_state.rs:948"
+          "location": "src/bifaci/request_state.rs:974"
         },
         "go": {
           "function": "Test7087_snapshot_field_names_are_stable",
@@ -36260,7 +36260,7 @@
         "rust": {
           "function": "test7088_last_activity_monotonic",
           "description": "TEST7088: last_activity is monotonic non-decreasing across a long-lived streaming request \u2014 idle time resets on every recorded frame and never runs backwards.",
-          "location": "src/bifaci/request_state.rs:1035"
+          "location": "src/bifaci/request_state.rs:1061"
         },
         "go": {
           "function": "Test7088_last_activity_monotonic",
@@ -36412,7 +36412,7 @@
         "rust": {
           "function": "test7092_cap_urn_attribution_survives_lifecycle",
           "description": "TEST7087: Protocol stats snapshots serialize with stable field names \u2014 the snapshot shape is the mirror contract.",
-          "location": "src/bifaci/request_state.rs:909"
+          "location": "src/bifaci/request_state.rs:935"
         },
         "go": {
           "function": "Test7092_cap_urn_attribution_survives_lifecycle",
@@ -36564,7 +36564,7 @@
         "rust": {
           "function": "test7110_admission_fifo_releases_one_waiter",
           "description": "TEST7110: admission is strict FIFO and a terminal request releases exactly one capacity slot for the next body.",
-          "location": "src/bifaci/request_state.rs:728"
+          "location": "src/bifaci/request_state.rs:755"
         },
         "go": {
           "function": "Test7110_admission_fifo_releases_one_waiter",
@@ -36602,7 +36602,7 @@
         "rust": {
           "function": "test7111_cancelled_admission_waiter_cannot_block_queue",
           "description": "TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head.",
-          "location": "src/bifaci/request_state.rs:763"
+          "location": "src/bifaci/request_state.rs:790"
         },
         "go": {
           "function": "Test7111_cancelled_admission_waiter_cannot_block_queue",
@@ -36640,7 +36640,7 @@
         "rust": {
           "function": "test7112_capacity_reconfiguration_wakes_existing_waiters",
           "description": "TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end.",
-          "location": "src/bifaci/request_state.rs:793"
+          "location": "src/bifaci/request_state.rs:820"
         },
         "go": {
           "function": "Test7112_capacity_reconfiguration_wakes_existing_waiters",
@@ -36678,7 +36678,7 @@
         "rust": {
           "function": "test7114_transient_unavailability_does_not_fail_queued_work",
           "description": "TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's \"queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance\". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with \"became unavailable while waiting for capacity\" \u2014 195 bodies lost to an outage that had already healed.",
-          "location": "src/bifaci/request_state.rs:827"
+          "location": "src/bifaci/request_state.rs:854"
         },
         "go": {
           "function": "Test7114_transient_unavailability_does_not_fail_queued_work",
