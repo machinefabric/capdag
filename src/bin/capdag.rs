@@ -8,7 +8,7 @@ use capdag::{CapProgressFn, CartridgeChannel, ExecutionNodeType, FabricRegistry,
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
 
@@ -276,6 +276,55 @@ fn expand_input_path(path: &str) -> Vec<PathBuf> {
     }
 }
 
+/// Remove a leading-or-anywhere `--fabric <url>` / `--fabric=<url>` from argv
+/// and return the URL.
+///
+/// Stripping rather than reading in place is what lets the flag sit in front of
+/// any subcommand — `capdag --fabric U run m.machine` and `capdag run m.machine
+/// --fabric U` both work — without the token reaching a cap's own argument
+/// parsing, where an unknown `--fabric` would be a usage error.
+///
+/// Repeating it is an error rather than last-one-wins: two different origins in
+/// one command line is a mistake, and silently picking one resolves caps
+/// against a fabric the user did not intend.
+fn take_fabric_flag(args: &mut Vec<String>) -> Result<Option<String>, String> {
+    let mut found: Option<String> = None;
+    let mut i = 1; // argv[0] is the program name
+    while i < args.len() {
+        let (url, consumed) = if args[i] == "--fabric" {
+            let Some(v) = args.get(i + 1) else {
+                return Err("--fabric needs a registry URL (e.g. --fabric https://fabric-staging.capdag.com)".to_string());
+            };
+            (v.clone(), 2)
+        } else if let Some(rest) = args[i].strip_prefix("--fabric=") {
+            (rest.to_string(), 1)
+        } else {
+            i += 1;
+            continue;
+        };
+        if url.trim().is_empty() {
+            return Err("--fabric needs a non-empty registry URL".to_string());
+        }
+        // Only http(s) origins are fabrics. A bare path or a typo'd scheme would
+        // otherwise surface far downstream as an opaque fetch failure.
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err(format!(
+                "--fabric '{url}' is not an http(s) URL — a fabric is an origin, e.g. https://fabric-staging.capdag.com"
+            ));
+        }
+        if let Some(prev) = &found {
+            if prev != &url {
+                return Err(format!(
+                    "--fabric given twice with different origins ('{prev}' and '{url}') — a run resolves caps against exactly one fabric"
+                ));
+            }
+        }
+        found = Some(url);
+        args.drain(i..i + consumed);
+    }
+    Ok(found)
+}
+
 fn print_usage(program: &str) {
     eprintln!(
         "Usage:\n\
@@ -301,6 +350,11 @@ fn print_usage(program: &str) {
          sequences and fan-outs write files (named {{input}}.{{node}}[.{{i}}].{{ext}})\n\
          and list their paths on stdout. Logs/progress go to stderr.\n\n\
          Options:\n\
+           --fabric <url>           Resolve caps/media/aliases against this fabric\n\
+                                    registry instead of the built-in one (env:\n\
+                                    CDG_FABRIC_REGISTRY_URL). Works before any\n\
+                                    subcommand. Every cartridge registry in play\n\
+                                    must declare this same fabric.\n\
            -o, --output <dir>       Write result files into <dir> (default: cwd)\n\
            --force                  Overwrite existing output files\n\
            --arg <name>=<value>     Explicit cap argument (repeatable; single-cap mode)\n\
@@ -315,7 +369,8 @@ fn print_usage(program: &str) {
            --mechanism <any|generalize|collect|merge>\n\
            --rank <intent|shortest|cost>\n\
            --depth <N> / --max-paths <N> / --max <N>              Search bounds\n\
-           --pick <rank>            Choose a candidate (default 0, the magic pick)\n\
+           --pick <rank>            Choose a candidate by rank (required with --save/--run\n\
+                                    when several machines qualify — no default pick)\n\
            --save <file.machine>    Write the chosen candidate's notation\n\
            --run                    Execute the chosen candidate on the input files\n\n\
          Utility subcommand: hash-cartridge-dir.\n\n\
@@ -330,13 +385,41 @@ fn print_usage(program: &str) {
 
 #[tokio::main]
 async fn main() {
+    let mut args: Vec<String> = env::args().collect();
+
+    // `--fabric <url>` — point this invocation at a different fabric registry
+    // origin, the CLI's equivalent of the registry base URL the desktop apps
+    // hand their engine (`CDG_FABRIC_REGISTRY_URL` in
+    // MachineFabricApp.swift / engine-manager.ts). Staging, a self-hosted
+    // fabric, or a local one under development are all reachable without
+    // rebuilding: a fabric is an origin, not a build identity.
+    //
+    // It is stripped from argv before dispatch so it works in front of ANY
+    // subcommand and never reaches a cap's own argument parsing. Precedence is
+    // flag > environment > baked, most explicit first — and the flag sets the
+    // env var so the registry constructed later reads one value from one place.
+    let fabric_override = match take_fabric_flag(&mut args) {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("{msg}");
+            process::exit(2);
+        }
+    };
+    if let Some(url) = fabric_override {
+        // A caller-chosen origin invalidates the baked schema base: pairing a
+        // runtime fabric with a build-time schema URL would validate one
+        // origin's definitions against another's schemas.
+        std::env::remove_var("CDG_SCHEMA_BASE_URL");
+        std::env::set_var("CDG_FABRIC_REGISTRY_URL", url);
+    }
+
     // Bind the CLI to the fabric registry origin (caps/media/aliases) it was built for.
     // A shipped binary has no runtime env, so seed the process env from the build-baked
     // value BEFORE any fabric-registry construction, unless the user has explicitly
-    // overridden it (a runtime env var always wins). Without this a `--staging` build
-    // resolves aliases like `disbind-pdf` against the prod fabric default. Schema base is
-    // only seeded alongside the fabric URL — never pair a runtime fabric URL with a baked
-    // schema URL.
+    // overridden it (the flag above, or a runtime env var, always wins). Without this a
+    // `--staging` build resolves aliases like `disbind-pdf` against the prod fabric
+    // default. Schema base is only seeded alongside the fabric URL — never pair a runtime
+    // fabric URL with a baked schema URL.
     if std::env::var_os("CDG_FABRIC_REGISTRY_URL").is_none() {
         if let Some(url) = BAKED_FABRIC_REGISTRY_URL {
             std::env::set_var("CDG_FABRIC_REGISTRY_URL", url);
@@ -348,7 +431,7 @@ async fn main() {
         }
     }
 
-    let args: Vec<String> = env::args().collect();
+    let args = args;
 
     if args.len() < 2 {
         print_usage(&args[0]);
@@ -492,6 +575,73 @@ async fn cmd_dag_viz(args: &[String]) -> ! {
     process::exit(0);
 }
 
+/// Warm the fabric caches from the pinned manifest — the same warm the engine
+/// performs at startup (`machfab/src/app/mod.rs`) and for the same reason: the
+/// full-graph surfaces (planning, abstract-cap narrowing) and extension-based
+/// media detection read the CACHED cap/media/alias sets, and a cap fetch is
+/// atomic with its referenced media defs, so this one pass is what populates
+/// the extension index. Without it a fresh cache detects every input as bare
+/// `media:` and offers an empty cap graph — `plan` then reports a dead end on
+/// every file no matter what the fabric holds. No-op once everything is cached.
+async fn warm_fabric_from_manifest(registry: &Arc<FabricRegistry>) {
+    registry.prefetch_manifest_caps().await;
+    registry.prefetch_manifest_aliases().await;
+}
+
+/// Detect an input file's media type, failing HARD when the fabric cannot
+/// identify it.
+///
+/// Detection degrades to the bare `media:` URN when the file's extension maps
+/// to no media definition. Every downstream consumer of that value produces
+/// nonsense rather than an error — `plan` walks it into a guaranteed dead end,
+/// and grouping merges files of DIFFERENT unknown types into one sequence
+/// anchor — so the CLI stops at the first unidentifiable input and names it.
+fn detect_input_media_or_exit(file: &Path, registry: &Arc<FabricRegistry>) -> capdag::MediaUrn {
+    // The engine's content-discriminated detection (extension candidates →
+    // baseline → validation discrimination), not bare extension lookup — the
+    // CLI must identify a file exactly the way the desktop clients do. No
+    // value adapters are registered: the engine's only one (model-spec
+    // family refinement) lives in machfab's LLM service and refines nothing
+    // outside `media:model-spec`.
+    let resolved = match capdag::detect_file_discriminated(
+        file,
+        registry,
+        &capdag::ValueAdapterRegistry::new(),
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "Failed to detect the media type of '{}': {e}",
+                file.display()
+            );
+            process::exit(1);
+        }
+    };
+    if resolved.media_urn == "media:" {
+        match file.extension().and_then(|e| e.to_str()) {
+            Some(ext) => eprintln!(
+                "Cannot identify the media type of '{}': the fabric has no media definition for extension '{ext}'.",
+                file.display()
+            ),
+            None => eprintln!(
+                "Cannot identify the media type of '{}': the file has no extension to detect from.",
+                file.display()
+            ),
+        }
+        process::exit(1);
+    }
+    match capdag::MediaUrn::from_string(&resolved.media_urn) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!(
+                "Detected an invalid media URN '{}': {e}",
+                resolved.media_urn
+            );
+            process::exit(1);
+        }
+    }
+}
+
 /// `capdag run <machine-file> [inputs…]` — execute a .machine pipeline.
 async fn cmd_run(args: &[String]) -> ! {
     // Parse arguments
@@ -499,9 +649,13 @@ async fn cmd_run(args: &[String]) -> ! {
     let mut trace_file: Option<String> = None;
     let mut output_dir: Option<PathBuf> = None;
     let mut force_overwrite = false;
+    let mut positionals: Vec<String> = Vec::new();
     let mut arg_idx = 2;
 
-    // Parse flags
+    // Flags are recognized in ANY position — `run m.machine input --force` is
+    // as valid as `run --force m.machine input`. Stopping at the first
+    // positional silently fed trailing flags to input resolution, where an
+    // unmatched `--force` became a missing "file" instead of taking effect.
     while arg_idx < args.len() {
         match args[arg_idx].as_str() {
             "--help" | "-h" => {
@@ -545,18 +699,24 @@ async fn cmd_run(args: &[String]) -> ! {
                     arg_idx += 1;
                 }
             }
-            _ => break,
+            flag if flag.starts_with('-') && flag.len() > 1 => {
+                eprintln!("capdag run: unknown flag '{flag}'");
+                process::exit(2);
+            }
+            positional => {
+                positionals.push(positional.to_string());
+                arg_idx += 1;
+            }
         }
     }
 
-    if arg_idx >= args.len() {
+    if positionals.is_empty() {
         eprintln!("Missing machine file argument");
         print_usage(&args[0]);
         process::exit(1);
     }
 
-    let machine_file = &args[arg_idx];
-    arg_idx += 1;
+    let machine_file = &positionals[0];
 
     // Read machine file
     let notation = match fs::read_to_string(machine_file) {
@@ -570,7 +730,7 @@ async fn cmd_run(args: &[String]) -> ! {
     execute_notation(
         notation,
         machine_file,
-        &args[arg_idx..],
+        &positionals[1..],
         dev_binaries,
         trace_file,
         output_dir,
@@ -742,30 +902,14 @@ async fn execute_notation(
         );
         eprintln!("Run: {}", notation);
 
-        // Detect each file's media once.
+        // Detect each file's media once. Detection reads the extension index,
+        // which is populated by cached media defs — warm from the manifest so
+        // a cold cache does not misread every input as bare `media:`.
+        warm_fabric_from_manifest(&registry).await;
         let mut file_media: Vec<(PathBuf, capdag::MediaUrn, Vec<u8>)> =
             Vec::with_capacity(all_files.len());
         for file in &all_files {
-            let resolved = match capdag::detect_file_with_fabric_registry(file, registry.clone()) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!(
-                        "Failed to detect the media type of '{}': {e}",
-                        file.display()
-                    );
-                    process::exit(1);
-                }
-            };
-            let media = match capdag::MediaUrn::from_string(&resolved.media_urn) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!(
-                        "Detected an invalid media URN '{}': {e}",
-                        resolved.media_urn
-                    );
-                    process::exit(1);
-                }
-            };
+            let media = detect_input_media_or_exit(file, &registry);
             let bytes = match fs::read(file) {
                 Ok(b) => b,
                 Err(e) => {
@@ -1149,7 +1293,7 @@ async fn cmd_plan(args: &[String]) -> ! {
     let mut max_depth = p::PlanRequest::DEFAULT_MAX_DEPTH;
     let mut max_paths = p::PlanRequest::DEFAULT_MAX_PATHS;
     let mut max_candidates = p::PlanRequest::DEFAULT_MAX_CANDIDATES;
-    let mut pick: usize = 0;
+    let mut pick: Option<usize> = None;
     let mut save: Option<String> = None;
     let mut run_after = false;
     let mut output_dir: Option<PathBuf> = None;
@@ -1197,7 +1341,12 @@ async fn cmd_plan(args: &[String]) -> ! {
             "--max" => {
                 max_candidates = parse_usize_or_exit(&take_value(args, &mut i, "--max"), "--max")
             }
-            "--pick" => pick = parse_usize_or_exit(&take_value(args, &mut i, "--pick"), "--pick"),
+            "--pick" => {
+                pick = Some(parse_usize_or_exit(
+                    &take_value(args, &mut i, "--pick"),
+                    "--pick",
+                ))
+            }
             "--save" => save = Some(take_value(args, &mut i, "--save")),
             "--run" => run_after = true,
             "-o" | "--output" => {
@@ -1249,30 +1398,16 @@ async fn cmd_plan(args: &[String]) -> ! {
         }
     };
 
+    // Planning consumes the whole cap graph and the extension index, both of
+    // which live in the fabric CACHE — warm it from the manifest first, exactly
+    // as the engine does before its first LiveCapFab build.
+    warm_fabric_from_manifest(&registry).await;
+
     // Detect each file's media and group equal types: N same-typed files form
     // ONE sequence anchor; distinct types are distinct anchors.
     let mut groups: Vec<(capdag::MediaUrn, usize)> = Vec::new();
     for file in &files {
-        let resolved = match capdag::detect_file_with_fabric_registry(file, registry.clone()) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!(
-                    "Failed to detect the media type of '{}': {e}",
-                    file.display()
-                );
-                process::exit(1);
-            }
-        };
-        let media = match capdag::MediaUrn::from_string(&resolved.media_urn) {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!(
-                    "Detected an invalid media URN '{}': {e}",
-                    resolved.media_urn
-                );
-                process::exit(1);
-            }
-        };
+        let media = detect_input_media_or_exit(file, &registry);
         match groups
             .iter_mut()
             .find(|(m, _)| m.is_equivalent(&media).unwrap_or(false))
@@ -1359,10 +1494,68 @@ async fn cmd_plan(args: &[String]) -> ! {
     }
 
     // ── Plan mode ──
-    let target_urns: Vec<capdag::MediaUrn> = to_targets
-        .iter()
-        .map(|t| parse_target_media_or_exit(t))
-        .collect();
+    // Resolve each `--to` with the same resolve-then-narrow contract abstract
+    // caps use. First the token becomes a media URN (alias > URN > extension
+    // shorthand). Then it is matched against the REACHABLE target nodes: an
+    // exact (equivalent) node is taken as-is; a more general URN narrows
+    // covariantly to the reachable nodes that conform to it — exactly one
+    // wins, several is an ambiguity error naming the candidates, zero is a
+    // hard error pointing at discovery. Path search matches target nodes by
+    // equivalence (the wizard hands it a discovered node verbatim), so a
+    // general `--to` would otherwise silently find nothing.
+    let mut target_urns: Vec<capdag::MediaUrn> = Vec::new();
+    // Tokens whose general URN names SEVERAL reachable targets. Not an error:
+    // there is no way to know which path the user wants, so plans for every
+    // conforming target are presented as machine-notation options below.
+    let mut ambiguous_targets: Vec<(String, Vec<capdag::MediaUrn>)> = Vec::new();
+    if !to_targets.is_empty() {
+        let requested: Vec<capdag::MediaUrn> = {
+            let mut v = Vec::new();
+            for t in &to_targets {
+                v.push(resolve_target_media_or_exit(&registry, t).await);
+            }
+            v
+        };
+        let reachable = match fab.discover_convergent_targets(&sources, max_depth) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("{e}");
+                process::exit(1);
+            }
+        };
+        let nodes: Vec<capdag::MediaUrn> =
+            reachable.targets.iter().map(|t| t.media_def.clone()).collect();
+        for (token, req) in to_targets.iter().zip(requested) {
+            if nodes
+                .iter()
+                .any(|n| n.is_equivalent(&req).unwrap_or(false))
+            {
+                target_urns.push(req);
+                continue;
+            }
+            let conforming: Vec<capdag::MediaUrn> = nodes
+                .iter()
+                .filter(|n| n.conforms_to(&req).unwrap_or(false))
+                .cloned()
+                .collect();
+            match conforming.len() {
+                0 => {
+                    eprintln!(
+                        "No reachable target conforms to --to '{token}' ({req}).\n\
+                         See what these files can become: capdag plan <files...>"
+                    );
+                    process::exit(1);
+                }
+                1 => {
+                    eprintln!("--to '{token}' resolved to {}", conforming[0]);
+                    target_urns.push(conforming[0].clone());
+                }
+                _ => {
+                    ambiguous_targets.push((token.clone(), conforming));
+                }
+            }
+        }
+    }
 
     let presence = match converge.as_str() {
         "auto" => p::ConvergencePresence::Auto,
@@ -1409,18 +1602,18 @@ async fn cmd_plan(args: &[String]) -> ! {
         }
     };
 
-    let request = p::PlanRequest {
-        sources,
-        targets: p::TargetSpec::Exact(target_urns),
+    let mk_request = |targets: Vec<capdag::MediaUrn>| p::PlanRequest {
+        sources: sources.clone(),
+        targets: p::TargetSpec::Exact(targets),
         convergence: p::ConvergencePolicy {
-            presence,
-            location,
-            mechanism,
+            presence: presence.clone(),
+            location: location.clone(),
+            mechanism: mechanism.clone(),
             at_type: None,
             arity: p::ConvergenceArity::Auto,
         },
         divergence: p::DivergencePolicy::default(),
-        ranking,
+        ranking: ranking.clone(),
         search: p::SearchDirection::Auto,
         mode: if configured {
             p::PlanMode::Configured
@@ -1431,6 +1624,54 @@ async fn cmd_plan(args: &[String]) -> ! {
         max_paths,
         max_candidates,
     };
+
+    // ── Ambiguous general targets: present every option as machine notation ──
+    // A `--to` that names several reachable targets is a question with several
+    // answers, and only the user knows which path they want. Print the
+    // candidate MACHINES (as runnable notation) for every conforming target
+    // and stop — the user chooses by saving the notation they want and
+    // running it. This mirrors why a `.machine` file never hits this: there
+    // the path is authored, and only source conformance is checked.
+    if !ambiguous_targets.is_empty() {
+        for (token, nodes) in &ambiguous_targets {
+            eprintln!(
+                "--to '{token}' can mean {} different reachable targets.",
+                nodes.len()
+            );
+        }
+        let unique: Vec<capdag::MediaUrn> = {
+            let mut seen = std::collections::BTreeSet::new();
+            ambiguous_targets
+                .iter()
+                .flat_map(|(_, nodes)| nodes.iter())
+                .chain(target_urns.iter())
+                .filter(|n| seen.insert(n.to_string()))
+                .cloned()
+                .collect()
+        };
+        for node in &unique {
+            match fab.plan(&mk_request(vec![node.clone()]), registry.as_ref()) {
+                Ok(outcome) => {
+                    let title = registry
+                        .get_cached_media_def(&node.to_string())
+                        .map(|d| d.title)
+                        .unwrap_or_default();
+                    println!("# target: {node}  {title}");
+                    for c in &outcome.candidates {
+                        println!("  [{}] ({} steps)", c.rank, c.cost.cap_steps);
+                        println!("      {}", c.notation);
+                    }
+                }
+                Err(e) => eprintln!("{node}: no machine ({e})"),
+            }
+        }
+        eprintln!(
+            "\nChoose a machine: save its notation to a file and run\n  capdag run <file.machine> <inputs...>"
+        );
+        process::exit(0);
+    }
+
+    let request = mk_request(target_urns);
 
     let outcome = match fab.plan(&request, registry.as_ref()) {
         Ok(c) => c,
@@ -1461,9 +1702,33 @@ async fn cmd_plan(args: &[String]) -> ! {
         println!("      {}", c.notation);
     }
 
-    let Some(chosen) = candidates.iter().find(|c| c.rank == pick) else {
-        eprintln!("--pick {pick} is out of range (0..{})", candidates.len());
-        process::exit(2);
+    // Choosing a machine is the user's call, never a default: with several
+    // candidates and no explicit --pick, `--save`/`--run` refuse rather than
+    // silently act on candidate 0 — the options above are the answer, and the
+    // user picks by index or by running the notation they want.
+    let chosen = match pick {
+        Some(n) => match candidates.iter().find(|c| c.rank == n) {
+            Some(c) => Some(c),
+            None => {
+                eprintln!("--pick {n} is out of range (0..{})", candidates.len());
+                process::exit(2);
+            }
+        },
+        None if candidates.len() == 1 => candidates.first(),
+        None => None,
+    };
+    if (save.is_some() || run_after) && chosen.is_none() {
+        eprintln!(
+            "{} machines can produce this target and none was picked — choose one:\n\
+             re-run with --pick <n>, or save the notation above to a file and\n\
+             run `capdag run <file.machine> <inputs...>`",
+            candidates.len()
+        );
+        process::exit(1);
+    }
+    let pick = chosen.map(|c| c.rank).unwrap_or(0);
+    let Some(chosen) = chosen else {
+        process::exit(0);
     };
 
     if let Some(path) = &save {
@@ -1518,6 +1783,35 @@ fn parse_target_media_or_exit(t: &str) -> capdag::MediaUrn {
     }
 }
 
+/// Resolve a `--to` token into a media URN through the registry.
+///
+/// A token with `:` is a URN (the alias/URN discriminator — alias names never
+/// contain `:`). A bare token resolves as a registered MEDIA alias first —
+/// aliases resolve everywhere a media URN is read — and only when no such
+/// alias exists does it fall back to the documented file-extension shorthand
+/// (`png` → `media:ext=png`).
+async fn resolve_target_media_or_exit(
+    registry: &Arc<FabricRegistry>,
+    t: &str,
+) -> capdag::MediaUrn {
+    if t.contains(':') {
+        return parse_target_media_or_exit(t);
+    }
+    if let Ok(target) = registry
+        .resolve_alias_typed(t, Some(capdag::fabric::alias::AliasTargetKind::Media))
+        .await
+    {
+        match capdag::MediaUrn::from_string(&target) {
+            Ok(m) => return m,
+            Err(e) => {
+                eprintln!("Alias '{t}' resolves to an invalid media URN '{target}': {e}");
+                process::exit(1);
+            }
+        }
+    }
+    parse_target_media_or_exit(t)
+}
+
 /// Narrow an abstract cap to its concrete specialization by detecting the input
 /// file's media type (and honouring `--to`), or exit with an actionable error.
 async fn narrow_abstract_or_exit(
@@ -1548,26 +1842,11 @@ async fn narrow_abstract_or_exit(
         process::exit(2);
     };
 
-    let resolved = match capdag::detect_file_with_fabric_registry(&path, registry.clone()) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!(
-                "Failed to detect the media type of '{}': {e}",
-                path.display()
-            );
-            process::exit(1);
-        }
-    };
-    let input_media = match capdag::MediaUrn::from_string(&resolved.media_urn) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!(
-                "Detected an invalid media URN '{}': {e}",
-                resolved.media_urn
-            );
-            process::exit(1);
-        }
-    };
+    // Narrowing needs the extension index (to detect the input) AND the full
+    // cached cap set (to enumerate concrete candidates) — both come from the
+    // manifest warm.
+    warm_fabric_from_manifest(registry).await;
+    let input_media = detect_input_media_or_exit(&path, registry);
 
     let target_media = to_target.map(parse_target_media_or_exit);
 
@@ -1609,8 +1888,13 @@ async fn registry_manager_or_exit(
         capdag::FABRIC_MANIFEST_VERSION,
         dev_binaries,
         capdag::RegistryTrust::from_build_constants(),
-        // The CLI seeds CDG_FABRIC_REGISTRY_URL from BAKED_FABRIC_REGISTRY_URL at
-        // startup, so this resolves to the fabric this build resolves caps against.
+        // The CLI resolves CDG_FABRIC_REGISTRY_URL at startup — `--fabric`, then
+        // the environment, then the baked value — so this is the fabric THIS
+        // invocation resolves caps against. Passing it here is what extends the
+        // "every cartridge registry must declare the same fabric" invariant
+        // (enforced in CartridgeRepoServer::new) to an overridden fabric: point
+        // --fabric at one origin and a cartridge registry built against another
+        // is rejected rather than silently mixed.
         capdag::RegistryConfig::default().registry_base_url,
     );
     if let Err(e) = manager.init().await {
@@ -1841,13 +2125,35 @@ async fn cmd_cap(args: &[String]) -> ! {
         }
     };
 
-    // Cap arguments land on the edge's destination node.
+    // Cap arguments ride on the CAP execution group, which the executor keys
+    // by the group's `to` node — the plan's cap node id, which IS the strand
+    // step's planner-minted `StrandStep.token_id` (plan_builder: "the cap
+    // node's id IS the strand step's stable identity"; the wizard binds
+    // argument values by the same token). Read that existing token off the
+    // plan, exactly like `input_slot_id` above — keying by a fixed name was
+    // how argument values silently vanished: they validated, then never
+    // matched any execution group, so the cartridge ran on defaults.
+    let cap_node_id = {
+        let caps: Vec<&String> = plan
+            .nodes
+            .iter()
+            .filter(|(_, n)| matches!(n.node_type, ExecutionNodeType::Cap { .. }))
+            .map(|(id, _)| id)
+            .collect();
+        match caps.as_slice() {
+            [single] => (*single).clone(),
+            other => {
+                eprintln!(
+                    "internal error: single-cap plan has {} cap nodes (expected 1)",
+                    other.len()
+                );
+                process::exit(1);
+            }
+        }
+    };
     let mut cap_arguments: HashMap<String, Vec<(String, Vec<u8>)>> = HashMap::new();
     if !invocation.cap_arguments.is_empty() {
-        cap_arguments.insert(
-            capdag::orchestrator::SINGLE_CAP_OUTPUT_NODE.to_string(),
-            invocation.cap_arguments.clone(),
-        );
+        cap_arguments.insert(cap_node_id, invocation.cap_arguments.clone());
     }
 
     let trace_sink: Option<Arc<capdag::ProtocolTraceSink>> = match &trace_file {

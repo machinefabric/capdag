@@ -723,14 +723,30 @@ impl Cap {
         let input_is_sequence = if in_spec
             .is_equivalent(&void_media)
             .expect("cap registry invariant: cardinality media URNs are comparable")
+            || self.args.is_empty()
         {
+            // Void input, or a cap that declares no arguments at all — the
+            // published `discard` cap (`cap:out=media:void`, the terminal
+            // morphism) is argless by design. Nothing declares a cardinality,
+            // so the input is scalar.
             false
         } else {
-            self.args
-                .iter()
-                .find(|arg| arg.is_main_input(&in_spec))
-                .expect("cap registry invariant: every non-void cap declares its main input")
-                .is_sequence
+            match self.args.iter().find(|arg| arg.is_main_input(&in_spec)) {
+                Some(arg) => arg.is_sequence,
+                None => {
+                    // Publisher RULE11 guarantees every cap with arguments
+                    // declares its main input; a definition that reaches here
+                    // slipped through publish validation. Registry content
+                    // must never crash a client at graph-build, so report the
+                    // violation loudly and read the input as scalar.
+                    tracing::error!(
+                        cap_urn = %self.urn,
+                        "cap violates RULE11: it declares arguments but none is the main input \
+                         (stdin source equivalent to in=) — fix the fabric definition"
+                    );
+                    false
+                }
+            }
         };
         let output_is_sequence = self.output.as_ref().map_or(false, |o| o.is_sequence);
         (input_is_sequence, output_is_sequence)

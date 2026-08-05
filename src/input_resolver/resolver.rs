@@ -10,7 +10,10 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::input_resolver::adapter::{AdapterResult, CartridgeAdapterInvoker};
+use crate::input_resolver::adapter::{
+    AdapterResult, CartridgeAdapterInvoker, MAX_CONTENT_INSPECTION_BYTES,
+};
+use crate::input_resolver::value_adapter_registry::ValueAdapterRegistry;
 use crate::input_resolver::adapters::MediaAdapterRegistry;
 use crate::input_resolver::path_resolver;
 use crate::input_resolver::{
@@ -182,6 +185,194 @@ pub fn detect_file_with_fabric_registry(
     fabric_registry: Arc<FabricRegistry>,
 ) -> Result<ResolvedFile, InputResolverError> {
     detect_file_by_extension_with_registry(path, &fabric_registry)
+}
+
+/// Post-discrimination survivor refinement — the engine's `analyze_file_content`
+/// steps 6–8, shared VERBATIM by the engine and [`detect_file_discriminated`]
+/// so they can never diverge:
+///
+/// 6. refine each survivor through the value adapters (content-aware URN
+///    refinement, e.g. model-spec family tags);
+/// 7. strip the `list` cardinality tag (cardinality is the planner's job, not
+///    detection's);
+/// 8. dedup, preserving order.
+pub fn refine_survivors(
+    survivors: Vec<String>,
+    value_adapters: &ValueAdapterRegistry,
+    content: &[u8],
+) -> Vec<String> {
+    let content_str = std::str::from_utf8(content).unwrap_or("");
+    let mut seen = std::collections::HashSet::new();
+    survivors
+        .into_iter()
+        .map(|urn| value_adapters.refine_media_urn(&urn, content_str))
+        .map(|urn| match MediaUrn::from_string(&urn) {
+            Ok(u) => u.without_tag("list").to_string(),
+            Err(_) => urn,
+        })
+        .filter(|u| seen.insert(u.clone()))
+        .collect()
+}
+
+/// Everything the content-discrimination core learns about one file — enough
+/// for a host to continue the pipeline (cartridge-adapter gating, value
+/// refinement) without re-reading or re-deriving anything.
+#[derive(Debug, Clone)]
+pub struct FileDiscrimination {
+    /// The bounded content prefix that was inspected
+    /// (`MAX_CONTENT_INSPECTION_BYTES` cap).
+    pub content: Vec<u8>,
+    /// Baseline structural detection (most specific extension candidate).
+    pub baseline: ResolvedFile,
+    /// The file's lowercased extension ("" when it has none).
+    pub extension: String,
+    /// ALL candidate media URNs registered for the extension.
+    pub candidates: Vec<String>,
+    /// The static-validation survivors: candidates whose declared
+    /// `validation` rules accept the content (a candidate more specific than
+    /// the baseline must PROVE its claim or be eliminated). When the
+    /// extension has NO candidates, this is the baseline URN alone — there is
+    /// nothing to discriminate between.
+    pub survivors: Vec<String>,
+}
+
+/// The content-discrimination CORE — the engine's `analyze_file_content`
+/// steps 2–5a, extracted verbatim so every consumer runs the same pipeline:
+///
+/// 2. read a bounded content prefix (`MAX_CONTENT_INSPECTION_BYTES`);
+/// 3. collect ALL candidate media URNs for the file's extension;
+/// 4. take the baseline structural detection
+///    ([`detect_file_with_fabric_registry`]);
+/// 5a. discriminate the candidates by their declared `validation` rules
+///     against the content ([`discriminate_candidates_by_validation`]).
+///
+/// The two consumers compose it differently and share every step:
+/// - the ENGINE gates `survivors` through its live cartridge adapters
+///   (step 5b, [`discriminate_by_cartridge_handlers`]) and then refines
+///   ([`refine_survivors`], steps 6–8);
+/// - the CLI ([`detect_file_discriminated`]) has no hosted cartridges — the
+///   engine's own fallback when no adapter matches — so it refines directly
+///   and picks the most specific survivor.
+pub fn discriminate_file(
+    path: &Path,
+    fabric_registry: &FabricRegistry,
+) -> Result<FileDiscrimination, InputResolverError> {
+    let baseline = detect_file_by_extension_with_registry(path, fabric_registry)?;
+
+    // Bounded content prefix, same cap for every consumer.
+    let content = {
+        use std::io::Read;
+        let read_size = (baseline.size_bytes as usize).min(MAX_CONTENT_INSPECTION_BYTES);
+        let mut buf = vec![0u8; read_size];
+        let mut file = fs::File::open(path).map_err(|e| InputResolverError::IoError {
+            path: path.to_path_buf(),
+            error: e,
+        })?;
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| InputResolverError::IoError {
+                path: path.to_path_buf(),
+                error: e,
+            })?;
+        buf.truncate(n);
+        buf
+    };
+
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    let candidates = if extension.is_empty() {
+        Vec::new()
+    } else {
+        fabric_registry
+            .media_urns_for_extension(&extension)
+            .unwrap_or_default()
+    };
+
+    let survivors = if candidates.is_empty() {
+        vec![baseline.media_urn.clone()]
+    } else {
+        discriminate_candidates_by_validation(
+            &content,
+            &candidates,
+            fabric_registry,
+            &baseline.media_urn,
+        )
+    };
+
+    Ok(FileDiscrimination {
+        content,
+        baseline,
+        extension,
+        candidates,
+        survivors,
+    })
+}
+
+/// Content-discriminated detection for hosts with NO live cartridges: the
+/// discrimination core ([`discriminate_file`]) followed by survivor
+/// refinement ([`refine_survivors`]) and a single most-specific answer
+/// (first wins a specificity tie — survivor order preserves the registry's
+/// sorted candidate order, so the pick is deterministic).
+///
+/// This matches the engine with zero adapters registered — the engine's own
+/// fallback verdict. Hosts with live cartridges run the same core and gate
+/// the survivor set through [`discriminate_by_cartridge_handlers`] instead.
+pub fn detect_file_discriminated(
+    path: &Path,
+    fabric_registry: &FabricRegistry,
+    value_adapters: &ValueAdapterRegistry,
+) -> Result<ResolvedFile, InputResolverError> {
+    let disc = discriminate_file(path, fabric_registry)?;
+    let FileDiscrimination {
+        content,
+        baseline,
+        extension,
+        candidates,
+        survivors,
+    } = disc;
+
+    if survivors.is_empty() {
+        // Every extension candidate's validation rejected the content: the
+        // file claims an extension whose declared types all disown it.
+        return Err(InputResolverError::InspectionFailed {
+            path: path.to_path_buf(),
+            reason: format!(
+                "content matches none of the {} media definitions declared for extension '{extension}'",
+                candidates.len()
+            ),
+        });
+    }
+
+    let refined = refine_survivors(survivors, value_adapters, &content);
+
+    let mut best: Option<(MediaUrn, String)> = None;
+    for urn_str in &refined {
+        if let Ok(urn) = MediaUrn::from_string(urn_str) {
+            let wins = match &best {
+                Some((b, _)) => urn.specificity() > b.specificity(),
+                None => true,
+            };
+            if wins {
+                best = Some((urn, urn_str.clone()));
+            }
+        }
+    }
+    let Some((chosen, chosen_str)) = best else {
+        return Err(InputResolverError::InspectionFailed {
+            path: path.to_path_buf(),
+            reason: "no surviving media candidate parses as a media URN".to_string(),
+        });
+    };
+
+    Ok(ResolvedFile {
+        path: baseline.path,
+        media_urn: chosen_str,
+        size_bytes: baseline.size_bytes,
+        content_structure: structure_from_marker_tags(&chosen),
+    })
 }
 
 /// Extension-based detection using a specific FabricRegistry.
