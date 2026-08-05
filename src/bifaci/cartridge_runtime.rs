@@ -785,9 +785,15 @@ impl PeerResponse {
                     })?;
                     if level == "progress" {
                         let progress = frame.log_progress().ok_or_else(|| {
-                            StreamError::Protocol(
-                                "peer progress LOG missing numeric progress".to_string(),
-                            )
+                            // Carry the evidence: "absent" and "a text value"
+                            // are different defects in the PEER, and an error
+                            // that cannot tell them apart forces whoever reads
+                            // it to reproduce the failure to learn which.
+                            StreamError::Protocol(format!(
+                                "peer progress LOG has no numeric progress — the `progress` \
+                                 slot is {} (level is \"progress\", so a number is required)",
+                                frame.log_progress_slot_description()
+                            ))
                         })?;
                         output.progress(
                             progress_base + progress.clamp(0.0, 1.0) * progress_weight,
