@@ -1671,26 +1671,40 @@ impl FabricRegistry {
             .collect()
     }
 
-    /// Every LIVE-SOURCE definition currently in the cache: media defs in
-    /// the live reference family (`is_live_feed`) that declare their
-    /// CONTENT pairing via `metadata.content` — the urn a resolved feed of
+    /// Every LIVE-SOURCE definition the pinned MANIFEST declares: media
+    /// defs in the live reference family (`is_live_feed`) with their
+    /// CONTENT pairing from `metadata.content` — the urn a resolved feed of
     /// that reference delivers, and the urn PLANNING anchors at
-    /// (`is_sequence=true`). Returns `(reference_urn, content_urn, title)`
-    /// triples, sorted by reference urn for determinism. A live def
-    /// WITHOUT a content pairing is a fabric defect and is reported as an
-    /// error rather than silently skipped.
-    pub fn live_source_defs(&self) -> Result<Vec<(String, String, String)>, FabricRegistryError> {
-        let cached = self.cached_media_defs.lock().map_err(|e| {
-            FabricRegistryError::CacheError(format!("Failed to lock media defs: {}", e))
-        })?;
+    /// (`is_sequence=true`). Enumerated from the manifest's media listing
+    /// (never the warm cache alone: live reference defs are referenced by
+    /// NO cap, so cap-driven cache warming never loads them — a cache-only
+    /// scan would silently report an empty catalog). Each def is fetched
+    /// through `get_media_def`, which caches. Returns
+    /// `(reference_urn, content_urn, title)` triples sorted by reference
+    /// urn. A live def WITHOUT a content pairing is a fabric defect and is
+    /// reported as an error rather than silently skipped.
+    pub async fn live_source_defs(
+        &self,
+    ) -> Result<Vec<(String, String, String)>, FabricRegistryError> {
+        // Snapshot the manifest's live-family urns first — the lock must
+        // not be held across fetch awaits.
+        let live_urns: Vec<String> = {
+            let m = self.manifest.lock().map_err(|e| {
+                FabricRegistryError::CacheError(format!("Failed to lock manifest: {}", e))
+            })?;
+            m.media
+                .keys()
+                .filter(|urn| {
+                    crate::MediaUrn::from_string(urn)
+                        .map(|u| u.is_live_feed())
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect()
+        };
         let mut out = Vec::new();
-        for spec in cached.values() {
-            let Ok(urn) = crate::MediaUrn::from_string(&spec.urn) else {
-                continue;
-            };
-            if !urn.is_live_feed() {
-                continue;
-            }
+        for urn in live_urns {
+            let spec = self.get_media_def(&urn).await?;
             let content = spec
                 .metadata
                 .as_ref()
@@ -1719,11 +1733,11 @@ impl FabricRegistry {
     /// The CONTENT urn paired with a live reference (`metadata.content` on
     /// the matching live media def, by urn equivalence). `Ok(None)` when no
     /// live def matches the reference.
-    pub fn live_source_content_urn(
+    pub async fn live_source_content_urn(
         &self,
         reference_urn: &crate::MediaUrn,
     ) -> Result<Option<String>, FabricRegistryError> {
-        for (def_urn, content, _) in self.live_source_defs()? {
+        for (def_urn, content, _) in self.live_source_defs().await? {
             if let Ok(u) = crate::MediaUrn::from_string(&def_urn) {
                 if u.is_equivalent(reference_urn).unwrap_or(false) {
                     return Ok(Some(content));

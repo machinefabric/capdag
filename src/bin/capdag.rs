@@ -810,7 +810,7 @@ async fn execute_notation(
     for arg in input_args {
         if let Ok(u) = capdag::MediaUrn::from_string(arg) {
             if u.is_live_feed() {
-                match registry.live_source_content_urn(&u) {
+                match registry.live_source_content_urn(&u).await {
                     Ok(Some(content)) => {
                         let content_urn = capdag::MediaUrn::from_string(&content)
                             .expect("registry validated the content urn");
