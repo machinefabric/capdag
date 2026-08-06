@@ -84,3 +84,4 @@ standard/media/*
 .wsb/
 diffs/
 tests/fixtures/nocommit/*
+dist/
