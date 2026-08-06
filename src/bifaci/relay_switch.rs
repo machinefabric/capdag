@@ -3142,7 +3142,18 @@ impl RelaySwitch {
         frame: &mut Frame,
     ) -> Result<(), CborError> {
         let masters = self.masters.read().await;
-        let master = &masters[master_idx];
+        // A destination that no longer exists (master detached between route
+        // resolution and delivery) is a DELIVERY failure, never a panic — a
+        // routed frame must not be able to crash the switch.
+        let Some(master) = masters.get(master_idx) else {
+            return Err(CborError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                format!(
+                    "master {master_idx} is not attached (of {}) — destination detached before delivery",
+                    masters.len()
+                ),
+            )));
+        };
 
         // Lock seq_assigner and socket_writer separately to minimize lock contention
         {
@@ -7526,21 +7537,22 @@ mod tests {
             "ingress recording captured the terminal frame"
         );
 
-        // A follow-up frame for the released key is a counted no_route drop.
+        // A follow-up frame for the released key is a counted drop CLASSIFIED
+        // as the teardown race: the request just terminated, so it counts
+        // post_terminal — no_route stays reserved for RIDs the table never
+        // knew (TEST8114).
         let mut late = Frame::progress(rid.clone(), 1.0, "late");
         late.routing_id = Some(xid);
         switch
             .handle_master_frame(0, late)
             .await
             .expect("post-terminal frame must not error");
+        let drops = switch.protocol_stats().await.drops;
+        assert_eq!(drops.by_reason.get("post_terminal"), Some(&1));
         assert_eq!(
-            switch
-                .protocol_stats()
-                .await
-                .drops
-                .by_reason
-                .get("no_route"),
-            Some(&1)
+            drops.by_reason.get("no_route"),
+            None,
+            "a just-terminated request's straggler is not a routing anomaly"
         );
     }
 

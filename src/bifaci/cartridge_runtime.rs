@@ -6014,9 +6014,13 @@ mod tests {
         output.start(false, None).unwrap();
 
         // Exhaust the window (1 chunk), then block trying to send another.
+        // write() coalesces (8 bytes is far under the batch threshold), so
+        // the explicit flush is what ships the batch: 2 chunks at max_chunk
+        // 4, blocking after the first consumes the whole window.
         let out2 = Arc::clone(&output);
         let writer = tokio::spawn(async move {
-            let _ = out2.write(&[0u8; 8]).await; // 2 chunks; blocks after 1
+            let _ = out2.write(&[0u8; 8]).await;
+            let _ = out2.flush().await; // blocks after chunk 1 (window = 1)
         });
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(!writer.is_finished(), "data sender must be stalled");
