@@ -32,7 +32,7 @@ use crate::bifaci::relay_switch::{
     CartridgeRuntimeStats, InstalledCartridgeRecord, RelayNotifyCapabilitiesPayload,
 };
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -864,6 +864,18 @@ pub struct CartridgeHostRuntime {
     /// arriving from the relay during this phase are self-loop peer responses
     /// and fall through to `outgoing_rids` as before.
     incoming_body_done: HashSet<(MessageId, MessageId)>,
+    /// Bounded ring of RIDs whose routing entries were released by an
+    /// OBSERVED terminal — a completed request, a completed peer response, or
+    /// a cartridge death (which synthesizes the ERR terminal itself). This is
+    /// the discriminator between the two ways a frame can arrive with no
+    /// routing entry: a hit means the frame crossed its request's terminal in
+    /// flight (the ordinary teardown race of credit-based flow control —
+    /// counted `post_terminal`), a miss means the host never routed this RID
+    /// within the ring's horizon (`no_route`, a genuine anomaly). GC
+    /// evictions are deliberately NOT recorded here: an evicted entry never
+    /// saw its terminal, so a frame for it is real routing loss and stays
+    /// `no_route` beside `routing_gc_evicted_total`.
+    recent_released_rids: VecDeque<MessageId>,
     /// Incoming requests whose RESPONSE terminal already passed outbound while
     /// the request body was still open (response-first race). When the body
     /// END later arrives, the entry is released immediately instead of being
@@ -905,6 +917,11 @@ impl CartridgeHostRuntime {
     /// still catching a runaway producer well before it grows
     /// memory by megabytes.
     pub(crate) const ROUTING_TABLE_HARD_CAP: usize = 8192;
+    /// How many terminal-released RIDs the discrimination ring retains
+    /// (`recent_released_rids`). The teardown race window is milliseconds;
+    /// 64 releases of horizon mirrors `RequestTable`'s recently-terminated
+    /// ring on the relay side.
+    pub(crate) const RECENT_RELEASED_RIDS_CAP: usize = 64;
     /// Soft watermark — when an insertion brings a table at or
     /// above this size, the GC fires and evicts the oldest 25 %
     /// by `routing_touch_seq`. Set to ~80 % of `HARD_CAP` so the
@@ -970,6 +987,25 @@ impl CartridgeHostRuntime {
         self.routing_touch_seq = self.routing_touch_seq.wrapping_add(1);
         self.outgoing_max_seq_touched
             .insert(key.clone(), self.routing_touch_seq);
+    }
+
+    /// Record that `rid`'s routing entry was released by an observed terminal
+    /// (see `recent_released_rids`). Deduplicated; bounded at
+    /// `RECENT_RELEASED_RIDS_CAP`.
+    fn note_released_rid(&mut self, rid: &MessageId) {
+        if self.recent_released_rids.iter().any(|r| r == rid) {
+            return;
+        }
+        if self.recent_released_rids.len() == Self::RECENT_RELEASED_RIDS_CAP {
+            self.recent_released_rids.pop_front();
+        }
+        self.recent_released_rids.push_back(rid.clone());
+    }
+
+    /// Whether `rid`'s routing entry was recently released by a terminal —
+    /// the post_terminal / no_route discriminator for unroutable frames.
+    fn recently_released_rid(&self, rid: &MessageId) -> bool {
+        self.recent_released_rids.iter().any(|r| r == rid)
     }
 
     /// Run the GC if any routing table has crossed its soft
@@ -1117,6 +1153,7 @@ impl CartridgeHostRuntime {
             drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
             incoming_body_done: HashSet::new(),
             incoming_response_done: HashSet::new(),
+            recent_released_rids: VecDeque::new(),
             static_inventory_records: Vec::new(),
             routing_touch_seq: 0,
             routing_gc_runs_total: 0,
@@ -1692,17 +1729,36 @@ impl CartridgeHostRuntime {
                     self.touch_incoming_rxid(&key);
                     (idx, true)
                 } else {
-                    let total = self.drops.record(crate::bifaci::frame::DropReason::NoRoute);
-                    tracing::warn!(
-                        target: "host_runtime",
-                        ftype = ?frame.frame_type,
-                        rid = ?frame.id,
-                        xid = ?xid,
-                        incoming_rxids_size = self.incoming_rxids.len(),
-                        outgoing_rids_size = self.outgoing_rids.len(),
-                        no_route_total = total,
-                        "[CartridgeHostRuntime] dropped continuation frame — no routing entry (no_route, L6/L8)"
-                    );
+                    // Discriminate the teardown race from real routing loss:
+                    // a RID released by an observed terminal is the ordinary
+                    // END/Credit race (`post_terminal`, debug); a RID this
+                    // host never routed is a genuine anomaly (`no_route`,
+                    // warn).
+                    if self.recently_released_rid(&frame.id) {
+                        let total = self
+                            .drops
+                            .record(crate::bifaci::frame::DropReason::PostTerminal);
+                        tracing::debug!(
+                            target: "host_runtime",
+                            ftype = ?frame.frame_type,
+                            rid = ?frame.id,
+                            xid = ?xid,
+                            post_terminal_total = total,
+                            "[CartridgeHostRuntime] dropped straggler for terminated request (post_terminal, L4/L6)"
+                        );
+                    } else {
+                        let total = self.drops.record(crate::bifaci::frame::DropReason::NoRoute);
+                        tracing::warn!(
+                            target: "host_runtime",
+                            ftype = ?frame.frame_type,
+                            rid = ?frame.id,
+                            xid = ?xid,
+                            incoming_rxids_size = self.incoming_rxids.len(),
+                            outgoing_rids_size = self.outgoing_rids.len(),
+                            no_route_total = total,
+                            "[CartridgeHostRuntime] dropped continuation frame — no routing entry (no_route, L6/L8)"
+                        );
+                    }
                     return Ok(()); // Already cleaned up
                 };
 
@@ -1746,6 +1802,9 @@ impl CartridgeHostRuntime {
                     self.incoming_rxids_touched.remove(&key);
                     self.incoming_body_done.remove(&key);
                     self.incoming_response_done.remove(&key);
+                    // The synthesized ERR terminated this request; stragglers
+                    // for it are post_terminal, not routing anomalies.
+                    self.note_released_rid(&frame.id);
                     return Ok(());
                 }
 
@@ -1763,6 +1822,7 @@ impl CartridgeHostRuntime {
                             // race): the request is fully over — release.
                             self.incoming_rxids.remove(&key);
                             self.incoming_rxids_touched.remove(&key);
+                            self.note_released_rid(&frame.id);
                         } else {
                             self.incoming_body_done.insert(key.clone());
                         }
@@ -1770,6 +1830,7 @@ impl CartridgeHostRuntime {
                         // Peer response completed - clean up outgoing_rids
                         self.outgoing_rids.remove(&frame.id);
                         self.outgoing_rids_touched.remove(&frame.id);
+                        self.note_released_rid(&frame.id);
                     }
                 }
 
@@ -1790,8 +1851,25 @@ impl CartridgeHostRuntime {
                     let rid_for_touch = frame.id.clone();
                     self.touch_outgoing_rid(&rid_for_touch);
                     let _ = self.send_to_cartridge(cartridge_idx, frame);
+                } else {
+                    // No routing entry: COUNTED drop, never silent (L8) — a
+                    // LOG that crossed its peer request's terminal is
+                    // post_terminal; one for a RID never routed here is
+                    // no_route.
+                    let reason = if self.recently_released_rid(&frame.id) {
+                        crate::bifaci::frame::DropReason::PostTerminal
+                    } else {
+                        crate::bifaci::frame::DropReason::NoRoute
+                    };
+                    let total = self.drops.record(reason);
+                    tracing::debug!(
+                        target: "host_runtime",
+                        rid = ?frame.id,
+                        reason = reason.as_str(),
+                        reason_total = total,
+                        "[CartridgeHostRuntime] dropped LOG with no routing entry"
+                    );
                 }
-                // If not a peer response LOG, ignore silently (stale routing)
                 Ok(())
             }
             FrameType::Cancel => {
@@ -2019,6 +2097,7 @@ impl CartridgeHostRuntime {
                             if self.incoming_body_done.remove(&key) {
                                 self.incoming_rxids.remove(&key);
                                 self.incoming_rxids_touched.remove(&key);
+                                self.note_released_rid(&frame.id);
                             } else if self.incoming_rxids.contains_key(&key) {
                                 self.incoming_response_done.insert(key);
                             }
@@ -2202,6 +2281,13 @@ impl CartridgeHostRuntime {
             self.outgoing_rids.remove(rid);
             self.outgoing_rids_touched.remove(rid);
         }
+        let released_outgoing: Vec<MessageId> =
+            failed_outgoing.iter().map(|(rid, _)| rid.clone()).collect();
+        for rid in &released_outgoing {
+            // The death sweep synthesizes ERR terminals for these RIDs below;
+            // stragglers for them are post_terminal.
+            self.note_released_rid(rid);
+        }
 
         // incoming_rxids: requests from the relay that this cartridge was handling.
         // Collect (xid, rid, flow_key) under an immutable borrow,
@@ -2249,6 +2335,11 @@ impl CartridgeHostRuntime {
             self.incoming_rxids_touched.remove(k);
             self.incoming_body_done.remove(k);
             self.incoming_response_done.remove(k);
+        }
+        let released_incoming: Vec<MessageId> =
+            dying_rxids_keys.iter().map(|(_, rid)| rid.clone()).collect();
+        for rid in &released_incoming {
+            self.note_released_rid(rid);
         }
 
         // Clean up incoming_to_peer_rids for all requests from this cartridge
@@ -6759,4 +6850,122 @@ mod tests {
             Some("Cartridge stopped responding to heartbeats")
         );
     }
+
+    // TEST8116: the terminal-release ring discriminates and stays bounded —
+    // released rids classify as post_terminal material, unknown rids do not,
+    // duplicates collapse, and eviction past the cap ages a rid back out.
+    #[test]
+    fn test8116_released_rid_ring_discriminates_dedupes_and_ages_out() {
+        let mut runtime = CartridgeHostRuntime::new();
+        let rid = MessageId::Uint(7);
+
+        assert!(!runtime.recently_released_rid(&rid), "nothing released yet");
+        runtime.note_released_rid(&rid);
+        runtime.note_released_rid(&rid); // duplicate must collapse
+        assert!(runtime.recently_released_rid(&rid));
+        assert_eq!(
+            runtime.recent_released_rids.len(),
+            1,
+            "duplicate releases collapse to one ring entry"
+        );
+        assert!(
+            !runtime.recently_released_rid(&MessageId::Uint(9999)),
+            "a rid never released here is a genuine anomaly"
+        );
+
+        for n in 100..(100 + CartridgeHostRuntime::RECENT_RELEASED_RIDS_CAP as u64) {
+            runtime.note_released_rid(&MessageId::Uint(n));
+        }
+        assert!(
+            !runtime.recently_released_rid(&rid),
+            "eviction past RECENT_RELEASED_RIDS_CAP ends post_terminal classification"
+        );
+        assert_eq!(
+            runtime.recent_released_rids.len(),
+            CartridgeHostRuntime::RECENT_RELEASED_RIDS_CAP,
+            "the ring is bounded"
+        );
+    }
+
+    // TEST8117: an unroutable continuation from the relay is classified by the
+    // release ring — post_terminal for a rid a terminal just released, no_route
+    // for a rid this host never routed. Both are COUNTED drops (L8), never
+    // errors and never silent.
+    #[tokio::test]
+    async fn test8117_unroutable_continuation_classified_by_release_ring() {
+        let mut runtime = CartridgeHostRuntime::new();
+        let (outbound_tx, _outbound_rx) = mpsc::unbounded_channel();
+        let resource_fn = || Vec::new();
+
+        // Unknown rid: no routing entry, nothing released → no_route.
+        let mut unknown = Frame::new(FrameType::Chunk, MessageId::Uint(41));
+        unknown.routing_id = Some(MessageId::Uint(4));
+        unknown.stream_id = Some("s".to_string());
+        unknown.chunk_index = Some(0);
+        unknown.checksum = Some(0);
+        runtime
+            .handle_relay_frame(unknown, &outbound_tx, &resource_fn)
+            .await
+            .expect("unroutable frame must not error (L6)");
+        assert_eq!(
+            runtime.drops.get(crate::bifaci::frame::DropReason::NoRoute),
+            1,
+            "a rid never routed here is a routing anomaly"
+        );
+        assert_eq!(
+            runtime
+                .drops
+                .get(crate::bifaci::frame::DropReason::PostTerminal),
+            0
+        );
+
+        // Released rid: the same frame after a terminal released the route →
+        // post_terminal, and the no_route counter must NOT move.
+        runtime.note_released_rid(&MessageId::Uint(42));
+        let mut straggler = Frame::new(FrameType::Chunk, MessageId::Uint(42));
+        straggler.routing_id = Some(MessageId::Uint(4));
+        straggler.stream_id = Some("s".to_string());
+        straggler.chunk_index = Some(0);
+        straggler.checksum = Some(0);
+        runtime
+            .handle_relay_frame(straggler, &outbound_tx, &resource_fn)
+            .await
+            .expect("post-terminal straggler must not error (L6)");
+        assert_eq!(
+            runtime
+                .drops
+                .get(crate::bifaci::frame::DropReason::PostTerminal),
+            1,
+            "a released rid's straggler is the teardown race"
+        );
+        assert_eq!(
+            runtime.drops.get(crate::bifaci::frame::DropReason::NoRoute),
+            1,
+            "the routing-anomaly counter must not absorb teardown races"
+        );
+
+        // A LOG with no routing entry follows the same law — counted, never
+        // silent: released rid → post_terminal, unknown rid → no_route.
+        let log_released = Frame::progress(MessageId::Uint(42), 0.5, "late log");
+        runtime
+            .handle_relay_frame(log_released, &outbound_tx, &resource_fn)
+            .await
+            .expect("unroutable LOG must not error");
+        assert_eq!(
+            runtime
+                .drops
+                .get(crate::bifaci::frame::DropReason::PostTerminal),
+            2
+        );
+        let log_unknown = Frame::progress(MessageId::Uint(43), 0.5, "alien log");
+        runtime
+            .handle_relay_frame(log_unknown, &outbound_tx, &resource_fn)
+            .await
+            .expect("unroutable LOG must not error");
+        assert_eq!(
+            runtime.drops.get(crate::bifaci::frame::DropReason::NoRoute),
+            2
+        );
+    }
 }
+

@@ -360,7 +360,11 @@ pub struct StreamFlowStats {
     pub bytes_out: u64,
     pub chunks_in: u64,
     pub chunks_out: u64,
-    /// Credits granted through this runtime minus chunks that consumed them.
+    /// The stream's REMAINING credit window as observed by this runtime: the
+    /// negotiated initial window, plus credits granted through this runtime,
+    /// minus chunks that consumed them (in either direction — a stream's
+    /// chunks flow one way and its grants the other). Non-negative in healthy
+    /// operation; a negative value means the producer overran its window.
     /// Diagnostic — the endpoints hold the authoritative windows.
     pub credit_outstanding: i64,
     /// Stream announced with unbounded=true (no length promise).
@@ -391,6 +395,10 @@ pub struct RequestState {
     pub phase: RequestPhase,
     /// Per-stream flow stats (None key = non-stream frames).
     pub streams: HashMap<Option<String>, StreamFlowStats>,
+    /// The NEGOTIATED initial credit window of this request's destination —
+    /// the ledger seed for every stream (see
+    /// [`StreamFlowStats::credit_outstanding`]).
+    pub initial_credit: u64,
     pub created_at: Instant,
     pub last_activity: Instant,
 }
@@ -401,6 +409,7 @@ impl RequestState {
         origin: Option<usize>,
         external_channel: Option<mpsc::UnboundedSender<Frame>>,
         is_peer: bool,
+        initial_credit: u64,
     ) -> Self {
         let now = Instant::now();
         Self {
@@ -413,6 +422,7 @@ impl RequestState {
             children: Vec::new(),
             phase: RequestPhase::Created,
             streams: HashMap::new(),
+            initial_credit,
             created_at: now,
             last_activity: now,
         }
@@ -435,7 +445,18 @@ impl RequestState {
         if frame.is_flow_frame() {
             self.phase = RequestPhase::Streaming;
         }
-        let stats = self.streams.entry(frame.stream_id.clone()).or_default();
+        // A fresh stream starts with the NEGOTIATED initial window (L10): the
+        // producer may send that many chunks before any CREDIT frame arrives,
+        // so a ledger that starts at zero reads every healthy stream as
+        // negative by exactly the initial window.
+        let initial_credit = self.initial_credit as i64;
+        let stats = self
+            .streams
+            .entry(frame.stream_id.clone())
+            .or_insert_with(|| StreamFlowStats {
+                credit_outstanding: initial_credit,
+                ..StreamFlowStats::default()
+            });
         let bytes = frame.payload.as_ref().map(|p| p.len() as u64).unwrap_or(0);
         match direction {
             FrameDirection::Inbound => {
@@ -443,7 +464,6 @@ impl RequestState {
                 stats.bytes_in += bytes;
                 if frame.frame_type == FrameType::Chunk {
                     stats.chunks_in += 1;
-                    stats.credit_outstanding -= 1;
                 }
             }
             FrameDirection::Outbound => {
@@ -453,6 +473,12 @@ impl RequestState {
                     stats.chunks_out += 1;
                 }
             }
+        }
+        // A chunk consumes one credit from ITS stream's window regardless of
+        // which way it flows past this runtime — a stream's chunks all flow
+        // one direction, and its grants flow the other.
+        if frame.frame_type == FrameType::Chunk {
+            stats.credit_outstanding -= 1;
         }
         match frame.frame_type {
             FrameType::StreamStart if frame.is_unbounded() => stats.unbounded = true,
@@ -617,6 +643,25 @@ impl RequestTable {
         observer: Box<dyn Fn(&TerminatedSummary) + Send + Sync>,
     ) {
         self.terminate_observer = Some(observer);
+    }
+
+    /// Whether this RID belongs to a recently terminated request (the bounded
+    /// `recent_terminated` ring).
+    ///
+    /// This is the discriminator between the two ways a frame can arrive with
+    /// no routing state. A hit here means the frame CROSSED its request's
+    /// terminal in flight — the ordinary teardown race of credit-based flow
+    /// control (a grant or straggler emitted before the sender observed
+    /// END/ERR) — which receivers count as `post_terminal`. A miss means the
+    /// table has never known the RID within the ring's horizon: a genuine
+    /// `no_route` anomaly worth alarming on. The ring holds the last
+    /// [`RECENT_TERMINATED_CAP`] terminations; the race window is
+    /// milliseconds, so eviction cannot misclassify a real race, only age a
+    /// pathologically late frame back into `no_route` — where something that
+    /// stale belongs.
+    pub fn recently_terminated_rid(&self, rid: &MessageId) -> bool {
+        let rid = rid.to_string();
+        self.recent_terminated.iter().any(|s| s.rid == rid)
     }
 
     /// Record a frame moving through the runtime for this request.
@@ -918,6 +963,10 @@ mod tests {
         (MessageId::Uint(x), MessageId::Uint(r))
     }
 
+    /// The ledger seed every test request negotiates — deliberately a small
+    /// odd-sized window so seed arithmetic is visible in assertions.
+    const TEST_INITIAL_CREDIT: u64 = 8;
+
     fn state(dest: usize, origin: Option<usize>, is_peer: bool) -> RequestState {
         RequestState::new(
             RoutingEntry {
@@ -927,6 +976,7 @@ mod tests {
             origin,
             None,
             is_peer,
+            TEST_INITIAL_CREDIT,
         )
     }
 
@@ -1207,8 +1257,14 @@ mod tests {
         assert_eq!(s1.bytes_out, 100);
         assert!(s1.unbounded);
         assert!(s1.ended);
-        // +4 granted, -1 consumed inbound chunk
-        assert_eq!(s1.credit_outstanding, 3);
+        // The ledger is the REMAINING WINDOW: seeded with the negotiated
+        // initial credit, +4 granted, -1 per chunk in EITHER direction (the
+        // inbound chunk and the outbound chunk each consumed one).
+        assert_eq!(
+            s1.credit_outstanding,
+            TEST_INITIAL_CREDIT as i64 + 4 - 2,
+            "window = seed + grants - chunks"
+        );
     }
 
     // TEST7033: Terminated requests leave a bounded ring of summaries carrying kind, lifetime, and flow totals, and the ring evicts oldest-first at capacity.
@@ -1241,4 +1297,46 @@ mod tests {
             Some(&(RECENT_TERMINATED_CAP as u64 + 3))
         );
     }
+
+    // TEST8115: recently_terminated_rid discriminates the teardown race from
+    // genuine routing loss: true for a rid whose request just terminated,
+    // false for a rid the table never knew, false again once the summary is
+    // evicted past the ring's horizon — a pathologically late frame ages back
+    // into no_route, where something that stale belongs.
+    #[test]
+    fn test8115_recently_terminated_rid_discriminates_and_ages_out() {
+        let mut table = RequestTable::new();
+
+        let k = key(1, 500);
+        table.register(k.clone(), state(0, None, false)).unwrap();
+        assert!(
+            !table.recently_terminated_rid(&MessageId::Uint(500)),
+            "a LIVE request is not recently terminated"
+        );
+        table.terminate(&k, TerminalKind::End).unwrap();
+        assert!(
+            table.recently_terminated_rid(&MessageId::Uint(500)),
+            "a just-terminated rid must be in the ring"
+        );
+        assert!(
+            !table.recently_terminated_rid(&MessageId::Uint(9999)),
+            "an unknown rid is a genuine routing anomaly, never post_terminal"
+        );
+
+        // Push the ring past its horizon: rid 500's summary must age out.
+        for n in 1000..(1000 + RECENT_TERMINATED_CAP as u64) {
+            let k = key(n, n);
+            table.register(k.clone(), state(0, None, false)).unwrap();
+            table.terminate(&k, TerminalKind::End).unwrap();
+        }
+        assert!(
+            !table.recently_terminated_rid(&MessageId::Uint(500)),
+            "eviction past RECENT_TERMINATED_CAP ends post_terminal classification"
+        );
+        assert!(
+            table.recently_terminated_rid(&MessageId::Uint(1000 + RECENT_TERMINATED_CAP as u64 - 1)),
+            "the newest termination is still in the ring"
+        );
+    }
 }
+

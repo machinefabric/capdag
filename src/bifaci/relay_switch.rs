@@ -1876,6 +1876,7 @@ impl RelaySwitch {
         cap_urn: Option<String>,
         permit: Option<AdmissionPermit>,
     ) -> Result<(), RelaySwitchError> {
+        let initial_credit = self.master_initial_credit(dest_idx).await;
         let mut state = RequestState::new(
             RoutingEntry {
                 source_master_idx: None,
@@ -1884,6 +1885,7 @@ impl RelaySwitch {
             None,
             Some(tx),
             false,
+            initial_credit,
         )
         .with_cap_urn(cap_urn);
         if let Some(permit) = permit {
@@ -2929,6 +2931,7 @@ impl RelaySwitch {
                     }
                 };
 
+                let initial_credit = self.master_initial_credit(dest_idx).await;
                 self.requests
                     .write()
                     .await
@@ -2942,6 +2945,7 @@ impl RelaySwitch {
                             None,
                             None,
                             false,
+                            initial_credit,
                         )
                         .with_cap_urn(frame.cap.clone())
                         .with_admission_permit(permit),
@@ -2962,12 +2966,16 @@ impl RelaySwitch {
             | FrameType::Cancel
             | FrameType::Credit => {
                 // Continuation/control frames from engine: look up XID from
-                // RID if missing, then the destination — one table read.
+                // RID if missing, resolve the destination, and RECORD the
+                // outbound frame in the request's flow ledger — one table
+                // write. Engine-originated grants and chunks are half of
+                // every stream's credit arithmetic; skipping them made the
+                // snapshot ledger read healthy streams as deep-negative.
                 // Unknown RID is a hard error back to the caller: the engine
                 // is a direct API client and must observe that the request no
                 // longer exists (already terminated) so it stops sending.
                 let (dest_idx, xid) = {
-                    let requests = self.requests.read().await;
+                    let mut requests = self.requests.write().await;
                     let xid = match frame.routing_id.clone() {
                         Some(xid) => xid,
                         None => requests
@@ -2975,10 +2983,12 @@ impl RelaySwitch {
                             .ok_or_else(|| RelaySwitchError::UnknownRequest(frame.id.clone()))?,
                     };
                     let key = (xid.clone(), frame.id.clone());
-                    let entry = requests
+                    let dest_idx = requests
                         .get(&key)
+                        .map(|entry| entry.routing.destination_master_idx)
                         .ok_or_else(|| RelaySwitchError::UnknownRequest(frame.id.clone()))?;
-                    (entry.routing.destination_master_idx, xid)
+                    requests.record_frame(&key, FrameDirection::Outbound, &frame);
+                    (dest_idx, xid)
                 };
                 frame.routing_id = Some(xid);
 
@@ -3353,7 +3363,10 @@ impl RelaySwitch {
                 let key = (xid.clone(), rid.clone());
 
                 // Register the peer request and link it under its parent for
-                // the cancel cascade — one table write guard (L7).
+                // the cancel cascade — one table write guard (L7). The ledger
+                // seed is read BEFORE taking the guard (it awaits the master
+                // table's own lock).
+                let initial_credit = self.master_initial_credit(dest_idx).await;
                 {
                     let mut requests = self.requests.write().await;
                     requests
@@ -3367,6 +3380,7 @@ impl RelaySwitch {
                                 Some(source_idx),
                                 None,
                                 true,
+                                initial_credit,
                             )
                             .with_cap_urn(frame.cap.clone()),
                         )
@@ -3457,15 +3471,24 @@ impl RelaySwitch {
                                     (route, state.cap_urn)
                                 }
                                 None => {
-                                    let total = self
-                                        .drops
-                                        .record(crate::bifaci::frame::DropReason::NoRoute);
+                                    // Classify by the terminated ring: a frame
+                                    // for a request that JUST terminated is the
+                                    // ordinary teardown race (`post_terminal`);
+                                    // only a RID the table never knew is a
+                                    // routing anomaly (`no_route`).
+                                    let reason = if requests.recently_terminated_rid(&rid) {
+                                        crate::bifaci::frame::DropReason::PostTerminal
+                                    } else {
+                                        crate::bifaci::frame::DropReason::NoRoute
+                                    };
+                                    let total = self.drops.record(reason);
                                     tracing::debug!(
                                         rid = ?rid,
                                         xid = ?xid,
                                         ftype = ?frame.frame_type,
-                                        no_route_total = total,
-                                        "[RelaySwitch] dropped terminal for released request (no_route)"
+                                        reason = reason.as_str(),
+                                        reason_total = total,
+                                        "[RelaySwitch] dropped duplicate terminal for released request"
                                     );
                                     return Ok(None);
                                 }
@@ -3480,15 +3503,19 @@ impl RelaySwitch {
                                     (route, state.cap_urn.clone())
                                 }
                                 None => {
-                                    let total = self
-                                        .drops
-                                        .record(crate::bifaci::frame::DropReason::NoRoute);
+                                    let reason = if requests.recently_terminated_rid(&rid) {
+                                        crate::bifaci::frame::DropReason::PostTerminal
+                                    } else {
+                                        crate::bifaci::frame::DropReason::NoRoute
+                                    };
+                                    let total = self.drops.record(reason);
                                     tracing::debug!(
                                         rid = ?rid,
                                         xid = ?xid,
                                         ftype = ?frame.frame_type,
-                                        no_route_total = total,
-                                        "[RelaySwitch] dropped post-terminal response frame (no_route)"
+                                        reason = reason.as_str(),
+                                        reason_total = total,
+                                        "[RelaySwitch] dropped response frame with no routing state"
                                     );
                                     return Ok(None);
                                 }
@@ -3548,23 +3575,41 @@ impl RelaySwitch {
                     let rid = frame.id.clone();
                     let lookup = {
                         let mut requests = self.requests.write().await;
-                        requests.xid_for_rid(&rid).and_then(|xid| {
+                        let hit = requests.xid_for_rid(&rid).and_then(|xid| {
                             let key = (xid.clone(), rid.clone());
                             requests.record_frame(&key, FrameDirection::Inbound, &frame);
                             requests
                                 .get(&key)
                                 .map(|state| (xid, state.routing.destination_master_idx))
-                        })
+                        });
+                        match hit {
+                            Some(found) => Ok(found),
+                            // Classify under the same table guard: a
+                            // continuation for a request that JUST terminated
+                            // is the ordinary teardown race (`post_terminal`
+                            // — a grant or straggler that crossed END in
+                            // flight); a RID the table never knew is a
+                            // routing anomaly (`no_route`).
+                            None => Err(if requests.recently_terminated_rid(&rid) {
+                                crate::bifaci::frame::DropReason::PostTerminal
+                            } else {
+                                crate::bifaci::frame::DropReason::NoRoute
+                            }),
+                        }
                     };
-                    let Some((xid, dest_idx)) = lookup else {
-                        let total = self.drops.record(crate::bifaci::frame::DropReason::NoRoute);
-                        tracing::debug!(
-                            rid = ?rid,
-                            ftype = ?frame.frame_type,
-                            no_route_total = total,
-                            "[RelaySwitch] dropped continuation for unknown/terminated request (no_route)"
-                        );
-                        return Ok(None);
+                    let (xid, dest_idx) = match lookup {
+                        Ok(found) => found,
+                        Err(reason) => {
+                            let total = self.drops.record(reason);
+                            tracing::debug!(
+                                rid = ?rid,
+                                ftype = ?frame.frame_type,
+                                reason = reason.as_str(),
+                                reason_total = total,
+                                "[RelaySwitch] dropped continuation with no routing state"
+                            );
+                            return Ok(None);
+                        }
                     };
 
                     // Add XID to frame for forwarding
@@ -3988,6 +4033,19 @@ impl RelaySwitch {
             reason = reason,
             "[RelaySwitch] LiveCapFab rebuilt from current capabilities"
         );
+    }
+
+    /// The destination master's negotiated initial credit — the ledger seed
+    /// for requests routed to it ([`RequestState::initial_credit`]). When the
+    /// slot has already detached (a resolve/attach race — the registration
+    /// that follows will fail on delivery), the switch-level negotiated
+    /// minimum is the correct window bound.
+    async fn master_initial_credit(&self, dest_idx: usize) -> u64 {
+        let masters = self.masters.read().await;
+        match masters.get(dest_idx) {
+            Some(master) => master.limits.read().await.initial_credit,
+            None => self.negotiated_limits.read().await.initial_credit,
+        }
     }
 
     /// Rebuild negotiated limits (minimum across all healthy masters).
@@ -7431,6 +7489,7 @@ mod tests {
                     None,
                     Some(tx),
                     false,
+                    crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
                 ),
             )
             .expect("registration must succeed");
@@ -7510,6 +7569,7 @@ mod tests {
                     None,
                     Some(tx),
                     false,
+                    crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
                 ),
             )
             .unwrap();
@@ -7579,6 +7639,7 @@ mod tests {
                         None,
                         Some(ptx),
                         false,
+                    crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
                     ),
                 )
                 .unwrap();
@@ -7593,6 +7654,7 @@ mod tests {
                         Some(0),
                         None,
                         true,
+                    crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
                     ),
                 )
                 .unwrap();
@@ -7657,6 +7719,7 @@ mod tests {
                     None,
                     Some(tx),
                     false,
+                    crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
                 ),
             )
             .unwrap();
@@ -7678,4 +7741,166 @@ mod tests {
         let summary = stats.requests.recent_terminated.last().unwrap();
         assert_eq!(summary.rid, key.1.to_string());
     }
+
+    // TEST8114: A flow frame that CROSSED its request's terminal in flight is
+    // counted post_terminal, not no_route — the ordinary teardown race of
+    // credit-based flow control must not pollute the routing-anomaly alarm.
+    // A frame for a RID the table never knew stays no_route (TEST7025).
+    #[tokio::test]
+    async fn test8114_straggler_for_terminated_request_counts_post_terminal() {
+        let registry = test_fabric_registry();
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![]), registry)
+            .await
+            .expect("empty relay switch must construct");
+
+        let xid = MessageId::Uint(21);
+        let rid = MessageId::new_uuid();
+        let key = (xid.clone(), rid.clone());
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        switch
+            .requests
+            .write()
+            .await
+            .register(
+                key.clone(),
+                RequestState::new(
+                    RoutingEntry {
+                        source_master_idx: None,
+                        destination_master_idx: 0,
+                    },
+                    None,
+                    Some(tx),
+                    false,
+                    crate::bifaci::frame::DEFAULT_INITIAL_CREDIT,
+                ),
+            )
+            .expect("registration must succeed");
+
+        let mut end = Frame::end_ok_with(rid.clone(), None, Some(1.0), None);
+        end.routing_id = Some(xid.clone());
+        switch
+            .handle_master_frame(0, end)
+            .await
+            .expect("terminal must route");
+        assert_eq!(
+            rx.recv().await.expect("END delivered").frame_type,
+            FrameType::End
+        );
+
+        // A response continuation (has XID) that raced the END.
+        let mut late = Frame::progress(rid.clone(), 0.9, "late");
+        late.routing_id = Some(xid.clone());
+        switch
+            .handle_master_frame(0, late)
+            .await
+            .expect("post-terminal straggler must not error (L6)");
+
+        // A request continuation (no XID) for the same terminated RID.
+        let mut chunk = Frame::new(FrameType::Chunk, rid.clone());
+        chunk.stream_id = Some("s".to_string());
+        chunk.chunk_index = Some(0);
+        chunk.checksum = Some(0);
+        switch
+            .handle_master_frame(0, chunk)
+            .await
+            .expect("post-terminal continuation must not error");
+
+        // A duplicate terminal for the released request.
+        let mut dup_end = Frame::end_ok_with(rid.clone(), None, Some(1.0), None);
+        dup_end.routing_id = Some(xid.clone());
+        switch
+            .handle_master_frame(0, dup_end)
+            .await
+            .expect("duplicate terminal must not error");
+
+        let stats = switch.protocol_stats().await;
+        assert_eq!(
+            stats.drops.by_reason.get("post_terminal"),
+            Some(&3),
+            "all three stragglers classified post_terminal: {:?}",
+            stats.drops
+        );
+        assert_eq!(
+            stats.drops.by_reason.get("no_route"),
+            None,
+            "a terminated request's stragglers must never read as routing anomalies: {:?}",
+            stats.drops
+        );
+    }
+
+    // TEST8118: the flow ledger is a WINDOW — seeded with the request's
+    // negotiated initial credit, consumed by chunks, replenished by grants —
+    // and engine-originated frames sent through send_to_master are recorded
+    // as its outbound half. Before this, engine grants and chunks bypassed
+    // the ledger entirely, so every healthy stream snapshot read as negative
+    // by exactly the un-seeded initial window.
+    #[tokio::test]
+    async fn test8118_send_to_master_records_outbound_flow_and_window() {
+        let registry = test_fabric_registry();
+        let switch = RelaySwitch::new(wrap_with_test_ids(vec![]), registry)
+            .await
+            .expect("empty relay switch must construct");
+
+        let xid = MessageId::Uint(31);
+        let rid = MessageId::Uint(310);
+        let key = (xid.clone(), rid.clone());
+        switch
+            .requests
+            .write()
+            .await
+            .register(
+                key.clone(),
+                RequestState::new(
+                    RoutingEntry {
+                        source_master_idx: None,
+                        destination_master_idx: 0,
+                    },
+                    None,
+                    None,
+                    false,
+                    5, // negotiated window under test — odd-sized so seed arithmetic is visible
+                ),
+            )
+            .expect("registration must succeed");
+
+        // An outbound chunk and an outbound grant from the engine side. There
+        // is no master 0 attached, so delivery fails — but the ledger records
+        // BEFORE the write, exactly like the inbound path records before
+        // routing, so stats never depend on delivery succeeding.
+        let payload = vec![0u8; 7];
+        let checksum = Frame::compute_checksum(&payload);
+        let mut chunk = Frame::chunk(rid.clone(), "s".to_string(), 0, payload, 0, checksum);
+        chunk.routing_id = Some(xid.clone());
+        let _ = switch.send_to_master(chunk, None).await;
+
+        let mut credit = Frame::credit(
+            rid.clone(),
+            Some("s".to_string()),
+            3,
+            crate::bifaci::frame::CreditDirection::Response,
+        );
+        credit.routing_id = Some(xid.clone());
+        let _ = switch.send_to_master(credit, None).await;
+
+        let stats = switch.protocol_stats().await;
+        let req = stats
+            .requests
+            .active
+            .iter()
+            .find(|r| r.rid == rid.to_string())
+            .expect("request must still be active");
+        let stream = req
+            .streams
+            .iter()
+            .find(|s| s.stream_id == Some("s".to_string()))
+            .expect("stream ledger must exist for the outbound flow");
+        assert_eq!(stream.stats.chunks_out, 1, "outbound chunk recorded");
+        assert_eq!(stream.stats.bytes_out, 7, "outbound bytes recorded");
+        assert_eq!(
+            stream.stats.credit_outstanding,
+            5 - 1 + 3,
+            "window = seed - chunks + grants, never a bare running delta"
+        );
+    }
 }
+

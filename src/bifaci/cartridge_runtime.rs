@@ -1107,26 +1107,48 @@ pub struct StreamSender {
     /// Shared flow-control gate (same instance as OutputStream). Blocking
     /// acquisition — StreamSender lives on blocking threads by design.
     credit_gate: Option<Arc<crate::bifaci::credit::CreditGate>>,
+    /// Write-coalescing buffer, SHARED with the owning `OutputStream` (see
+    /// [`CoalesceBuf`]) so the runtime's close path flushes bytes buffered
+    /// through either handle.
+    coalesce: Arc<Mutex<CoalesceBuf>>,
 }
 
 impl StreamSender {
     /// Emit a single CBOR value as one or more CHUNK frames.
     ///
-    /// Bytes and Text values are automatically split at `max_chunk` boundaries.
+    /// Bytes values COALESCE (see [`CoalesceBuf`]): per-token emissions from
+    /// blocking inference threads accumulate and ship as one CHUNK per
+    /// size/age threshold instead of one frame per token. Non-Bytes values
+    /// flush the buffer first so nothing overtakes buffered bytes.
     pub fn emit_cbor(&self, value: &ciborium::Value) -> Result<(), RuntimeError> {
         match value {
             ciborium::Value::Bytes(bytes) => {
-                let mut offset = 0;
-                while offset < bytes.len() {
-                    let chunk_size = (bytes.len() - offset).min(self.max_chunk);
-                    let chunk_bytes = bytes[offset..offset + chunk_size].to_vec();
-                    self.send_chunk(&ciborium::Value::Bytes(chunk_bytes))?;
-                    offset += chunk_size;
+                if bytes.is_empty() {
+                    return Ok(());
+                }
+                if let Some(batch) = coalesce_append(&self.coalesce, bytes) {
+                    self.send_bytes_batch(&batch)?;
                 }
             }
             _ => {
+                if let Some(batch) = coalesce_take(&self.coalesce) {
+                    self.send_bytes_batch(&batch)?;
+                }
                 self.send_chunk(value)?;
             }
+        }
+        Ok(())
+    }
+
+    /// Ship one coalesced batch: split at `max_chunk`, one blocking credit
+    /// per CHUNK (inside `send_chunk`).
+    fn send_bytes_batch(&self, bytes: &[u8]) -> Result<(), RuntimeError> {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let chunk_size = (bytes.len() - offset).min(self.max_chunk);
+            let chunk_bytes = bytes[offset..offset + chunk_size].to_vec();
+            self.send_chunk(&ciborium::Value::Bytes(chunk_bytes))?;
+            offset += chunk_size;
         }
         Ok(())
     }
@@ -1169,6 +1191,72 @@ impl StreamSender {
 
 /// Writable stream handle for handler output or peer call arguments.
 /// Manages STREAM_START/CHUNK/STREAM_END framing automatically.
+/// Scalar-stream write coalescing: cap on BYTES buffered before a write
+/// forces a flush. Small enough that a coalesced batch is far below any
+/// negotiated `max_chunk`; large enough to fold a burst of per-token writes
+/// (a few bytes each) into one CHUNK frame instead of hundreds.
+pub(crate) const COALESCE_MAX_BYTES: usize = 4096;
+
+/// Scalar-stream write coalescing: oldest buffered byte AGE that forces a
+/// flush on the next write. Bounds live-preview latency to one write-gap:
+/// during steady token generation every write older than this flushes the
+/// batch, so the consumer's view lags by at most one token.
+pub(crate) const COALESCE_MAX_AGE: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// Shared write-coalescing buffer for one SCALAR stream.
+///
+/// Chunk boundaries on a scalar stream are non-semantic — every receiver
+/// decodes each CHUNK payload as one CBOR Bytes value and concatenates the
+/// inner bytes — so folding many small writes into one chunk is invisible to
+/// consumers while dividing frame count, credit traffic, and the relay's
+/// per-frame work by the batch factor. Sequence streams are NEVER coalesced:
+/// their chunk runs delimit items (per-item meta rides the first chunk), and
+/// the mode exclusivity enforced by `check_mode` keeps this buffer empty in
+/// sequence mode by construction.
+///
+/// The buffer is shared (`Arc`) between an `OutputStream` and every
+/// `StreamSender` detached from it — same discipline as `chunk_index` — so
+/// the runtime's close path flushes bytes buffered by EITHER handle. Nothing
+/// is ever dropped: `close()` flushes before STREAM_END, and every non-Bytes
+/// emission flushes first so ordering within the stream is preserved.
+#[derive(Debug, Default)]
+pub(crate) struct CoalesceBuf {
+    buf: Vec<u8>,
+    oldest: Option<std::time::Instant>,
+}
+
+/// Append `data`; returns a batch that is DUE (size or age threshold crossed)
+/// and must be sent now, or None while the batch is still accumulating.
+fn coalesce_append(coalesce: &Mutex<CoalesceBuf>, data: &[u8]) -> Option<Vec<u8>> {
+    let mut g = coalesce.lock().unwrap_or_else(|e| e.into_inner());
+    if g.buf.is_empty() {
+        g.oldest = Some(std::time::Instant::now());
+    }
+    g.buf.extend_from_slice(data);
+    let due = g.buf.len() >= COALESCE_MAX_BYTES
+        || g
+            .oldest
+            .map(|t| t.elapsed() >= COALESCE_MAX_AGE)
+            .unwrap_or(false);
+    if due {
+        g.oldest = None;
+        Some(std::mem::take(&mut g.buf))
+    } else {
+        None
+    }
+}
+
+/// Take whatever is buffered, unconditionally. The flush/close/ordering
+/// barrier primitive.
+fn coalesce_take(coalesce: &Mutex<CoalesceBuf>) -> Option<Vec<u8>> {
+    let mut g = coalesce.lock().unwrap_or_else(|e| e.into_inner());
+    if g.buf.is_empty() {
+        return None;
+    }
+    g.oldest = None;
+    Some(std::mem::take(&mut g.buf))
+}
+
 pub struct OutputStream {
     sender: Arc<dyn FrameSender>,
     stream_id: String,
@@ -1196,6 +1284,9 @@ pub struct OutputStream {
     /// Router the gate registers with on `start()` so inbound CREDIT frames
     /// find it. Present iff `credit_gate` is.
     credit_router: Option<crate::bifaci::credit::CreditRouter>,
+    /// Write-coalescing buffer, shared with detached [`StreamSender`]s (see
+    /// [`CoalesceBuf`]).
+    coalesce: Arc<Mutex<CoalesceBuf>>,
 }
 
 /// A handler's terminal status override, carried in END terminal metadata.
@@ -1255,6 +1346,7 @@ impl OutputStream {
             unbounded: AtomicBool::new(false),
             credit_gate: None,
             credit_router: None,
+            coalesce: Arc::new(Mutex::new(CoalesceBuf::default())),
         }
     }
 
@@ -1374,6 +1466,18 @@ impl OutputStream {
         if data.is_empty() {
             return Ok(());
         }
+        // Coalesce: small writes accumulate and ship as one CHUNK once the
+        // size or age threshold is crossed (see [`CoalesceBuf`]); `close()`
+        // flushes the tail. Chunk boundaries on a scalar stream are
+        // non-semantic, so this is invisible to every consumer.
+        match coalesce_append(&self.coalesce, data) {
+            Some(batch) => self.write_batch(&batch).await,
+            None => Ok(()),
+        }
+    }
+
+    /// Ship one coalesced batch: split at `max_chunk`, one credit per CHUNK.
+    async fn write_batch(&self, data: &[u8]) -> Result<(), RuntimeError> {
         let mut offset = 0;
         while offset < data.len() {
             let chunk_size = (data.len() - offset).min(self.max_chunk);
@@ -1385,6 +1489,23 @@ impl OutputStream {
         Ok(())
     }
 
+    /// Flush any coalesced-but-unsent bytes to the wire now. `close()` calls
+    /// this; handlers only need it for explicit mid-stream latency barriers.
+    pub async fn flush(&self) -> Result<(), RuntimeError> {
+        match coalesce_take(&self.coalesce) {
+            Some(batch) => self.write_batch(&batch).await,
+            None => Ok(()),
+        }
+    }
+
+    /// Blocking-context counterpart of [`flush`](Self::flush).
+    pub fn blocking_flush(&self) -> Result<(), RuntimeError> {
+        match coalesce_take(&self.coalesce) {
+            Some(batch) => self.blocking_write_batch(&batch),
+            None => Ok(()),
+        }
+    }
+
     /// Blocking-context counterpart of [`write`](Self::write) — for FFI
     /// threads and `spawn_blocking` closures. Identical framing; the credit
     /// wait blocks the calling thread instead of yielding.
@@ -1393,6 +1514,14 @@ impl OutputStream {
         if data.is_empty() {
             return Ok(());
         }
+        match coalesce_append(&self.coalesce, data) {
+            Some(batch) => self.blocking_write_batch(&batch),
+            None => Ok(()),
+        }
+    }
+
+    /// Blocking-context counterpart of [`write_batch`](Self::write_batch).
+    fn blocking_write_batch(&self, data: &[u8]) -> Result<(), RuntimeError> {
         let mut offset = 0;
         while offset < data.len() {
             let chunk_size = (data.len() - offset).min(self.max_chunk);
@@ -1513,16 +1642,19 @@ impl OutputStream {
         self.check_mode(false)?;
         match value {
             ciborium::Value::Bytes(bytes) => {
-                let mut offset = 0;
-                while offset < bytes.len() {
-                    let chunk_size = (bytes.len() - offset).min(self.max_chunk);
-                    let chunk_bytes = bytes[offset..offset + chunk_size].to_vec();
-                    self.acquire_credit().await?;
-                    self.send_chunk(&ciborium::Value::Bytes(chunk_bytes))?;
-                    offset += chunk_size;
+                // Byte emissions coalesce exactly like `write` — on a scalar
+                // stream a Bytes chunk is pure byte-stream continuation.
+                if bytes.is_empty() {
+                    return Ok(());
+                }
+                if let Some(batch) = coalesce_append(&self.coalesce, bytes) {
+                    self.write_batch(&batch).await?;
                 }
             }
             ciborium::Value::Text(text) => {
+                // ORDERING BARRIER: a non-Bytes value must not overtake bytes
+                // still sitting in the coalescing buffer.
+                self.flush().await?;
                 let text_bytes = text.as_bytes();
                 let mut offset = 0;
                 while offset < text_bytes.len() {
@@ -1548,6 +1680,7 @@ impl OutputStream {
                 }
             }
             ciborium::Value::Map(entries) => {
+                self.flush().await?;
                 for (key, val) in entries {
                     let entry = ciborium::Value::Array(vec![key.clone(), val.clone()]);
                     self.acquire_credit().await?;
@@ -1555,6 +1688,7 @@ impl OutputStream {
                 }
             }
             _ => {
+                self.flush().await?;
                 self.acquire_credit().await?;
                 self.send_chunk(value)?;
             }
@@ -1638,6 +1772,7 @@ impl OutputStream {
             chunk_index: Arc::clone(&self.chunk_index),
             chunk_count: Arc::clone(&self.chunk_count),
             credit_gate: self.credit_gate.clone(),
+            coalesce: Arc::clone(&self.coalesce),
         }
     }
 
@@ -1881,7 +2016,7 @@ impl OutputStream {
     /// Close the output stream (sends STREAM_END). Idempotent.
     /// If `start()` was never called, this is a no-op (no STREAM_START was sent,
     /// so no STREAM_END is needed — the handler produced no output).
-    pub fn close(&self) -> Result<(), RuntimeError> {
+    pub async fn close(&self) -> Result<(), RuntimeError> {
         if self.closed.swap(true, Ordering::SeqCst) {
             return Ok(()); // Already closed
         }
@@ -1891,6 +2026,32 @@ impl OutputStream {
                 return Ok(()); // Never started — no output produced, nothing to close
             }
         }
+        // Coalesced tail bytes ship BEFORE the STREAM_END that promises the
+        // chunk count — flushing here is what makes coalescing lossless.
+        self.flush().await?;
+        self.send_stream_end()
+    }
+
+    /// Blocking-context counterpart of [`close`](Self::close) — FFI threads
+    /// and `spawn_blocking` closures. The credit wait for the flushed tail
+    /// blocks the calling thread instead of yielding.
+    pub fn blocking_close(&self) -> Result<(), RuntimeError> {
+        if self.closed.swap(true, Ordering::SeqCst) {
+            return Ok(()); // Already closed
+        }
+        {
+            let mode = self.stream_mode.lock().unwrap();
+            if mode.is_none() {
+                return Ok(());
+            }
+        }
+        self.blocking_flush()?;
+        self.send_stream_end()
+    }
+
+    /// Build and send this stream's STREAM_END (chunk_count only for bounded
+    /// streams, L16). Shared tail of both close variants.
+    fn send_stream_end(&self) -> Result<(), RuntimeError> {
         let mut frame = if self.unbounded.load(Ordering::SeqCst) {
             // Unbounded streams made no length promise — their STREAM_END
             // carries no chunk_count (L16).
@@ -2018,7 +2179,7 @@ pub trait PeerInvoker: Send + Sync {
             let arg = call.arg(media_urn);
             arg.start(false, meta.cloned())?;
             arg.write(data).await?;
-            arg.close()?;
+            arg.close().await?;
         }
         call.finish().await
     }
@@ -3880,7 +4041,7 @@ async fn dispatch_op(
     });
 
     if result.is_ok() {
-        let _ = req.output().close();
+        let _ = req.output().close().await;
     }
     result
 }
@@ -5779,7 +5940,10 @@ mod tests {
         let data: Vec<u8> = (0u8..24).collect(); // 6 chunks of 4 bytes
         let writer = tokio::spawn(async move {
             output.write(&data).await.unwrap();
-            output.close().unwrap();
+            // write() coalesces (24 bytes is far under the batch threshold);
+            // close() flushes the batch, so the window stall now happens
+            // inside close's flush — same wire behavior, same law.
+            output.close().await.unwrap();
         });
 
         // Exactly STREAM_START + 4 chunks appear, then the sender stalls.
@@ -10075,7 +10239,10 @@ mod tests {
             256_000,
         );
 
-        // Write 3 chunks
+        // Three small byte emissions in quick succession COALESCE into one
+        // CHUNK (scalar-stream chunk boundaries are non-semantic), flushed by
+        // close() BEFORE the STREAM_END that promises the count — coalescing
+        // must be lossless and the count must match what was written.
         stream.start(false, None).unwrap();
         stream
             .emit_cbor(&Value::Bytes(b"chunk1".to_vec()))
@@ -10090,15 +10257,52 @@ mod tests {
             .await
             .unwrap();
 
-        stream.close().expect("close must succeed");
+        stream.close().await.expect("close must succeed");
 
         let captured = frames.lock().unwrap();
+        let chunks: Vec<_> = captured
+            .iter()
+            .filter(|f| f.frame_type == FrameType::Chunk)
+            .collect();
+        assert_eq!(
+            chunks.len(),
+            1,
+            "small rapid emissions coalesce into one chunk"
+        );
+        let payload: Vec<u8> = {
+            let decoded: ciborium::Value =
+                ciborium::from_reader(chunks[0].payload.as_ref().unwrap().as_slice())
+                    .expect("chunk payload is one CBOR value");
+            match decoded {
+                ciborium::Value::Bytes(b) => b,
+                other => panic!("coalesced chunk must be CBOR Bytes, got {other:?}"),
+            }
+        };
+        assert_eq!(
+            payload, b"chunk1chunk2chunk3",
+            "coalescing is lossless and order-preserving"
+        );
         let stream_end = captured
             .iter()
             .find(|f| f.frame_type == FrameType::StreamEnd)
             .expect("must have STREAM_END");
-
-        assert_eq!(stream_end.chunk_count, Some(3), "chunk_count must be 3");
+        assert_eq!(
+            stream_end.chunk_count,
+            Some(1),
+            "STREAM_END promises the COALESCED chunk count"
+        );
+        let end_pos = captured
+            .iter()
+            .position(|f| f.frame_type == FrameType::StreamEnd)
+            .unwrap();
+        let chunk_pos = captured
+            .iter()
+            .position(|f| f.frame_type == FrameType::Chunk)
+            .unwrap();
+        assert!(
+            chunk_pos < end_pos,
+            "the flushed tail ships BEFORE STREAM_END"
+        );
     }
 
     // TEST541: OutputStream chunks large data correctly
@@ -10119,7 +10323,7 @@ mod tests {
         stream.start(false, None).unwrap();
         let large_data = vec![0xAA; 250];
         stream.emit_cbor(&Value::Bytes(large_data)).await.unwrap();
-        stream.close().unwrap();
+        stream.close().await.unwrap();
 
         let captured = frames.lock().unwrap();
         let chunks: Vec<_> = captured
@@ -10148,7 +10352,7 @@ mod tests {
         );
 
         stream.start(false, None).expect("start must succeed");
-        stream.close().expect("close must succeed");
+        stream.blocking_close().expect("close must succeed");
 
         let captured = frames.lock().unwrap();
         assert!(captured
@@ -10939,4 +11143,117 @@ mod tests {
             footprint_mb
         );
     }
+
+    /// Decode a CHUNK frame's payload as the CBOR Bytes value every scalar
+    /// stream carries, returning the inner bytes.
+    fn chunk_inner_bytes(frame: &Frame) -> Vec<u8> {
+        let decoded: ciborium::Value =
+            ciborium::from_reader(frame.payload.as_ref().expect("chunk has payload").as_slice())
+                .expect("chunk payload is one CBOR value");
+        match decoded {
+            ciborium::Value::Bytes(b) => b,
+            other => panic!("scalar chunk must be CBOR Bytes, got {other:?}"),
+        }
+    }
+
+    // TEST8119: the coalescing AGE bound — a write arriving after the buffer's
+    // oldest byte crossed COALESCE_MAX_AGE flushes the accumulated batch, so
+    // steady token emission lags the wire by at most one write-gap; the tail
+    // written after that flush ships with close(). Nothing is lost, order is
+    // preserved, and the frame count is the batch count, not the write count.
+    #[tokio::test]
+    async fn test8119_coalesce_age_bound_flushes_on_next_write() {
+        let (sender, frames) = MockFrameSender::new();
+        let stream = OutputStream::new(
+            Arc::new(sender),
+            "stream-1".to_string(),
+            "media:enc=utf-8".to_string(),
+            MessageId::new_uuid(),
+            None,
+            256_000,
+        );
+        stream.start(false, None).unwrap();
+
+        stream.write(b"ab").await.unwrap();
+        stream.write(b"cd").await.unwrap();
+        // Cross the age bound, then write again: THIS write must flush all
+        // three fragments as one chunk.
+        tokio::time::sleep(COALESCE_MAX_AGE + std::time::Duration::from_millis(10)).await;
+        stream.write(b"ef").await.unwrap();
+        // A fresh fragment after the flush stays buffered until close.
+        stream.write(b"gh").await.unwrap();
+        stream.close().await.unwrap();
+
+        let captured = frames.lock().unwrap();
+        let chunks: Vec<_> = captured
+            .iter()
+            .filter(|f| f.frame_type == FrameType::Chunk)
+            .collect();
+        assert_eq!(
+            chunks.len(),
+            2,
+            "one age-flushed batch + one close-flushed tail — never one frame per write"
+        );
+        assert_eq!(chunk_inner_bytes(chunks[0]), b"abcdef".to_vec());
+        assert_eq!(chunk_inner_bytes(chunks[1]), b"gh".to_vec());
+    }
+
+    // TEST8120: the coalescing buffer is SHARED between an OutputStream and
+    // its detached StreamSender (the blocking-thread token emitter), and a
+    // non-Bytes emission is an ordering barrier: buffered bytes ship first.
+    // close() on the OutputStream flushes bytes buffered through the sender —
+    // the runtime's auto-close is what makes detached-sender coalescing
+    // lossless.
+    #[tokio::test]
+    async fn test8120_stream_sender_shares_buffer_and_barriers_non_bytes() {
+        let (sender, frames) = MockFrameSender::new();
+        let stream = OutputStream::new(
+            Arc::new(sender),
+            "stream-1".to_string(),
+            "media:enc=utf-8".to_string(),
+            MessageId::new_uuid(),
+            None,
+            256_000,
+        );
+        stream.start(false, None).unwrap();
+        let ss = stream.stream_sender();
+
+        // Buffered through the detached sender…
+        ss.emit_cbor(&Value::Bytes(b"tok1".to_vec())).unwrap();
+        ss.emit_cbor(&Value::Bytes(b"tok2".to_vec())).unwrap();
+        // …a non-Bytes value must NOT overtake them: barrier-flush first.
+        ss.emit_cbor(&Value::Integer(7.into())).unwrap();
+        // …and bytes buffered after the barrier flush with close().
+        ss.emit_cbor(&Value::Bytes(b"tok3".to_vec())).unwrap();
+        stream.close().await.unwrap();
+
+        let captured = frames.lock().unwrap();
+        let chunks: Vec<_> = captured
+            .iter()
+            .filter(|f| f.frame_type == FrameType::Chunk)
+            .collect();
+        assert_eq!(chunks.len(), 3, "batch, barrier value, close-flushed tail");
+        assert_eq!(chunk_inner_bytes(chunks[0]), b"tok1tok2".to_vec());
+        let barrier: ciborium::Value =
+            ciborium::from_reader(chunks[1].payload.as_ref().unwrap().as_slice()).unwrap();
+        assert_eq!(barrier, ciborium::Value::Integer(7.into()));
+        assert_eq!(chunk_inner_bytes(chunks[2]), b"tok3".to_vec());
+
+        let end_pos = captured
+            .iter()
+            .position(|f| f.frame_type == FrameType::StreamEnd)
+            .expect("STREAM_END present");
+        let last_chunk_pos = captured
+            .iter()
+            .rposition(|f| f.frame_type == FrameType::Chunk)
+            .unwrap();
+        assert!(last_chunk_pos < end_pos, "tail ships before STREAM_END");
+        let stream_end = &captured[end_pos];
+        assert_eq!(
+            stream_end.chunk_count,
+            Some(3),
+            "STREAM_END promises the coalesced count"
+        );
+    }
 }
+

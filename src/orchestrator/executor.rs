@@ -1973,6 +1973,40 @@ fn split_chains_at_bounded_groups(
 /// its cardinality, and terminal meta. Progress is scaled into
 /// `[progress_base, progress_base + progress_span]`.
 #[allow(clippy::too_many_arguments)]
+
+/// Send an upstream CREDIT grant, tolerating exactly one failure mode: the
+/// request no longer existing because it TERMINATED while the grant was being
+/// prepared. Credits for a finished request are moot — failing the body for
+/// one would turn the ordinary teardown race of credit-based flow control
+/// into a spurious execution failure. Every other send failure is a real
+/// host error and stays hard.
+async fn send_upstream_credit(
+    switch: &std::sync::Arc<crate::bifaci::relay_switch::RelaySwitch>,
+    rid: crate::bifaci::frame::MessageId,
+    stream_id: String,
+    n: u64,
+    context: &str,
+) -> Result<(), ExecutionError> {
+    let credit = crate::bifaci::frame::Frame::credit(
+        rid,
+        Some(stream_id),
+        n,
+        crate::bifaci::frame::CreditDirection::Response,
+    );
+    match switch.send_to_master(credit, None).await {
+        Ok(()) => Ok(()),
+        Err(crate::bifaci::relay_switch::RelaySwitchError::UnknownRequest(rid)) => {
+            tracing::debug!(
+                rid = %rid,
+                context,
+                "upstream grant arrived after the request terminated — moot, not an error"
+            );
+            Ok(())
+        }
+        Err(e) => Err(ExecutionError::HostError(format!("{context}: {e}"))),
+    }
+}
+
 async fn run_group_chain(
     ctx: &ExecutionContext,
     chain: &[EdgeGroup],
@@ -2237,8 +2271,22 @@ async fn run_group_chain(
                     n,
                     crate::bifaci::frame::CreditDirection::Response,
                 );
-                if let Err(e) = switch.send_to_master(frame, None).await {
-                    tracing::debug!("[pipeline] terminal grant not deliverable: {}", e);
+                match switch.send_to_master(frame, None).await {
+                    Ok(()) => {}
+                    Err(crate::bifaci::relay_switch::RelaySwitchError::UnknownRequest(rid)) => {
+                        // The request terminated while this grant was in
+                        // flight — the ordinary teardown race, moot.
+                        tracing::debug!(
+                            rid = %rid,
+                            "[pipeline] terminal grant after termination — moot"
+                        );
+                    }
+                    Err(e) => {
+                        // Any OTHER failure is a real host problem; a debug
+                        // line would bury it. It cannot propagate from this
+                        // spawned task, so it is at least loud.
+                        tracing::error!("[pipeline] terminal grant failed: {}", e);
+                    }
                 }
             });
         });
@@ -2705,18 +2753,14 @@ async fn forward_frames(
                                 if *consumed > 0 {
                                     let n = *consumed;
                                     *consumed = 0;
-                                    let credit = Frame::credit(
+                                    send_upstream_credit(
+                                        &switch,
                                         prev_rid.clone(),
-                                        Some(flush_sid.clone()),
+                                        flush_sid.clone(),
                                         n,
-                                        CreditDirection::Response,
-                                    );
-                                    switch.send_to_master(credit, None).await.map_err(|e| {
-                                        ExecutionError::HostError(format!(
-                                            "flush upstream CREDIT: {}",
-                                            e
-                                        ))
-                                    })?;
+                                        "flush upstream CREDIT",
+                                    )
+                                    .await?;
                                 }
                             }
                             let (_, gate, _) = stream_id_map.get(&prev_sid).ok_or_else(|| {
@@ -2788,15 +2832,14 @@ async fn forward_frames(
                         if *consumed >= grant_batch {
                             let n = *consumed;
                             *consumed = 0;
-                            let credit = Frame::credit(
+                            send_upstream_credit(
+                                &switch,
                                 prev_rid.clone(),
-                                Some(prev_sid.clone()),
+                                prev_sid.clone(),
                                 n,
-                                CreditDirection::Response,
-                            );
-                            switch.send_to_master(credit, None).await.map_err(|e| {
-                                ExecutionError::HostError(format!("forward upstream CREDIT: {}", e))
-                            })?;
+                                "forward upstream CREDIT",
+                            )
+                            .await?;
                         }
                     }
                     FrameType::StreamEnd => {
@@ -3008,15 +3051,14 @@ async fn forward_frames(
                     if *consumed > 0 {
                         let n = *consumed;
                         *consumed = 0;
-                        let credit = Frame::credit(
+                        send_upstream_credit(
+                            &switch,
                             prev_rid.clone(),
-                            Some(prev_sid.clone()),
+                            prev_sid.clone(),
                             n,
-                            CreditDirection::Response,
-                        );
-                        switch.send_to_master(credit, None).await.map_err(|e| {
-                            ExecutionError::HostError(format!("flush upstream CREDIT: {}", e))
-                        })?;
+                            "flush upstream CREDIT",
+                        )
+                        .await?;
                     }
                 }
                 if timer.is_expired() && !activity_warning_logged {

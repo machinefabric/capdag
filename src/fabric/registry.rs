@@ -1680,12 +1680,25 @@ impl FabricRegistry {
         let index = self.extension_index.lock().map_err(|e| {
             FabricRegistryError::CacheError(format!("Failed to lock extension index: {}", e))
         })?;
-        index.get(&ext_lower).cloned().ok_or_else(|| {
-            FabricRegistryError::ExtensionNotFound(format!(
-                "No media def registered for extension '{}'",
-                extension
-            ))
-        })
+        index
+            .get(&ext_lower)
+            .cloned()
+            .map(|mut urns| {
+                // The index is populated from HashMap iteration and incremental
+                // fetches, so its per-extension order varies run to run. Every
+                // consumer that picks ONE candidate (extension detection, the
+                // discriminators) tie-breaks by position, so an unsorted answer
+                // makes detection nondeterministic across processes. Sort at
+                // the single read choke point.
+                urns.sort();
+                urns
+            })
+            .ok_or_else(|| {
+                FabricRegistryError::ExtensionNotFound(format!(
+                    "No media def registered for extension '{}'",
+                    extension
+                ))
+            })
     }
 
     /// Get all extension → URNs mappings.
