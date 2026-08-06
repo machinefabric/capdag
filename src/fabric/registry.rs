@@ -1671,6 +1671,68 @@ impl FabricRegistry {
             .collect()
     }
 
+    /// Every LIVE-SOURCE definition currently in the cache: media defs in
+    /// the live reference family (`is_live_feed`) that declare their
+    /// CONTENT pairing via `metadata.content` — the urn a resolved feed of
+    /// that reference delivers, and the urn PLANNING anchors at
+    /// (`is_sequence=true`). Returns `(reference_urn, content_urn, title)`
+    /// triples, sorted by reference urn for determinism. A live def
+    /// WITHOUT a content pairing is a fabric defect and is reported as an
+    /// error rather than silently skipped.
+    pub fn live_source_defs(&self) -> Result<Vec<(String, String, String)>, FabricRegistryError> {
+        let cached = self.cached_media_defs.lock().map_err(|e| {
+            FabricRegistryError::CacheError(format!("Failed to lock media defs: {}", e))
+        })?;
+        let mut out = Vec::new();
+        for spec in cached.values() {
+            let Ok(urn) = crate::MediaUrn::from_string(&spec.urn) else {
+                continue;
+            };
+            if !urn.is_live_feed() {
+                continue;
+            }
+            let content = spec
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("content"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    FabricRegistryError::CacheError(format!(
+                        "live media def '{}' declares no metadata.content pairing — a live \
+                         reference is unusable as a machine source without the content urn \
+                         its feed delivers; fix the fabric definition",
+                        spec.urn
+                    ))
+                })?;
+            crate::MediaUrn::from_string(content).map_err(|e| {
+                FabricRegistryError::CacheError(format!(
+                    "live media def '{}' has an unparseable metadata.content '{}': {e}",
+                    spec.urn, content
+                ))
+            })?;
+            out.push((spec.urn.clone(), content.to_string(), spec.title.clone()));
+        }
+        out.sort();
+        Ok(out)
+    }
+
+    /// The CONTENT urn paired with a live reference (`metadata.content` on
+    /// the matching live media def, by urn equivalence). `Ok(None)` when no
+    /// live def matches the reference.
+    pub fn live_source_content_urn(
+        &self,
+        reference_urn: &crate::MediaUrn,
+    ) -> Result<Option<String>, FabricRegistryError> {
+        for (def_urn, content, _) in self.live_source_defs()? {
+            if let Ok(u) = crate::MediaUrn::from_string(&def_urn) {
+                if u.is_equivalent(reference_urn).unwrap_or(false) {
+                    return Ok(Some(content));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Returns all media URNs registered for the given file extension.
     pub fn media_urns_for_extension(
         &self,

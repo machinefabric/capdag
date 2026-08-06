@@ -115,6 +115,40 @@ pub struct WriterResult {
     pub item_metas: Vec<Option<StreamMeta>>,
 }
 
+/// One initial input of a plan execution.
+///
+/// `Bytes` is materialized content (a read file, a typed value). A
+/// `LiveReference` is a live-capture SOURCE (13.2 §Reference Media, live
+/// family): the selector bytes travel to the first consuming cap labeled
+/// with the REFERENCE urn, and that cap's cartridge resolves capture — the
+/// engine never touches a device. The machine then stops per 15.2 §Runs
+/// Stop (stop condition, operator stop → drain, or abort).
+#[derive(Debug, Clone)]
+pub enum PlanInput {
+    Bytes(Vec<u8>),
+    LiveReference {
+        reference_urn: String,
+        selector: Vec<u8>,
+    },
+}
+
+impl PlanInput {
+    /// The bytes placed at the input node: content bytes, or the selector.
+    pub fn into_node_bytes(self) -> Vec<u8> {
+        match self {
+            PlanInput::Bytes(b) => b,
+            PlanInput::LiveReference { selector, .. } => selector,
+        }
+    }
+
+    pub fn live_reference_urn(&self) -> Option<&str> {
+        match self {
+            PlanInput::Bytes(_) => None,
+            PlanInput::LiveReference { reference_urn, .. } => Some(reference_urn),
+        }
+    }
+}
+
 /// Stable address of one body within a particular ForEach boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForEachBodyCoordinate {
@@ -234,7 +268,7 @@ pub trait EngineRuntime: Send + Sync {
     async fn run_segment(
         &self,
         graph: &ResolvedGraph,
-        initial_inputs: HashMap<String, Vec<u8>>,
+        initial_inputs: HashMap<String, PlanInput>,
         initial_is_sequence: HashMap<String, bool>,
         cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
         progress_fn: Option<&CapProgressFn>,
@@ -271,12 +305,15 @@ pub trait EngineRuntime: Send + Sync {
                 "run_segment: initial_is_sequence has stale flags for node(s) {extra:?}"
             )));
         }
-        for (node, data) in initial_inputs {
+        for (node, input) in initial_inputs {
             let is_seq = *initial_is_sequence
                 .get(&node)
                 .expect("key set verified above");
             ctx.set_node_is_sequence(node.clone(), is_seq);
-            ctx.set_node_data(node, data);
+            if let Some(reference_urn) = input.live_reference_urn() {
+                ctx.set_node_live_reference(node.clone(), reference_urn.to_string());
+            }
+            ctx.set_node_data(node, input.into_node_bytes());
         }
 
         // Optional per-segment protocol trace (CLI). When a sink is supplied, sample the
@@ -653,7 +690,7 @@ async fn run_subplan(
     runtime: &Arc<dyn EngineRuntime>,
     registry: &Arc<FabricRegistry>,
     subplan: &MachinePlan,
-    roots: HashMap<String, (Vec<u8>, bool)>,
+    roots: HashMap<String, (PlanInput, bool)>,
     persist_sinks: &HashSet<String>,
     cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
     progress_fn: Option<&CapProgressFn>,
@@ -666,10 +703,10 @@ async fn run_subplan(
 ) -> Result<SegmentOutput, ExecutionError> {
     let graph = to_graph(subplan, registry).await?;
 
-    let mut inputs: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut inputs: HashMap<String, PlanInput> = HashMap::new();
     let mut is_seq: HashMap<String, bool> = HashMap::new();
-    for (id, (bytes, seq)) in roots {
-        inputs.insert(id.clone(), bytes);
+    for (id, (input, seq)) in roots {
+        inputs.insert(id.clone(), input);
         is_seq.insert(id, seq);
     }
 
@@ -707,7 +744,7 @@ async fn run_subplan(
 pub async fn execute_plan(
     plan: &MachinePlan,
     runtime: Arc<dyn EngineRuntime>,
-    initial_inputs: HashMap<String, Vec<u8>>,
+    initial_inputs: HashMap<String, PlanInput>,
     initial_is_sequence: HashMap<String, bool>,
     cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
     progress_fn: Option<&CapProgressFn>,
@@ -760,7 +797,25 @@ pub async fn execute_plan(
     let mut trunk_excluded = region_nodes.clone();
     trunk_excluded.extend(post_ids.iter().cloned());
     let trunk = build_trunk_subplan(plan, &trunk_excluded);
-    let mut trunk_roots: HashMap<String, (Vec<u8>, bool)> = HashMap::new();
+    // A live source is resolved by the FIRST CONSUMING CAP's cartridge; a
+    // ForEach region driver iterates items ENGINE-side, which a forwarded
+    // reference cannot supply — mapping a live source straight into a
+    // ForEach region is refused loudly here (plan through a
+    // sequence-consuming cap, or bound the capture and run the bounded
+    // form) rather than running one phantom body over the selector bytes.
+    for (k, v) in &initial_inputs {
+        if v.live_reference_urn().is_some() {
+            if let Some(region) = regions.iter().find(|r| &r.input_node == k) {
+                return Err(ExecutionError::HostError(format!(
+                    "live source '{k}' feeds ForEach region '{}' directly — a live \
+                     capture cannot yet drive engine-side per-item dispatch; plan \
+                     through a sequence-consuming cap instead",
+                    region.fe_id
+                )));
+            }
+        }
+    }
+    let mut trunk_roots: HashMap<String, (PlanInput, bool)> = HashMap::new();
     for (k, v) in initial_inputs {
         let seq = *initial_is_sequence.get(&k).ok_or_else(|| {
             ExecutionError::HostError(format!("initial input '{k}' has no sequence flag"))
@@ -922,7 +977,7 @@ pub async fn execute_plan(
     // region node's accumulated per-item output enters as ONE sequence. ──
     if !post_ids.is_empty() {
         let post_plan = build_post_subplan(plan, &post_ids);
-        let mut post_roots: HashMap<String, (Vec<u8>, bool)> = HashMap::new();
+        let mut post_roots: HashMap<String, (PlanInput, bool)> = HashMap::new();
         for edge in &plan.edges {
             if !post_ids.contains(&edge.to_node) || post_ids.contains(&edge.from_node) {
                 continue;
@@ -960,7 +1015,7 @@ pub async fn execute_plan(
                     ))
                 })?
             };
-            post_roots.insert(edge.from_node.clone(), (bytes, is_seq));
+            post_roots.insert(edge.from_node.clone(), (PlanInput::Bytes(bytes), is_seq));
         }
 
         let post_seg = run_subplan(
@@ -1138,8 +1193,8 @@ async fn run_region_bodies(
 
         tokio::spawn(async move {
             let started = Instant::now();
-            let mut roots: HashMap<String, (Vec<u8>, bool)> = HashMap::new();
-            roots.insert(body_input_id, (raw_item_bytes, false));
+            let mut roots: HashMap<String, (PlanInput, bool)> = HashMap::new();
+            roots.insert(body_input_id, (PlanInput::Bytes(raw_item_bytes), false));
             // The item's local progress is [0,1]; item_pfn aggregates it across items.
             let res = run_subplan(
                 &runtime,
@@ -1440,7 +1495,7 @@ mod tests {
         async fn run_segment(
             &self,
             graph: &ResolvedGraph,
-            _initial_inputs: HashMap<String, Vec<u8>>,
+            _initial_inputs: HashMap<String, PlanInput>,
             _initial_is_sequence: HashMap<String, bool>,
             _cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
             progress_fn: Option<&CapProgressFn>,

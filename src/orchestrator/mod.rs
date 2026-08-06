@@ -40,7 +40,8 @@ pub use machine_plan::build_plans_from_notation;
 
 pub use execute_plan::{
     execute_plan, BodyOutcomeFn, EngineRuntime, ForEachBodyCoordinate, ForEachItemSnapshot,
-    ForEachItemsFn, OutputItem, PipelineItemFn, PipelineResult, SegmentOutput, WriterResult,
+    ForEachItemsFn, OutputItem, PipelineItemFn, PipelineResult, PlanInput, SegmentOutput,
+    WriterResult,
 };
 
 pub use cli_cap::{

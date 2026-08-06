@@ -3377,11 +3377,39 @@ impl LiveFeedContext {
         })
     }
 
+    /// The cap's MAIN INPUT arg (the stdin-sourced arg carrying `in=`,
+    /// via the encapsulated `CapArg::is_main_input` predicate) — the arg a
+    /// transport-blind cap consumes a live feed's CONTENT through.
+    fn find_main_input_arg(&self) -> Option<&CapArg> {
+        let manifest = self.manifest.as_ref()?;
+        let cap_def = manifest
+            .all_caps()
+            .into_iter()
+            .find(|c| c.urn.to_string() == self.cap_urn)?;
+        let cap_urn = crate::CapUrn::from_string(&self.cap_urn).ok()?;
+        let in_spec = cap_urn.in_media_urn().ok()?;
+        cap_def.args.iter().find(|a| a.is_main_input(&in_spec))
+    }
+
     /// Resolve the live reference into an open feed and the InputStream
-    /// delivering it. Hard errors on: no matching arg, an arg without a
-    /// stdin source (a live reference MUST resolve to piped content), an
-    /// arg not declared `is_sequence` (a feed is a sequence of items), an
-    /// unparseable selector, or a provider/device failure.
+    /// delivering it, by one of two arg matches (13.2 §Reference Media):
+    ///
+    /// 1. **Explicit reference arg** — the cap declares an arg whose urn is
+    ///    equivalent to the incoming reference (a cap that WANTS the feed,
+    ///    e.g. `drain_feed`). The delivered stream is labeled with that
+    ///    arg's declared stdin content urn.
+    /// 2. **Main-input fallback** — the cap is transport-blind (a generic
+    ///    consumer planned over the feed's CONTENT type): the reference
+    ///    resolves against the cap's main input, and the registered
+    ///    provider's `content_urn()` must CONFORM TO the main input's
+    ///    declared urn. The delivered stream is labeled with the provider's
+    ///    content urn (the more specific side of that conformance).
+    ///
+    /// Hard errors on: no matching arg, an arg without a stdin source (a
+    /// live reference MUST resolve to piped content), an arg not declared
+    /// `is_sequence` (a feed is a sequence of items), a provider whose
+    /// content does not conform to the main input, an unparseable
+    /// selector, or a provider/device failure.
     fn resolve(
         &self,
         reference_urn: &str,
@@ -3391,28 +3419,71 @@ impl LiveFeedContext {
 
         let incoming = MediaUrn::from_string(reference_urn)
             .map_err(|e| StreamError::Protocol(format!("invalid live-feed reference URN: {e}")))?;
-        let arg = self.find_arg(&incoming).ok_or_else(|| {
-            StreamError::Protocol(format!(
-                "cap '{}' declares no arg matching live-feed reference '{}'",
-                self.cap_urn, reference_urn
-            ))
-        })?;
-        let stdin_urn = arg
-            .sources
-            .iter()
-            .find_map(|s| match s {
-                ArgSource::Stdin { stdin } => Some(stdin.clone()),
-                _ => None,
-            })
-            .ok_or_else(|| {
-                StreamError::Protocol(format!(
-                    "live-feed arg '{}' on cap '{}' declares no stdin source — a live                      reference must resolve to piped content (13.2 §Reference Media)",
-                    arg.media_urn, self.cap_urn
-                ))
-            })?;
+
+        // Which arg consumes this reference, and what content label the
+        // delivered stream carries.
+        let (arg, content_urn) = match self.find_arg(&incoming) {
+            Some(explicit) => {
+                let stdin_urn = explicit
+                    .sources
+                    .iter()
+                    .find_map(|s| match s {
+                        ArgSource::Stdin { stdin } => Some(stdin.clone()),
+                        _ => None,
+                    })
+                    .ok_or_else(|| {
+                        StreamError::Protocol(format!(
+                            "live-feed arg '{}' on cap '{}' declares no stdin source — a live \
+                             reference must resolve to piped content (13.2 §Reference Media)",
+                            explicit.media_urn, self.cap_urn
+                        ))
+                    })?;
+                (explicit, stdin_urn)
+            }
+            None => {
+                let main = self.find_main_input_arg().ok_or_else(|| {
+                    StreamError::Protocol(format!(
+                        "cap '{}' declares no arg matching live-feed reference '{}' and no \
+                         stdin-sourced main input to resolve it against",
+                        self.cap_urn, reference_urn
+                    ))
+                })?;
+                let provider_content =
+                    self.providers.content_urn_for(&incoming).ok_or_else(|| {
+                        StreamError::Protocol(format!(
+                            "no live-feed provider is registered for reference '{}' \
+                             in this runtime — the cap's cartridge must register a \
+                             capture backend for that device family",
+                            reference_urn
+                        ))
+                    })?;
+                let content = MediaUrn::from_string(&provider_content).map_err(|e| {
+                    StreamError::Protocol(format!(
+                        "provider for '{}' declares an invalid content urn '{}': {e}",
+                        reference_urn, provider_content
+                    ))
+                })?;
+                let main_urn = MediaUrn::from_string(&main.media_urn).map_err(|e| {
+                    StreamError::Protocol(format!(
+                        "main input urn '{}' on cap '{}' is not a valid media URN: {e}",
+                        main.media_urn, self.cap_urn
+                    ))
+                })?;
+                if !content.conforms_to(&main_urn).unwrap_or(false) {
+                    return Err(StreamError::Protocol(format!(
+                        "live-feed reference '{}' delivers '{}' which does not conform to \
+                         cap '{}' main input '{}' — this machine cannot consume that device",
+                        reference_urn, provider_content, self.cap_urn, main.media_urn
+                    )));
+                }
+                (main, provider_content)
+            }
+        };
+
         if !arg.is_sequence {
             return Err(StreamError::Protocol(format!(
-                "live-feed arg '{}' on cap '{}' must declare is_sequence=true — a live                  feed is an unbounded SEQUENCE of items",
+                "live-feed arg '{}' on cap '{}' must declare is_sequence=true — a live \
+                 feed is an unbounded SEQUENCE of items",
                 arg.media_urn, self.cap_urn
             )));
         }
@@ -3422,7 +3493,7 @@ impl LiveFeedContext {
             .map_err(|e| StreamError::Protocol(e.to_string()))?;
         self.handles.lock().unwrap().push(opened.handle);
         Ok(InputStream {
-            media_urn: stdin_urn,
+            media_urn: content_urn,
             stream_meta: opened.stream_meta,
             rx: InputRx::Bounded(opened.rx),
             unbounded: true,
@@ -6950,6 +7021,93 @@ mod tests {
         }
         assert_eq!(seqs, vec![0, 1, 2, 3, 4], "all items, in capture order");
         assert_eq!(handles.lock().unwrap().len(), 1, "the open feed registered its handle");
+    }
+
+    /// A TRANSPORT-BLIND cap (no explicit live arg): its main input consumes
+    /// `main_in` via stdin. Used by the main-input fallback tests.
+    fn blind_live_feed_ctx(
+        main_in: &str,
+    ) -> (
+        LiveFeedContext,
+        Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+        Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
+    ) {
+        let cap_urn = format!("cap:consume;in=\"{main_in}\";out=\"media:fmt=json;record\"");
+        let manifest_json = format!(
+            r#"{{"name":"BlindCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Transport-blind live consumer","cap_groups":[{{"name":"default","caps":[{{"urn":"{}","title":"Consume","aliases":["consume"],"args":[{{"media_urn":"{main_in}","required":true,"is_sequence":true,"sources":[{{"stdin":"{main_in}"}}]}}]}}]}}]}}"#,
+            cap_urn.replace('"', "\\\"")
+        );
+        let manifest: CapManifest =
+            serde_json::from_str(&manifest_json).expect("blind manifest must parse");
+        let providers = Arc::new(crate::bifaci::live_feed::LiveFeedProviders::new());
+        let handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let ctx = LiveFeedContext::new(
+            &cap_urn,
+            Some(manifest),
+            Arc::clone(&providers),
+            Arc::clone(&handles),
+        )
+        .expect("blind live-feed context must build");
+        (ctx, providers, handles)
+    }
+
+    // TEST8137: main-input fallback — a cap with NO explicit reference arg
+    // consumes a live source through its MAIN INPUT when the registered
+    // provider's content urn conforms to it. This is what makes generic
+    // machines (planned over the CONTENT type) valid live-source machines:
+    // the engine forwards the reference, the capture cartridge resolves it,
+    // and the op stays transport-blind.
+    #[tokio::test]
+    async fn test8137_main_input_fallback_resolves_live_reference() {
+        let (ctx, _providers, handles) = blind_live_feed_ctx("media:feed-frames");
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+        let rid = MessageId::new_uuid();
+        send_live_reference(&raw_tx, &rid, r#"{"params":{"items":3,"interval_ms":1,"item_bytes":4}}"#);
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, Some(ctx), None);
+        let mut stream = package
+            .recv()
+            .await
+            .expect("the resolved feed stream must be delivered")
+            .expect("main-input resolution must succeed");
+        assert_eq!(
+            stream.media_urn(),
+            "media:feed-frames",
+            "labeled with the PROVIDER's content urn"
+        );
+        assert!(stream.is_unbounded());
+        let mut count = 0;
+        while let Some(item) = stream.recv().await {
+            item.expect("items must deliver cleanly");
+            count += 1;
+        }
+        assert_eq!(count, 3, "all captured items delivered through the main input");
+        assert_eq!(handles.lock().unwrap().len(), 1, "the open feed registered its handle");
+    }
+
+    // TEST8138: main-input fallback content mismatch — a provider whose
+    // content does not conform to the cap's main input is a hard error at
+    // resolution ("this machine cannot consume that device"), never a
+    // mislabeled stream.
+    #[tokio::test]
+    async fn test8138_main_input_fallback_content_mismatch_rejected() {
+        let (ctx, _providers, _handles) = blind_live_feed_ctx("media:audio-frames;pcm");
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+        let rid = MessageId::new_uuid();
+        send_live_reference(&raw_tx, &rid, "{}");
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, Some(ctx), None);
+        let err = match package.recv().await.expect("the failure must be delivered") {
+            Err(e) => e,
+            Ok(_) => panic!("a non-conforming provider content must be rejected"),
+        };
+        assert!(
+            err.to_string().contains("does not conform"),
+            "the error names the conformance failure: {err}"
+        );
     }
 
     // TEST8129: overrun under drop-oldest — a flooding feed with a lagging

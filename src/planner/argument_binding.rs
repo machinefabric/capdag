@@ -41,6 +41,19 @@ pub struct CapInputFile {
     /// Original file path before container path resolution.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub original_path: Option<String>,
+    /// LIVE-SOURCE reference urn (13.2 §Reference Media, live family). When
+    /// set, this input is a capture device, not a file: `file_path` MUST be
+    /// empty, `media_urn` carries the feed's CONTENT urn (the slot-binding
+    /// and planning anchor, from the fabric live def's `metadata.content`),
+    /// and execution forwards the reference + selector to the first
+    /// consuming cap's cartridge — or bridges host-captured frames on
+    /// sandboxed platforms. The interpreter enforces the exclusivity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub live_reference: Option<String>,
+    /// The live selector record (JSON) accompanying `live_reference`.
+    /// Empty/absent = the all-defaults selector.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub live_selector: Option<String>,
 }
 
 /// Metadata about a cap input file
@@ -82,6 +95,27 @@ impl CapInputFile {
             tracked_file_id: None,
             security_bookmark: None,
             original_path: None,
+            live_reference: None,
+            live_selector: None,
+        }
+    }
+
+    /// A LIVE-SOURCE input: `reference_urn` names the device family, the
+    /// fabric-paired `content_urn` is what the feed delivers (the slot
+    /// binding/planning anchor), and `selector` configures the capture
+    /// ("" = all defaults). No file is involved.
+    pub fn live_source(reference_urn: &str, content_urn: &str, selector: &str) -> Self {
+        Self {
+            file_path: String::new(),
+            media_urn: content_urn.to_string(),
+            metadata: None,
+            source_id: None,
+            source_type: None,
+            tracked_file_id: None,
+            security_bookmark: None,
+            original_path: None,
+            live_reference: Some(reference_urn.to_string()),
+            live_selector: Some(selector.to_string()),
         }
     }
 
@@ -95,6 +129,8 @@ impl CapInputFile {
             tracked_file_id: None,
             security_bookmark: None,
             original_path: None,
+            live_reference: None,
+            live_selector: None,
         }
     }
 
@@ -108,6 +144,8 @@ impl CapInputFile {
             tracked_file_id: None,
             security_bookmark: None,
             original_path: None,
+            live_reference: None,
+            live_selector: None,
         }
     }
 
@@ -121,6 +159,8 @@ impl CapInputFile {
             tracked_file_id: None,
             security_bookmark: None,
             original_path: None,
+            live_reference: None,
+            live_selector: None,
         }
     }
 

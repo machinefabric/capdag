@@ -1271,6 +1271,12 @@ pub struct ExecutionContext {
     /// sent with is_sequence=true on STREAM_START so the receiver gets
     /// properly framed per-item chunks.
     node_is_sequence: HashMap<String, bool>,
+    /// Nodes whose data is a LIVE-FEED REFERENCE selector (13.2 §Reference
+    /// Media, live family): node id → reference urn. The send path labels
+    /// such a node's outgoing stream with the REFERENCE urn (never the
+    /// consuming edge's in_media) so the receiving cartridge's demux
+    /// intercepts and resolves capture — the op stays transport-blind.
+    node_live_reference: HashMap<String, String>,
     /// Cached max chunk size from the relay.
     max_chunk: usize,
     /// Cleanup handles for masters added via add_cartridge_host.
@@ -1310,6 +1316,7 @@ impl ExecutionContext {
         Ok(Self {
             switch,
             node_data: HashMap::new(),
+            node_live_reference: HashMap::new(),
             node_meta: HashMap::new(),
             node_is_sequence: HashMap::new(),
             max_chunk,
@@ -1332,6 +1339,7 @@ impl ExecutionContext {
         Ok(Self {
             switch,
             node_data: HashMap::new(),
+            node_live_reference: HashMap::new(),
             node_meta: HashMap::new(),
             node_is_sequence: HashMap::new(),
             max_chunk,
@@ -1582,6 +1590,17 @@ impl ExecutionContext {
     /// Set data for a node.
     pub fn set_node_data(&mut self, node: String, data: Vec<u8>) {
         self.node_data.insert(node, data);
+    }
+
+    /// Mark a node as carrying a live-feed reference selector (see
+    /// `node_live_reference`).
+    pub fn set_node_live_reference(&mut self, node: String, reference_urn: String) {
+        self.node_live_reference.insert(node, reference_urn);
+    }
+
+    /// Get the full node → live-reference-urn map.
+    pub fn node_live_reference(&self) -> &HashMap<String, String> {
+        &self.node_live_reference
     }
 
     /// Set stream metadata for a node (provenance context for ForEach propagation).
@@ -2148,6 +2167,7 @@ async fn run_group_chain(
         let node_data = ctx.node_data().clone();
         let node_meta = ctx.node_meta().clone();
         let node_is_sequence = ctx.node_is_sequence().clone();
+        let node_live_reference = ctx.node_live_reference().clone();
         let router = credit_routers[0].clone();
         tokio::spawn(async move {
             send_group_input(
@@ -2158,6 +2178,7 @@ async fn run_group_chain(
                 &node_data,
                 &node_meta,
                 &node_is_sequence,
+                &node_live_reference,
                 max_chunk,
                 Some((&router, initial_credit)),
             )
@@ -2453,6 +2474,7 @@ async fn send_group_input(
     node_data: &HashMap<String, Vec<u8>>,
     node_meta: &HashMap<String, crate::StreamMeta>,
     node_is_sequence: &HashMap<String, bool>,
+    node_live_reference: &HashMap<String, String>,
     max_chunk: usize,
     credit: Option<(&crate::bifaci::credit::CreditRouter, u64)>,
 ) -> Result<(), ExecutionError> {
@@ -2490,6 +2512,35 @@ async fn send_group_input(
                 edge.from, edge.cap_urn,
             ))
         })?;
+        // A live-feed reference node sends its selector labeled with the
+        // REFERENCE urn — never relabeled to the edge's in_media — so the
+        // receiving cartridge's demux intercepts it and resolves capture
+        // (13.2 §Reference Media). The reference is ONE record: wire
+        // is_sequence=false regardless of the node's content cardinality.
+        if let Some(reference_urn) = node_live_reference.get(&edge.from) {
+            let urn = crate::MediaUrn::from_string(reference_urn).map_err(|e| {
+                ExecutionError::HostError(format!(
+                    "live-feed reference URN '{}' at node '{}' is not a valid media URN: {e}",
+                    reference_urn, edge.from
+                ))
+            })?;
+            if urn_groups
+                .iter()
+                .any(|g| g.urn.is_equivalent(&urn).unwrap_or(false))
+            {
+                return Err(ExecutionError::HostError(format!(
+                    "cap '{}' would receive two live-feed reference streams '{}' — a \
+                     device capture cannot be fanned into one cap twice",
+                    edge.cap_urn, reference_urn
+                )));
+            }
+            urn_groups.push(UrnGroup {
+                urn,
+                urn_str: reference_urn.as_str(),
+                members: vec![(data.as_slice(), meta, false)],
+            });
+            continue;
+        }
         let urn = crate::MediaUrn::from_string(&edge.in_media).map_err(|e| {
             ExecutionError::HostError(format!(
                 "input arg URN '{}' for cap '{}' is not a valid media URN: {e}",

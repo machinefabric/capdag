@@ -258,6 +258,12 @@ impl LiveFeedHandle {
 pub trait LiveFeedProvider: Send + Sync {
     /// Provider name, for errors and logs.
     fn name(&self) -> &str;
+    /// The CONTENT media URN this provider's feed delivers (e.g. the
+    /// microphone provider delivers `media:audio-frames;pcm`). Used when a
+    /// live reference resolves against a cap's MAIN INPUT (the cap declares
+    /// no explicit reference arg): the content urn must conform to the main
+    /// input's declared urn, and the delivered stream is labeled with it.
+    fn content_urn(&self) -> &str;
     /// Open the device described by `selector` and start capturing into
     /// `sink`. A device that cannot be opened is a hard error — never a
     /// silent empty feed.
@@ -319,6 +325,13 @@ impl LiveFeedProviders {
             .iter()
             .find(|(pattern, _)| pattern.accepts(reference).unwrap_or(false))
             .map(|(_, p)| Arc::clone(p))
+    }
+
+    /// The CONTENT urn the provider matching `reference` delivers, if a
+    /// provider is registered for it. Used by main-input resolution: the
+    /// content urn must conform to the consuming arg's declared urn.
+    pub fn content_urn_for(&self, reference: &MediaUrn) -> Option<String> {
+        self.find(reference).map(|p| p.content_urn().to_string())
     }
 
     /// Runtime-wide overrun total (rides heartbeat meta).
@@ -506,9 +519,16 @@ pub fn open_feed(
 /// exercises real overruns without hardware.
 pub struct SyntheticFeedProvider;
 
+/// The content urn the synthetic feed delivers: opaque test frames.
+pub const MEDIA_FEED_FRAMES: &str = "media:feed-frames";
+
 impl LiveFeedProvider for SyntheticFeedProvider {
     fn name(&self) -> &str {
         "synthetic"
+    }
+
+    fn content_urn(&self) -> &str {
+        MEDIA_FEED_FRAMES
     }
 
     fn open(

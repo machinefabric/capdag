@@ -3,7 +3,7 @@
 //! A unified CLI for executing and validating machine notation pipelines.
 
 use capdag::machine::parse_machine_with_node_names;
-use capdag::orchestrator::{build_plans_from_notation, execute_plan, CliRuntime, EngineRuntime};
+use capdag::orchestrator::{build_plans_from_notation, execute_plan, CliRuntime, EngineRuntime, PlanInput};
 use capdag::{CapProgressFn, CartridgeChannel, ExecutionNodeType, FabricRegistry, PipelineLogFn};
 use std::collections::HashMap;
 use std::env;
@@ -650,6 +650,7 @@ async fn cmd_run(args: &[String]) -> ! {
     let mut output_dir: Option<PathBuf> = None;
     let mut force_overwrite = false;
     let mut positionals: Vec<String> = Vec::new();
+    let mut selector: Option<String> = None;
     let mut arg_idx = 2;
 
     // Flags are recognized in ANY position — `run m.machine input --force` is
@@ -682,6 +683,15 @@ async fn cmd_run(args: &[String]) -> ! {
             }
             "--force" => {
                 force_overwrite = true;
+                arg_idx += 1;
+            }
+            "--selector" => {
+                arg_idx += 1;
+                if arg_idx >= args.len() {
+                    eprintln!("--selector requires a live-feed selector JSON value");
+                    process::exit(1);
+                }
+                selector = Some(args[arg_idx].clone());
                 arg_idx += 1;
             }
             "--dev-bins" => {
@@ -731,6 +741,7 @@ async fn cmd_run(args: &[String]) -> ! {
         notation,
         machine_file,
         &positionals[1..],
+        selector,
         dev_binaries,
         trace_file,
         output_dir,
@@ -753,6 +764,7 @@ async fn execute_notation(
     notation: String,
     machine_label: &str,
     input_args: &[String],
+    selector: Option<String>,
     dev_binaries: Vec<PathBuf>,
     trace_file: Option<String>,
     output_dir: Option<PathBuf>,
@@ -786,14 +798,77 @@ async fn execute_notation(
         process::exit(1);
     }
 
+    // Partition inputs: LIVE-SOURCE tokens (media urns in the live family,
+    // e.g. `media:audio;live;microphone`) vs file paths. A live token is a
+    // machine SOURCE — the fabric live def's `metadata.content` pairing is
+    // the urn the planning anchors accept, and the run carries the
+    // reference + selector to the first consuming cap's cartridge, which
+    // captures (13.2 §Reference Media).
+    warm_fabric_from_manifest(&registry).await;
+    let mut live_sources: Vec<(String, capdag::MediaUrn)> = Vec::new();
+    let mut file_args: Vec<String> = Vec::new();
+    for arg in input_args {
+        if let Ok(u) = capdag::MediaUrn::from_string(arg) {
+            if u.is_live_feed() {
+                match registry.live_source_content_urn(&u) {
+                    Ok(Some(content)) => {
+                        let content_urn = capdag::MediaUrn::from_string(&content)
+                            .expect("registry validated the content urn");
+                        live_sources.push((u.to_string(), content_urn));
+                    }
+                    Ok(None) => {
+                        eprintln!(
+                            "'{arg}' is a live reference but no live-source definition in the \
+                             fabric matches it — register the device family (with its \
+                             metadata.content pairing) before using it as a source"
+                        );
+                        process::exit(1);
+                    }
+                    Err(e) => {
+                        eprintln!("live-source lookup for '{arg}' failed: {e}");
+                        process::exit(1);
+                    }
+                }
+                continue;
+            }
+        }
+        file_args.push(arg.clone());
+    }
+    let selector_bytes: Vec<u8> = match &selector {
+        Some(raw) => {
+            if live_sources.is_empty() {
+                eprintln!("--selector was given but no live source is among the inputs");
+                process::exit(2);
+            }
+            if let Err(e) = capdag::bifaci::live_feed::LiveFeedSelector::parse(raw.as_bytes()) {
+                eprintln!("--selector is not a valid live-feed selector: {e}");
+                process::exit(2);
+            }
+            raw.clone().into_bytes()
+        }
+        None => b"{}".to_vec(),
+    };
+    if selector.is_some() && live_sources.len() > 1 {
+        eprintln!(
+            "--selector is ambiguous with {} live sources — run one live source per \
+             invocation when configuring it",
+            live_sources.len()
+        );
+        process::exit(2);
+    }
+
     // Collect all input paths and expand them
     let mut all_files: Vec<PathBuf> = Vec::new();
-    for arg in input_args {
+    for arg in &file_args {
         let expanded = expand_input_path(arg);
         all_files.extend(expanded);
     }
 
-    if all_files.is_empty() {
+    if all_files.is_empty() && live_sources.is_empty() {
+        eprintln!("No input files or live sources found");
+        process::exit(1);
+    }
+    if !file_args.is_empty() && all_files.is_empty() {
         eprintln!("No input files found");
         process::exit(1);
     }
@@ -808,6 +883,12 @@ async fn execute_notation(
     eprintln!("Input files: {}", all_files.len());
     for f in &all_files {
         eprintln!("  - {}", f.display());
+    }
+    if !live_sources.is_empty() {
+        eprintln!("Live sources: {}", live_sources.len());
+        for (reference, content) in &live_sources {
+            eprintln!("  - {reference} (delivers {content})");
+        }
     }
 
     let cartridge_dir = user_cartridge_dir();
@@ -979,11 +1060,68 @@ async fn execute_notation(
                 .or_default()
                 .push(bytes.clone());
         }
-        for (_, slot_id, slot_urn) in &all_slots {
-            if !slot_files.contains_key(slot_id) {
+        // Live sources bind by their CONTENT urn, with the same
+        // minimum-specificity-distance rule as files. A slot takes EITHER
+        // files or one live source — a device capture cannot join a file
+        // sequence on one anchor, and one anchor cannot capture twice.
+        let mut slot_live: HashMap<String, String> = HashMap::new();
+        for (reference, content) in &live_sources {
+            let mut best: Option<(usize, i64)> = None;
+            let mut tied = false;
+            for (i, (_, _, slot_urn)) in all_slots.iter().enumerate() {
+                if !content.conforms_to(slot_urn).unwrap_or(false) {
+                    continue;
+                }
+                let dist = content.specificity() as i64 - slot_urn.specificity() as i64;
+                match &best {
+                    None => best = Some((i, dist)),
+                    Some((_, bd)) if dist < *bd => {
+                        best = Some((i, dist));
+                        tied = false;
+                    }
+                    Some((bi, bd)) if dist == *bd => {
+                        if *bi != i {
+                            tied = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let Some((slot_idx, _)) = best else {
                 eprintln!(
-                    "input anchor '{slot_id}' ({slot_urn}) received no file — every anchor \
-                     of a multi-anchor machine needs an input"
+                    "live source '{reference}' (delivers {content}) does not conform to any \
+                     input anchor of this machine"
+                );
+                process::exit(1);
+            };
+            if tied {
+                eprintln!(
+                    "live source '{reference}' (delivers {content}) conforms to several input \
+                     anchors at equal specificity — the binding is ambiguous"
+                );
+                process::exit(1);
+            }
+            let slot_id = all_slots[slot_idx].1.clone();
+            if slot_files.contains_key(&slot_id) {
+                eprintln!(
+                    "input anchor '{slot_id}' received both files and live source \
+                     '{reference}' — a device capture cannot join a file sequence on one anchor"
+                );
+                process::exit(1);
+            }
+            if let Some(prev) = slot_live.insert(slot_id.clone(), reference.clone()) {
+                eprintln!(
+                    "input anchor '{slot_id}' received two live sources ('{prev}' and \
+                     '{reference}') — one anchor cannot capture twice"
+                );
+                process::exit(1);
+            }
+        }
+        for (_, slot_id, slot_urn) in &all_slots {
+            if !slot_files.contains_key(slot_id) && !slot_live.contains_key(slot_id) {
+                eprintln!(
+                    "input anchor '{slot_id}' ({slot_urn}) received no input — every anchor \
+                     of a multi-anchor machine needs a file or live source"
                 );
                 process::exit(1);
             }
@@ -991,12 +1129,23 @@ async fn execute_notation(
 
         let mut run_failed = false;
         for (idx, plan) in plans.iter().enumerate() {
-            let mut initial_inputs: HashMap<String, Vec<u8>> = HashMap::new();
+            let mut initial_inputs: HashMap<String, PlanInput> = HashMap::new();
             let mut initial_is_sequence: HashMap<String, bool> = HashMap::new();
             for (slot_id, _) in input_slots_of(plan) {
+                if let Some(reference) = slot_live.get(&slot_id) {
+                    initial_inputs.insert(
+                        slot_id.clone(),
+                        PlanInput::LiveReference {
+                            reference_urn: reference.clone(),
+                            selector: selector_bytes.clone(),
+                        },
+                    );
+                    initial_is_sequence.insert(slot_id, true);
+                    continue;
+                }
                 let files = slot_files.get(&slot_id).expect("verified above");
                 if files.len() == 1 {
-                    initial_inputs.insert(slot_id.clone(), files[0].clone());
+                    initial_inputs.insert(slot_id.clone(), PlanInput::Bytes(files[0].clone()));
                     initial_is_sequence.insert(slot_id, false);
                 } else {
                     let seq = match capdag::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(
@@ -1011,7 +1160,7 @@ async fn execute_notation(
                             process::exit(1);
                         }
                     };
-                    initial_inputs.insert(slot_id.clone(), seq);
+                    initial_inputs.insert(slot_id.clone(), PlanInput::Bytes(seq));
                     initial_is_sequence.insert(slot_id, true);
                 }
             }
@@ -1065,20 +1214,43 @@ async fn execute_notation(
             success_count += 1;
         }
     } else {
-        for file in &all_files {
-            eprintln!("--- Processing: {} ---", file.display());
+        enum RunInput {
+            File(PathBuf),
+            Live {
+                reference: String,
+                content: capdag::MediaUrn,
+            },
+        }
+        let mut run_inputs: Vec<RunInput> =
+            all_files.iter().cloned().map(RunInput::File).collect();
+        run_inputs.extend(live_sources.iter().map(|(r, c)| RunInput::Live {
+            reference: r.clone(),
+            content: c.clone(),
+        }));
+        let run_count = run_inputs.len();
+        for run_input in &run_inputs {
+            let run_label = match run_input {
+                RunInput::File(f) => f.display().to_string(),
+                RunInput::Live { reference, .. } => reference.clone(),
+            };
+            eprintln!("--- Processing: {run_label} ---");
             eprintln!("Run: {}", notation);
 
-            // The CLI feeds a single file as a scalar blob into each plan's single input
-            // slot. A ForEach inside the strand is driven by an intermediate cap's
+            // A file feeds a scalar blob into each plan's single input slot; a
+            // live source feeds the REFERENCE selector, which the first cap's
+            // cartridge resolves into the unbounded content sequence. A
+            // ForEach inside the strand is driven by an intermediate cap's
             // sequence output, never by this input.
-            let file_bytes = match fs::read(file) {
-                Ok(b) => b,
-                Err(e) => {
-                    eprintln!("Error reading input file '{}': {}", file.display(), e);
-                    error_count += 1;
-                    continue;
-                }
+            let file_bytes: Vec<u8> = match run_input {
+                RunInput::File(file) => match fs::read(file) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        eprintln!("Error reading input file '{}': {}", file.display(), e);
+                        error_count += 1;
+                        continue;
+                    }
+                },
+                RunInput::Live { .. } => Vec::new(),
             };
 
             // Each connected strand is its own plan; run them all against this file.
@@ -1091,12 +1263,44 @@ async fn execute_notation(
                         eprintln!("strand {idx} has no input anchor");
                         process::exit(1);
                     });
-                let mut initial_inputs: HashMap<String, Vec<u8>> = HashMap::new();
-                initial_inputs.insert(input_slot_id.clone(), file_bytes.clone());
+                let mut initial_inputs: HashMap<String, PlanInput> = HashMap::new();
                 // The executor requires every input node to carry an explicit sequence
-                // flag — a default would hide a wiring mismatch. This one is scalar.
+                // flag — a default would hide a wiring mismatch. Files are scalar
+                // here; a live source is an unbounded content SEQUENCE.
                 let mut initial_is_sequence: HashMap<String, bool> = HashMap::new();
-                initial_is_sequence.insert(input_slot_id, false);
+                match run_input {
+                    RunInput::File(_) => {
+                        initial_inputs.insert(
+                            input_slot_id.clone(),
+                            PlanInput::Bytes(file_bytes.clone()),
+                        );
+                        initial_is_sequence.insert(input_slot_id, false);
+                    }
+                    RunInput::Live { reference, content } => {
+                        let slot_urn = input_slots_of(plan)
+                            .first()
+                            .map(|(_, u)| u.clone())
+                            .expect("verified above");
+                        if !content.conforms_to(&slot_urn).unwrap_or(false) {
+                            eprintln!(
+                                "live source '{reference}' delivers '{content}', which does \
+                                 not conform to this machine's input anchor '{slot_urn}' — \
+                                 this machine cannot consume that device"
+                            );
+                            error_count += 1;
+                            file_failed = true;
+                            break;
+                        }
+                        initial_inputs.insert(
+                            input_slot_id.clone(),
+                            PlanInput::LiveReference {
+                                reference_urn: reference.clone(),
+                                selector: selector_bytes.clone(),
+                            },
+                        );
+                        initial_is_sequence.insert(input_slot_id, true);
+                    }
+                }
 
                 match execute_plan(
                     plan,
@@ -1119,15 +1323,24 @@ async fn execute_notation(
                         // can produce exactly one scalar result overall — with
                         // several strands or several input files, force file
                         // mode so results never interleave on stdout.
-                        let effective_dir = if plans.len() > 1 || all_files.len() > 1 {
+                        let effective_dir = if plans.len() > 1 || run_count > 1 {
                             Some(output_dir.clone().unwrap_or_else(|| PathBuf::from(".")))
                         } else {
                             output_dir.clone()
                         };
-                        let stem = file
-                            .file_stem()
-                            .map(|s| s.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "input".to_string());
+                        let stem = match run_input {
+                            RunInput::File(file) => file
+                                .file_stem()
+                                .map(|s| s.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| "input".to_string()),
+                            // A live run's outputs are named for the device
+                            // family (e.g. `audio-live-microphone`).
+                            RunInput::Live { reference, .. } => reference
+                                .trim_start_matches("media:")
+                                .chars()
+                                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                                .collect::<String>(),
+                        };
                         let options = capdag::orchestrator::EmitOptions {
                             output_dir: effective_dir,
                             force: force_overwrite,
@@ -1748,6 +1961,7 @@ async fn cmd_plan(args: &[String]) -> ! {
             chosen.notation.clone(),
             &format!("plan candidate [{pick}]"),
             &file_strings,
+            None,
             dev_binaries,
             trace_file,
             output_dir,
@@ -1934,6 +2148,7 @@ async fn cmd_cap(args: &[String]) -> ! {
     // required options / options), not the generic usage — deferred until the
     // cap token is resolved below.
     let mut show_cap_help = false;
+    let mut selector: Option<String> = None;
     let mut idx = 2usize;
     while idx < args.len() {
         match args[idx].as_str() {
@@ -1974,6 +2189,14 @@ async fn cmd_cap(args: &[String]) -> ! {
                     process::exit(2);
                 };
                 to_target = Some(t.clone());
+            }
+            "--selector" => {
+                idx += 1;
+                let Some(v) = args.get(idx) else {
+                    eprintln!("--selector requires a live-feed selector JSON value");
+                    process::exit(2);
+                };
+                selector = Some(v.clone());
             }
             "--dev-bins" => {
                 idx += 1;
@@ -2052,12 +2275,52 @@ async fn cmd_cap(args: &[String]) -> ! {
         }
     };
 
-    // Inputs: file paths from the invocation, else piped stdin, else usage.
+    // Inputs: live-source tokens or file paths from the invocation, else
+    // piped stdin, else usage. A live token (`media:audio;live;microphone`)
+    // makes this run a live capture: the reference + selector travel to the
+    // cap's cartridge, which resolves the device (13.2 §Reference Media).
     enum InputSource {
         Files(Vec<PathBuf>),
         Stdin(Vec<u8>),
+        Live { reference: String },
     }
-    let inputs = if invocation.input_paths.is_empty() {
+    let live_tokens: Vec<String> = invocation
+        .input_paths
+        .iter()
+        .filter(|t| {
+            capdag::MediaUrn::from_string(t)
+                .map(|u| u.is_live_feed())
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    if live_tokens.len() > 1 {
+        eprintln!("a single-cap run takes at most one live source, got {}", live_tokens.len());
+        process::exit(2);
+    }
+    if !live_tokens.is_empty() && invocation.input_paths.len() > live_tokens.len() {
+        eprintln!("a live source cannot be mixed with input files in a single-cap run");
+        process::exit(2);
+    }
+    let selector_bytes: Vec<u8> = match &selector {
+        Some(raw) => {
+            if live_tokens.is_empty() {
+                eprintln!("--selector was given but the input is not a live source");
+                process::exit(2);
+            }
+            if let Err(e) = capdag::bifaci::live_feed::LiveFeedSelector::parse(raw.as_bytes()) {
+                eprintln!("--selector is not a valid live-feed selector: {e}");
+                process::exit(2);
+            }
+            raw.clone().into_bytes()
+        }
+        None => b"{}".to_vec(),
+    };
+    let inputs = if let Some(reference) = live_tokens.first() {
+        InputSource::Live {
+            reference: reference.clone(),
+        }
+    } else if invocation.input_paths.is_empty() {
         if atty::is(atty::Stream::Stdin) {
             eprintln!(
                 "cap {} needs input: pipe it in (cat doc.pdf | {} {cap_token}) or pass \
@@ -2179,9 +2442,23 @@ async fn cmd_cap(args: &[String]) -> ! {
     ));
     let (progress, log_fn) = progress_hooks();
 
-    // One run per input (stdin = a single run).
-    let runs: Vec<(String, Vec<u8>)> = match inputs {
-        InputSource::Stdin(bytes) => vec![("stdin".to_string(), bytes)],
+    // One run per input (stdin = a single run; a live source = a single run).
+    let runs: Vec<(String, PlanInput)> = match inputs {
+        InputSource::Stdin(bytes) => vec![("stdin".to_string(), PlanInput::Bytes(bytes))],
+        InputSource::Live { reference } => {
+            let stem: String = reference
+                .trim_start_matches("media:")
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect();
+            vec![(
+                stem,
+                PlanInput::LiveReference {
+                    reference_urn: reference,
+                    selector: selector_bytes.clone(),
+                },
+            )]
+        }
         InputSource::Files(files) => {
             let mut runs = Vec::with_capacity(files.len());
             for file in files {
@@ -2190,7 +2467,7 @@ async fn cmd_cap(args: &[String]) -> ! {
                     .map(|s| s.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "input".to_string());
                 match fs::read(&file) {
-                    Ok(bytes) => runs.push((stem, bytes)),
+                    Ok(bytes) => runs.push((stem, PlanInput::Bytes(bytes))),
                     Err(e) => {
                         eprintln!("Error reading input file '{}': {}", file.display(), e);
                         process::exit(1);
@@ -2203,11 +2480,14 @@ async fn cmd_cap(args: &[String]) -> ! {
     let multi_run = runs.len() > 1;
 
     let mut error_count = 0usize;
-    for (stem, bytes) in runs {
-        let mut initial_inputs: HashMap<String, Vec<u8>> = HashMap::new();
-        initial_inputs.insert(input_slot_id.clone(), bytes);
+    for (stem, input) in runs {
+        // A live source is an unbounded content SEQUENCE at the anchor; a
+        // file/stdin run stays the historical scalar blob.
+        let is_live = matches!(input, PlanInput::LiveReference { .. });
+        let mut initial_inputs: HashMap<String, PlanInput> = HashMap::new();
+        initial_inputs.insert(input_slot_id.clone(), input);
         let mut initial_is_sequence: HashMap<String, bool> = HashMap::new();
-        initial_is_sequence.insert(input_slot_id.clone(), false);
+        initial_is_sequence.insert(input_slot_id.clone(), is_live);
 
         match execute_plan(
             plan,

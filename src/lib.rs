@@ -274,7 +274,7 @@ pub use orchestrator::{
     execute_dag,
     // Plan execution — the single ForEach/Collect-aware executor, shared by the
     // reference/CLI runtime and the engine.
-    execute_plan,
+    execute_plan, PlanInput,
     map_progress,
     parse_machine_to_cap_dag,
     plan_to_resolved_graph,
