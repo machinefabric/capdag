@@ -1291,6 +1291,21 @@ pub async fn collect_terminal_output(
                         // the cap's declared effect contract before a single
                         // byte of it is collected or persisted.
                         effect_audit.audit(frame.media_urn.as_deref())?;
+                        // An UNBOUNDED terminal must be consumed incrementally
+                        // (L16): a writer streams it to disk; without one this
+                        // buffering collector would be unbounded memory — the
+                        // engine must route such terminals to `TerminalOutput`
+                        // or a persisted sink instead (15.2 §Live-Feed
+                        // Machines). Refused loudly, never an OOM.
+                        if frame.is_unbounded() && writer.is_none() {
+                            return Err(StreamIoError::Protocol(format!(
+                                "cap '{}' terminal declared an UNBOUNDED stream but the sink is \
+                                 not persisted — unbounded terminals require incremental \
+                                 consumption (a persisted sink / IncrementalWriter, or \
+                                 TerminalOutput), never a buffering collector (L16)",
+                                cap_urn
+                            )));
+                        }
                         if let Some(seq) = frame.is_sequence {
                             is_sequence = Some(seq);
                         }
@@ -1604,6 +1619,42 @@ mod tests {
         assert!(
             terminal.next_item().await.is_none(),
             "a failed audit terminates the stream"
+        );
+    }
+
+    // TEST8135: an unbounded terminal without a persisted sink is refused by
+    // the buffering collector (L16) — routed loudly to incremental
+    // consumption, never buffered into unbounded memory and never an OOM.
+    #[tokio::test]
+    async fn test8135_unbounded_terminal_refused_without_writer() {
+        let rid = MessageId::new_uuid();
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(Frame::stream_start_unbounded(
+            rid.clone(),
+            "out".to_string(),
+            "media:enc=utf-8".to_string(),
+            Some(true),
+        ))
+        .unwrap();
+        drop(tx);
+
+        let err = collect_terminal_output(
+            rx,
+            None,
+            "cap:test",
+            "step_test",
+            None,
+            None,
+            None,
+            None,
+            5,
+            None,
+        )
+        .await
+        .expect_err("an unbounded terminal must not be buffered");
+        assert!(
+            err.to_string().contains("UNBOUNDED"),
+            "the refusal names the cause: {err}"
         );
     }
 

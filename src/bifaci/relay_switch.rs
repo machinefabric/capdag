@@ -326,6 +326,13 @@ pub struct CartridgeRuntimeStats {
     /// drops: nothing went wrong. `None` until the first reading.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol_stragglers_total: Option<u64>,
+    /// Total live-feed OVERRUNS at this cartridge's capture edges
+    /// (12.5 §Overrun: real-time items discarded because the consumer
+    /// lagged — inherent to live capture, its own category, never a
+    /// drop), self-reported as `overruns_total` on heartbeat meta.
+    /// `None` until the first reading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_overruns_total: Option<u64>,
 }
 
 impl CartridgeRuntimeStats {
@@ -343,6 +350,7 @@ impl CartridgeRuntimeStats {
             restart_count: 0,
             protocol_drops_total: None,
             protocol_stragglers_total: None,
+            protocol_overruns_total: None,
         }
     }
 }

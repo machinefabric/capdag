@@ -438,6 +438,12 @@ struct ManagedCartridge {
     /// the expected teardown race, nothing wrong). `None` until the first
     /// reading.
     protocol_stragglers_total: Option<u64>,
+    /// Cumulative live-feed OVERRUN count self-reported by the cartridge as
+    /// `overruns_total` in heartbeat response meta (12.5 §Overrun:
+    /// real-time items discarded at a capture edge because the consumer
+    /// lagged — inherent to live capture, indicated as its own category,
+    /// never a drop). `None` until the first reading.
+    protocol_overruns_total: Option<u64>,
     /// Set when a roster sync retired this cartridge while it still had work in
     /// flight. It is already out of the cap table and the inventory, so nothing
     /// new routes to it; the process stays alive until its in-flight requests
@@ -488,6 +494,7 @@ impl ManagedCartridge {
             restart_count: 0,
             protocol_drops_total: None,
             protocol_stragglers_total: None,
+            protocol_overruns_total: None,
             retiring_since: None,
         }
     }
@@ -610,6 +617,7 @@ impl ManagedCartridge {
             restart_count: 0,
             protocol_drops_total: None,
             protocol_stragglers_total: None,
+            protocol_overruns_total: None,
             retiring_since: None,
         }
     }
@@ -647,6 +655,7 @@ impl ManagedCartridge {
             restart_count: 0,
             protocol_drops_total: None,
             protocol_stragglers_total: None,
+            protocol_overruns_total: None,
             retiring_since: None,
         }
     }
@@ -2006,6 +2015,12 @@ impl CartridgeHostRuntime {
                             self.cartridges[cartridge_idx].protocol_stragglers_total =
                                 Some(u64::try_from(*v).unwrap_or(0));
                         }
+                        // Cumulative live-feed overrun counter — its own
+                        // category (12.5 §Overrun), never folded into drops.
+                        if let Some(ciborium::Value::Integer(v)) = meta.get("overruns_total") {
+                            self.cartridges[cartridge_idx].protocol_overruns_total =
+                                Some(u64::try_from(*v).unwrap_or(0));
+                        }
                         let capacity = meta
                             .get("handler_capacity")
                             .and_then(|value| match value {
@@ -3256,6 +3271,7 @@ impl CartridgeHostRuntime {
                     restart_count: cartridge.restart_count,
                     protocol_drops_total: cartridge.protocol_drops_total,
                     protocol_stragglers_total: cartridge.protocol_stragglers_total,
+                    protocol_overruns_total: cartridge.protocol_overruns_total,
                 };
                 // A cartridge whose HELLO failed (e.g. a pre-v4 binary hard-
                 // rejected by the version check) stays IN the inventory with

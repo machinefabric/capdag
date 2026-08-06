@@ -449,15 +449,55 @@ pub trait FrameSender: Send + Sync {
 pub struct InputStream {
     media_urn: String,
     stream_meta: Option<StreamMeta>,
-    rx: tokio::sync::mpsc::UnboundedReceiver<
-        Result<(ciborium::Value, Option<StreamMeta>), StreamError>,
-    >,
+    rx: InputRx,
     /// Whether the sender declared this stream unbounded (no length promise).
     /// Buffering collectors refuse unbounded streams (L16).
     unbounded: bool,
     /// Grant emitter: consuming chunks replenishes the sender's window (L10).
     /// None = uncredited context (in-process host, tests).
     grants: Option<InputGrantEmitter>,
+}
+
+/// The delivery channel behind an `InputStream`. Wire-fed streams use an
+/// unbounded channel (backpressure is the wire credit window, L10);
+/// runtime-resolved LIVE FEEDS use a BOUNDED channel — the op-side stage of
+/// the live backpressure chain (12.5 §Overrun): a lagging consumer fills
+/// this channel, which blocks the feed's feeder, which fills the capture
+/// ring, which applies the overrun policy at the capture edge.
+pub(crate) enum InputRx {
+    Unbounded(
+        tokio::sync::mpsc::UnboundedReceiver<
+            Result<(ciborium::Value, Option<StreamMeta>), StreamError>,
+        >,
+    ),
+    Bounded(
+        tokio::sync::mpsc::Receiver<
+            Result<(ciborium::Value, Option<StreamMeta>), StreamError>,
+        >,
+    ),
+}
+
+impl InputRx {
+    fn try_recv(
+        &mut self,
+    ) -> Result<
+        Result<(ciborium::Value, Option<StreamMeta>), StreamError>,
+        tokio::sync::mpsc::error::TryRecvError,
+    > {
+        match self {
+            InputRx::Unbounded(rx) => rx.try_recv(),
+            InputRx::Bounded(rx) => rx.try_recv(),
+        }
+    }
+
+    async fn recv(
+        &mut self,
+    ) -> Option<Result<(ciborium::Value, Option<StreamMeta>), StreamError>> {
+        match self {
+            InputRx::Unbounded(rx) => rx.recv().await,
+            InputRx::Bounded(rx) => rx.recv().await,
+        }
+    }
 }
 
 /// Emits CREDIT grants for one input stream as the handler consumes it (L10).
@@ -3275,6 +3315,129 @@ impl FilePathContext {
     }
 }
 
+/// Runtime-side context for LIVE-FEED reference resolution (13.2 §Reference
+/// Media, live family) — the live sibling of [`FilePathContext`]. An
+/// incoming stream whose media URN carries the `live` marker is a
+/// reference: the demux accumulates its selector value, opens the feed
+/// through the registered providers, and delivers an UNBOUNDED SEQUENCE
+/// `InputStream` labeled with the arg's stdin content URN. Opened feeds
+/// register their handles so a stop (non-force Cancel on a feed-bearing
+/// request) can close the tap and let the run drain (15.2 §Runs Stop).
+pub(crate) struct LiveFeedContext {
+    live_pattern: MediaUrn,
+    cap_urn: String,
+    manifest: Option<CapManifest>,
+    providers: Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+    /// This request's open feed handles, shared with the runtime's per-rid
+    /// registry (the stop path closes through the same Arc).
+    handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
+}
+
+impl LiveFeedContext {
+    fn new(
+        cap_urn: &str,
+        manifest: Option<CapManifest>,
+        providers: Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+        handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
+    ) -> Result<Self, RuntimeError> {
+        // Store the CANONICAL rendering so the manifest lookup compares
+        // canonical-to-canonical, independent of the caller's surface
+        // spelling (tag order, quoting).
+        let canonical = crate::CapUrn::from_string(cap_urn)
+            .map_err(|e| {
+                RuntimeError::Handler(format!(
+                    "live-feed context: cap URN '{}' does not parse: {}",
+                    cap_urn, e
+                ))
+            })?
+            .to_string();
+        Ok(Self {
+            live_pattern: MediaUrn::from_string(crate::bifaci::live_feed::MEDIA_LIVE_FEED)
+                .map_err(|e| {
+                    RuntimeError::Handler(format!("Failed to create live-feed pattern: {}", e))
+                })?,
+            cap_urn: canonical,
+            manifest,
+            providers,
+            handles,
+        })
+    }
+
+    fn is_live_feed(&self, media_urn_str: &str) -> bool {
+        let arg_urn = match MediaUrn::from_string(media_urn_str) {
+            Ok(u) => u,
+            Err(_) => return false,
+        };
+        self.live_pattern.accepts(&arg_urn).unwrap_or(false)
+    }
+
+    fn find_arg<'a>(&'a self, incoming: &MediaUrn) -> Option<&'a CapArg> {
+        let manifest = self.manifest.as_ref()?;
+        let cap_def = manifest
+            .all_caps()
+            .into_iter()
+            .find(|c| c.urn.to_string() == self.cap_urn)?;
+        cap_def.args.iter().find(|a| {
+            MediaUrn::from_string(&a.media_urn)
+                .map(|arg_urn| arg_urn.is_equivalent(incoming).unwrap_or(false))
+                .unwrap_or(false)
+        })
+    }
+
+    /// Resolve the live reference into an open feed and the InputStream
+    /// delivering it. Hard errors on: no matching arg, an arg without a
+    /// stdin source (a live reference MUST resolve to piped content), an
+    /// arg not declared `is_sequence` (a feed is a sequence of items), an
+    /// unparseable selector, or a provider/device failure.
+    fn resolve(
+        &self,
+        reference_urn: &str,
+        selector_bytes: &[u8],
+    ) -> Result<InputStream, StreamError> {
+        use crate::bifaci::live_feed::{open_feed, LiveFeedSelector};
+
+        let incoming = MediaUrn::from_string(reference_urn)
+            .map_err(|e| StreamError::Protocol(format!("invalid live-feed reference URN: {e}")))?;
+        let arg = self.find_arg(&incoming).ok_or_else(|| {
+            StreamError::Protocol(format!(
+                "cap '{}' declares no arg matching live-feed reference '{}'",
+                self.cap_urn, reference_urn
+            ))
+        })?;
+        let stdin_urn = arg
+            .sources
+            .iter()
+            .find_map(|s| match s {
+                ArgSource::Stdin { stdin } => Some(stdin.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                StreamError::Protocol(format!(
+                    "live-feed arg '{}' on cap '{}' declares no stdin source — a live                      reference must resolve to piped content (13.2 §Reference Media)",
+                    arg.media_urn, self.cap_urn
+                ))
+            })?;
+        if !arg.is_sequence {
+            return Err(StreamError::Protocol(format!(
+                "live-feed arg '{}' on cap '{}' must declare is_sequence=true — a live                  feed is an unbounded SEQUENCE of items",
+                arg.media_urn, self.cap_urn
+            )));
+        }
+        let selector = LiveFeedSelector::parse(selector_bytes)
+            .map_err(|e| StreamError::Protocol(e.to_string()))?;
+        let opened = open_feed(&self.providers, reference_urn, selector)
+            .map_err(|e| StreamError::Protocol(e.to_string()))?;
+        self.handles.lock().unwrap().push(opened.handle);
+        Ok(InputStream {
+            media_urn: stdin_urn,
+            stream_meta: opened.stream_meta,
+            rx: InputRx::Bounded(opened.rx),
+            unbounded: true,
+            grants: None,
+        })
+    }
+}
+
 /// Reassembly state for one sequence-mode input stream (`is_sequence = true`
 /// on STREAM_START). Sequence producers (`emit_list_item`) CBOR-encode each
 /// item once and split the encoded bytes across CHUNK frames at `max_chunk`
@@ -3325,6 +3488,7 @@ fn try_decode_sequence_item(buf: &[u8]) -> Result<Option<(ciborium::Value, usize
 fn demux_multi_stream(
     raw_rx: crossbeam_channel::Receiver<Frame>,
     file_path_ctx: Option<FilePathContext>,
+    live_feed_ctx: Option<LiveFeedContext>,
     credit: Option<InputCreditContext>,
 ) -> InputPackage {
     let (streams_tx, streams_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -3339,6 +3503,11 @@ fn demux_multi_stream(
         > = HashMap::new();
         // File-path accumulators: stream_id → (media_urn, accumulated_chunk_payloads)
         let mut fp_accumulators: HashMap<String, (String, Vec<Vec<u8>>)> = HashMap::new();
+        // Live-feed reference accumulators: stream_id → (reference_urn,
+        // accumulated selector-value payloads). Resolved on STREAM_END
+        // (mirrors the file-path pattern: the value is a small reference,
+        // never the data).
+        let mut lf_accumulators: HashMap<String, (String, Vec<Vec<u8>>)> = HashMap::new();
         // Per-stream remaining credit windows (L10/L12). The window starts at
         // the negotiated initial_credit; handler consumption (grants) extends
         // it; a chunk arriving with the window at zero is a fatal
@@ -3368,9 +3537,15 @@ fn demux_multi_stream(
                     let is_fp = file_path_ctx
                         .as_ref()
                         .map_or(false, |ctx| ctx.is_file_path(&media_urn));
+                    // Check if live-feed reference (only when LiveFeedContext provided)
+                    let is_lf = live_feed_ctx
+                        .as_ref()
+                        .map_or(false, |ctx| ctx.is_live_feed(&media_urn));
 
                     if is_fp {
                         fp_accumulators.insert(stream_id, (media_urn, Vec::new()));
+                    } else if is_lf {
+                        lf_accumulators.insert(stream_id, (media_urn, Vec::new()));
                     } else {
                         let (chunk_tx, chunk_rx) = tokio::sync::mpsc::unbounded_channel();
                         stream_channels.insert(stream_id.clone(), chunk_tx);
@@ -3403,7 +3578,7 @@ fn demux_multi_stream(
                         let input_stream = InputStream {
                             media_urn,
                             stream_meta: frame.meta,
-                            rx: chunk_rx,
+                            rx: InputRx::Unbounded(chunk_rx),
                             unbounded: frame.unbounded.unwrap_or(false),
                             grants,
                         };
@@ -3423,6 +3598,15 @@ fn demux_multi_stream(
                     // path strings, never bulk data, and are consumed on
                     // arrival — no violation accounting needed.
                     if let Some((_, ref mut chunks)) = fp_accumulators.get_mut(&stream_id) {
+                        if let Some(payload) = frame.payload {
+                            chunks.push(payload);
+                        }
+                        continue;
+                    }
+                    // Live-feed reference accumulation — same contract as
+                    // file paths: the demux consumes the small selector
+                    // value; it never reaches the handler.
+                    if let Some((_, ref mut chunks)) = lf_accumulators.get_mut(&stream_id) {
                         if let Some(payload) = frame.payload {
                             chunks.push(payload);
                         }
@@ -3520,6 +3704,43 @@ fn demux_multi_stream(
 
                 FrameType::StreamEnd => {
                     let stream_id = frame.stream_id.as_ref().cloned().unwrap_or_default();
+
+                    // Live-feed reference ended — resolve: open the device
+                    // through the registered provider and deliver the
+                    // unbounded sequence stream (13.2 §Reference Media).
+                    if let Some((reference_urn, chunks)) = lf_accumulators.remove(&stream_id) {
+                        let ctx = match live_feed_ctx.as_ref() {
+                            Some(ctx) => ctx,
+                            None => continue,
+                        };
+                        // Decode accumulated payloads → selector bytes (the
+                        // same value-decode contract as file paths).
+                        let mut selector_bytes = Vec::new();
+                        for chunk_payload in &chunks {
+                            match ciborium::from_reader::<ciborium::Value, _>(&chunk_payload[..]) {
+                                Ok(ciborium::Value::Bytes(b)) => selector_bytes.extend(b),
+                                Ok(ciborium::Value::Text(t)) => selector_bytes.extend(t.into_bytes()),
+                                Ok(other) => {
+                                    let mut buf = Vec::new();
+                                    let _ = ciborium::into_writer(&other, &mut buf);
+                                    selector_bytes.extend(buf);
+                                }
+                                Err(_) => selector_bytes.extend(chunk_payload),
+                            }
+                        }
+                        match ctx.resolve(&reference_urn, &selector_bytes) {
+                            Ok(input_stream) => {
+                                if streams_tx.send(Ok(input_stream)).is_err() {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                let _ = streams_tx.send(Err(e));
+                                break;
+                            }
+                        }
+                        continue;
+                    }
 
                     // File-path stream ended — read file and deliver
                     if let Some((media_urn, chunks)) = fp_accumulators.remove(&stream_id) {
@@ -3668,7 +3889,7 @@ fn demux_multi_stream(
                             let input_stream = InputStream {
                                 media_urn: resolved_urn,
                                 stream_meta: None,
-                                rx: chunk_rx,
+                                rx: InputRx::Unbounded(chunk_rx),
                                 // Materialized from local files before delivery —
                                 // bounded and already fully buffered; no grants.
                                 unbounded: false,
@@ -3685,7 +3906,7 @@ fn demux_multi_stream(
                             let input_stream = InputStream {
                                 media_urn: media_urn.clone(),
                                 stream_meta: None,
-                                rx: chunk_rx,
+                                rx: InputRx::Unbounded(chunk_rx),
                                 unbounded: false,
                                 grants: None,
                             };
@@ -4016,6 +4237,11 @@ pub struct CartridgeRuntime {
     /// gate (L4): late keepalive/emitter frames that crossed their flow's
     /// END/ERR. Counted per frame type, indicated as benign — never drops.
     straggler_counters: Arc<crate::bifaci::stats::StragglerCounters>,
+
+    /// Live-feed providers (13.2 §Reference Media, live family): reference
+    /// URN pattern → capture backend. Ships with the built-in synthetic
+    /// feed; capture-capable cartridges register hardware providers.
+    live_feed_providers: Arc<crate::bifaci::live_feed::LiveFeedProviders>,
 }
 
 /// Dispatch an Op with a Request via WetContext.
@@ -4164,6 +4390,8 @@ fn spawn_handler(
     drops: &Arc<crate::bifaci::stats::DropCounters>,
     credit_router: &crate::bifaci::credit::CreditRouter,
     initial_credit: u64,
+    live_feed_providers: &Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+    live_feed_handles: &Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
 ) -> JoinHandle<()> {
     let output_tx_clone = output_tx.clone();
     let pending_clone = Arc::clone(pending_peer_requests);
@@ -4171,9 +4399,18 @@ fn spawn_handler(
     let done_tx = handler_done_tx.clone();
     let drops = Arc::clone(drops);
     let credit_router = credit_router.clone();
+    let live_feed_providers = Arc::clone(live_feed_providers);
+    let live_feed_handles = Arc::clone(live_feed_handles);
 
     tokio::spawn(async move {
-        let fp_ctx = FilePathContext::new(&cap_urn, manifest_clone).ok();
+        let fp_ctx = FilePathContext::new(&cap_urn, manifest_clone.clone()).ok();
+        let lf_ctx = LiveFeedContext::new(
+            &cap_urn,
+            manifest_clone,
+            live_feed_providers,
+            live_feed_handles,
+        )
+        .ok();
         let sender: Arc<dyn FrameSender> = Arc::new(ChannelFrameSender {
             tx: output_tx_clone.clone(),
             drops: Arc::clone(&drops),
@@ -4183,6 +4420,7 @@ fn spawn_handler(
         let input_package = demux_multi_stream(
             raw_rx,
             fp_ctx,
+            lf_ctx,
             Some(InputCreditContext {
                 sender: Arc::clone(&sender),
                 rid: request_id.clone(),
@@ -4328,6 +4566,7 @@ impl CartridgeRuntime {
             capacity: CapacityHandle::new(0),
             drop_counters: Arc::new(crate::bifaci::stats::DropCounters::new()),
             straggler_counters: Arc::new(crate::bifaci::stats::StragglerCounters::new()),
+            live_feed_providers: Arc::new(crate::bifaci::live_feed::LiveFeedProviders::new()),
         };
         rt.register_standard_caps();
         rt
@@ -4353,6 +4592,7 @@ impl CartridgeRuntime {
             capacity: CapacityHandle::new(0),
             drop_counters: Arc::new(crate::bifaci::stats::DropCounters::new()),
             straggler_counters: Arc::new(crate::bifaci::stats::StragglerCounters::new()),
+            live_feed_providers: Arc::new(crate::bifaci::live_feed::LiveFeedProviders::new()),
         };
         rt.register_standard_caps();
         rt
@@ -4377,6 +4617,25 @@ impl CartridgeRuntime {
     /// nothing went wrong.
     pub fn protocol_stragglers(&self) -> crate::bifaci::stats::StragglerSnapshot {
         self.straggler_counters.snapshot()
+    }
+
+    /// Register a live-feed provider (13.2 §Reference Media): capture
+    /// backends for a reference-URN pattern (e.g. the audio cartridge's
+    /// microphone provider for `media:audio;live;microphone`). The built-in
+    /// synthetic feed is pre-registered.
+    pub fn register_live_feed_provider(
+        &self,
+        pattern: &str,
+        provider: Arc<dyn crate::bifaci::live_feed::LiveFeedProvider>,
+    ) {
+        self.live_feed_providers.register(pattern, provider);
+    }
+
+    /// Runtime-wide overrun total (12.5 §Overrun): real-time items
+    /// discarded at capture edges because consumers lagged. Rides
+    /// heartbeat meta as `overruns_total` — never counted as drops.
+    pub fn protocol_overruns_total(&self) -> u64 {
+        self.live_feed_providers.overruns_total()
     }
 
     /// Register the standard identity and discard handlers.
@@ -4724,7 +4983,20 @@ impl CartridgeRuntime {
             .map_err(|_| RuntimeError::Handler("Failed to send END".to_string()))?;
         drop(tx);
 
-        let input_package = demux_multi_stream(rx, None, None);
+        // Live-feed references resolve in CLI mode exactly as on the wire
+        // (13.2 §Reference Media): `mic-selector | cartridge cap` is the
+        // standalone form of the same contract. Handles are per-invocation;
+        // a direct CLI run stops via its own process lifecycle.
+        let cli_feed_handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let cli_lf_ctx = LiveFeedContext::new(
+            &cap.urn_string(),
+            self.manifest.clone(),
+            Arc::clone(&self.live_feed_providers),
+            cli_feed_handles,
+        )
+        .ok();
+        let input_package = demux_multi_stream(rx, None, cli_lf_ctx, None);
 
         let cli_sender: Arc<dyn FrameSender> = Arc::new(frame_sender);
         // Same derived response label as the wire path (spawn_handler): the
@@ -5297,6 +5569,13 @@ impl CartridgeRuntime {
         let mut active_handlers: HashMap<MessageId, JoinHandle<()>> = HashMap::new();
         // Track routing IDs per handler for stamping ERR frames on cancel
         let mut handler_routing_ids: HashMap<MessageId, Option<MessageId>> = HashMap::new();
+        // Per-request open live-feed handles (13.2 §Live Feeds). A non-force
+        // Cancel on a request with open feeds is a STOP: close the tap and
+        // let the run drain (15.2 §Runs Stop) — the handler ends naturally.
+        let mut live_feed_handles_by_rid: HashMap<
+            MessageId,
+            Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
+        > = HashMap::new();
         // Track cancelled requests to prevent duplicate ERR frames
         let mut cancelled_requests: std::collections::HashSet<MessageId> =
             std::collections::HashSet::new();
@@ -5370,6 +5649,9 @@ impl CartridgeRuntime {
 
                 let handler_rid = queued.request_id.clone();
                 let handler_xid = queued.routing_id.clone();
+                let feed_handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>> =
+                    Arc::new(Mutex::new(Vec::new()));
+                live_feed_handles_by_rid.insert(handler_rid.clone(), Arc::clone(&feed_handles));
                 let handle = spawn_handler(
                     queued.raw_rx,
                     queued.factory,
@@ -5384,6 +5666,8 @@ impl CartridgeRuntime {
                     &self.drop_counters,
                     &credit_router,
                     negotiated_limits.initial_credit,
+                    &self.live_feed_providers,
+                    &feed_handles,
                 );
                 active_handlers.insert(handler_rid.clone(), handle);
                 handler_routing_ids.insert(handler_rid, handler_xid);
@@ -5399,6 +5683,13 @@ impl CartridgeRuntime {
                     active_handlers.remove(&rid);
                     running_handler_count = running_handler_count.saturating_sub(1);
                     credit_router.close_request(&rid, "END");
+                    // A finished handler's feeds are over — close any the
+                    // provider hasn't observed as ended yet, and forget them.
+                    if let Some(handles) = live_feed_handles_by_rid.remove(&rid) {
+                        for handle in handles.lock().unwrap().iter() {
+                            handle.close();
+                        }
+                    }
                     if cancelled_requests.remove(&rid) {
                         let routing_id = handler_routing_ids.remove(&rid).flatten();
                         let mut err = Frame::err(
@@ -5515,6 +5806,10 @@ impl CartridgeRuntime {
                         // Under capacity — spawn handler immediately.
                         let handler_rid = request_id.clone();
                         let handler_xid = routing_id.clone();
+                        let feed_handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>> =
+                            Arc::new(Mutex::new(Vec::new()));
+                        live_feed_handles_by_rid
+                            .insert(handler_rid.clone(), Arc::clone(&feed_handles));
                         let handle = spawn_handler(
                             raw_rx,
                             factory,
@@ -5529,6 +5824,8 @@ impl CartridgeRuntime {
                             &self.drop_counters,
                             &credit_router,
                             negotiated_limits.initial_credit,
+                            &self.live_feed_providers,
+                            &feed_handles,
                         );
                         active_handlers.insert(handler_rid.clone(), handle);
                         handler_routing_ids.insert(handler_rid, handler_xid);
@@ -5604,6 +5901,30 @@ impl CartridgeRuntime {
                     // Skip if already cancelled (prevent duplicate ERR)
                     if cancelled_requests.contains(&target_rid) {
                         continue;
+                    }
+
+                    // STOP, not cancel (15.2 §Runs Stop): a non-force Cancel
+                    // for a request with OPEN live feeds closes the tap —
+                    // the feeds end, the pipeline drains, and the request
+                    // terminates naturally with complete outputs. The
+                    // handles are forgotten here, so a SECOND Cancel falls
+                    // through to the ordinary cooperative cancel (abort).
+                    if !frame.force_kill.unwrap_or(false) {
+                        if let Some(handles) = live_feed_handles_by_rid.remove(&target_rid) {
+                            let handles = handles.lock().unwrap();
+                            if !handles.is_empty() {
+                                for handle in handles.iter() {
+                                    handle.close();
+                                }
+                                tracing::info!(
+                                    target: "cartridge_runtime",
+                                    rid = ?target_rid,
+                                    feeds = handles.len(),
+                                    "[CartridgeRuntime] stop: closed live feeds — the run drains                                      and ends naturally (a second Cancel aborts)"
+                                );
+                                continue;
+                            }
+                        }
                     }
 
                     // Case 1: Request is in the queue — remove it, send ERR
@@ -5710,6 +6031,12 @@ impl CartridgeRuntime {
                             u64::try_from(self.straggler_counters.total())
                                 .expect("straggler total must fit the protocol's uint64 domain")
                                 .into(),
+                        ),
+                    );
+                    meta.insert(
+                        "overruns_total".into(),
+                        ciborium::Value::Integer(
+                            self.live_feed_providers.overruns_total().into(),
                         ),
                     );
                     meta.insert(
@@ -6240,7 +6567,7 @@ mod tests {
             .unwrap();
         raw_tx.send(mk_chunk(0)).unwrap();
 
-        let mut package = demux_multi_stream(raw_rx.clone(), None, None);
+        let mut package = demux_multi_stream(raw_rx.clone(), None, None, None);
         let mut stream = package.recv().await.unwrap().unwrap();
         assert!(stream.is_unbounded(), "STREAM_START flag must surface");
 
@@ -6337,7 +6664,7 @@ mod tests {
         raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
         drop(raw_tx);
 
-        let mut package = demux_multi_stream(raw_rx, None, None);
+        let mut package = demux_multi_stream(raw_rx, None, None, None);
         let mut stream = package.recv().await.unwrap().unwrap();
 
         let (v0, m0) = stream.recv().await.unwrap().unwrap();
@@ -6391,7 +6718,7 @@ mod tests {
         raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
         drop(raw_tx);
 
-        let mut package = demux_multi_stream(raw_rx, None, None);
+        let mut package = demux_multi_stream(raw_rx, None, None, None);
         let mut stream = package.recv().await.unwrap().unwrap();
         let err = stream
             .recv()
@@ -6461,6 +6788,7 @@ mod tests {
         let mut package = demux_multi_stream(
             raw_rx,
             None,
+            None,
             Some(InputCreditContext {
                 sender,
                 rid: rid.clone(),
@@ -6503,7 +6831,7 @@ mod tests {
             let stream = InputStream {
                 media_urn: "media:enc=utf-8".to_string(),
                 stream_meta: None,
-                rx,
+                rx: InputRx::Unbounded(rx),
                 unbounded: true,
                 grants: None,
             };
@@ -6521,6 +6849,312 @@ mod tests {
         let (stream, _tx3) = make_unbounded();
         let err = stream.collect_value().await.expect_err("must refuse");
         assert!(err.to_string().contains("unbounded"), "{}", err);
+    }
+
+    // ── Live-feed transport resolution (13.2 §Reference Media, live family) ──
+
+    /// A manifest whose test cap consumes a live feed: the arg is declared
+    /// with the SYNTHETIC reference URN, is_sequence (a feed is a sequence
+    /// of items), and a stdin source carrying the CONTENT urn — the exact
+    /// file-path reference shape, unbounded.
+    const LIVE_FEED_MANIFEST: &str = r#"{"name":"FeedCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Live feed test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]},{"urn":"cap:drain;in=\"media:feed-frames\";out=\"media:fmt=json;record\"","title":"Drain","aliases":["drain"],"args":[{"media_urn":"media:live;synthetic","required":true,"is_sequence":true,"sources":[{"stdin":"media:feed-frames"}]}]}]}]}"#;
+
+    fn live_feed_ctx(
+        selector_arg_is_sequence: bool,
+    ) -> (
+        LiveFeedContext,
+        Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+        Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
+    ) {
+        let manifest_json = if selector_arg_is_sequence {
+            LIVE_FEED_MANIFEST.to_string()
+        } else {
+            LIVE_FEED_MANIFEST.replace("\"is_sequence\":true", "\"is_sequence\":false")
+        };
+        let manifest: CapManifest =
+            serde_json::from_str(&manifest_json).expect("live-feed manifest must parse");
+        let providers = Arc::new(crate::bifaci::live_feed::LiveFeedProviders::new());
+        let handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let ctx = LiveFeedContext::new(
+            "cap:drain;in=\"media:feed-frames\";out=\"media:fmt=json;record\"",
+            Some(manifest),
+            Arc::clone(&providers),
+            Arc::clone(&handles),
+        )
+        .expect("live-feed context must build");
+        (ctx, providers, handles)
+    }
+
+    /// Feed a live-feed reference through the demux: STREAM_START with the
+    /// reference URN, one CHUNK carrying the selector JSON, STREAM_END, END.
+    fn send_live_reference(raw_tx: &crossbeam_channel::Sender<Frame>, rid: &MessageId, selector: &str) {
+        let mut payload = Vec::new();
+        ciborium::into_writer(
+            &ciborium::Value::Text(selector.to_string()),
+            &mut payload,
+        )
+        .unwrap();
+        let checksum = Frame::compute_checksum(&payload);
+        raw_tx
+            .send(Frame::stream_start(
+                rid.clone(),
+                "ref".to_string(),
+                "media:live;synthetic".to_string(),
+                None,
+            ))
+            .unwrap();
+        raw_tx
+            .send(Frame::chunk(rid.clone(), "ref".to_string(), 0, payload, 0, checksum))
+            .unwrap();
+        raw_tx
+            .send(Frame::stream_end(rid.clone(), "ref".to_string(), 1))
+            .unwrap();
+        raw_tx.send(Frame::end(rid.clone(), None)).unwrap();
+    }
+
+    // TEST8128: a live-feed reference resolves through the demux exactly like
+    // a file path — the handler receives an UNBOUNDED SEQUENCE InputStream
+    // labeled with the arg's stdin CONTENT urn, delivering the captured items
+    // with seq/pts_us/capture_ts_us metadata, and the op is none the wiser.
+    #[tokio::test]
+    async fn test8128_live_feed_reference_resolves_to_unbounded_content_stream() {
+        let (ctx, _providers, handles) = live_feed_ctx(true);
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+        let rid = MessageId::new_uuid();
+        send_live_reference(&raw_tx, &rid, r#"{"params":{"items":5,"interval_ms":1,"item_bytes":4}}"#);
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, Some(ctx), None);
+        let mut stream = package
+            .recv()
+            .await
+            .expect("the resolved feed stream must be delivered")
+            .expect("resolution must succeed");
+        assert_eq!(stream.media_urn(), "media:feed-frames", "labeled with the CONTENT urn");
+        assert!(stream.is_unbounded(), "a live feed makes no length promise (L16)");
+        assert_eq!(
+            stream
+                .stream_meta()
+                .and_then(|m| m.get("feed"))
+                .and_then(|v| v.as_text()),
+            Some("synthetic"),
+            "STREAM_START meta carries the provider's format actuals"
+        );
+
+        let mut seqs = Vec::new();
+        while let Some(item) = stream.recv().await {
+            let (value, meta) = item.expect("items must deliver cleanly");
+            assert!(matches!(value, ciborium::Value::Bytes(ref b) if b.len() == 4));
+            let meta = meta.expect("every live item carries metadata");
+            let seq = match meta.get("seq") {
+                Some(ciborium::Value::Integer(i)) => u64::try_from(*i).unwrap(),
+                other => panic!("item must carry integer seq, got {other:?}"),
+            };
+            assert!(meta.contains_key("pts_us"), "item carries pts_us");
+            assert!(meta.contains_key("capture_ts_us"), "item carries capture_ts_us");
+            seqs.push(seq);
+        }
+        assert_eq!(seqs, vec![0, 1, 2, 3, 4], "all items, in capture order");
+        assert_eq!(handles.lock().unwrap().len(), 1, "the open feed registered its handle");
+    }
+
+    // TEST8129: overrun under drop-oldest — a flooding feed with a lagging
+    // consumer loses items ONLY at the capture edge, counts every loss, and
+    // stamps the next delivered item with a gap marker so the discontinuity
+    // is visible in-band. delivered + dropped always equals captured.
+    #[tokio::test]
+    async fn test8129_overrun_drop_oldest_counts_and_marks_gaps() {
+        let (ctx, providers, _handles) = live_feed_ctx(true);
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+        let rid = MessageId::new_uuid();
+        send_live_reference(
+            &raw_tx,
+            &rid,
+            r#"{"params":{"items":50,"interval_ms":0,"item_bytes":4,"ring":2}}"#,
+        );
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, Some(ctx), None);
+        let mut stream = package.recv().await.unwrap().unwrap();
+        // Lag: let the producer flood to completion before consuming — the
+        // bounded delivery channel + tiny ring force capture-edge drops.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let mut delivered = 0u64;
+        let mut dropped_via_gaps = 0u64;
+        let mut last_seq: Option<u64> = None;
+        while let Some(item) = stream.recv().await {
+            let (_value, meta) = item.expect("drop-oldest never fails the stream");
+            let meta = meta.unwrap();
+            let seq = match meta.get("seq") {
+                Some(ciborium::Value::Integer(i)) => u64::try_from(*i).unwrap(),
+                _ => panic!("missing seq"),
+            };
+            if let Some(prev) = last_seq {
+                assert!(seq > prev, "seq strictly increases across gaps");
+            }
+            if let Some(ciborium::Value::Map(gap)) = meta.get("gap") {
+                let dropped = gap
+                    .iter()
+                    .find(|(k, _)| matches!(k, ciborium::Value::Text(t) if t == "dropped"))
+                    .map(|(_, v)| match v {
+                        ciborium::Value::Integer(i) => u64::try_from(*i).unwrap(),
+                        _ => panic!("gap.dropped must be an integer"),
+                    })
+                    .expect("gap carries dropped count");
+                assert!(dropped > 0, "a gap marker means real loss");
+                dropped_via_gaps += dropped;
+            }
+            delivered += 1;
+            last_seq = Some(seq);
+        }
+        assert!(delivered < 50, "a lagging consumer cannot receive everything");
+        assert!(dropped_via_gaps > 0, "the loss is visible in-band");
+        assert_eq!(
+            delivered + dropped_via_gaps,
+            50,
+            "every captured item is either delivered or counted as dropped — nothing silent"
+        );
+        assert_eq!(
+            providers.overruns_total(),
+            dropped_via_gaps,
+            "the runtime-wide overrun counter matches the in-band accounting"
+        );
+    }
+
+    // TEST8130: on_overrun=fail — a pipeline that declares it needs every
+    // frame gets a classified FEED_OVERRUN stream error instead of loss.
+    #[tokio::test]
+    async fn test8130_overrun_fail_ends_feed_with_classified_error() {
+        let (ctx, _providers, _handles) = live_feed_ctx(true);
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+        let rid = MessageId::new_uuid();
+        send_live_reference(
+            &raw_tx,
+            &rid,
+            r#"{"on_overrun":"fail","params":{"items":50,"interval_ms":0,"item_bytes":4,"ring":2}}"#,
+        );
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, Some(ctx), None);
+        let mut stream = package.recv().await.unwrap().unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let mut saw_overrun_error = false;
+        while let Some(item) = stream.recv().await {
+            match item {
+                Ok(_) => {}
+                Err(e) => {
+                    assert!(
+                        e.to_string().contains("FEED_OVERRUN"),
+                        "the failure names the overrun: {e}"
+                    );
+                    saw_overrun_error = true;
+                }
+            }
+        }
+        assert!(saw_overrun_error, "on_overrun=fail must surface the overrun as an error");
+    }
+
+    // TEST8131: max_items stop condition — the feed ends itself after
+    // exactly N captured items; the stream ends cleanly (a run stops on its
+    // own when its input ends, 15.2 §Runs Stop).
+    #[tokio::test]
+    async fn test8131_max_items_stop_condition_ends_feed() {
+        let (ctx, _providers, _handles) = live_feed_ctx(true);
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+        let rid = MessageId::new_uuid();
+        send_live_reference(
+            &raw_tx,
+            &rid,
+            r#"{"stop":{"max_items":3},"params":{"items":1000,"interval_ms":1,"item_bytes":4}}"#,
+        );
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, Some(ctx), None);
+        let mut stream = package.recv().await.unwrap().unwrap();
+        let mut delivered = 0;
+        while let Some(item) = stream.recv().await {
+            item.expect("items deliver cleanly");
+            delivered += 1;
+        }
+        assert_eq!(delivered, 3, "the stop condition bounds the feed exactly");
+    }
+
+    // TEST8132: stop = close the tap — closing the feed's handle ends the
+    // stream cleanly mid-capture; what was already captured drains, then the
+    // stream ends without error (the drain path of a stopped run).
+    #[tokio::test]
+    async fn test8132_handle_close_stops_feed_and_drains() {
+        let (ctx, _providers, handles) = live_feed_ctx(true);
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+        let rid = MessageId::new_uuid();
+        send_live_reference(
+            &raw_tx,
+            &rid,
+            r#"{"params":{"items":100000,"interval_ms":2,"item_bytes":4}}"#,
+        );
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, Some(ctx), None);
+        let mut stream = package.recv().await.unwrap().unwrap();
+        // Consume a couple of live items, then stop.
+        let first = stream.recv().await.expect("live item").expect("clean");
+        assert!(matches!(first.0, ciborium::Value::Bytes(_)));
+        handles.lock().unwrap()[0].close();
+
+        // The stream must END (not hang, not error) — drain then done.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match stream.recv().await {
+                Some(item) => {
+                    item.expect("drained items are clean");
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "a closed feed must end promptly"
+                    );
+                }
+                None => break,
+            }
+        }
+    }
+
+    // TEST8133: a live-feed arg declared is_sequence=false is a contract
+    // violation — a feed is an unbounded SEQUENCE — and fails hard at
+    // resolution, never delivering a mislabeled stream.
+    #[tokio::test]
+    async fn test8133_scalar_live_feed_arg_rejected() {
+        let (ctx, _providers, _handles) = live_feed_ctx(false);
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+        let rid = MessageId::new_uuid();
+        send_live_reference(&raw_tx, &rid, "{}");
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, Some(ctx), None);
+        let err = match package.recv().await.expect("the failure must be delivered") {
+            Err(e) => e,
+            Ok(_) => panic!("a scalar live-feed arg must be rejected"),
+        };
+        assert!(err.to_string().contains("is_sequence"), "{err}");
+    }
+
+    // TEST8134: an unparseable selector is a hard error — never a silent
+    // all-defaults feed.
+    #[tokio::test]
+    async fn test8134_invalid_selector_rejected() {
+        let (ctx, _providers, _handles) = live_feed_ctx(true);
+        let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+        let rid = MessageId::new_uuid();
+        send_live_reference(&raw_tx, &rid, "{not json");
+        drop(raw_tx);
+
+        let mut package = demux_multi_stream(raw_rx, None, Some(ctx), None);
+        let err = match package.recv().await.expect("the failure must be delivered") {
+            Err(e) => e,
+            Ok(_) => panic!("garbage selectors must be rejected"),
+        };
+        assert!(err.to_string().contains("selector"), "{err}");
     }
 
     // TEST7052: Input consumption emits batched CREDIT grants — roughly one grant per half-window consumed, not one per chunk.
@@ -6555,6 +7189,7 @@ mod tests {
 
         let mut package = demux_multi_stream(
             raw_rx,
+            None,
             None,
             Some(InputCreditContext {
                 sender,
@@ -6652,6 +7287,7 @@ mod tests {
         let mut package = demux_multi_stream(
             raw_rx,
             None,
+            None,
             Some(InputCreditContext {
                 sender,
                 rid: rid.clone(),
@@ -6726,6 +7362,7 @@ mod tests {
 
         let mut package = demux_multi_stream(
             raw_rx,
+            None,
             None,
             Some(InputCreditContext {
                 sender,
@@ -6986,7 +7623,7 @@ mod tests {
         raw_tx.send(Frame::end(request_id, None)).ok();
         drop(raw_tx);
 
-        demux_multi_stream(raw_rx, None, None)
+        demux_multi_stream(raw_rx, None, None, None)
     }
 
     /// Create an OutputStream backed by a channel for testing.
@@ -10046,7 +10683,7 @@ mod tests {
         InputStream {
             media_urn: media_urn.to_string(),
             stream_meta: None,
-            rx,
+            rx: InputRx::Unbounded(rx),
             unbounded: false,
             grants: None,
         }
@@ -10168,7 +10805,7 @@ mod tests {
             tx.send(Ok(InputStream {
                 media_urn: format!("media:stream{}", i),
                 stream_meta: None,
-                rx: stream_rx,
+                rx: InputRx::Unbounded(stream_rx),
                 unbounded: false,
                 grants: None,
             }))
@@ -10208,7 +10845,7 @@ mod tests {
         tx.send(Ok(InputStream {
             media_urn: "media:s1".to_string(),
             stream_meta: None,
-            rx: s1_rx,
+            rx: InputRx::Unbounded(s1_rx),
             unbounded: false,
             grants: None,
         }))
@@ -10223,7 +10860,7 @@ mod tests {
         tx.send(Ok(InputStream {
             media_urn: "media:s2".to_string(),
             stream_meta: None,
-            rx: s2_rx,
+            rx: InputRx::Unbounded(s2_rx),
             unbounded: false,
             grants: None,
         }))
@@ -10272,7 +10909,7 @@ mod tests {
         tx.send(Ok(InputStream {
             media_urn: "media:good".to_string(),
             stream_meta: None,
-            rx: s1_rx,
+            rx: InputRx::Unbounded(s1_rx),
             unbounded: false,
             grants: None,
         }))
@@ -10287,7 +10924,7 @@ mod tests {
         tx.send(Ok(InputStream {
             media_urn: "media:bad".to_string(),
             stream_meta: None,
-            rx: s2_rx,
+            rx: InputRx::Unbounded(s2_rx),
             unbounded: false,
             grants: None,
         }))

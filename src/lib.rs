@@ -141,6 +141,10 @@ pub use bifaci::request_state::{
     RequestTableSnapshot, RoutingEntry, StreamFlowStats, StreamSnapshot, TerminalKind,
     TerminatedSummary,
 };
+pub use bifaci::live_feed::{
+    LiveFeedItem, LiveFeedProvider, LiveFeedProviders, LiveFeedSelector, LiveFeedSink,
+    LiveFeedStop, OverrunPolicy, SyntheticFeedProvider, MEDIA_LIVE_FEED, MEDIA_LIVE_SYNTHETIC,
+};
 pub use bifaci::stats::{
     DropCounters, DropSnapshot, StragglerCounters, StragglerSnapshot, TerminatedFlows,
 };
