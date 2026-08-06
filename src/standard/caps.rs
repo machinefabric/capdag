@@ -71,8 +71,11 @@ pub const CAP_IDENTITY: &str = "cap:effect=none";
 
 /// Discard capability — the terminal morphism. Standard, NOT mandatory.
 /// Accepts any media type as input and produces void output.
+/// Canonical form: `in=` defaults to the top media URN (`media:`) and is
+/// omitted; `effect` is `declared` (the default — the runtime output IS the
+/// declared `out=media:void`, nothing is inferred) and is likewise omitted.
 /// The capdag lib provides a default implementation; cartridges may override.
-pub const CAP_DISCARD: &str = "cap:in=media:;out=media:void";
+pub const CAP_DISCARD: &str = "cap:out=media:void";
 
 /// Adapter selection capability — content inspection for file type detection.
 /// Standard, NOT mandatory. Every cartridge gets a default implementation that
@@ -327,33 +330,6 @@ pub fn adapter_selection_cap() -> Cap {
 // HELPER FUNCTIONS
 // =============================================================================
 
-// CAP_IDENTITY: the categorical identity morphism — MANDATORY in every capset
-// Canonical form is explicit `cap:effect=none`
-
-// const IDENTITY_DEFINITION = {
-//   urn: 'cap:effect=none',
-//   command: 'identity',
-//   title: 'Identity',
-//   cap_description: 'The categorical identity morphism. Echoes input as output unchanged. Mandatory in every capability set.',
-//   args: [],
-//   output: {
-//     media_urn: 'media:',
-//     output_description: 'The input data, unchanged'
-//   }
-// };
-
-// // CAP_DISCARD: the terminal morphism — standard, NOT mandatory
-// const DISCARD_DEFINITION = {
-//   urn: 'cap:in=media:;out=media:void',
-//   command: 'discard',
-//   title: 'Discard',
-//   cap_description: 'The terminal morphism. Accepts any input and produces void output. Standard but not mandatory.',
-//   args: [],
-//   output: {
-//     media_urn: 'media:void',
-//     output_description: 'Void (no output)'
-//   }
-// };
 
 // =============================================================================
 // URN BUILDER FUNCTIONS (synchronous, return CapUrn directly)
@@ -1244,6 +1220,21 @@ mod tests {
             urn.out_spec(),
             MEDIA_VOID,
             "CAP_DISCARD output must be media:void"
+        );
+        // The constant is the canonical rendering: default in= (media:) and
+        // default effect (declared) are omitted; only out=media:void remains.
+        assert_eq!(
+            urn.to_string(),
+            CAP_DISCARD,
+            "CAP_DISCARD must be the canonical rendering of the discard cap"
+        );
+        // Surface spellings with the defaults written out normalize to it.
+        let explicit = CapUrn::from_string("cap:in=media:;out=media:void")
+            .expect("explicit surface spelling must parse");
+        assert_eq!(
+            explicit.to_string(),
+            CAP_DISCARD,
+            "explicit in=media: surface form must normalize to CAP_DISCARD"
         );
     }
 

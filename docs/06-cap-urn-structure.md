@@ -490,7 +490,7 @@ input.
 ### 11.4 Sink — consumer
 
 ```
-cap:discard;in=media:;out=media:void
+cap:discard;out=media:void
 cap:in=media:json;log;out=media:void
 ```
 
