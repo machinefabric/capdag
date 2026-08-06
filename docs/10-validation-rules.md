@@ -13,7 +13,7 @@ This document specifies all validation rules for the capdag system. All implemen
 
 | Category | Rules | Scope |
 |----------|-------|-------|
-| Cap URN Rules | CU1-CU2 | URN structure |
+| Cap URN Rules | CU1-CU3 | URN structure |
 | Cap Definition Rules | RULE1-RULE13 | Capability arguments and identity |
 | Media Def Rules | MS1-MS3 | Media definitions |
 | Cross-Validation Rules | XV1-XV7 | Reference integrity |
@@ -21,7 +21,7 @@ This document specifies all validation rules for the capdag system. All implemen
 ### Validation Order
 
 1. Structural validation (JSON Schema)
-2. Cap URN validation (CU1, CU2)
+2. Cap URN validation (CU1–CU3)
 3. Cap definition rules (RULE1-RULE13)
 4. Media def rules (MS1-MS3)
 5. Cross-validation (XV1-XV7)
@@ -69,6 +69,31 @@ cap:in="invalid";test;out="media:enc=utf-8"            ✗
 ```
 
 **Error**: `Invalid 'in' media URN: <value>. Must start with 'media:' or be '*'`
+
+### CU3: Effect Admissibility
+
+**Rule**: A cap URN's declared effect must be coherent with its declared
+`in=`/`out=` (see [06-CAP-URN-STRUCTURE](/docs/06-cap-urn-structure)
+§4.2.1):
+
+- The all-default bare top form (`cap:` / `cap:in=media:;out=media:` with
+  default effect and no tags) is inadmissible.
+- `effect=none`: declared `in=` must `conform_to` declared `out=`.
+- `effect=patch`: the coordinate delta `out − in` must be derivable, and
+  applying it back to `in=` must yield a type conforming to `out=`.
+
+**Enforcement**: At CapUrn construction (`validate_admissible`) in every
+implementation — every parse of a cap URN enforces it, including the
+fabric publisher, so an incoherent effect declaration cannot be
+published.
+
+**Examples**:
+```
+cap:effect=none                                            ✓ (identity)
+cap:decimate-sequence;effect=none                          ✓ (in=media: ⊑ out=media:)
+cap:in="media:ext=pdf";out="media:enc=utf-8";effect=none   ✗ (in ⋢ out)
+cap:                                                       ✗ (bare top)
+```
 
 ---
 
@@ -324,7 +349,7 @@ All implementations (Rust, JavaScript, server functions) MUST enforce identical 
 
 | Code Range | Category |
 |------------|----------|
-| CU1-CU2 | Cap URN Validation |
+| CU1-CU3 | Cap URN Validation |
 | RULE1-RULE13 | Cap Args and Identity Validation |
 | MS1-MS3 | Media Def Validation |
 | XV1-XV7 | Cross-Validation |
@@ -337,6 +362,7 @@ All implementations (Rust, JavaScript, server functions) MUST enforce identical 
 |------|-------------|-------|
 | CU1 | Required in/out tags | URN |
 | CU2 | Valid media URN values | URN |
+| CU3 | Effect admissibility (none: in ⊑ out; patch: derivable delta) | URN |
 | RULE1 | No duplicate media_urns | Args |
 | RULE2 | Non-empty sources | Args |
 | RULE3 | Identical stdin media_urns | Args |

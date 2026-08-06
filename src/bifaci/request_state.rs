@@ -652,7 +652,8 @@ impl RequestTable {
     /// no routing state. A hit here means the frame CROSSED its request's
     /// terminal in flight — the ordinary teardown race of credit-based flow
     /// control (a grant or straggler emitted before the sender observed
-    /// END/ERR) — which receivers count as `post_terminal`. A miss means the
+    /// END/ERR) — which receivers count as a BENIGN post-terminal straggler
+    /// (nothing went wrong; never a drop). A miss means the
     /// table has never known the RID within the ring's horizon: a genuine
     /// `no_route` anomaly worth alarming on. The ring holds the last
     /// [`RECENT_TERMINATED_CAP`] terminations; the race window is
@@ -1320,7 +1321,7 @@ mod tests {
         );
         assert!(
             !table.recently_terminated_rid(&MessageId::Uint(9999)),
-            "an unknown rid is a genuine routing anomaly, never post_terminal"
+            "an unknown rid is a genuine routing anomaly, never a benign straggler"
         );
 
         // Push the ring past its horizon: rid 500's summary must age out.
@@ -1331,7 +1332,7 @@ mod tests {
         }
         assert!(
             !table.recently_terminated_rid(&MessageId::Uint(500)),
-            "eviction past RECENT_TERMINATED_CAP ends post_terminal classification"
+            "eviction past RECENT_TERMINATED_CAP ends benign-straggler classification"
         );
         assert!(
             table.recently_terminated_rid(&MessageId::Uint(1000 + RECENT_TERMINATED_CAP as u64 - 1)),

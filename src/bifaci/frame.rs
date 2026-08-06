@@ -96,6 +96,42 @@ pub enum FrameType {
 }
 
 impl FrameType {
+    /// All variants, for counter arrays and snapshot serialization.
+    pub const ALL: [FrameType; 13] = [
+        FrameType::Hello,
+        FrameType::Req,
+        FrameType::Chunk,
+        FrameType::End,
+        FrameType::Log,
+        FrameType::Err,
+        FrameType::Heartbeat,
+        FrameType::StreamStart,
+        FrameType::StreamEnd,
+        FrameType::RelayNotify,
+        FrameType::RelayState,
+        FrameType::Cancel,
+        FrameType::Credit,
+    ];
+
+    /// Stable snake_case name (the snapshot contract for mirrors and traces).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FrameType::Hello => "hello",
+            FrameType::Req => "req",
+            FrameType::Chunk => "chunk",
+            FrameType::End => "end",
+            FrameType::Log => "log",
+            FrameType::Err => "err",
+            FrameType::Heartbeat => "heartbeat",
+            FrameType::StreamStart => "stream_start",
+            FrameType::StreamEnd => "stream_end",
+            FrameType::RelayNotify => "relay_notify",
+            FrameType::RelayState => "relay_state",
+            FrameType::Cancel => "cancel",
+            FrameType::Credit => "credit",
+        }
+    }
+
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
             0 => Some(FrameType::Hello),
@@ -1456,13 +1492,21 @@ impl CreditDirection {
 /// executor); every dropped frame increments exactly one of these counters,
 /// observable via the protocol stats snapshots. Frames are never dropped
 /// silently.
+///
+/// A DROP means something went wrong. The benign teardown crossing — a flow
+/// frame that arrives after its request's terminal, which the protocol
+/// expects (in-flight frames legally race END/ERR, L13) — is NOT a drop and
+/// has no reason here: it is counted as a post-terminal STRAGGLER
+/// (`StragglerCounters` in `stats`), indicated as benign in every stats
+/// surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DropReason {
-    /// Flow frame enqueued/received after the request's terminal (END/ERR) frame.
-    PostTerminal,
-    /// Flow frame for a request with no routing state (already released or never
-    /// registered).
+    /// Flow frame for a request with no routing state (never registered, or
+    /// released for a reason the terminated-ledger cannot vouch for). A drop
+    /// with this reason indicates something actually went wrong — a frame
+    /// arriving after its request's terminal is NOT a drop, it is a benign
+    /// straggler counted separately (`StragglerCounters`).
     NoRoute,
     /// Send attempted on a closed channel (receiver gone).
     ChannelClosed,
@@ -1476,8 +1520,7 @@ pub enum DropReason {
 
 impl DropReason {
     /// All variants, for counter arrays and snapshot serialization.
-    pub const ALL: [DropReason; 6] = [
-        DropReason::PostTerminal,
+    pub const ALL: [DropReason; 5] = [
         DropReason::NoRoute,
         DropReason::ChannelClosed,
         DropReason::CreditViolation,
@@ -1488,7 +1531,6 @@ impl DropReason {
     /// Stable snake_case name (the wire/snapshot contract for mirrors).
     pub fn as_str(&self) -> &'static str {
         match self {
-            DropReason::PostTerminal => "post_terminal",
             DropReason::NoRoute => "no_route",
             DropReason::ChannelClosed => "channel_closed",
             DropReason::CreditViolation => "credit_violation",

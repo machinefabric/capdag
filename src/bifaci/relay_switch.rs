@@ -313,12 +313,19 @@ pub struct CartridgeRuntimeStats {
     /// Number of times this cartridge has been respawned after death.
     pub restart_count: u64,
     /// Total protocol-level frame drops inside the cartridge runtime
-    /// (post-terminal writer-gate drops, closed-channel sends, credit
-    /// violations, …), self-reported as `drops_total` on every heartbeat
-    /// response meta (L8: every drop is countable end-to-end). `None`
-    /// until the first heartbeat round-trip delivers a reading.
+    /// (closed-channel sends, credit violations, …), self-reported as
+    /// `drops_total` on every heartbeat response meta (L8: every drop is
+    /// countable end-to-end). `None` until the first heartbeat round-trip
+    /// delivers a reading. Drops mean something went wrong.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol_drops_total: Option<u64>,
+    /// Total BENIGN post-terminal stragglers suppressed by the cartridge's
+    /// writer gate (late keepalive/emitter frames that crossed their flow's
+    /// terminal — the expected teardown race), self-reported as
+    /// `stragglers_total` on every heartbeat response meta. Separate from
+    /// drops: nothing went wrong. `None` until the first reading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_stragglers_total: Option<u64>,
 }
 
 impl CartridgeRuntimeStats {
@@ -335,6 +342,7 @@ impl CartridgeRuntimeStats {
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
             protocol_drops_total: None,
+            protocol_stragglers_total: None,
         }
     }
 }
@@ -610,9 +618,16 @@ pub struct RelaySwitch {
     requests: RwLock<RequestTable>,
     /// FIFO capacity gate keyed by exact relay-master + cartridge identity.
     admission: AdmissionController,
-    /// Dropped-frame accounting (L8): unroutable/post-terminal frames are
-    /// counted drops, never silent losses and never protocol errors.
+    /// Dropped-frame accounting (L8): frames lost to something going WRONG
+    /// (no routing state, dead channels, credit violations) — counted per
+    /// reason × frame type, never silent losses and never protocol errors.
     drops: Arc<DropCounters>,
+    /// Benign post-terminal stragglers: flow frames that crossed their
+    /// request's terminal in flight — the ordinary, protocol-legal teardown
+    /// race (a callee ENDing before draining input, a final credit grant
+    /// racing END). Counted per frame type and indicated as benign in every
+    /// stats surface — NOT drops, nothing went wrong.
+    stragglers: Arc<crate::bifaci::stats::StragglerCounters>,
     /// Aggregate capabilities (union of all masters)
     aggregate_capabilities: RwLock<Vec<u8>>,
     /// Aggregate installed cartridge identities (union of all healthy masters).
@@ -726,6 +741,11 @@ impl std::fmt::Debug for RelaySwitch {
 pub struct RelaySwitchProtocolStats {
     pub requests: crate::bifaci::request_state::RequestTableSnapshot,
     pub drops: crate::bifaci::stats::DropSnapshot,
+    /// Benign post-terminal stragglers — the expected teardown crossing,
+    /// counted per frame type. Indicated separately from `drops` because
+    /// nothing went wrong.
+    #[serde(default)]
+    pub stragglers: crate::bifaci::stats::StragglerSnapshot,
     /// Per-master host protocol stats, keyed by master id, as reported in
     /// each host's latest RelayNotify. A master that has not yet advertised
     /// host stats is absent (never a zeroed placeholder).
@@ -1066,6 +1086,7 @@ impl RelaySwitch {
             requests: RwLock::new(RequestTable::new()),
             admission: AdmissionController::default(),
             drops: Arc::new(DropCounters::new()),
+            stragglers: Arc::new(crate::bifaci::stats::StragglerCounters::new()),
             aggregate_capabilities: RwLock::new(
                 serde_json::to_vec(&Vec::<String>::new())
                     .expect("empty capability snapshot must serialize"),
@@ -1670,7 +1691,42 @@ impl RelaySwitch {
         RelaySwitchProtocolStats {
             requests: self.requests.read().await.snapshot(),
             drops: self.drops.snapshot(),
+            stragglers: self.stragglers.snapshot(),
             hosts,
+        }
+    }
+
+    /// Account a flow frame that found no routing state, for the narrow case
+    /// it actually is: when the terminated ledger vouches the request JUST
+    /// terminated, the frame is a benign post-terminal straggler — the
+    /// expected teardown crossing, counted per frame type and logged as
+    /// benign, never as a drop. Otherwise the RID is one the table never
+    /// knew: a genuine routing anomaly, counted as a `no_route` drop and
+    /// logged as a warning.
+    fn account_unrouted_frame(&self, recently_terminated: bool, frame: &Frame, context: &str) {
+        if recently_terminated {
+            let total = self.stragglers.record(frame.frame_type);
+            tracing::debug!(
+                rid = ?frame.id,
+                xid = ?frame.routing_id,
+                ftype = frame.frame_type.as_str(),
+                straggler_total = total,
+                "[RelaySwitch] benign post-terminal straggler ({}): frame crossed its \
+                 request's terminal in flight — expected teardown race, nothing lost",
+                context
+            );
+        } else {
+            let total = self
+                .drops
+                .record(crate::bifaci::frame::DropReason::NoRoute, frame.frame_type);
+            tracing::warn!(
+                rid = ?frame.id,
+                xid = ?frame.routing_id,
+                ftype = frame.frame_type.as_str(),
+                no_route_total = total,
+                "[RelaySwitch] dropped {} — RID has no routing state and never terminated here (no_route)",
+                context
+            );
         }
     }
 
@@ -3484,22 +3540,14 @@ impl RelaySwitch {
                                 None => {
                                     // Classify by the terminated ring: a frame
                                     // for a request that JUST terminated is the
-                                    // ordinary teardown race (`post_terminal`);
-                                    // only a RID the table never knew is a
-                                    // routing anomaly (`no_route`).
-                                    let reason = if requests.recently_terminated_rid(&rid) {
-                                        crate::bifaci::frame::DropReason::PostTerminal
-                                    } else {
-                                        crate::bifaci::frame::DropReason::NoRoute
-                                    };
-                                    let total = self.drops.record(reason);
-                                    tracing::debug!(
-                                        rid = ?rid,
-                                        xid = ?xid,
-                                        ftype = ?frame.frame_type,
-                                        reason = reason.as_str(),
-                                        reason_total = total,
-                                        "[RelaySwitch] dropped duplicate terminal for released request"
+                                    // ordinary teardown race — a benign
+                                    // straggler, not a drop; only a RID the
+                                    // table never knew is a routing anomaly
+                                    // (`no_route`).
+                                    self.account_unrouted_frame(
+                                        requests.recently_terminated_rid(&rid),
+                                        &frame,
+                                        "duplicate terminal for released request",
                                     );
                                     return Ok(None);
                                 }
@@ -3514,19 +3562,10 @@ impl RelaySwitch {
                                     (route, state.cap_urn.clone())
                                 }
                                 None => {
-                                    let reason = if requests.recently_terminated_rid(&rid) {
-                                        crate::bifaci::frame::DropReason::PostTerminal
-                                    } else {
-                                        crate::bifaci::frame::DropReason::NoRoute
-                                    };
-                                    let total = self.drops.record(reason);
-                                    tracing::debug!(
-                                        rid = ?rid,
-                                        xid = ?xid,
-                                        ftype = ?frame.frame_type,
-                                        reason = reason.as_str(),
-                                        reason_total = total,
-                                        "[RelaySwitch] dropped response frame with no routing state"
+                                    self.account_unrouted_frame(
+                                        requests.recently_terminated_rid(&rid),
+                                        &frame,
+                                        "response frame with no routing state",
                                     );
                                     return Ok(None);
                                 }
@@ -3538,9 +3577,10 @@ impl RelaySwitch {
                         RouteBack::External(Some(tx)) => {
                             // Send to external response channel (keep XID)
                             if tx.send(frame.clone()).is_err() {
-                                let total = self
-                                    .drops
-                                    .record(crate::bifaci::frame::DropReason::ChannelClosed);
+                                let total = self.drops.record(
+                                    crate::bifaci::frame::DropReason::ChannelClosed,
+                                    frame.frame_type,
+                                );
                                 tracing::warn!(
                                     rid = ?rid,
                                     cap = cap_for_log.as_deref().unwrap_or("?"),
@@ -3597,27 +3637,20 @@ impl RelaySwitch {
                             Some(found) => Ok(found),
                             // Classify under the same table guard: a
                             // continuation for a request that JUST terminated
-                            // is the ordinary teardown race (`post_terminal`
-                            // — a grant or straggler that crossed END in
-                            // flight); a RID the table never knew is a
+                            // is the ordinary teardown race — a benign
+                            // straggler (a grant or in-flight frame that
+                            // crossed END); a RID the table never knew is a
                             // routing anomaly (`no_route`).
-                            None => Err(if requests.recently_terminated_rid(&rid) {
-                                crate::bifaci::frame::DropReason::PostTerminal
-                            } else {
-                                crate::bifaci::frame::DropReason::NoRoute
-                            }),
+                            None => Err(requests.recently_terminated_rid(&rid)),
                         }
                     };
                     let (xid, dest_idx) = match lookup {
                         Ok(found) => found,
-                        Err(reason) => {
-                            let total = self.drops.record(reason);
-                            tracing::debug!(
-                                rid = ?rid,
-                                ftype = ?frame.frame_type,
-                                reason = reason.as_str(),
-                                reason_total = total,
-                                "[RelaySwitch] dropped continuation with no routing state"
+                        Err(recently_terminated) => {
+                            self.account_unrouted_frame(
+                                recently_terminated,
+                                &frame,
+                                "continuation with no routing state",
                             );
                             return Ok(None);
                         }
@@ -7213,8 +7246,13 @@ mod tests {
         let stats = crate::bifaci::host_runtime::HostProtocolStats {
             drops: {
                 let counters = crate::bifaci::stats::DropCounters::new();
-                counters.record(crate::bifaci::frame::DropReason::NoRoute);
-                counters.record(crate::bifaci::frame::DropReason::NoRoute);
+                counters.record(crate::bifaci::frame::DropReason::NoRoute, FrameType::Chunk);
+                counters.record(crate::bifaci::frame::DropReason::NoRoute, FrameType::Credit);
+                counters.snapshot()
+            },
+            stragglers: {
+                let counters = crate::bifaci::stats::StragglerCounters::new();
+                counters.record(FrameType::Credit);
                 counters.snapshot()
             },
             outgoing_rids: 3,
@@ -7233,6 +7271,20 @@ mod tests {
             .expect("host stats must survive the round trip");
         assert_eq!(got.drops.total, 2);
         assert_eq!(got.drops.by_reason.get("no_route"), Some(&2));
+        assert_eq!(
+            got.drops
+                .by_reason_frame_type
+                .get("no_route")
+                .and_then(|m| m.get("credit")),
+            Some(&1),
+            "the per-frame-type breakdown survives the wire round-trip"
+        );
+        assert_eq!(got.stragglers.total, 1);
+        assert_eq!(
+            got.stragglers.by_frame_type.get("credit"),
+            Some(&1),
+            "the benign straggler counters survive the wire round-trip"
+        );
         assert_eq!(got.incoming_rxids, 5);
         assert_eq!(got.routing_gc_evicted_total, 7);
 
@@ -7379,7 +7431,8 @@ mod tests {
                     }
                 ],
                 "host_protocol_stats": {
-                    "drops": { "total": 3, "by_reason": { "post_terminal": 2, "no_route": 1 } },
+                    "drops": { "total": 1, "by_reason": { "no_route": 1 } },
+                    "stragglers": { "total": 2, "by_frame_type": { "credit": 2 } },
                     "outgoing_rids": 4,
                     "incoming_rxids": 6,
                     "incoming_to_peer_rids": 0,
@@ -7428,8 +7481,13 @@ mod tests {
         .await
         .expect("host stats must surface in protocol_stats().hosts after RelayNotify");
 
-        assert_eq!(stats.drops.total, 3);
-        assert_eq!(stats.drops.by_reason.get("post_terminal"), Some(&2));
+        assert_eq!(stats.drops.total, 1);
+        assert_eq!(stats.drops.by_reason.get("no_route"), Some(&1));
+        assert_eq!(
+            stats.stragglers.by_frame_type.get("credit"),
+            Some(&2),
+            "benign stragglers surface separately from drops"
+        );
         assert_eq!(stats.incoming_rxids, 6);
         assert_eq!(stats.routing_gc_evicted_total, 9);
         drop(slave);
@@ -7537,22 +7595,21 @@ mod tests {
             "ingress recording captured the terminal frame"
         );
 
-        // A follow-up frame for the released key is a counted drop CLASSIFIED
-        // as the teardown race: the request just terminated, so it counts
-        // post_terminal — no_route stays reserved for RIDs the table never
+        // A follow-up frame for the released key is a BENIGN post-terminal
+        // straggler — the expected teardown race, counted separately and
+        // never as a drop; no_route stays reserved for RIDs the table never
         // knew (TEST8114).
         let mut late = Frame::progress(rid.clone(), 1.0, "late");
         late.routing_id = Some(xid);
         switch
             .handle_master_frame(0, late)
             .await
-            .expect("post-terminal frame must not error");
-        let drops = switch.protocol_stats().await.drops;
-        assert_eq!(drops.by_reason.get("post_terminal"), Some(&1));
+            .expect("post-terminal straggler must not error");
+        let stats = switch.protocol_stats().await;
+        assert_eq!(stats.stragglers.by_frame_type.get("log"), Some(&1));
         assert_eq!(
-            drops.by_reason.get("no_route"),
-            None,
-            "a just-terminated request's straggler is not a routing anomaly"
+            stats.drops.total, 0,
+            "a just-terminated request's straggler is benign — never a drop"
         );
     }
 
@@ -7755,11 +7812,13 @@ mod tests {
     }
 
     // TEST8114: A flow frame that CROSSED its request's terminal in flight is
-    // counted post_terminal, not no_route — the ordinary teardown race of
-    // credit-based flow control must not pollute the routing-anomaly alarm.
-    // A frame for a RID the table never knew stays no_route (TEST7025).
+    // a BENIGN straggler — the ordinary teardown race of credit-based flow
+    // control must not pollute the routing-anomaly alarm, nor the drop
+    // counters at all: the crossing is counted as a straggler, named by
+    // frame type. A frame for a RID the table never knew stays a no_route
+    // DROP (TEST7025).
     #[tokio::test]
-    async fn test8114_straggler_for_terminated_request_counts_post_terminal() {
+    async fn test8114_straggler_for_terminated_request_is_benign_not_a_drop() {
         let registry = test_fabric_registry();
         let switch = RelaySwitch::new(wrap_with_test_ids(vec![]), registry)
             .await
@@ -7827,15 +7886,28 @@ mod tests {
 
         let stats = switch.protocol_stats().await;
         assert_eq!(
-            stats.drops.by_reason.get("post_terminal"),
-            Some(&3),
-            "all three stragglers classified post_terminal: {:?}",
-            stats.drops
+            stats.stragglers.total, 3,
+            "all three post-terminal frames counted as benign stragglers: {:?}",
+            stats.stragglers
         );
         assert_eq!(
-            stats.drops.by_reason.get("no_route"),
-            None,
-            "a terminated request's stragglers must never read as routing anomalies: {:?}",
+            stats.stragglers.by_frame_type.get("log"),
+            Some(&1),
+            "the late progress LOG is named by frame type"
+        );
+        assert_eq!(
+            stats.stragglers.by_frame_type.get("chunk"),
+            Some(&1),
+            "the late request continuation CHUNK is named by frame type"
+        );
+        assert_eq!(
+            stats.stragglers.by_frame_type.get("end"),
+            Some(&1),
+            "the duplicate terminal END is named by frame type"
+        );
+        assert_eq!(
+            stats.drops.total, 0,
+            "a terminated request's stragglers are benign — never drops, never              routing anomalies: {:?}",
             stats.drops
         );
     }

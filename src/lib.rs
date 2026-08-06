@@ -141,7 +141,9 @@ pub use bifaci::request_state::{
     RequestTableSnapshot, RoutingEntry, StreamFlowStats, StreamSnapshot, TerminalKind,
     TerminatedSummary,
 };
-pub use bifaci::stats::{DropCounters, DropSnapshot, TerminatedFlows};
+pub use bifaci::stats::{
+    DropCounters, DropSnapshot, StragglerCounters, StragglerSnapshot, TerminatedFlows,
+};
 
 // Re-export ops crate types used by Op-based handlers
 pub use async_trait::async_trait;

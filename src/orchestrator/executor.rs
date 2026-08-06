@@ -219,6 +219,23 @@ pub enum ExecutionError {
         arg_urn: Option<String>,
     },
 
+    /// A cap emitted an output STREAM_START whose media URN violates its
+    /// declared effect contract (`CapUrn::is_conformant_runtime_output`).
+    /// The plan's downstream type refinement was built on that promise, so
+    /// the violation fails hard at receipt — before the stream is forwarded
+    /// or collected — attributed Internal: the cartridge broke its own
+    /// declared contract, not a user input problem.
+    #[error(
+        "Cap '{cap_urn}' violated its effect contract: effect={effect}, runtime input '{runtime_input}', expected output '{expected}', emitted '{actual}'"
+    )]
+    EffectContractViolation {
+        cap_urn: String,
+        effect: String,
+        runtime_input: String,
+        expected: String,
+        actual: String,
+    },
+
     #[error("Node {node} has no incoming data")]
     NoIncomingData { node: String },
 
@@ -256,7 +273,8 @@ impl ExecutionError {
             | ExecutionError::FabricRegistryError(_) => AttributionClass::Environment,
             ExecutionError::NoIncomingData { .. }
             | ExecutionError::IoError(_)
-            | ExecutionError::HostError(_) => AttributionClass::Internal,
+            | ExecutionError::HostError(_)
+            | ExecutionError::EffectContractViolation { .. } => AttributionClass::Internal,
         }
     }
 
@@ -301,6 +319,7 @@ impl ExecutionError {
         match self {
             ExecutionError::StepFailed { source, .. } => source.failure_cap_urn(),
             ExecutionError::CartridgeExecutionFailed { cap_urn, .. } => Some(cap_urn),
+            ExecutionError::EffectContractViolation { cap_urn, .. } => Some(cap_urn),
             _ => None,
         }
     }
@@ -2327,6 +2346,22 @@ async fn run_group_chain(
             arg_urn,
         }
         .at_step(last_group_token_id.clone()),
+        // An effect-contract violation keeps its typed identity (the audit
+        // fired at receipt inside collect) — never flattened into HostError.
+        super::stream_io::StreamIoError::EffectContract {
+            cap_urn,
+            effect,
+            runtime_input,
+            expected,
+            actual,
+        } => ExecutionError::EffectContractViolation {
+            cap_urn,
+            effect,
+            runtime_input,
+            expected,
+            actual,
+        }
+        .at_step(last_group_token_id.clone()),
         other => ExecutionError::HostError(other.to_string()),
     });
 
@@ -2654,6 +2689,16 @@ async fn forward_frames(
         ))
     })?;
 
+    // The producer's emission is audited against its declared effect
+    // contract BEFORE the relabel below — the relabel deliberately coarsens
+    // the label to the downstream declared arg URN for demux (spec 13.2),
+    // so an unaudited relabel would substitute the plan's belief for the
+    // cartridge's claim and mask a lying cap.
+    let effect_audit =
+        super::stream_io::EffectAudit::new(prev_cap_urn).map_err(|e| {
+            ExecutionError::HostError(format!("pipelined forward: {}", e))
+        })?;
+
     let mut stream_id_map: HashMap<String, (String, Arc<CreditGate>, u64)> = HashMap::new();
     let grant_batch = (initial_credit / 2).max(1);
     let mut timer = super::stream_io::ActivityTimer::new(activity_timeout_secs);
@@ -2681,13 +2726,41 @@ async fn forward_frames(
                         );
                         stream_id_map.insert(prev_sid, (new_sid.clone(), gate, 0));
 
-                        // Relabel to the downstream edge's declared arg URN: the
-                        // consumer matches input streams by arg-URN equivalence
-                        // (spec 13.2), and the producer's output URN is a
-                        // refinement the plan already proved conforms. Re-assert
-                        // that conformance — a violation is a wiring/type bug
-                        // that must surface here, not as a missing-arg error
-                        // inside the cartridge.
+                        // Effect audit FIRST, on the producer's own claim: the
+                        // emission must satisfy the producer cap's declared
+                        // effect contract before anything else touches it.
+                        effect_audit
+                            .audit(frame.media_urn.as_deref())
+                            .map_err(|e| match e {
+                                super::stream_io::StreamIoError::EffectContract {
+                                    cap_urn,
+                                    effect,
+                                    runtime_input,
+                                    expected,
+                                    actual,
+                                } => ExecutionError::EffectContractViolation {
+                                    cap_urn,
+                                    effect,
+                                    runtime_input,
+                                    expected,
+                                    actual,
+                                },
+                                other => ExecutionError::HostError(format!(
+                                    "pipelined forward: {}",
+                                    other
+                                )),
+                            })?;
+
+                        // Then relabel to the downstream edge's declared arg
+                        // URN: the consumer matches input streams by arg-URN
+                        // equivalence (spec 13.2), and the producer's audited
+                        // output URN is a refinement the plan already proved
+                        // conforms. Re-assert that conformance — a violation
+                        // is a wiring/type bug that must surface here, not as
+                        // a missing-arg error inside the cartridge. The
+                        // comparison itself failing is equally hard: an
+                        // unanswerable conformance question is an engine
+                        // inconsistency, never a pass.
                         let produced_urn_str = frame.media_urn.as_deref().unwrap_or_default();
                         let produced_urn =
                             crate::MediaUrn::from_string(produced_urn_str).map_err(|e| {
@@ -2697,7 +2770,15 @@ async fn forward_frames(
                                     prev_cap_urn, produced_urn_str, e
                                 ))
                             })?;
-                        if !produced_urn.conforms_to(&target_arg_urn).unwrap_or(false) {
+                        let conforms =
+                            produced_urn.conforms_to(&target_arg_urn).map_err(|e| {
+                                ExecutionError::HostError(format!(
+                                    "pipelined forward: cap '{}' output URN '{}' could not \
+                                     be compared to downstream arg URN '{}': {}",
+                                    prev_cap_urn, produced_urn_str, next_in_media, e
+                                ))
+                            })?;
+                        if !conforms {
                             return Err(ExecutionError::HostError(format!(
                                 "pipelined forward: cap '{}' output stream URN '{}' does \
                                  not conform to the downstream declared arg URN '{}'",

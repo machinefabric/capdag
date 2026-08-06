@@ -2215,7 +2215,7 @@ impl FrameSender for ChannelFrameSender {
         self.tx.send(frame.clone()).map_err(|_| {
             let total = self
                 .drops
-                .record(crate::bifaci::frame::DropReason::ChannelClosed);
+                .record(crate::bifaci::frame::DropReason::ChannelClosed, frame.frame_type);
             tracing::warn!(
                 target: "cartridge_runtime",
                 rid = ?frame.id,
@@ -4007,9 +4007,15 @@ pub struct CartridgeRuntime {
     /// Shared via CapacityHandle so handlers can adjust dynamically.
     capacity: CapacityHandle,
 
-    /// Process-wide dropped-frame accounting (L8). Shared with the writer
-    /// thread's terminal gate, every ChannelFrameSender, and the stats surface.
+    /// Process-wide dropped-frame accounting (L8). Shared with every
+    /// ChannelFrameSender and the stats surface. Drops mean something went
+    /// wrong.
     drop_counters: Arc<crate::bifaci::stats::DropCounters>,
+
+    /// Benign post-terminal stragglers suppressed by the writer's terminal
+    /// gate (L4): late keepalive/emitter frames that crossed their flow's
+    /// END/ERR. Counted per frame type, indicated as benign — never drops.
+    straggler_counters: Arc<crate::bifaci::stats::StragglerCounters>,
 }
 
 /// Dispatch an Op with a Request via WetContext.
@@ -4049,34 +4055,41 @@ async fn dispatch_op(
 /// Outcome of pushing one frame through the terminal gate + writer.
 pub(crate) enum GatedWrite {
     Written,
-    DroppedPostTerminal,
+    /// A flow frame arrived at the writer after its flow's END/ERR was
+    /// written — the benign detached-sender race (a keepalive tick or late
+    /// emitter crossing the terminal). Suppressed and counted as a
+    /// straggler, indicated as benign: nothing went wrong.
+    SuppressedStraggler,
     WriterDead,
 }
 
 /// Write one frame through the terminal gate (L4). Once a flow's END/ERR has
-/// been written, any later flow frame for the same FlowKey is post-terminal:
-/// it is dropped and counted, never written. The writer thread is the single
-/// point where wire order is decided, so gating here deterministically closes
-/// every detached-sender race (ProgressSender, keepalive tickers).
+/// been written, any later flow frame for the same FlowKey is a benign
+/// post-terminal straggler: it is suppressed and counted as such (never a
+/// drop — nothing went wrong), never written. The writer thread is the
+/// single point where wire order is decided, so gating here
+/// deterministically closes every detached-sender race (ProgressSender,
+/// keepalive tickers).
 pub(crate) fn write_gated<W: std::io::Write>(
     mut frame: Frame,
     writer: &mut W,
     limits: &Limits,
     seq_assigner: &mut SeqAssigner,
     terminated: &mut crate::bifaci::stats::TerminatedFlows,
-    drops: &crate::bifaci::stats::DropCounters,
+    stragglers: &crate::bifaci::stats::StragglerCounters,
 ) -> GatedWrite {
     let key = FlowKey::from_frame(&frame);
     if frame.is_flow_frame() && terminated.contains(&key) {
-        let total = drops.record(crate::bifaci::frame::DropReason::PostTerminal);
-        tracing::warn!(
+        let total = stragglers.record(frame.frame_type);
+        tracing::debug!(
             target: "cartridge_runtime",
             rid = ?frame.id,
-            ftype = ?frame.frame_type,
-            post_terminal_total = total,
-            "[CartridgeRuntime] writer: dropped post-terminal flow frame — END/ERR already written for this flow (L4)"
+            ftype = frame.frame_type.as_str(),
+            straggler_total = total,
+            "[CartridgeRuntime] writer: suppressed benign post-terminal straggler — \
+             END/ERR already written for this flow, the frame is moot (L4)"
         );
-        return GatedWrite::DroppedPostTerminal;
+        return GatedWrite::SuppressedStraggler;
     }
     seq_assigner.assign(&mut frame);
     let ftype = frame.frame_type;
@@ -4098,6 +4111,43 @@ pub(crate) fn write_gated<W: std::io::Write>(
 
 /// Spawn a handler task for an incoming request.
 ///
+/// The media URN a cap's response STREAM_START must carry, derived from the
+/// cap's declared effect over its declared main input — the label every
+/// engine-fed input stream carries (spec 13.2):
+///
+/// - `effect=declared` → the declared `out=`
+/// - `effect=none`     → the declared `in=` (the type passes through)
+/// - `effect=patch`    → the declared `in=` with the declared delta applied
+///
+/// This is `CapUrn::apply_to_runtime_input_media` over the declared input —
+/// the SAME inference the engine's effect audit checks emissions against
+/// (`CapUrn::is_conformant_runtime_output`), so a runtime-labeled response
+/// is conformant by construction. Every runtime that labels a response must
+/// go through this function; a hand-picked label is how a cap lies about
+/// its effect.
+pub fn derive_response_media(cap_urn: &str) -> Result<String, RuntimeError> {
+    let cap = crate::CapUrn::from_string(cap_urn).map_err(|e| {
+        RuntimeError::Handler(format!(
+            "response media derivation: cap URN '{}' does not parse: {}",
+            cap_urn, e
+        ))
+    })?;
+    let declared_in = cap.in_media_urn().map_err(|e| {
+        RuntimeError::Handler(format!(
+            "response media derivation: cap '{}' declared input is not a valid media URN: {}",
+            cap_urn, e
+        ))
+    })?;
+    cap.apply_to_runtime_input_media(&declared_in)
+        .map(|m| m.to_string())
+        .map_err(|e| {
+            RuntimeError::Handler(format!(
+                "response media derivation: cap '{}' effect could not be applied to its declared input: {}",
+                cap_urn, e
+            ))
+        })
+}
+
 /// The crossbeam receiver carries frames routed by the main loop's active_requests
 /// map. The handler's demux drains them (even if they arrived before this spawn).
 fn spawn_handler(
@@ -4141,9 +4191,32 @@ fn spawn_handler(
             }),
         );
         let stream_id = uuid::Uuid::new_v4().to_string();
-        let out_media = crate::CapUrn::from_string(&cap_urn)
-            .map(|u| u.out_spec().to_string())
-            .unwrap_or_else(|_| "media:".to_string());
+        // The response label is DERIVED from the cap's declared effect — not
+        // chosen by the op — so an honest lib-runtime cartridge satisfies the
+        // engine's effect audit by construction. An underivable label is a
+        // broken cap declaration: fail the request, never fall back.
+        let out_media = match derive_response_media(&cap_urn) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::error!(
+                    "[CartridgeRuntime] response media derivation FAILED: cap='{}' rid={:?} error={}",
+                    cap_urn,
+                    request_id,
+                    e
+                );
+                let mut err_frame = Frame::err(
+                    request_id.clone(),
+                    e.failure_code().unwrap_or("HANDLER_ERROR"),
+                    e.attribution_class(),
+                    &e.failure_reason(),
+                    e.failure_arg_urn(),
+                );
+                err_frame.routing_id = routing_id;
+                let _ = sender.send(&err_frame);
+                let _ = done_tx.send(request_id);
+                return;
+            }
+        };
         let output = OutputStream::new(
             Arc::clone(&sender),
             stream_id,
@@ -4254,6 +4327,7 @@ impl CartridgeRuntime {
             limits: Limits::default(),
             capacity: CapacityHandle::new(0),
             drop_counters: Arc::new(crate::bifaci::stats::DropCounters::new()),
+            straggler_counters: Arc::new(crate::bifaci::stats::StragglerCounters::new()),
         };
         rt.register_standard_caps();
         rt
@@ -4278,6 +4352,7 @@ impl CartridgeRuntime {
             limits: Limits::default(),
             capacity: CapacityHandle::new(0),
             drop_counters: Arc::new(crate::bifaci::stats::DropCounters::new()),
+            straggler_counters: Arc::new(crate::bifaci::stats::StragglerCounters::new()),
         };
         rt.register_standard_caps();
         rt
@@ -4292,9 +4367,16 @@ impl CartridgeRuntime {
     }
 
     /// Protocol observability snapshot (L8): this runtime's dropped-frame
-    /// counters (post-terminal gate, closed-channel sends).
+    /// counters (closed-channel sends and other genuine losses).
     pub fn protocol_drops(&self) -> crate::bifaci::stats::DropSnapshot {
         self.drop_counters.snapshot()
+    }
+
+    /// Benign post-terminal straggler snapshot (L4): late frames the writer's
+    /// terminal gate suppressed, per frame type. Separate from drops —
+    /// nothing went wrong.
+    pub fn protocol_stragglers(&self) -> crate::bifaci::stats::StragglerSnapshot {
+        self.straggler_counters.snapshot()
     }
 
     /// Register the standard identity and discard handlers.
@@ -4537,7 +4619,7 @@ impl CartridgeRuntime {
     /// `OutputStream`, and run the handler to completion.
     async fn dispatch_cli_payload(
         &self,
-        _cap: &Cap,
+        cap: &Cap,
         factory: OpFactory,
         payload: Vec<u8>,
     ) -> Result<(), RuntimeError> {
@@ -4645,10 +4727,14 @@ impl CartridgeRuntime {
         let input_package = demux_multi_stream(rx, None, None);
 
         let cli_sender: Arc<dyn FrameSender> = Arc::new(frame_sender);
+        // Same derived response label as the wire path (spawn_handler): the
+        // CLI mode is a debugging surface for the same contract, not a
+        // wildcard-labeled side channel.
+        let out_media = derive_response_media(&cap.urn_string())?;
         let output = OutputStream::new(
             cli_sender.clone(),
             uuid::Uuid::new_v4().to_string(),
-            "*".to_string(),
+            out_media,
             request_id.clone(),
             None,
             Limits::default().max_chunk,
@@ -5143,7 +5229,7 @@ impl CartridgeRuntime {
 
         // Spawn writer thread on a plain OS thread — immune to tokio/Metal/GCD.
         let writer_limits = negotiated_limits.clone();
-        let writer_drops = Arc::clone(&self.drop_counters);
+        let writer_stragglers = Arc::clone(&self.straggler_counters);
         let writer_handle = std::thread::spawn(move || {
             let mut writer = std::io::BufWriter::new(frame_stdout);
             let mut seq_assigner = SeqAssigner::new();
@@ -5155,10 +5241,10 @@ impl CartridgeRuntime {
                     &writer_limits,
                     &mut seq_assigner,
                     &mut terminated,
-                    &writer_drops,
+                    &writer_stragglers,
                 ) {
                     GatedWrite::WriterDead => break,
-                    GatedWrite::Written | GatedWrite::DroppedPostTerminal => {}
+                    GatedWrite::Written | GatedWrite::SuppressedStraggler => {}
                 }
                 // Flush when no more frames are immediately available so the
                 // host sees progress/log frames without waiting for the
@@ -5186,10 +5272,10 @@ impl CartridgeRuntime {
                         &writer_limits,
                         &mut seq_assigner,
                         &mut terminated,
-                        &writer_drops,
+                        &writer_stragglers,
                     ) {
                         GatedWrite::WriterDead => break 'outer,
-                        GatedWrite::Written | GatedWrite::DroppedPostTerminal => {}
+                        GatedWrite::Written | GatedWrite::SuppressedStraggler => {}
                     },
                 }
             }
@@ -5607,12 +5693,22 @@ impl CartridgeRuntime {
                     }
                     // Protocol observability (L8): the cartridge's dropped-
                     // frame total rides every heartbeat so the host can
-                    // surface it without a dedicated stats round-trip.
+                    // surface it without a dedicated stats round-trip. The
+                    // benign straggler total rides alongside, under its own
+                    // name — stragglers are not drops.
                     meta.insert(
                         "drops_total".into(),
                         ciborium::Value::Integer(
                             u64::try_from(self.drop_counters.total())
                                 .expect("drop total must fit the protocol's uint64 domain")
+                                .into(),
+                        ),
+                    );
+                    meta.insert(
+                        "stragglers_total".into(),
+                        ciborium::Value::Integer(
+                            u64::try_from(self.straggler_counters.total())
+                                .expect("straggler total must fit the protocol's uint64 domain")
                                 .into(),
                         ),
                     );
@@ -5723,27 +5819,27 @@ mod tests {
         frames
     }
 
-    // TEST7020: A flow frame reaching the writer after the flow's END has been written is dropped with a counted post_terminal drop — END is the last flow frame on the wire.
+    // TEST7020: A flow frame reaching the writer after the flow's END has been written is suppressed as a benign counted straggler (never a drop) — END is the last flow frame on the wire.
     #[test]
-    fn test7020_writer_gate_drops_post_terminal_flow_frames() {
+    fn test7020_writer_gate_suppresses_post_terminal_stragglers() {
         let rid = MessageId::new_uuid();
         let limits = Limits::default();
         let mut wire: Vec<u8> = Vec::new();
         let mut seq = SeqAssigner::new();
         let mut terminated = crate::bifaci::stats::TerminatedFlows::new(16);
-        let drops = crate::bifaci::stats::DropCounters::new();
+        let stragglers = crate::bifaci::stats::StragglerCounters::new();
 
         // In-order: chunk, END — both written.
         let payload = vec![1u8, 2, 3];
         let checksum = Frame::compute_checksum(&payload);
         let chunk = Frame::chunk(rid.clone(), "s1".to_string(), 0, payload, 0, checksum);
         assert!(matches!(
-            write_gated(chunk, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            write_gated(chunk, &mut wire, &limits, &mut seq, &mut terminated, &stragglers),
             GatedWrite::Written
         ));
         let end = Frame::end_ok_with(rid.clone(), None, Some(1.0), None);
         assert!(matches!(
-            write_gated(end, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            write_gated(end, &mut wire, &limits, &mut seq, &mut terminated, &stragglers),
             GatedWrite::Written
         ));
 
@@ -5757,11 +5853,15 @@ mod tests {
                 &limits,
                 &mut seq,
                 &mut terminated,
-                &drops
+                &stragglers
             ),
-            GatedWrite::DroppedPostTerminal
+            GatedWrite::SuppressedStraggler
         ));
-        assert_eq!(drops.get(crate::bifaci::frame::DropReason::PostTerminal), 1);
+        assert_eq!(
+            stragglers.get(FrameType::Log),
+            1,
+            "the suppressed straggler is counted as benign, named by frame type"
+        );
 
         let frames = decode_wire(&wire);
         assert_eq!(frames.len(), 2, "straggler must not reach the wire");
@@ -5786,9 +5886,9 @@ mod tests {
         let mut wire: Vec<u8> = Vec::new();
         let mut seq = SeqAssigner::new();
         let mut terminated = crate::bifaci::stats::TerminatedFlows::new(16);
-        let drops = crate::bifaci::stats::DropCounters::new();
+        let stragglers = crate::bifaci::stats::StragglerCounters::new();
 
-        // Progress before END is written (the gate never over-drops).
+        // Progress before END is written (the gate never over-suppresses).
         let progress = Frame::progress(rid_a.clone(), 0.5, "halfway");
         assert!(matches!(
             write_gated(
@@ -5797,13 +5897,13 @@ mod tests {
                 &limits,
                 &mut seq,
                 &mut terminated,
-                &drops
+                &stragglers
             ),
             GatedWrite::Written
         ));
         let end_a = Frame::end_ok(rid_a.clone(), None);
         assert!(matches!(
-            write_gated(end_a, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            write_gated(end_a, &mut wire, &limits, &mut seq, &mut terminated, &stragglers),
             GatedWrite::Written
         ));
 
@@ -5811,7 +5911,7 @@ mod tests {
         // credit must never be blocked by data-flow termination).
         let hb = Frame::heartbeat(rid_a.clone());
         assert!(matches!(
-            write_gated(hb, &mut wire, &limits, &mut seq, &mut terminated, &drops),
+            write_gated(hb, &mut wire, &limits, &mut seq, &mut terminated, &stragglers),
             GatedWrite::Written
         ));
         let credit = Frame::credit(
@@ -5827,7 +5927,7 @@ mod tests {
                 &limits,
                 &mut seq,
                 &mut terminated,
-                &drops
+                &stragglers
             ),
             GatedWrite::Written
         ));
@@ -5841,7 +5941,7 @@ mod tests {
                 &limits,
                 &mut seq,
                 &mut terminated,
-                &drops
+                &stragglers
             ),
             GatedWrite::Written
         ));
@@ -5861,9 +5961,9 @@ mod tests {
                 &limits,
                 &mut seq,
                 &mut terminated,
-                &drops
+                &stragglers
             ),
-            GatedWrite::DroppedPostTerminal
+            GatedWrite::SuppressedStraggler
         ));
 
         let frames = decode_wire(&wire);
@@ -5878,7 +5978,11 @@ mod tests {
                 FrameType::Log
             ]
         );
-        assert_eq!(drops.get(crate::bifaci::frame::DropReason::PostTerminal), 1);
+        assert_eq!(
+            stragglers.get(FrameType::Log),
+            1,
+            "only A's late flow frame was suppressed, as a benign straggler"
+        );
     }
 
     // TEST7027: A frame sent through a ChannelFrameSender whose receiver is gone is a counted channel_closed drop, never a silent loss.
@@ -6040,13 +6144,17 @@ mod tests {
         writer.abort();
     }
 
-    // TEST7086: One runtime's drop counters aggregate every drop source — post-terminal writer drops and closed-channel sends — each counted exactly once, and the snapshot totals match the induced drops.
+    // TEST7086: The runtime's counters keep the two categories apart — benign
+    // writer-gate stragglers land in the straggler counters (named by frame
+    // type), a closed-channel send is a genuine drop — each counted exactly
+    // once, and neither pollutes the other (L8/L4).
     #[tokio::test]
     async fn test7086_drop_snapshot_matches_induced_drops() {
         let drops = Arc::new(crate::bifaci::stats::DropCounters::new());
+        let stragglers = crate::bifaci::stats::StragglerCounters::new();
         let rid = MessageId::new_uuid();
 
-        // Source 1: post-terminal drops at the writer gate (two stragglers).
+        // Source 1: benign post-terminal stragglers at the writer gate (two).
         let limits = Limits::default();
         let mut wire: Vec<u8> = Vec::new();
         let mut seq = SeqAssigner::new();
@@ -6057,7 +6165,7 @@ mod tests {
             &limits,
             &mut seq,
             &mut terminated,
-            &drops,
+            &stragglers,
         );
         for _ in 0..2 {
             write_gated(
@@ -6066,11 +6174,11 @@ mod tests {
                 &limits,
                 &mut seq,
                 &mut terminated,
-                &drops,
+                &stragglers,
             );
         }
 
-        // Source 2: closed-channel send (one drop).
+        // Source 2: closed-channel send (one genuine drop).
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
         drop(rx);
         let sender = ChannelFrameSender {
@@ -6085,10 +6193,27 @@ mod tests {
             None,
         ));
 
+        let straggler_snap = stragglers.snapshot();
+        assert_eq!(
+            straggler_snap.total, 2,
+            "each benign straggler counted exactly once (L4)"
+        );
+        assert_eq!(straggler_snap.by_frame_type.get("log"), Some(&2));
+
         let snap = drops.snapshot();
-        assert_eq!(snap.total, 3, "each induced drop counted exactly once (L8)");
-        assert_eq!(snap.by_reason.get("post_terminal"), Some(&2));
+        assert_eq!(snap.total, 1, "each genuine drop counted exactly once (L8)");
         assert_eq!(snap.by_reason.get("channel_closed"), Some(&1));
+        assert_eq!(
+            snap.by_reason_frame_type
+                .get("channel_closed")
+                .and_then(|m| m.get("log")),
+            Some(&1),
+            "the drop is named by frame type"
+        );
+        assert!(
+            !snap.by_reason.contains_key("post_terminal"),
+            "benign stragglers never appear among drops"
+        );
     }
 
     // TEST7070: An unbounded input stream is consumed live — the handler observes early items while the producer is still emitting, and the stream reports itself unbounded.
@@ -10199,6 +10324,38 @@ mod tests {
             self.frames.lock().unwrap().push(frame.clone());
             Ok(())
         }
+    }
+
+    // TEST8126: derive_response_media — the response label is the effect
+    // inference over the declared input, per effect value; an unparseable
+    // cap URN fails hard instead of falling back.
+    #[test]
+    fn test8126_derive_response_media_per_effect() {
+        // effect=declared (default): the declared out=.
+        assert_eq!(
+            derive_response_media("cap:extract;in=\"media:ext=pdf\";out=\"media:record\"")
+                .unwrap(),
+            "media:record"
+        );
+        // effect=none: the declared in= passes through.
+        assert_eq!(
+            derive_response_media(
+                "cap:decimate-sequence;effect=none;in=\"media:ext=png;image\";out=\"media:image\""
+            )
+            .unwrap(),
+            "media:ext=png;image"
+        );
+        // effect=patch: the declared in= with the declared delta applied
+        // (which reconstructs the declared out= at the declared-input base).
+        assert_eq!(
+            derive_response_media(
+                "cap:convert;effect=patch;in=\"media:ext=jpeg;image\";out=\"media:ext=png;image\""
+            )
+            .unwrap(),
+            "media:ext=png;image"
+        );
+        // An unparseable cap URN is a broken declaration: hard error.
+        assert!(derive_response_media("not-a-cap-urn").is_err());
     }
 
     // TEST539: OutputStream sends STREAM_START on first write

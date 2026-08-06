@@ -630,6 +630,7 @@ impl InProcessCartridgeHost {
                 last_heartbeat_unix_seconds: None,
                 restart_count: 0,
                 protocol_drops_total: None,
+                protocol_stragglers_total: None,
             }),
             // In-process cartridges have no on-disk presence to
             // inspect and no registry to verify against — the

@@ -461,6 +461,28 @@ pub enum PlanError {
     /// A `Configured` request asked for something the space cannot satisfy
     /// (e.g. `Converged` but the sources share no apex reaching the target).
     Unsatisfiable(String),
+    /// Locally admissible, globally inconsistent: every source individually
+    /// has admissible routes (none is a dead end — those are reported in
+    /// `PlanOutcome::dead_end_sources`), yet no compatible FAMILY of choices
+    /// exists — the sources cannot agree on a common apex/type. In the
+    /// presheaf reading of the configuration space (see
+    /// docs/planner-configuration-space.md §1), each node's admissible
+    /// choices are nonempty but no global section exists.
+    ///
+    /// This is a DIFFERENT failure from `NoPlan` ("no candidate at node v")
+    /// and is reported with the conflict named, never as a generic dead
+    /// end: `conflicting_sources` are the sources that fail to agree, and
+    /// `restriction` says which compatibility constraint failed between
+    /// them.
+    GloballyInconsistent {
+        /// The sources (media URNs, request order) that fail to agree.
+        conflicting_sources: Vec<String>,
+        /// The restriction that failed between them — which compatibility
+        /// constraint admits no agreement (e.g. disjoint reach sets, no
+        /// media reachable by ALL sources, or shared media that violate
+        /// the convergence constraints).
+        restriction: String,
+    },
     /// No plan connects the sources to the target(s) under the policy.
     NoPlan { detail: String },
     /// An internal invariant was violated (a bug, surfaced not swallowed).
@@ -472,6 +494,15 @@ impl std::fmt::Display for PlanError {
         match self {
             PlanError::NoSources => write!(f, "plan request has no sources"),
             PlanError::Unsatisfiable(d) => write!(f, "plan configuration is unsatisfiable: {d}"),
+            PlanError::GloballyInconsistent {
+                conflicting_sources,
+                restriction,
+            } => write!(
+                f,
+                "plan is locally admissible but globally inconsistent: sources [{}] cannot agree — {}",
+                conflicting_sources.join(", "),
+                restriction
+            ),
             PlanError::NoPlan { detail } => {
                 write!(f, "no plan connects the sources to the target(s): {detail}")
             }

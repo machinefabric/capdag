@@ -631,11 +631,12 @@ impl LiveCapFab {
             && presence == ConvergencePresence::Converged
             && !converged_found
         {
-            return Err(PlanError::Unsatisfiable(format!(
-                "convergence was demanded but the sources share no apex reaching [{}] within depth {}",
-                targets.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "),
-                request.max_depth
-            )));
+            // Every source reaching this point is individually routable (dead
+            // ends were split off before planning) — so the failure is not
+            // "no candidate at a node" but "no compatible family": diagnose
+            // WHICH sources fail to agree and on which restriction, instead
+            // of collapsing into a generic no-apex message.
+            return Err(self.diagnose_global_inconsistency(request, targets));
         }
 
         if want_independent {
@@ -652,6 +653,143 @@ impl LiveCapFab {
             }
         }
         Ok(())
+    }
+
+    /// Diagnose WHY demanded convergence found no candidate, given that every
+    /// source is individually routable. In the presheaf reading of the
+    /// configuration space (docs/planner-configuration-space.md §1): each
+    /// node's set of admissible choices is nonempty, but no global section
+    /// exists — and the useful diagnostic is which restriction between which
+    /// nodes admits no agreement. Three cases, most specific first:
+    ///
+    /// 1. Some PAIR of sources has disjoint scalar reach sets — name the
+    ///    pair; their restriction admits no agreement at all.
+    /// 2. Every pair agrees somewhere, but no single media is reachable by
+    ///    ALL sources — locally compatible, globally inconsistent in the
+    ///    strict sense. Name the best-covered witness media and the sources
+    ///    that miss it.
+    /// 3. Common media exist, but none survives the convergence constraints
+    ///    (mechanism/location/`at_type` pin) or continues to the targets —
+    ///    name the constraint family that filtered them out.
+    fn diagnose_global_inconsistency(
+        &self,
+        request: &PlanRequest,
+        targets: &[MediaUrn],
+    ) -> PlanError {
+        let sources = &request.sources;
+        let names: Vec<String> = sources.iter().map(|s| s.media_urn.to_string()).collect();
+
+        // Case 0 — not a section failure at all: some source has NO route to
+        // any requested target ("no candidate at node v"). Configured mode
+        // never splits dead ends off, so this is diagnosed here and keeps
+        // the Unsatisfiable identity, with the empty nodes named.
+        let unroutable: Vec<usize> = sources
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| !self.source_reaches_any_target(s, targets, request.max_depth))
+            .map(|(i, _)| i)
+            .collect();
+        if !unroutable.is_empty() {
+            return PlanError::Unsatisfiable(format!(
+                "convergence was demanded but source(s) [{}] reach no requested target \
+                 within depth {} — no admissible choices at those nodes",
+                unroutable
+                    .iter()
+                    .map(|&i| names[i].clone())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                request.max_depth
+            ));
+        }
+        let reach_sets: Vec<HashSet<MediaUrn>> = sources
+            .iter()
+            .map(|s| {
+                self.forward_reach(&s.media_urn, s.cardinality.is_sequence(), request.max_depth)
+                    .iter()
+                    .filter(|((_, is_seq), _)| !*is_seq)
+                    .map(|((media, _), _)| media.clone())
+                    .collect()
+            })
+            .collect();
+
+        // Case 1: a pair whose reach sets are disjoint.
+        for i in 0..reach_sets.len() {
+            for j in (i + 1)..reach_sets.len() {
+                if reach_sets[i].is_disjoint(&reach_sets[j]) {
+                    return PlanError::GloballyInconsistent {
+                        conflicting_sources: vec![names[i].clone(), names[j].clone()],
+                        restriction: format!(
+                            "no media is reachable from both within depth {} — their \
+                             reach sets are disjoint",
+                            request.max_depth
+                        ),
+                    };
+                }
+            }
+        }
+
+        // Case 2: pairwise compatible, but no media covered by ALL sources.
+        // Find the best-covered witness and name the sources missing it.
+        let mut universe: HashSet<MediaUrn> = HashSet::new();
+        for r in &reach_sets {
+            universe.extend(r.iter().cloned());
+        }
+        let mut best: Option<(MediaUrn, Vec<usize>)> = None;
+        for media in &universe {
+            let missing: Vec<usize> = reach_sets
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| !r.contains(media))
+                .map(|(i, _)| i)
+                .collect();
+            match &best {
+                Some((_, best_missing)) if best_missing.len() <= missing.len() => {}
+                _ => best = Some((media.clone(), missing)),
+            }
+        }
+        if let Some((witness, missing)) = best {
+            if !missing.is_empty() {
+                return PlanError::GloballyInconsistent {
+                    conflicting_sources: missing.iter().map(|&i| names[i].clone()).collect(),
+                    restriction: format!(
+                        "every pair of sources shares reachable media, but no single \
+                         media is reachable by all {} sources within depth {} — \
+                         '{}' is reached by {} of {}; the named sources do not reach it",
+                        names.len(),
+                        request.max_depth,
+                        witness,
+                        names.len() - missing.len(),
+                        names.len()
+                    ),
+                };
+            }
+        }
+
+        // Case 3: common media exist — the convergence constraints or the
+        // target tail filtered every one of them out.
+        PlanError::GloballyInconsistent {
+            conflicting_sources: names,
+            restriction: format!(
+                "the sources share commonly-reachable media, but none is admissible \
+                 as a convergence apex under the requested constraints \
+                 (mechanism {:?}, location {:?}, type pin {}) or continues to \
+                 [{}] within depth {}",
+                request.convergence.mechanism,
+                request.convergence.location,
+                request
+                    .convergence
+                    .at_type
+                    .as_ref()
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                targets
+                    .iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                request.max_depth
+            ),
+        }
     }
 
     /// Enumerate convergence apexes for the request's sources: the depth-0
@@ -1906,10 +2044,62 @@ mod tests {
         request.mode = PlanMode::Configured;
         request.convergence.presence = ConvergencePresence::Converged;
         let err = fab.plan(&request, &registry).unwrap_err();
-        assert!(
-            matches!(err, PlanError::Unsatisfiable(_)),
-            "demanded convergence with no apex must be Unsatisfiable, got {err:?}"
+        // audio reaches NO target — an empty node ("no candidate at node v"),
+        // NOT a section failure — so this stays Unsatisfiable and the empty
+        // node is named.
+        match &err {
+            PlanError::Unsatisfiable(detail) => {
+                assert!(
+                    detail.contains("media:audio"),
+                    "the unroutable source must be named, got: {detail}"
+                );
+            }
+            other => panic!("demanded convergence with an unroutable source must be Unsatisfiable, got {other:?}"),
+        }
+    }
+
+    // TEST1447: locally admissible, globally inconsistent — every source is
+    // individually routable to the target, but the demanded convergence
+    // admits no compatible family (here: the at_type pin excludes every
+    // shared apex). The failure is the DISTINGUISHED GloballyInconsistent
+    // error naming the sources that cannot agree and the failed restriction
+    // — never a generic no-apex message.
+    #[test]
+    fn test1447_globally_inconsistent_names_conflict() {
+        let (fab, registry) = fabric();
+        let mut request = PlanRequest::auto(
+            vec![
+                SourceSpec::single(media("media:ext=pdf")),
+                SourceSpec::single(media("media:ext=md")),
+            ],
+            TargetSpec::Exact(vec![txt()]),
         );
+        request.mode = PlanMode::Configured;
+        request.convergence.presence = ConvergencePresence::Converged;
+        // Pin the convergence type to something no shared apex conforms to:
+        // both sources still reach txt individually (locally admissible),
+        // but no apex passes the pin (no global section).
+        request.convergence.at_type = Some(media("media:image"));
+        let err = fab.plan(&request, &registry).unwrap_err();
+        match &err {
+            PlanError::GloballyInconsistent {
+                conflicting_sources,
+                restriction,
+            } => {
+                assert_eq!(
+                    conflicting_sources,
+                    &vec!["media:ext=pdf".to_string(), "media:ext=md".to_string()],
+                    "both agreeing-but-constrained sources are named"
+                );
+                assert!(
+                    restriction.contains("media:image"),
+                    "the failed restriction names the type pin, got: {restriction}"
+                );
+            }
+            other => panic!(
+                "locally-admissible/no-section must be GloballyInconsistent, got {other:?}"
+            ),
+        }
     }
 
     // TEST1414 (region 7, divergence): one pdf → txt + a second txt-ish target?

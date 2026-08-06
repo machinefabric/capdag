@@ -427,11 +427,17 @@ struct ManagedCartridge {
     /// Number of times this cartridge has been respawned after death.
     restart_count: u64,
     /// Cumulative protocol drop count self-reported by the cartridge as
-    /// `drops_total` in heartbeat response meta (writer-gate post-terminal
-    /// drops, closed-channel sends, …). `None` until the first heartbeat
-    /// round-trip carries the counter. Survives across readings (each
-    /// heartbeat carries the cartridge's running total).
+    /// `drops_total` in heartbeat response meta (closed-channel sends, …).
+    /// `None` until the first heartbeat round-trip carries the counter.
+    /// Survives across readings (each heartbeat carries the cartridge's
+    /// running total). Drops mean something went wrong.
     protocol_drops_total: Option<u64>,
+    /// Cumulative BENIGN straggler count self-reported by the cartridge as
+    /// `stragglers_total` in heartbeat response meta (writer-gate
+    /// suppressions of late frames that crossed their flow's terminal —
+    /// the expected teardown race, nothing wrong). `None` until the first
+    /// reading.
+    protocol_stragglers_total: Option<u64>,
     /// Set when a roster sync retired this cartridge while it still had work in
     /// flight. It is already out of the cap table and the inventory, so nothing
     /// new routes to it; the process stays alive until its in-flight requests
@@ -481,6 +487,7 @@ impl ManagedCartridge {
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
             protocol_drops_total: None,
+            protocol_stragglers_total: None,
             retiring_since: None,
         }
     }
@@ -602,6 +609,7 @@ impl ManagedCartridge {
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
             protocol_drops_total: None,
+            protocol_stragglers_total: None,
             retiring_since: None,
         }
     }
@@ -638,6 +646,7 @@ impl ManagedCartridge {
             last_heartbeat_unix_seconds: None,
             restart_count: 0,
             protocol_drops_total: None,
+            protocol_stragglers_total: None,
             retiring_since: None,
         }
     }
@@ -852,8 +861,13 @@ pub struct CartridgeHostRuntime {
     /// `CartridgeHost.observer` field.
     observer: Option<Arc<dyn CartridgeHostObserver>>,
     /// Dropped-frame accounting (L8): unroutable continuations and frames for
-    /// dead cartridges are counted drops, never silent losses.
+    /// dead cartridges are counted drops, never silent losses. Drops mean
+    /// something went wrong.
     drops: Arc<crate::bifaci::stats::DropCounters>,
+    /// Benign post-terminal stragglers: frames that crossed their request's
+    /// terminal in flight — the expected teardown race, counted per frame
+    /// type and indicated as benign, never as drops.
+    stragglers: Arc<crate::bifaci::stats::StragglerCounters>,
     /// Incoming requests whose REQUEST BODY has completed (body END routed to
     /// the handler) but whose RESPONSE has not yet terminated. The current
     /// protocol keeps
@@ -870,7 +884,7 @@ pub struct CartridgeHostRuntime {
     /// the discriminator between the two ways a frame can arrive with no
     /// routing entry: a hit means the frame crossed its request's terminal in
     /// flight (the ordinary teardown race of credit-based flow control —
-    /// counted `post_terminal`), a miss means the host never routed this RID
+    /// counted as a benign straggler), a miss means the host never routed this RID
     /// within the ring's horizon (`no_route`, a genuine anomaly). GC
     /// evictions are deliberately NOT recorded here: an evicted entry never
     /// saw its terminal, so a frame for it is real routing loss and stays
@@ -891,11 +905,15 @@ pub struct CartridgeHostRuntime {
 }
 
 /// The host runtime's protocol observability snapshot (L8): per-reason drop
-/// counters, routing-table sizes, and GC totals. Serializable; field names are
-/// the mirror contract.
+/// counters, benign post-terminal straggler counters, routing-table sizes,
+/// and GC totals. Serializable; field names are the mirror contract.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HostProtocolStats {
     pub drops: crate::bifaci::stats::DropSnapshot,
+    /// Benign post-terminal stragglers — the expected teardown crossing,
+    /// counted per frame type. Separate from `drops`: nothing went wrong.
+    #[serde(default)]
+    pub stragglers: crate::bifaci::stats::StragglerSnapshot,
     pub outgoing_rids: usize,
     pub incoming_rxids: usize,
     pub incoming_to_peer_rids: usize,
@@ -952,6 +970,7 @@ impl CartridgeHostRuntime {
     pub fn protocol_stats(&self) -> HostProtocolStats {
         HostProtocolStats {
             drops: self.drops.snapshot(),
+            stragglers: self.stragglers.snapshot(),
             outgoing_rids: self.outgoing_rids.len(),
             incoming_rxids: self.incoming_rxids.len(),
             incoming_to_peer_rids: self.incoming_to_peer_rids.len(),
@@ -1003,7 +1022,7 @@ impl CartridgeHostRuntime {
     }
 
     /// Whether `rid`'s routing entry was recently released by a terminal —
-    /// the post_terminal / no_route discriminator for unroutable frames.
+    /// the benign-straggler / no_route discriminator for unroutable frames.
     fn recently_released_rid(&self, rid: &MessageId) -> bool {
         self.recent_released_rids.iter().any(|r| r == rid)
     }
@@ -1151,6 +1170,7 @@ impl CartridgeHostRuntime {
             outgoing_max_seq: HashMap::new(),
             outgoing_max_seq_touched: HashMap::new(),
             drops: Arc::new(crate::bifaci::stats::DropCounters::new()),
+            stragglers: Arc::new(crate::bifaci::stats::StragglerCounters::new()),
             incoming_body_done: HashSet::new(),
             incoming_response_done: HashSet::new(),
             recent_released_rids: VecDeque::new(),
@@ -1694,8 +1714,10 @@ impl CartridgeHostRuntime {
                         Some(crate::bifaci::frame::CreditDirection::Response) => true,
                         Some(crate::bifaci::frame::CreditDirection::Request) => false,
                         None => {
-                            let total =
-                                self.drops.record(crate::bifaci::frame::DropReason::NoRoute);
+                            let total = self.drops.record(
+                                crate::bifaci::frame::DropReason::NoRoute,
+                                frame.frame_type,
+                            );
                             tracing::warn!(
                                 target: "host_runtime",
                                 rid = ?frame.id,
@@ -1730,27 +1752,29 @@ impl CartridgeHostRuntime {
                     (idx, true)
                 } else {
                     // Discriminate the teardown race from real routing loss:
-                    // a RID released by an observed terminal is the ordinary
-                    // END/Credit race (`post_terminal`, debug); a RID this
-                    // host never routed is a genuine anomaly (`no_route`,
-                    // warn).
+                    // a RID released by an observed terminal is a benign
+                    // post-terminal straggler (the ordinary END/Credit race —
+                    // nothing went wrong, counted separately from drops); a
+                    // RID this host never routed is a genuine anomaly
+                    // (`no_route` drop, warn).
                     if self.recently_released_rid(&frame.id) {
-                        let total = self
-                            .drops
-                            .record(crate::bifaci::frame::DropReason::PostTerminal);
+                        let total = self.stragglers.record(frame.frame_type);
                         tracing::debug!(
                             target: "host_runtime",
-                            ftype = ?frame.frame_type,
+                            ftype = frame.frame_type.as_str(),
                             rid = ?frame.id,
                             xid = ?xid,
-                            post_terminal_total = total,
-                            "[CartridgeHostRuntime] dropped straggler for terminated request (post_terminal, L4/L6)"
+                            straggler_total = total,
+                            "[CartridgeHostRuntime] benign post-terminal straggler — frame crossed \
+                             its request's terminal in flight (expected teardown race, L4/L6)"
                         );
                     } else {
-                        let total = self.drops.record(crate::bifaci::frame::DropReason::NoRoute);
+                        let total = self
+                            .drops
+                            .record(crate::bifaci::frame::DropReason::NoRoute, frame.frame_type);
                         tracing::warn!(
                             target: "host_runtime",
-                            ftype = ?frame.frame_type,
+                            ftype = frame.frame_type.as_str(),
                             rid = ?frame.id,
                             xid = ?xid,
                             incoming_rxids_size = self.incoming_rxids.len(),
@@ -1803,7 +1827,7 @@ impl CartridgeHostRuntime {
                     self.incoming_body_done.remove(&key);
                     self.incoming_response_done.remove(&key);
                     // The synthesized ERR terminated this request; stragglers
-                    // for it are post_terminal, not routing anomalies.
+                    // for it are benign stragglers, not routing anomalies.
                     self.note_released_rid(&frame.id);
                     return Ok(());
                 }
@@ -1851,23 +1875,29 @@ impl CartridgeHostRuntime {
                     let rid_for_touch = frame.id.clone();
                     self.touch_outgoing_rid(&rid_for_touch);
                     let _ = self.send_to_cartridge(cartridge_idx, frame);
-                } else {
-                    // No routing entry: COUNTED drop, never silent (L8) — a
-                    // LOG that crossed its peer request's terminal is
-                    // post_terminal; one for a RID never routed here is
-                    // no_route.
-                    let reason = if self.recently_released_rid(&frame.id) {
-                        crate::bifaci::frame::DropReason::PostTerminal
-                    } else {
-                        crate::bifaci::frame::DropReason::NoRoute
-                    };
-                    let total = self.drops.record(reason);
+                } else if self.recently_released_rid(&frame.id) {
+                    // A LOG that crossed its peer request's terminal in
+                    // flight — benign straggler, counted as such (never a
+                    // drop): the request is over and the diagnostic is moot.
+                    let total = self.stragglers.record(frame.frame_type);
                     tracing::debug!(
                         target: "host_runtime",
                         rid = ?frame.id,
-                        reason = reason.as_str(),
-                        reason_total = total,
-                        "[CartridgeHostRuntime] dropped LOG with no routing entry"
+                        straggler_total = total,
+                        "[CartridgeHostRuntime] benign post-terminal straggler LOG — \
+                         crossed its peer request's terminal (expected teardown race)"
+                    );
+                } else {
+                    // No routing entry and never terminated here: COUNTED
+                    // drop, never silent (L8) — a genuine routing anomaly.
+                    let total = self
+                        .drops
+                        .record(crate::bifaci::frame::DropReason::NoRoute, frame.frame_type);
+                    tracing::warn!(
+                        target: "host_runtime",
+                        rid = ?frame.id,
+                        no_route_total = total,
+                        "[CartridgeHostRuntime] dropped LOG with no routing entry (no_route)"
                     );
                 }
                 Ok(())
@@ -1968,6 +1998,12 @@ impl CartridgeHostRuntime {
                         // never merged or maxed.
                         if let Some(ciborium::Value::Integer(v)) = meta.get("drops_total") {
                             self.cartridges[cartridge_idx].protocol_drops_total =
+                                Some(u64::try_from(*v).unwrap_or(0));
+                        }
+                        // Cumulative BENIGN straggler counter — indicated
+                        // separately from drops (nothing went wrong).
+                        if let Some(ciborium::Value::Integer(v)) = meta.get("stragglers_total") {
+                            self.cartridges[cartridge_idx].protocol_stragglers_total =
                                 Some(u64::try_from(*v).unwrap_or(0));
                         }
                         let capacity = meta
@@ -2285,7 +2321,7 @@ impl CartridgeHostRuntime {
             failed_outgoing.iter().map(|(rid, _)| rid.clone()).collect();
         for rid in &released_outgoing {
             // The death sweep synthesizes ERR terminals for these RIDs below;
-            // stragglers for them are post_terminal.
+            // frames for them classify as benign stragglers.
             self.note_released_rid(rid);
         }
 
@@ -3219,6 +3255,7 @@ impl CartridgeHostRuntime {
                     last_heartbeat_unix_seconds: cartridge.last_heartbeat_unix_seconds,
                     restart_count: cartridge.restart_count,
                     protocol_drops_total: cartridge.protocol_drops_total,
+                    protocol_stragglers_total: cartridge.protocol_stragglers_total,
                 };
                 // A cartridge whose HELLO failed (e.g. a pre-v4 binary hard-
                 // rejected by the version check) stays IN the inventory with
@@ -6465,6 +6502,10 @@ mod tests {
         let mut meta = std::collections::BTreeMap::new();
         meta.insert("drops_total".into(), ciborium::Value::Integer(42.into()));
         meta.insert(
+            "stragglers_total".into(),
+            ciborium::Value::Integer(7.into()),
+        );
+        meta.insert(
             "handler_capacity".into(),
             ciborium::Value::Integer(0.into()),
         );
@@ -6479,6 +6520,11 @@ mod tests {
             stats.protocol_drops_total,
             Some(42),
             "the heartbeat's drops_total must reach the inventory stats"
+        );
+        assert_eq!(
+            stats.protocol_stragglers_total,
+            Some(7),
+            "the heartbeat's stragglers_total rides alongside, under its own name —              benign stragglers are never folded into drops"
         );
 
         // A later heartbeat carries a larger running total — stored as-is.
@@ -6852,7 +6898,7 @@ mod tests {
     }
 
     // TEST8116: the terminal-release ring discriminates and stays bounded —
-    // released rids classify as post_terminal material, unknown rids do not,
+    // released rids classify as benign-straggler material, unknown rids do not,
     // duplicates collapse, and eviction past the cap ages a rid back out.
     #[test]
     fn test8116_released_rid_ring_discriminates_dedupes_and_ages_out() {
@@ -6878,7 +6924,7 @@ mod tests {
         }
         assert!(
             !runtime.recently_released_rid(&rid),
-            "eviction past RECENT_RELEASED_RIDS_CAP ends post_terminal classification"
+            "eviction past RECENT_RELEASED_RIDS_CAP ends benign-straggler classification"
         );
         assert_eq!(
             runtime.recent_released_rids.len(),
@@ -6887,17 +6933,18 @@ mod tests {
         );
     }
 
-    // TEST8117: an unroutable continuation from the relay is classified by the
-    // release ring — post_terminal for a rid a terminal just released, no_route
-    // for a rid this host never routed. Both are COUNTED drops (L8), never
-    // errors and never silent.
+    // TEST8117: an unroutable continuation from the relay is classified by
+    // the release ring — a rid a terminal just released is a BENIGN
+    // post-terminal straggler (counted per frame type, never a drop);
+    // a rid this host never routed is a genuine no_route DROP. Both are
+    // counted (L8), never errors and never silent — and never conflated.
     #[tokio::test]
     async fn test8117_unroutable_continuation_classified_by_release_ring() {
         let mut runtime = CartridgeHostRuntime::new();
         let (outbound_tx, _outbound_rx) = mpsc::unbounded_channel();
         let resource_fn = || Vec::new();
 
-        // Unknown rid: no routing entry, nothing released → no_route.
+        // Unknown rid: no routing entry, nothing released → no_route drop.
         let mut unknown = Frame::new(FrameType::Chunk, MessageId::Uint(41));
         unknown.routing_id = Some(MessageId::Uint(4));
         unknown.stream_id = Some("s".to_string());
@@ -6913,14 +6960,13 @@ mod tests {
             "a rid never routed here is a routing anomaly"
         );
         assert_eq!(
-            runtime
-                .drops
-                .get(crate::bifaci::frame::DropReason::PostTerminal),
-            0
+            runtime.stragglers.total(),
+            0,
+            "a genuine anomaly is never counted as a benign straggler"
         );
 
         // Released rid: the same frame after a terminal released the route →
-        // post_terminal, and the no_route counter must NOT move.
+        // a benign straggler, counted per frame type; NO drop counter moves.
         runtime.note_released_rid(&MessageId::Uint(42));
         let mut straggler = Frame::new(FrameType::Chunk, MessageId::Uint(42));
         straggler.routing_id = Some(MessageId::Uint(4));
@@ -6932,31 +6978,25 @@ mod tests {
             .await
             .expect("post-terminal straggler must not error (L6)");
         assert_eq!(
-            runtime
-                .drops
-                .get(crate::bifaci::frame::DropReason::PostTerminal),
+            runtime.stragglers.get(FrameType::Chunk),
             1,
-            "a released rid's straggler is the teardown race"
+            "a released rid's straggler is the benign teardown race, named by frame type"
         );
         assert_eq!(
-            runtime.drops.get(crate::bifaci::frame::DropReason::NoRoute),
+            runtime.drops.total(),
             1,
-            "the routing-anomaly counter must not absorb teardown races"
+            "the drop counters must not absorb benign teardown races"
         );
 
         // A LOG with no routing entry follows the same law — counted, never
-        // silent: released rid → post_terminal, unknown rid → no_route.
+        // silent: released rid → benign straggler, unknown rid → no_route drop.
         let log_released = Frame::progress(MessageId::Uint(42), 0.5, "late log");
         runtime
             .handle_relay_frame(log_released, &outbound_tx, &resource_fn)
             .await
             .expect("unroutable LOG must not error");
-        assert_eq!(
-            runtime
-                .drops
-                .get(crate::bifaci::frame::DropReason::PostTerminal),
-            2
-        );
+        assert_eq!(runtime.stragglers.get(FrameType::Log), 1);
+        assert_eq!(runtime.stragglers.total(), 2);
         let log_unknown = Frame::progress(MessageId::Uint(43), 0.5, "alien log");
         runtime
             .handle_relay_frame(log_unknown, &outbound_tx, &resource_fn)

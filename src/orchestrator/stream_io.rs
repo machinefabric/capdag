@@ -61,6 +61,122 @@ pub enum StreamIoError {
     /// persisting chunk data.
     #[error("Writer error: {0}")]
     Writer(String),
+
+    /// A cap emitted an output STREAM_START whose media URN violates its
+    /// declared effect contract: the emission does not satisfy
+    /// `CapUrn::is_conformant_runtime_output` for the runtime input the
+    /// engine fed it (the cap's declared main-input URN — spec 13.2 labels
+    /// every stream the orchestrator sends with it). The plan was built on
+    /// the effect promise, so a violating emission fails hard HERE — at
+    /// receipt, before any relabel or forward can mask it — attributed
+    /// Internal (the cartridge broke its own declared contract; not a user
+    /// input problem).
+    #[error(
+        "Cap '{cap_urn}' violated its effect contract: effect={effect}, runtime input '{runtime_input}', expected output '{expected}', emitted '{actual}'"
+    )]
+    EffectContract {
+        cap_urn: String,
+        effect: String,
+        runtime_input: String,
+        expected: String,
+        actual: String,
+    },
+}
+
+// =============================================================================
+// Effect audit
+// =============================================================================
+
+/// Audits a cap's emitted output STREAM_START media against its declared
+/// effect contract, at the frame boundary where the engine receives it.
+///
+/// The audit base is the cap's declared main-input media URN (`in=`): the
+/// orchestrator labels every stream it feeds a cap with the declared arg URN
+/// (spec 13.2 — heads in `send_group_input`, hops via the forward relabel),
+/// so that label is the runtime input the cap actually saw and the only
+/// basis its emission can honestly be derived from. The decision itself is
+/// `CapUrn::is_conformant_runtime_output` — the ONE effect-conformance
+/// predicate — never re-derived here.
+pub struct EffectAudit {
+    cap_urn_str: String,
+    cap: crate::CapUrn,
+    runtime_input: crate::MediaUrn,
+}
+
+impl EffectAudit {
+    /// Build the audit for one cap invocation. Fails when the cap URN does
+    /// not parse or its declared `in=` is not a valid media URN — engine-side
+    /// inconsistencies that must fail hard, not skip the audit.
+    pub fn new(cap_urn: &str) -> Result<Self, StreamIoError> {
+        let cap = crate::CapUrn::from_string(cap_urn).map_err(|e| {
+            StreamIoError::Protocol(format!(
+                "effect audit: cap URN '{}' does not parse: {}",
+                cap_urn, e
+            ))
+        })?;
+        let runtime_input = cap.in_media_urn().map_err(|e| {
+            StreamIoError::Protocol(format!(
+                "effect audit: cap '{}' declared input is not a valid media URN: {}",
+                cap_urn, e
+            ))
+        })?;
+        Ok(Self {
+            cap_urn_str: cap_urn.to_string(),
+            cap,
+            runtime_input,
+        })
+    }
+
+    /// Audit one emitted output STREAM_START label. `Ok(())` iff the
+    /// emission satisfies the declared effect contract. An unlabeled or
+    /// unparseable emission, and an audit that cannot run (inference
+    /// impossible — an upstream inconsistency), are `Protocol` errors; a
+    /// clean contract violation is `EffectContract`. Both fail hard.
+    pub fn audit(&self, emitted: Option<&str>) -> Result<(), StreamIoError> {
+        let emitted_str = match emitted {
+            Some(s) if !s.is_empty() => s,
+            _ => {
+                return Err(StreamIoError::Protocol(format!(
+                    "cap '{}' emitted an output STREAM_START without a media URN \
+                     label — every output stream must be labeled",
+                    self.cap_urn_str
+                )));
+            }
+        };
+        let emitted_urn = crate::MediaUrn::from_string(emitted_str).map_err(|e| {
+            StreamIoError::Protocol(format!(
+                "cap '{}' emitted an output STREAM_START with invalid media URN '{}': {}",
+                self.cap_urn_str, emitted_str, e
+            ))
+        })?;
+        let conformant = self
+            .cap
+            .is_conformant_runtime_output(&self.runtime_input, &emitted_urn)
+            .map_err(|e| {
+                StreamIoError::Protocol(format!(
+                    "effect audit for cap '{}' could not run: {}",
+                    self.cap_urn_str, e
+                ))
+            })?;
+        if conformant {
+            return Ok(());
+        }
+        // The predicate ran, so the inference is computable; recompute it
+        // only to NAME the expectation in the failure (diagnostics — the
+        // predicate above is the sole decision-maker).
+        let expected = self
+            .cap
+            .infer_runtime_output_media(&self.runtime_input)
+            .map(|m| m.to_string())
+            .unwrap_or_else(|e| format!("<uninferable: {}>", e));
+        Err(StreamIoError::EffectContract {
+            cap_urn: self.cap_urn_str.clone(),
+            effect: self.cap.effect().as_str().to_string(),
+            runtime_input: self.runtime_input.to_string(),
+            expected,
+            actual: emitted_str.to_string(),
+        })
+    }
 }
 
 // =============================================================================
@@ -573,9 +689,16 @@ pub struct TerminalOutput {
     /// Set once END was seen; `next_item` returns None afterwards.
     ended: bool,
     unbounded: bool,
+    /// Audits every STREAM_START emission against the cap's declared
+    /// effect contract before its items are yielded.
+    effect_audit: EffectAudit,
 }
 
 impl TerminalOutput {
+    /// Fails when the cap URN (or its declared `in=`) does not parse — the
+    /// effect audit is built here and every terminal emission is audited
+    /// against it, so an unauditable cap must fail at construction, not be
+    /// consumed unaudited.
     pub fn new(
         rx: mpsc::UnboundedReceiver<Frame>,
         cap_urn: &str,
@@ -583,8 +706,9 @@ impl TerminalOutput {
         progress_fn: Option<CapProgressFn>,
         log_fn: Option<PipelineLogFn>,
         credit: Option<CreditPlumbing>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, StreamIoError> {
+        let effect_audit = EffectAudit::new(cap_urn)?;
+        Ok(Self {
             rx,
             cap_urn: cap_urn.to_string(),
             step_token_id: step_token_id.to_string(),
@@ -596,7 +720,8 @@ impl TerminalOutput {
             terminal_meta: TerminalMeta::default(),
             ended: false,
             unbounded: false,
-        }
+            effect_audit,
+        })
     }
 
     /// Whether the response stream declared itself unbounded (known after the
@@ -653,6 +778,13 @@ impl TerminalOutput {
             };
             match frame.frame_type {
                 FrameType::StreamStart => {
+                    // Effect audit at receipt: the emission must satisfy the
+                    // cap's declared effect contract before any of its items
+                    // are yielded.
+                    if let Err(e) = self.effect_audit.audit(frame.media_urn.as_deref()) {
+                        self.ended = true;
+                        return Some(Err(e));
+                    }
                     if let Some(seq) = frame.is_sequence {
                         self.is_sequence = Some(seq);
                     }
@@ -871,6 +1003,9 @@ pub async fn collect_terminal_output(
     activity_timeout_secs: u64,
     credit: Option<&CreditPlumbing>,
 ) -> Result<(Vec<u8>, Option<bool>, TerminalMeta), StreamIoError> {
+    // The terminal cap's emission is audited against its declared effect
+    // contract at receipt — before the payload is collected or persisted.
+    let effect_audit = EffectAudit::new(cap_urn)?;
     let mut response_chunks: Vec<u8> = Vec::new();
     let mut is_sequence: Option<bool> = None;
     // Consumed-chunk accounting for batched grants (L10): the producer's
@@ -1041,11 +1176,16 @@ pub async fn collect_terminal_output(
                                     }
                                 }
                                 other => {
-                                    tracing::warn!(
+                                    // Benign post-terminal straggler: the
+                                    // request already delivered its terminal;
+                                    // a data/control frame queued behind END
+                                    // is moot by protocol — expected teardown
+                                    // race, nothing lost.
+                                    tracing::debug!(
                                         cap_urn = %cap_urn,
                                         ftype = ?other,
                                         rid = ?late.id,
-                                        "[cap] dropped post-terminal frame after END (post_terminal)"
+                                        "[cap] ignoring benign post-terminal straggler queued behind END"
                                     );
                                 }
                             }
@@ -1147,6 +1287,10 @@ pub async fn collect_terminal_output(
                     }
                     FrameType::StreamStart => {
                         timer.touch();
+                        // Effect audit at receipt: the emission must satisfy
+                        // the cap's declared effect contract before a single
+                        // byte of it is collected or persisted.
+                        effect_audit.audit(frame.media_urn.as_deref())?;
                         if let Some(seq) = frame.is_sequence {
                             is_sequence = Some(seq);
                         }
@@ -1375,6 +1519,94 @@ mod tests {
         )
     }
 
+    // TEST8124: the effect audit fires at output STREAM_START receipt — an
+    // effect=none cap whose emission is not tag-equivalent to its runtime
+    // input fails hard with the violation's typed identity, before any data
+    // is collected.
+    #[tokio::test]
+    async fn test8124_effect_audit_rejects_nonconformant_terminal_emission() {
+        let rid = MessageId::new_uuid();
+        let (tx, rx) = mpsc::unbounded_channel();
+        // cap:echo;effect=none declares in=media: — its emission must be
+        // tag-equivalent to media:, and media:enc=utf-8 is not.
+        tx.send(Frame::stream_start(
+            rid.clone(),
+            "out".to_string(),
+            "media:enc=utf-8".to_string(),
+            Some(false),
+        ))
+        .unwrap();
+        tx.send(chunk(&rid, b"payload")).unwrap();
+        tx.send(Frame::end_ok(rid.clone(), None)).unwrap();
+        drop(tx);
+
+        let err = collect_terminal_output(
+            rx,
+            None,
+            "cap:echo;effect=none",
+            "step_test",
+            None,
+            None,
+            None,
+            None,
+            5,
+            None,
+        )
+        .await
+        .expect_err("a nonconformant emission must fail the collect");
+        match err {
+            StreamIoError::EffectContract {
+                cap_urn,
+                effect,
+                runtime_input,
+                expected,
+                actual,
+            } => {
+                assert_eq!(cap_urn, "cap:echo;effect=none");
+                assert_eq!(effect, "none");
+                assert_eq!(runtime_input, "media:");
+                assert_eq!(expected, "media:");
+                assert_eq!(actual, "media:enc=utf-8");
+            }
+            other => panic!("expected EffectContract, got: {other}"),
+        }
+    }
+
+    // TEST8125: the incremental terminal consumer audits STREAM_START the
+    // same way — a nonconformant emission surfaces as the first item error
+    // and the stream yields nothing further.
+    #[tokio::test]
+    async fn test8125_effect_audit_rejects_nonconformant_incremental_emission() {
+        let rid = MessageId::new_uuid();
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(Frame::stream_start(
+            rid.clone(),
+            "out".to_string(),
+            "media:enc=utf-8".to_string(),
+            Some(false),
+        ))
+        .unwrap();
+        tx.send(chunk(&rid, b"payload")).unwrap();
+        tx.send(Frame::end_ok(rid.clone(), None)).unwrap();
+        drop(tx);
+
+        let mut terminal =
+            TerminalOutput::new(rx, "cap:echo;effect=none", "step_test", None, None, None)
+                .expect("cap:echo;effect=none builds a valid effect audit");
+        let first = terminal
+            .next_item()
+            .await
+            .expect("the audit failure is delivered as an item error");
+        assert!(
+            matches!(first, Err(StreamIoError::EffectContract { .. })),
+            "expected EffectContract, got: {first:?}"
+        );
+        assert!(
+            terminal.next_item().await.is_none(),
+            "a failed audit terminates the stream"
+        );
+    }
+
     // TEST7022: The receiver delivers final progress exactly once, sourced from END terminal metadata, defaulting to 1.0 on a plain successful END.
     #[tokio::test]
     async fn test7022_final_progress_from_end_meta_default() {
@@ -1524,7 +1756,8 @@ mod tests {
     async fn test7071_terminal_output_yields_before_stream_end() {
         let rid = MessageId::new_uuid();
         let (tx, rx) = mpsc::unbounded_channel();
-        let mut terminal = TerminalOutput::new(rx, "cap:test", "step_test", None, None, None);
+        let mut terminal = TerminalOutput::new(rx, "cap:test", "step_test", None, None, None)
+            .expect("cap:test builds a valid effect audit");
 
         // Announce an unbounded stream and one item — nothing has ended.
         let ss = Frame::stream_start_unbounded(
@@ -1564,7 +1797,8 @@ mod tests {
     async fn test7077_per_item_meta_incremental() {
         let rid = MessageId::new_uuid();
         let (tx, rx) = mpsc::unbounded_channel();
-        let mut terminal = TerminalOutput::new(rx, "cap:test", "step_test", None, None, None);
+        let mut terminal = TerminalOutput::new(rx, "cap:test", "step_test", None, None, None)
+            .expect("cap:test builds a valid effect audit");
 
         tx.send(stream_start(&rid)).unwrap();
 

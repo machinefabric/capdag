@@ -216,6 +216,49 @@ pub const CAP_IDENTITY: &str = "cap:effect=none";
 Every capset **must** include the identity cap (see CU1 in
 [10-VALIDATION-RULES](/docs/10-validation-rules)).
 
+### 4.2.1 Effect Admissibility
+
+A non-default effect is a structural promise about the relation between
+the declared `in=` and `out=`, and an incoherent promise is rejected **at
+construction** (`validate_admissible`, enforced by every CapUrn parser in
+every language — which means the fabric publisher rejects it too, since
+publishing parses every cap URN):
+
+| Effect | Admissibility condition |
+|--------|-------------------------|
+| `none` | declared `in=` must `conform_to` declared `out=` — the output IS the input's type, so the declaration must be consistent with that |
+| `patch` | the coordinate delta `out − in` must be derivable, and applying it back to `in=` must produce a type conforming to `out=` (the witness check) |
+| `declared` | always admissible (subject to the bare-top rule above) |
+
+`cap:in="media:ext=pdf";out="media:enc=utf-8";effect=none` is therefore
+illegal: it promises the output type is the input type while declaring a
+contradictory output.
+
+### 4.2.2 The Effect Contract at Runtime
+
+The effect is not advisory. Two mechanisms hold every execution to it:
+
+1. **Derived response labels.** A cartridge runtime derives the media URN
+   of a cap's response STREAM_START from the declared effect
+   (`derive_response_media`) — `declared` → the declared `out=`;
+   `none` → the declared `in=`; `patch` → the patched `in=`. Ops do not
+   pick output labels.
+2. **The engine audit.** At receipt of a cap's output STREAM_START —
+   before forwarding, persisting, or collecting — the engine checks the
+   emitted media URN with `CapUrn::is_conformant_runtime_output`, the ONE
+   effect-conformance predicate: `none`/`patch` require tag-equivalence
+   with the inferred output (the effect fully determines the type — a
+   more specific emission is still a lie); `declared` requires
+   conformance to the declared `out=` (more specific is legal, more
+   generic fails). A violation is a hard `internal` failure naming the
+   cap, the effect, and expected vs actual.
+
+The planner's downstream type refinement
+(`CapUrn::infer_runtime_output_media`, see
+[15.4-PLANNER](/docs/15.4-planner)) relies on exactly this contract; the
+audit is what makes the reliance sound. See
+[13.2-INPUT-OUTPUT](/docs/13.2-input-output) for the runtime mechanics.
+
 ### 4.3 Source, Sink, Effect: void as Unit
 
 `media:void` lets the `(i, o, y, e)` structure express caps that are not

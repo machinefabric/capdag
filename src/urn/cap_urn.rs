@@ -1023,6 +1023,60 @@ impl CapUrn {
         self.apply_to_runtime_input_media(runtime_input)
     }
 
+    /// Does an actually-emitted runtime output satisfy this cap's declared
+    /// effect contract for the given runtime input?
+    ///
+    /// This is THE effect-audit predicate: every check of "did the cap emit
+    /// what its effect promised" must go through it — never a hand-rolled
+    /// combination of `infer_runtime_output_media` with equality or
+    /// conformance checks, so the contract has exactly one definition.
+    ///
+    /// The condition is deliberately asymmetric per effect:
+    ///
+    /// - `effect=none` and `effect=patch` compute an EXACT runtime output
+    ///   type (the input itself / the input with the declared delta
+    ///   applied), so the emission must be tag-equivalent to the inference.
+    ///   A more specific emission would still be a lie: the effect promises
+    ///   the type is fully determined by the input.
+    /// - `effect=declared` promises only the declared `out=`, so an
+    ///   emission that is MORE specific than the declaration is legal and
+    ///   desirable (e.g. declaring `out=media:record` and emitting
+    ///   `media:fmt=json;record`); the emission must `conform_to` the
+    ///   declared output. A more generic emission breaks every downstream
+    ///   plan refinement and fails.
+    ///
+    /// Errors (rather than returning `false`) when the inference itself is
+    /// impossible: the runtime input does not conform to the declared
+    /// input, the effect is the unconstrained request form (`?effect`),
+    /// or the URN state is internally inconsistent — those are upstream
+    /// contract breaks, not emission mismatches, and must surface as such.
+    pub fn is_conformant_runtime_output(
+        &self,
+        runtime_input: &MediaUrn,
+        runtime_output: &MediaUrn,
+    ) -> Result<bool, CapUrnError> {
+        let inferred = self.apply_to_runtime_input_media(runtime_input)?;
+        match self.effect() {
+            CapEffect::None | CapEffect::Patch => {
+                runtime_output.is_equivalent(&inferred).map_err(|e| {
+                    CapUrnError::InvalidEffectApplication(format!(
+                        "Failed to compare emitted output '{}' against inferred output '{}': {}",
+                        runtime_output, inferred, e
+                    ))
+                })
+            }
+            CapEffect::Declared => runtime_output.conforms_to(&inferred).map_err(|e| {
+                CapUrnError::InvalidEffectApplication(format!(
+                    "Failed to compare emitted output '{}' against declared output '{}': {}",
+                    runtime_output, inferred, e
+                ))
+            }),
+            CapEffect::Any => Err(CapUrnError::InvalidEffectApplication(
+                "Cannot audit an emission against an unconstrained effect request".to_string(),
+            )),
+        }
+    }
+
     /// Calculate specificity score for cap matching.
     ///
     /// More specific caps have higher scores and are preferred. The
@@ -2812,6 +2866,94 @@ fn test0128_effect_dispatch_requires_explicit_wildcard() {
     let any_request = CapUrn::from_string("cap:?effect").unwrap();
     assert!(!none_candidate.is_dispatchable(&declared_request));
     assert!(none_candidate.is_dispatchable(&any_request));
+}
+
+// TEST8121: is_conformant_runtime_output — effect=declared accepts a more
+// specific emission, rejects a more generic one
+#[test]
+fn test8121_effect_conformance_declared_asymmetry() {
+    let cap = CapUrn::from_string("cap:extract;in=\"media:ext=pdf\";out=\"media:record\"").unwrap();
+    let input = MediaUrn::from_string("media:ext=pdf").unwrap();
+
+    // Emitting exactly the declared out is conformant.
+    let declared = MediaUrn::from_string("media:record").unwrap();
+    assert!(cap.is_conformant_runtime_output(&input, &declared).unwrap());
+
+    // Emitting something MORE specific than the declared out is conformant —
+    // the declaration is a lower bound, not an exact type.
+    let more_specific = MediaUrn::from_string("media:fmt=json;record").unwrap();
+    assert!(cap
+        .is_conformant_runtime_output(&input, &more_specific)
+        .unwrap());
+
+    // Emitting something more GENERIC than the declared out is a contract
+    // violation: downstream plan refinement relied on at least `record`.
+    let more_generic = MediaUrn::from_string("media:").unwrap();
+    assert!(!cap
+        .is_conformant_runtime_output(&input, &more_generic)
+        .unwrap());
+
+    // Emitting an unrelated type is a violation.
+    let unrelated = MediaUrn::from_string("media:ext=png;image").unwrap();
+    assert!(!cap.is_conformant_runtime_output(&input, &unrelated).unwrap());
+}
+
+// TEST8122: is_conformant_runtime_output — effect=none requires the emission
+// to be tag-equivalent to the runtime input; MORE specific is still a lie
+#[test]
+fn test8122_effect_conformance_none_requires_equivalence() {
+    let cap = CapUrn::from_string("cap:decimate-sequence;effect=none").unwrap();
+    let input = MediaUrn::from_string("media:ext=png;image").unwrap();
+
+    // Exactly the runtime input type: conformant.
+    assert!(cap.is_conformant_runtime_output(&input, &input).unwrap());
+
+    // A MORE specific emission is nonconformant: effect=none promises the
+    // output type IS the input type, fully determined — not merely bounded.
+    let more_specific = MediaUrn::from_string("media:ext=png;image;width=64").unwrap();
+    assert!(!cap
+        .is_conformant_runtime_output(&input, &more_specific)
+        .unwrap());
+
+    // A more generic emission is nonconformant.
+    let more_generic = MediaUrn::from_string("media:image").unwrap();
+    assert!(!cap
+        .is_conformant_runtime_output(&input, &more_generic)
+        .unwrap());
+
+    // A runtime input that does not conform to the declared in= is an
+    // upstream contract break, surfaced as an error — not as `false`.
+    let strict = CapUrn::from_string("cap:effect=none;in=\"media:image\";out=\"media:image\"")
+        .unwrap();
+    let non_image = MediaUrn::from_string("media:ext=pdf").unwrap();
+    assert!(strict
+        .is_conformant_runtime_output(&non_image, &non_image)
+        .is_err());
+}
+
+// TEST8123: is_conformant_runtime_output — effect=patch requires exactly the
+// delta-patched input type
+#[test]
+fn test8123_effect_conformance_patch_requires_patched_input() {
+    let cap = CapUrn::from_string(
+        "cap:convert;effect=patch;in=\"media:ext=jpeg;image\";out=\"media:ext=png;image\"",
+    )
+    .unwrap();
+    let input = MediaUrn::from_string("media:ext=jpeg;image;width=64").unwrap();
+
+    // The patched input (ext replaced, other tags preserved) is conformant.
+    let patched = MediaUrn::from_string("media:ext=png;image;width=64").unwrap();
+    assert!(cap.is_conformant_runtime_output(&input, &patched).unwrap());
+
+    // Emitting the bare declared out= drops the preserved width tag — the
+    // patch effect promised it survives, so this is a violation.
+    let bare_declared = MediaUrn::from_string("media:ext=png;image").unwrap();
+    assert!(!cap
+        .is_conformant_runtime_output(&input, &bare_declared)
+        .unwrap());
+
+    // Emitting the unpatched input type (ext still jpeg) is a violation.
+    assert!(!cap.is_conformant_runtime_output(&input, &input).unwrap());
 }
 
 #[cfg(test)]

@@ -113,6 +113,7 @@ fn trace_fingerprint(stats: &RelaySwitchProtocolStats) -> String {
         "terminated_len": stats.requests.recent_terminated.len(),
         "last_terminated": stats.requests.recent_terminated.last().map(|t| (&t.rid, t.kind.as_str())),
         "drops": stats.drops,
+        "stragglers": stats.stragglers,
         "hosts": stats.hosts,
         "active": active,
     })
@@ -210,6 +211,7 @@ mod tests {
                 terminated_by_kind: Default::default(),
             },
             drops: DropCounters::new().snapshot(),
+            stragglers: Default::default(),
             hosts: Default::default(),
         }
     }
@@ -243,6 +245,7 @@ mod tests {
                 terminated_by_kind: Default::default(),
             },
             drops: DropCounters::new().snapshot(),
+            stragglers: Default::default(),
             hosts: Default::default(),
         }
     }
