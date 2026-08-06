@@ -51,8 +51,11 @@ pub enum OverrunPolicy {
     Fail,
 }
 
-/// Stop conditions for a feed (absent = "until stopped").
+/// Stop conditions for a feed (absent = "until stopped"). Unknown fields
+/// are rejected like the selector's own: a misspelled stop condition
+/// silently ignored would run an unbounded feed the caller meant to bound.
 #[derive(Debug, Clone, Copy, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LiveFeedStop {
     /// End the feed after this much capture time.
     pub duration_ms: Option<u64>,

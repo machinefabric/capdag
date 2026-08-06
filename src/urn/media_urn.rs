@@ -752,6 +752,18 @@ impl MediaUrn {
     pub fn is_file_path(&self) -> bool {
         self.has_marker_tag("file-path")
     }
+
+    /// Check if this represents a live-feed reference (`live` marker tag).
+    ///
+    /// Live-feed URNs are REFERENCE media (13.2 §Reference Media): the arg
+    /// value is a selector record, and the runtime resolves it into an
+    /// unbounded content stream via a registered provider — the same
+    /// transport-resolution family as `media:file-path`. This is the
+    /// canonical membership predicate for that family; callers must not
+    /// test the `live` tag themselves.
+    pub fn is_live_feed(&self) -> bool {
+        self.has_marker_tag("live")
+    }
 }
 
 impl fmt::Display for MediaUrn {
@@ -1351,6 +1363,28 @@ mod debug_tests {
         assert!(!MediaUrn::from_string(MEDIA_IDENTITY)
             .unwrap()
             .is_file_path());
+    }
+
+    // TEST553: is_live_feed returns true for every URN carrying the `live`
+    // marker tag (the reference-media family the runtime resolves via
+    // providers), false for everything else — including content URNs a
+    // feed delivers.
+    #[test]
+    fn test553_is_live_feed() {
+        assert!(MediaUrn::from_string("media:live").unwrap().is_live_feed());
+        assert!(MediaUrn::from_string("media:live;synthetic")
+            .unwrap()
+            .is_live_feed());
+        assert!(MediaUrn::from_string("media:audio;live;microphone")
+            .unwrap()
+            .is_live_feed());
+        assert!(!MediaUrn::from_string(MEDIA_STRING).unwrap().is_live_feed());
+        assert!(!MediaUrn::from_string(MEDIA_FILE_PATH)
+            .unwrap()
+            .is_live_feed());
+        assert!(!MediaUrn::from_string("media:audio;pcm")
+            .unwrap()
+            .is_live_feed());
     }
 
     // TEST555: with_tag adds a tag and without_tag removes it

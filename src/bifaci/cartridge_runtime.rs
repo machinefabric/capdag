@@ -3324,7 +3324,6 @@ impl FilePathContext {
 /// register their handles so a stop (non-force Cancel on a feed-bearing
 /// request) can close the tap and let the run drain (15.2 §Runs Stop).
 pub(crate) struct LiveFeedContext {
-    live_pattern: MediaUrn,
     cap_urn: String,
     manifest: Option<CapManifest>,
     providers: Arc<crate::bifaci::live_feed::LiveFeedProviders>,
@@ -3352,10 +3351,6 @@ impl LiveFeedContext {
             })?
             .to_string();
         Ok(Self {
-            live_pattern: MediaUrn::from_string(crate::bifaci::live_feed::MEDIA_LIVE_FEED)
-                .map_err(|e| {
-                    RuntimeError::Handler(format!("Failed to create live-feed pattern: {}", e))
-                })?,
             cap_urn: canonical,
             manifest,
             providers,
@@ -3364,11 +3359,9 @@ impl LiveFeedContext {
     }
 
     fn is_live_feed(&self, media_urn_str: &str) -> bool {
-        let arg_urn = match MediaUrn::from_string(media_urn_str) {
-            Ok(u) => u,
-            Err(_) => return false,
-        };
-        self.live_pattern.accepts(&arg_urn).unwrap_or(false)
+        MediaUrn::from_string(media_urn_str)
+            .map(|u| u.is_live_feed())
+            .unwrap_or(false)
     }
 
     fn find_arg<'a>(&'a self, incoming: &MediaUrn) -> Option<&'a CapArg> {
@@ -7155,6 +7148,31 @@ mod tests {
             Ok(_) => panic!("garbage selectors must be rejected"),
         };
         assert!(err.to_string().contains("selector"), "{err}");
+    }
+
+    // TEST8136: unknown selector fields are rejected at every nesting level
+    // — a misspelled stop condition (`duration` for `duration_ms`) silently
+    // ignored would run an unbounded feed the caller meant to bound.
+    #[tokio::test]
+    async fn test8136_unknown_selector_fields_rejected() {
+        for bad in [
+            r#"{"devise": "mic0"}"#,
+            r#"{"stop": {"duration": 1000}}"#,
+            r#"{"stop": {"max_item": 3}}"#,
+        ] {
+            let (ctx, _providers, _handles) = live_feed_ctx(true);
+            let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
+            let rid = MessageId::new_uuid();
+            send_live_reference(&raw_tx, &rid, bad);
+            drop(raw_tx);
+
+            let mut package = demux_multi_stream(raw_rx, None, Some(ctx), None);
+            let err = match package.recv().await.expect("the failure must be delivered") {
+                Err(e) => e,
+                Ok(_) => panic!("unknown selector field must be rejected: {bad}"),
+            };
+            assert!(err.to_string().contains("selector"), "{bad}: {err}");
+        }
     }
 
     // TEST7052: Input consumption emits batched CREDIT grants — roughly one grant per half-window consumed, not one per chunk.
