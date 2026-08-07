@@ -318,6 +318,7 @@ pub use orchestrator::{
     ResolvedGraph,
     SegmentOutput,
     SegmentWriterFactory,
+    TransientArtifact,
     StreamIoError,
     TerminalItem,
     TerminalMeta,

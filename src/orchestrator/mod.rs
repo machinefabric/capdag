@@ -30,6 +30,7 @@ pub mod machine_plan;
 pub mod parser;
 pub mod plan_converter;
 pub mod stream_io;
+pub mod transient;
 pub mod types;
 
 // Re-export key types
@@ -52,6 +53,10 @@ pub use cli_cap::{
 pub use cli_output::{emit_terminals, extension_for_media, EmitOptions};
 pub use cli_runtime::CliRuntime;
 pub use cli_writer::{CliDiskWriter, PART_FILE_PREFIX};
+pub use transient::{
+    read_sidecar, read_transient_item, TransientArtifact, TransientSidecar, TRANSIENT_DATA_FILE,
+    TRANSIENT_SIDECAR, TRANSIENT_STAGING_SUFFIX,
+};
 
 pub use plan_converter::plan_to_resolved_graph;
 

@@ -248,6 +248,30 @@ pub trait EngineRuntime: Send + Sync {
     /// the devices.
     fn on_host_feed_open(&self, _handle: &crate::bifaci::live_feed::LiveFeedHandle) {}
 
+    /// Root directory for TRANSIENT run artifacts (the engine: the run's
+    /// `run_artifacts/{id}/transient`). When `Some`, every INTERMEDIATE
+    /// chain sink — memory-materialized or spooled — is captured there the
+    /// moment it materializes (data + `provenance.json` sidecar), making
+    /// mid-strand media inspectable with an eagerly-reaped disk lifetime.
+    /// `None` (the CLI, reference runtimes): intermediates are discarded as
+    /// before — no inspection surface, no capture.
+    fn transient_artifact_root(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    /// A transient artifact was captured — the node just materialized,
+    /// possibly while later steps still run. The engine publishes it on the
+    /// run-media channel so the loom can enable the node immediately. A
+    /// publication failure is a hard execution error: a run whose inspection
+    /// surface silently diverges from its disk state is an illegal state.
+    /// Default no-op.
+    fn on_transient_artifact(
+        &self,
+        _artifact: &crate::orchestrator::transient::TransientArtifact,
+    ) -> Result<(), ExecutionError> {
+        Ok(())
+    }
+
     /// Per-segment protocol trace sink. `Some` when the CLI's `--trace` /
     /// the scenario harness's `CAPDAG_SCENARIO_TRACE` is active — the segment is then
     /// sampled live (250ms) and snapshotted at teardown. `None` otherwise (the engine
@@ -366,6 +390,10 @@ pub trait EngineRuntime: Send + Sync {
 
         let writer = self.writer_factory();
         let observer = self.flow_observer();
+        let transient_root = self.transient_artifact_root();
+        let on_transient = |artifact: &crate::orchestrator::transient::TransientArtifact| {
+            self.on_transient_artifact(artifact)
+        };
         let out = run_dag_on_context(
             &mut ctx,
             graph,
@@ -379,6 +407,8 @@ pub trait EngineRuntime: Send + Sync {
             persist_sinks,
             activity_timeout_secs,
             observer,
+            transient_root.as_deref(),
+            Some(&on_transient),
         )
         .await;
 
@@ -888,8 +918,14 @@ pub async fn execute_plan(
     for (nid, seq) in &trunk_seg.node_is_sequence {
         node_seq.insert(nid.clone(), *seq);
     }
+    let transients_on = runtime.transient_artifact_root().is_some();
     for (nid, path) in trunk_seg.node_spool {
-        spool_cleanup.0.push(path.clone());
+        // With transient capture ON, spooled intermediates were ADOPTED under
+        // the run's transient root — the TTL reaper owns them, never this
+        // guard.
+        if !transients_on {
+            spool_cleanup.0.push(path.clone());
+        }
         node_spools.insert(nid, path);
     }
     // Record a trunk BodyOutcome ONLY for the linear/no-ForEach case, where the trunk
@@ -1116,9 +1152,13 @@ pub async fn execute_plan(
         for (sink, ws) in post_seg.writer_results {
             node_writers.entry(sink).or_default().extend(ws);
         }
-        for path in post_seg.node_spool.values() {
-            // Consumed within the post segment; nothing after it reads them.
-            let _ = std::fs::remove_file(path);
+        if !transients_on {
+            for path in post_seg.node_spool.values() {
+                // Consumed within the post segment; nothing after it reads
+                // them. (With transient capture ON these are ADOPTED
+                // artifacts under the run's transient root — reaper-owned.)
+                let _ = std::fs::remove_file(path);
+            }
         }
     }
 
@@ -2491,6 +2531,157 @@ mod tests {
         assert!(
             !spool_path.exists(),
             "spool files are removed when the plan completes"
+        );
+    }
+
+    /// TEST1456's runtime with transient capture switched ON.
+    struct TransientTrunkRuntime {
+        inner: SpooledTrunkRuntime,
+        transient_root: std::path::PathBuf,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for TransientTrunkRuntime {
+        async fn segment_switch(
+            &self,
+            graph: &ResolvedGraph,
+        ) -> Result<Arc<crate::bifaci::relay_switch::RelaySwitch>, ExecutionError> {
+            self.inner.segment_switch(graph).await
+        }
+
+        async fn activity_timeout_secs(
+            &self,
+            graph: &ResolvedGraph,
+        ) -> Result<u64, ExecutionError> {
+            self.inner.activity_timeout_secs(graph).await
+        }
+
+        fn fabric_registry(&self) -> Arc<FabricRegistry> {
+            self.inner.fabric_registry()
+        }
+
+        async fn foreach_partial_failure_policy(&self) -> String {
+            self.inner.foreach_partial_failure_policy().await
+        }
+
+        fn transient_artifact_root(&self) -> Option<std::path::PathBuf> {
+            Some(self.transient_root.clone())
+        }
+
+        async fn run_segment(
+            &self,
+            graph: &ResolvedGraph,
+            initial_inputs: HashMap<String, PlanInput>,
+            initial_is_sequence: HashMap<String, bool>,
+            cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
+            progress_fn: Option<&CapProgressFn>,
+            step_progress_fn: Option<&CapStepProgressFn>,
+            log_fn: Option<&PipelineLogFn>,
+            body_coordinate: Option<ForEachBodyCoordinate>,
+            stall_tracker: Option<Arc<PipelineProgressTracker>>,
+            persist_sinks: &HashSet<String>,
+        ) -> Result<SegmentOutput, ExecutionError> {
+            self.inner
+                .run_segment(
+                    graph,
+                    initial_inputs,
+                    initial_is_sequence,
+                    cap_arguments,
+                    progress_fn,
+                    step_progress_fn,
+                    log_fn,
+                    body_coordinate,
+                    stall_tracker,
+                    persist_sinks,
+                )
+                .await
+        }
+    }
+
+    // TEST1459: with transient capture ON, a spooled intermediate is
+    // reaper-owned — the plan-level cleanup that TEST1456 proves for the
+    // capture-off runtime must NOT delete it, or the inspection surface would
+    // vanish the moment the run completes. Same plan, same spool, opposite
+    // ownership.
+    #[tokio::test]
+    async fn test1459_transient_capture_owns_spooled_intermediates() {
+        let mut plan = MachinePlan::new("spooled-foreach-transient");
+        plan.add_node(MachineNode::input_slot(
+            "input",
+            "input",
+            "media:ext=pdf",
+            crate::planner::InputCardinality::Single,
+        ));
+        plan.add_node(MachineNode::cap(
+            "bridge",
+            "cap:frames;in=\"media:ext=pdf\";out=\"media:ext=png;image\"",
+        ));
+        plan.add_node(MachineNode::cap(
+            "mapper",
+            "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\"",
+        ));
+        plan.add_node(MachineNode::for_each_token(
+            "fe",
+            "bridge",
+            "mapper",
+            "mapper",
+            "spooled-foreach-transient-token".to_string(),
+        ));
+        plan.add_node(MachineNode::output("out", "result", "mapper"));
+        plan.add_edge(MachinePlanEdge::direct("input", "bridge"));
+        plan.add_edge(MachinePlanEdge::direct("bridge", "fe"));
+        plan.add_edge(MachinePlanEdge::iteration("fe", "mapper"));
+        plan.add_edge(MachinePlanEdge::direct("mapper", "out"));
+
+        let registry = FabricRegistry::new_for_test();
+        registry.add_caps_to_cache(vec![
+            test_cap("cap:frames;in=\"media:ext=pdf\";out=\"media:ext=png;image\"", true),
+            test_cap(
+                "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\"",
+                false,
+            ),
+        ]);
+        let registry = Arc::new(registry);
+
+        let dir = tempfile::tempdir().unwrap();
+        let spool_path = dir.path().join("bridge.spool");
+        let transient_root = dir.path().join("transient");
+        let runtime: Arc<dyn EngineRuntime> = Arc::new(TransientTrunkRuntime {
+            inner: SpooledTrunkRuntime {
+                registry,
+                spool_path: spool_path.clone(),
+                body_inputs: Arc::new(std::sync::Mutex::new(Vec::new())),
+            },
+            transient_root,
+        });
+
+        let inputs = HashMap::from([("input".to_string(), PlanInput::Bytes(b"doc".to_vec()))]);
+        let flags = HashMap::from([("input".to_string(), false)]);
+        let result = execute_plan(
+            &plan,
+            runtime,
+            inputs,
+            flags,
+            &HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("the transient-capturing runtime executes the same plan");
+
+        let terminal = result.terminal("out").expect("region terminal");
+        assert_eq!(terminal.items.len(), 3);
+
+        // The opposite of TEST1456's final assertion: the spooled
+        // intermediate SURVIVES plan completion — the TTL reaper owns it now.
+        assert!(
+            spool_path.exists(),
+            "with transient capture on, spooled intermediates are reaper-owned, \
+             never plan-deleted"
         );
     }
 

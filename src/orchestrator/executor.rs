@@ -1775,6 +1775,14 @@ pub async fn run_dag_on_context(
     persist_sinks: &HashSet<String>,
     activity_timeout_secs: u64,
     observer: Option<&dyn super::stream_io::FlowObserver>,
+    // Transient-artifact capture (engine only): root + publication hook.
+    // Intermediate chain sinks are captured HERE, mid-run, the moment they
+    // materialize. ForEach bodies never capture (body guts are excluded by
+    // design — region items/outputs have their own surfaces).
+    transient_root: Option<&std::path::Path>,
+    on_transient: Option<
+        &(dyn Fn(&super::transient::TransientArtifact) -> Result<(), ExecutionError> + Sync),
+    >,
 ) -> Result<DagOutput, ExecutionError> {
     let body_index = body_coordinate
         .as_ref()
@@ -1969,6 +1977,15 @@ pub async fn run_dag_on_context(
                 .push(w.finish());
         }
 
+        let capture_transients = body_coordinate.is_none();
+        let sink_out_media = chain_groups
+            .last()
+            .expect("a chain has at least one group")
+            .edges
+            .first()
+            .expect("an edge group is non-empty by construction")
+            .out_media
+            .clone();
         let spool_engaged = spool.as_ref().is_some_and(|s| s.engaged());
         if spool_engaged {
             let sp = spool.take().expect("engaged spool exists");
@@ -1976,10 +1993,32 @@ pub async fn run_dag_on_context(
             if let Some(m) = sp.stream_meta() {
                 ctx.set_node_meta(sink.clone(), m.clone());
             }
-            ctx.set_node_spool(sink.clone(), path.clone());
             ctx.set_node_is_sequence(sink.clone(), sp.is_sequence());
-            spool_files.0.push(path.clone());
-            node_spool.insert(sink.clone(), path);
+            match transient_root {
+                Some(root) if capture_transients => {
+                    // The spool IS the artifact: adopt it under the transient
+                    // root — downstream chains and region drivers read the
+                    // adopted path; the TTL reaper owns its lifetime, so it
+                    // is NOT registered for segment-end deletion.
+                    let artifact = super::transient::adopt_spool_as_transient(
+                        root,
+                        &sink,
+                        &sink_out_media,
+                        &path,
+                        sp.is_sequence(),
+                    )?;
+                    ctx.set_node_spool(sink.clone(), artifact.data_path.clone());
+                    node_spool.insert(sink.clone(), artifact.data_path.clone());
+                    if let Some(publish) = on_transient {
+                        publish(&artifact)?;
+                    }
+                }
+                _ => {
+                    ctx.set_node_spool(sink.clone(), path.clone());
+                    spool_files.0.push(path.clone());
+                    node_spool.insert(sink.clone(), path);
+                }
+            }
         }
 
         // Materialise this chain's sink so downstream chains' heads can read it (via
@@ -2005,6 +2044,20 @@ pub async fn run_dag_on_context(
             };
             ctx.set_node_data(sink.clone(), bytes);
             ctx.set_node_is_sequence(sink.clone(), is_seq);
+            if let (Some(root), true) = (transient_root, capture_transients) {
+                // A bounded intermediate: one write, and the mid-strand node
+                // becomes inspectable while later chains still run.
+                let artifact = super::transient::capture_memory_intermediate(
+                    root,
+                    &sink,
+                    &sink_out_media,
+                    &items,
+                    is_seq,
+                )?;
+                if let Some(publish) = on_transient {
+                    publish(&artifact)?;
+                }
+            }
         }
 
         node_is_sequence.insert(sink.clone(), is_seq);
@@ -3725,6 +3778,8 @@ pub async fn execute_dag(
         None,
         &HashSet::new(),
         activity_timeout_secs,
+        None,
+        None,
         None,
     )
     .await;
