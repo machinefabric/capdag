@@ -48,6 +48,38 @@ path = "../tagged-urn-rs"
 features = ["full"]
 version = "1.0"
 
+# Device-capture transport resolution (capture/ module): the vendored
+# ffmpeg's avdevice inputs + PNG frame encoding. Optional — only builds
+# that resolve DEVICE references (the CLI, the engine, the capture-capable
+# cartridges) enable the `capture` feature; everything else stays free of
+# the static ffmpeg dist. The synthetic feed needs neither and is always
+# built.
+[dependencies.ffmpeg-bundle]
+path = "../ffmpeg-bundle"
+optional = true
+
+[dependencies.image]
+version = "0.25"
+default-features = false
+features = ["png"]
+optional = true
+
+[features]
+capture = ["dep:ffmpeg-bundle", "dep:image"]
+
+[[bin]]
+name = "capdag"
+path = "src/bin/capdag.rs"
+# The CLI is a capture-capable host (it resolves device references for
+# machines it runs) — built via `dx`, which passes the feature.
+required-features = ["capture"]
+
+[[test]]
+name = "dev_cartridge_e2e"
+# Exercises the built CLI binary (CARGO_BIN_EXE_capdag), which itself
+# requires the capture feature.
+required-features = ["capture"]
+
 [dev-dependencies]
 serial_test = "3.0"
 tempfile = "3.10"
@@ -64,4 +96,4 @@ description = "Core cap URN and definition system for MACHFAB plugins"
 edition = "2021"
 license = "MIT"
 name = "capdag"
-version = "1.630.6357"
+version = "1.631.6390"
