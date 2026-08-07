@@ -2062,7 +2062,15 @@ pub async fn run_dag_on_context(
 
         node_is_sequence.insert(sink.clone(), is_seq);
         terminal_meta.insert(sink.clone(), meta);
-        node_data.insert(sink, items);
+        // A spool-engaged sink's data lives ON DISK (`node_spool`) — the
+        // in-memory `items` is only the pre-spool remainder. Recording it
+        // here would present an (empty) in-memory value for a node that
+        // produced a full stream, and any consumer that prefers memory over
+        // spool (the ForEach region driver) would silently run on nothing.
+        // One node, one truth: memory OR spool, never both.
+        if !spool_engaged {
+            node_data.insert(sink, items);
+        }
     }
 
     // The segment completed: ownership of the spool files transfers to the

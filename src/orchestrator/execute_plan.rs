@@ -1007,6 +1007,16 @@ pub async fn execute_plan(
                 runtime.on_host_feed_open(&opened.handle);
                 region_source_from_live(opened)
             } else if let Some(items) = node_data.get(&region.input_node) {
+                // One node, one truth: a region input present in BOTH the
+                // in-memory map and the spool map is an executor contract
+                // breach (the exact shape that once ran a 682-frame capture
+                // as zero bodies) — refused, never guessed at.
+                if node_spools.contains_key(&region.input_node) {
+                    return Err(ExecutionError::HostError(format!(
+                        "ForEach region '{}' input '{}' is recorded BOTH in memory                          and as a spool file — the executor must record exactly one",
+                        region.fe_id, region.input_node
+                    )));
+                }
                 region_source_from_memory(items.clone())
             } else if let Some(path) = node_spools.get(&region.input_node) {
                 let index = scan_spooled_sequence(path).await?;
@@ -2334,6 +2344,10 @@ mod tests {
         registry: Arc<FabricRegistry>,
         spool_path: std::path::PathBuf,
         body_inputs: Arc<std::sync::Mutex<Vec<HashMap<String, PlanInput>>>>,
+        /// TEST1460: reproduce the executor contract breach that once ran a
+        /// whole capture as zero bodies — an (empty) in-memory entry recorded
+        /// ALONGSIDE the spool for the same sink.
+        duplicate_node_data: bool,
     }
 
     #[async_trait]
@@ -2402,8 +2416,13 @@ mod tests {
                 .expect("encode spool item");
             }
             std::fs::write(&self.spool_path, &spool_bytes).expect("write spool file");
+            let node_data = if self.duplicate_node_data {
+                HashMap::from([(edge.to.clone(), Vec::new())])
+            } else {
+                HashMap::new()
+            };
             Ok(SegmentOutput {
-                node_data: HashMap::new(),
+                node_data,
                 node_is_sequence: HashMap::from([(edge.to.clone(), true)]),
                 writer_results: HashMap::new(),
                 terminal_meta: HashMap::new(),
@@ -2467,6 +2486,7 @@ mod tests {
             registry,
             spool_path: spool_path.clone(),
             body_inputs: body_inputs.clone(),
+            duplicate_node_data: false,
         });
 
         let snapshots: Arc<std::sync::Mutex<Vec<ForEachItemSnapshot>>> =
@@ -2531,6 +2551,80 @@ mod tests {
         assert!(
             !spool_path.exists(),
             "spool files are removed when the plan completes"
+        );
+    }
+
+    // TEST1460: a segment recording the SAME sink both in memory (empty) and
+    // as a spool file is refused loudly. This is the exact executor-contract
+    // breach behind the silent zero-output webcam run: the region driver
+    // preferred the phantom empty memory entry over 682 spooled frames.
+    #[tokio::test]
+    async fn test1460_region_input_recorded_twice_is_refused() {
+        let mut plan = MachinePlan::new("spooled-foreach-conflict");
+        plan.add_node(MachineNode::input_slot(
+            "input",
+            "input",
+            "media:ext=pdf",
+            crate::planner::InputCardinality::Single,
+        ));
+        plan.add_node(MachineNode::cap(
+            "bridge",
+            "cap:frames;in=\"media:ext=pdf\";out=\"media:ext=png;image\"",
+        ));
+        plan.add_node(MachineNode::cap(
+            "mapper",
+            "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\"",
+        ));
+        plan.add_node(MachineNode::for_each_token(
+            "fe",
+            "bridge",
+            "mapper",
+            "mapper",
+            "spooled-foreach-conflict-token".to_string(),
+        ));
+        plan.add_node(MachineNode::output("out", "result", "mapper"));
+        plan.add_edge(MachinePlanEdge::direct("input", "bridge"));
+        plan.add_edge(MachinePlanEdge::direct("bridge", "fe"));
+        plan.add_edge(MachinePlanEdge::iteration("fe", "mapper"));
+        plan.add_edge(MachinePlanEdge::direct("mapper", "out"));
+
+        let registry = FabricRegistry::new_for_test();
+        registry.add_caps_to_cache(vec![
+            test_cap("cap:frames;in=\"media:ext=pdf\";out=\"media:ext=png;image\"", true),
+            test_cap(
+                "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\"",
+                false,
+            ),
+        ]);
+
+        let dir = tempfile::tempdir().unwrap();
+        let runtime: Arc<dyn EngineRuntime> = Arc::new(SpooledTrunkRuntime {
+            registry: Arc::new(registry),
+            spool_path: dir.path().join("bridge.spool"),
+            body_inputs: Arc::new(std::sync::Mutex::new(Vec::new())),
+            duplicate_node_data: true,
+        });
+
+        let inputs = HashMap::from([("input".to_string(), PlanInput::Bytes(b"doc".to_vec()))]);
+        let flags = HashMap::from([("input".to_string(), false)]);
+        let error = execute_plan(
+            &plan,
+            runtime,
+            inputs,
+            flags,
+            &HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("a doubly-recorded region input must never run silently");
+        assert!(
+            error.to_string().contains("recorded BOTH in memory"),
+            "the refusal names the contract breach, got: {error}"
         );
     }
 
@@ -2651,6 +2745,7 @@ mod tests {
                 registry,
                 spool_path: spool_path.clone(),
                 body_inputs: Arc::new(std::sync::Mutex::new(Vec::new())),
+                duplicate_node_data: false,
             },
             transient_root,
         });
