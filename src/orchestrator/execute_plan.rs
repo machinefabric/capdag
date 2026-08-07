@@ -172,7 +172,12 @@ pub type PipelineItemFn = Arc<dyn Fn(&OutputItem, usize) + Send + Sync>;
 /// Per-body outcome callback — delivers the running set of body outcomes.
 pub type BodyOutcomeFn = Arc<dyn Fn(&[BodyOutcome]) -> Result<(), ExecutionError> + Send + Sync>;
 
-/// Delivers the complete materialized input set before any body is spawned.
+/// Delivers ForEach input-item snapshots APPEND-ONLY: each call carries the
+/// next item(s) in body-index order, published before the item's body
+/// spawns. A bounded region delivers its items one by one as they dispatch;
+/// a live-fed region cannot do otherwise — the total is unknown until the
+/// feed ends. Consumers accumulate; a publication that does not continue
+/// the stored run is a contract violation on their side.
 pub type ForEachItemsFn =
     Arc<dyn Fn(&str, &[ForEachItemSnapshot]) -> Result<(), ExecutionError> + Send + Sync>;
 
@@ -233,6 +238,15 @@ pub trait EngineRuntime: Send + Sync {
     fn flow_observer(&self) -> Option<&dyn crate::orchestrator::stream_io::FlowObserver> {
         None
     }
+
+    /// A live feed was opened BY THE HOST (13.2 §Reference Media, host
+    /// resolution — a live source driving engine-side per-item dispatch).
+    /// The engine registers the tap so a run stop closes it (close-tap →
+    /// the feed ends → in-flight bodies drain → the run completes as a
+    /// valid stopped run, 15.2 §Runs Stop). The CLI's contract is the
+    /// default no-op: its runs end with the process, and teardown releases
+    /// the devices.
+    fn on_host_feed_open(&self, _handle: &crate::bifaci::live_feed::LiveFeedHandle) {}
 
     /// Per-segment protocol trace sink. `Some` when the CLI's `--trace` /
     /// the scenario harness's `CAPDAG_SCENARIO_TRACE` is active — the segment is then
@@ -788,6 +802,19 @@ pub async fn execute_plan(
     let mut node_seq: HashMap<String, bool> = HashMap::new();
     let mut node_writers: HashMap<String, Vec<WriterResult>> = HashMap::new();
     let mut body_outcomes: Vec<BodyOutcome> = Vec::new();
+    // Spooled UNBOUNDED intermediates (chain-split boundaries, L16): node id
+    // → spool path. Ownership arrives with each segment's DagOutput; the
+    // guard removes every file when the plan completes — success or error.
+    struct PlanSpoolCleanup(Vec<std::path::PathBuf>);
+    impl Drop for PlanSpoolCleanup {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+    let mut spool_cleanup = PlanSpoolCleanup(Vec::new());
+    let mut node_spools: HashMap<String, std::path::PathBuf> = HashMap::new();
 
     // Cap nodes whose output is a plan terminal — persisted when the runtime persists.
     let persist_sinks: HashSet<String> = outputs.iter().map(|(_, src)| src.clone()).collect();
@@ -797,21 +824,23 @@ pub async fn execute_plan(
     let mut trunk_excluded = region_nodes.clone();
     trunk_excluded.extend(post_ids.iter().cloned());
     let trunk = build_trunk_subplan(plan, &trunk_excluded);
-    // A live source is resolved by the FIRST CONSUMING CAP's cartridge; a
-    // ForEach region driver iterates items ENGINE-side, which a forwarded
-    // reference cannot supply — mapping a live source straight into a
-    // ForEach region is refused loudly here (plan through a
-    // sequence-consuming cap, or bound the capture and run the bounded
-    // form) rather than running one phantom body over the selector bytes.
+    // A live source feeding a ForEach region DIRECTLY is resolved by the
+    // HOST (13.2 §Reference Media, host resolution): the engine is the
+    // runtime that iterates the items, so the engine opens the device
+    // itself and dispatches one body per delivered item. Collect those
+    // references here — the region loop below builds a live item source
+    // from each. (A live source feeding LINEAR caps keeps the cartridge-side
+    // resolution: the first consuming cap's runtime opens the device.)
+    let mut live_region_inputs: HashMap<String, (String, Vec<u8>)> = HashMap::new();
     for (k, v) in &initial_inputs {
-        if v.live_reference_urn().is_some() {
-            if let Some(region) = regions.iter().find(|r| &r.input_node == k) {
-                return Err(ExecutionError::HostError(format!(
-                    "live source '{k}' feeds ForEach region '{}' directly — a live \
-                     capture cannot yet drive engine-side per-item dispatch; plan \
-                     through a sequence-consuming cap instead",
-                    region.fe_id
-                )));
+        if let PlanInput::LiveReference {
+            reference_urn,
+            selector,
+        } = v
+        {
+            if regions.iter().any(|r| &r.input_node == k) {
+                live_region_inputs
+                    .insert(k.clone(), (reference_urn.clone(), selector.clone()));
             }
         }
     }
@@ -859,6 +888,10 @@ pub async fn execute_plan(
     for (nid, seq) in &trunk_seg.node_is_sequence {
         node_seq.insert(nid.clone(), *seq);
     }
+    for (nid, path) in trunk_seg.node_spool {
+        spool_cleanup.0.push(path.clone());
+        node_spools.insert(nid, path);
+    }
     // Record a trunk BodyOutcome ONLY for the linear/no-ForEach case, where the trunk
     // is the whole pipeline (one outcome, like a linear run). When ForEach regions
     // exist, `body_outcomes` must be the per-item bodies only — the trunk caps surface
@@ -904,30 +937,54 @@ pub async fn execute_plan(
         region_band / regions.len() as f32
     };
     for (ri, region) in regions.iter().enumerate() {
-        let input_items = node_data.get(&region.input_node).cloned().ok_or_else(|| {
-            ExecutionError::HostError(format!(
-                "ForEach region '{}' input '{}' produced no data (have: {:?})",
-                region.fe_id,
-                region.input_node,
-                node_data.keys().collect::<Vec<_>>()
-            ))
-        })?;
+        // The region's item source, by input kind:
+        // - a LIVE reference feeding the region directly → the HOST opens the
+        //   device (13.2 §Reference Media, host resolution) and bodies
+        //   dispatch per item WHILE the capture runs;
+        // - bounded in-memory trunk output;
+        // - a SPOOL FILE (an unbounded trunk stream that ended when its feed
+        //   stopped) — indexed once, items streamed from the file so the
+        //   whole capture is never memory-resident.
+        let source: RegionItemSource =
+            if let Some((reference_urn, selector_bytes)) = live_region_inputs.get(&region.input_node)
+            {
+                let selector = crate::bifaci::live_feed::LiveFeedSelector::parse(selector_bytes)
+                    .map_err(|e| {
+                        ExecutionError::HostError(format!(
+                            "live source '{}' feeding ForEach region '{}': {e}",
+                            reference_urn, region.fe_id
+                        ))
+                    })?;
+                let opened = crate::capture::open(
+                    reference_urn,
+                    selector,
+                    Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                )
+                .map_err(|e| {
+                    ExecutionError::HostError(format!(
+                        "host capture for ForEach region '{}': {e}",
+                        region.fe_id
+                    ))
+                })?;
+                // Register the tap so a run stop closes it (drain semantics,
+                // 15.2 §Runs Stop).
+                runtime.on_host_feed_open(&opened.handle);
+                region_source_from_live(opened)
+            } else if let Some(items) = node_data.get(&region.input_node) {
+                region_source_from_memory(items.clone())
+            } else if let Some(path) = node_spools.get(&region.input_node) {
+                let index = scan_spooled_sequence(path).await?;
+                region_source_from_spool(path.clone(), index)
+            } else {
+                return Err(ExecutionError::HostError(format!(
+                    "ForEach region '{}' input '{}' produced no data (have: {:?})",
+                    region.fe_id,
+                    region.input_node,
+                    node_data.keys().collect::<Vec<_>>()
+                )));
+            };
         let body_plan = build_body_subplan(plan, region);
         let base = trunk_weight + region_slice * ri as f32;
-
-        let foreach_items: Vec<ForEachItemSnapshot> = input_items
-            .iter()
-            .enumerate()
-            .map(|(body_index, bytes)| ForEachItemSnapshot {
-                foreach_token_id: region.step_token_id.clone(),
-                body_index,
-                item_preview_text: item_preview_snippet(bytes),
-                item_byte_count: bytes.len() as u64,
-            })
-            .collect();
-        if let Some(callback) = foreach_items_fn {
-            callback(&region.step_token_id, &foreach_items)?;
-        }
 
         let per_item = run_region_bodies(
             &runtime,
@@ -935,12 +992,13 @@ pub async fn execute_plan(
             &body_plan,
             &persist_sinks,
             region,
-            &input_items,
+            source,
             cap_arguments,
             progress_fn,
             step_progress_fn,
             log_fn,
             item_fn,
+            foreach_items_fn,
             body_outcome_fn,
             base,
             region_slice,
@@ -986,10 +1044,25 @@ pub async fn execute_plan(
                 continue;
             }
             let items = node_data.get(&edge.from_node).ok_or_else(|| {
-                ExecutionError::HostError(format!(
-                    "post-region segment needs '{}' but it produced no data",
-                    edge.from_node
-                ))
+                if node_spools.contains_key(&edge.from_node) {
+                    // Strict-state refusal, precisely named: the producer's
+                    // unbounded stream was spooled at a chain-split boundary,
+                    // and spools do not cross the region/post segment
+                    // boundary — the post segment materializes its roots
+                    // from memory.
+                    ExecutionError::HostError(format!(
+                        "post-region segment needs '{}', but that node is an \
+                         UNBOUNDED intermediate spooled to disk — a spooled stream \
+                         cannot cross into the post-region segment; consume it \
+                         within its own segment or restructure the machine",
+                        edge.from_node
+                    ))
+                } else {
+                    ExecutionError::HostError(format!(
+                        "post-region segment needs '{}' but it produced no data",
+                        edge.from_node
+                    ))
+                }
             })?;
             let is_seq = *node_seq.get(&edge.from_node).ok_or_else(|| {
                 ExecutionError::HostError(format!(
@@ -1042,6 +1115,10 @@ pub async fn execute_plan(
         }
         for (sink, ws) in post_seg.writer_results {
             node_writers.entry(sink).or_default().extend(ws);
+        }
+        for path in post_seg.node_spool.values() {
+            // Consumed within the post segment; nothing after it reads them.
+            let _ = std::fs::remove_file(path);
         }
     }
 
@@ -1109,18 +1186,252 @@ pub async fn execute_plan(
 /// item's full body `node_data` (so every body node — in-body fan-out included — is
 /// captured) and honoring the runtime's partial-failure policy.
 #[allow(clippy::too_many_arguments)]
+/// One indexed item of a spooled region input: where its self-delimiting
+/// CBOR value sits in the file, plus the UI snapshot facts gathered during
+/// the single indexing pass (so snapshots never require a second decode).
+struct SpoolItemEntry {
+    offset: u64,
+    len: u64,
+    raw_len: u64,
+    preview: Option<String>,
+}
+type SpoolItemIndex = Vec<SpoolItemEntry>;
+
+/// Index a spooled CBOR sequence: one pass, one item resident at a time.
+async fn scan_spooled_sequence(
+    path: &std::path::Path,
+) -> Result<SpoolItemIndex, ExecutionError> {
+    use tokio::io::AsyncReadExt;
+    let mut file = tokio::fs::File::open(path).await.map_err(|e| {
+        ExecutionError::HostError(format!(
+            "failed to open region input spool '{}': {e}",
+            path.display()
+        ))
+    })?;
+    let mut index = SpoolItemIndex::new();
+    let mut buf: Vec<u8> = Vec::new();
+    let mut read_buf = vec![0u8; 256 * 1024];
+    let mut offset: u64 = 0;
+    loop {
+        let n = file.read(&mut read_buf).await.map_err(|e| {
+            ExecutionError::HostError(format!(
+                "failed to read region input spool '{}': {e}",
+                path.display()
+            ))
+        })?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&read_buf[..n]);
+        loop {
+            if buf.is_empty() {
+                break;
+            }
+            let mut cursor = std::io::Cursor::new(buf.as_slice());
+            let value: ciborium::Value = match ciborium::de::from_reader(&mut cursor) {
+                Ok(v) => v,
+                Err(_) => break, // incomplete — read more
+            };
+            let consumed = cursor.position() as u64;
+            let raw = crate::orchestrator::stream_io::unwrap_cbor_value(value, index.len())
+                .map_err(|e| {
+                    ExecutionError::HostError(format!(
+                        "region input spool '{}' item {}: {e}",
+                        path.display(),
+                        index.len()
+                    ))
+                })?;
+            index.push(SpoolItemEntry {
+                offset,
+                len: consumed,
+                raw_len: raw.len() as u64,
+                preview: item_preview_snippet(&raw),
+            });
+            offset += consumed;
+            buf.drain(..consumed as usize);
+        }
+    }
+    if !buf.is_empty() {
+        return Err(ExecutionError::HostError(format!(
+            "{} bytes of an incomplete CBOR item at the end of region input spool              '{}' — truncated intermediate",
+            buf.len(),
+            path.display()
+        )));
+    }
+    Ok(index)
+}
+
+/// Read + decode ONE spooled item for a body dispatch.
+async fn read_spool_item(
+    path: &std::path::Path,
+    offset: u64,
+    len: u64,
+    item_index: usize,
+) -> Result<Vec<u8>, ExecutionError> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let mut file = tokio::fs::File::open(path).await.map_err(|e| {
+        ExecutionError::HostError(format!(
+            "failed to open region input spool '{}': {e}",
+            path.display()
+        ))
+    })?;
+    file.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| {
+        ExecutionError::HostError(format!(
+            "failed to seek region input spool '{}': {e}",
+            path.display()
+        ))
+    })?;
+    let mut bytes = vec![0u8; len as usize];
+    file.read_exact(&mut bytes).await.map_err(|e| {
+        ExecutionError::HostError(format!(
+            "failed to read item {item_index} from region input spool '{}': {e}",
+            path.display()
+        ))
+    })?;
+    let value: ciborium::Value = ciborium::de::from_reader(bytes.as_slice()).map_err(|e| {
+        ExecutionError::HostError(format!(
+            "region input spool '{}' item {item_index} does not decode: {e}",
+            path.display()
+        ))
+    })?;
+    crate::orchestrator::stream_io::unwrap_cbor_value(value, item_index)
+        .map_err(|e| ExecutionError::HostError(e.to_string()))
+}
+
+/// One item delivered to the region driver: the RAW body-input bytes plus
+/// the UI facts computed where the bytes were last resident.
+struct RegionItemDelivery {
+    bytes: Vec<u8>,
+    preview: Option<String>,
+    byte_count: u64,
+}
+
+/// A region's item source, unified across the three input kinds: bounded
+/// in-memory items, an ended unbounded stream spooled to disk, and a LIVE
+/// host-opened feed (13.2 §Reference Media, host resolution). A per-source
+/// task feeds a small bounded channel; the driver dispatches one body per
+/// delivery as it arrives — for a live feed that is per-item dispatch WHILE
+/// the capture runs.
+struct RegionItemSource {
+    rx: tokio::sync::mpsc::Receiver<Result<RegionItemDelivery, ExecutionError>>,
+    /// `Some(n)` when the item total is known up front (memory / spool);
+    /// `None` for a live feed — the total exists only once the feed ends.
+    known_total: Option<usize>,
+    /// The host-held tap of a live source (stop/drain + overrun accounting).
+    feed_handle: Option<crate::bifaci::live_feed::LiveFeedHandle>,
+}
+
+/// Source-task channel capacity: small on purpose — dispatch (bounded by
+/// the in-flight semaphore) is the pacing stage, not this buffer.
+const REGION_SOURCE_CHANNEL_CAP: usize = 4;
+
+fn region_source_from_memory(items: Vec<Vec<u8>>) -> RegionItemSource {
+    let known = items.len();
+    let (tx, rx) = tokio::sync::mpsc::channel(REGION_SOURCE_CHANNEL_CAP);
+    tokio::spawn(async move {
+        for bytes in items {
+            let delivery = RegionItemDelivery {
+                preview: item_preview_snippet(&bytes),
+                byte_count: bytes.len() as u64,
+                bytes,
+            };
+            if tx.send(Ok(delivery)).await.is_err() {
+                return; // driver gone (region failed) — nothing to do
+            }
+        }
+    });
+    RegionItemSource {
+        rx,
+        known_total: Some(known),
+        feed_handle: None,
+    }
+}
+
+fn region_source_from_spool(path: std::path::PathBuf, index: SpoolItemIndex) -> RegionItemSource {
+    let known = index.len();
+    let (tx, rx) = tokio::sync::mpsc::channel(REGION_SOURCE_CHANNEL_CAP);
+    tokio::spawn(async move {
+        for (i, entry) in index.iter().enumerate() {
+            let delivery = match read_spool_item(&path, entry.offset, entry.len, i).await {
+                Ok(bytes) => Ok(RegionItemDelivery {
+                    preview: entry.preview.clone(),
+                    byte_count: entry.raw_len,
+                    bytes,
+                }),
+                Err(e) => Err(e),
+            };
+            let failed = delivery.is_err();
+            if tx.send(delivery).await.is_err() || failed {
+                return;
+            }
+        }
+    });
+    RegionItemSource {
+        rx,
+        known_total: Some(known),
+        feed_handle: None,
+    }
+}
+
+/// Bridge a HOST-opened live feed into the driver: unwrap each delivered
+/// CBOR item to its raw bytes and compute its UI facts while it is
+/// resident. A stream error (device failure, declared overrun failure) is
+/// delivered as the source's terminal error — the region fails, it never
+/// ends silently short.
+fn region_source_from_live(opened: crate::bifaci::live_feed::OpenedFeed) -> RegionItemSource {
+    let handle = opened.handle.clone();
+    let mut feed_rx = opened.rx;
+    let (tx, rx) = tokio::sync::mpsc::channel(REGION_SOURCE_CHANNEL_CAP);
+    tokio::spawn(async move {
+        while let Some(delivered) = feed_rx.recv().await {
+            let delivery = match delivered {
+                Ok((value, _meta)) => match value {
+                    ciborium::Value::Bytes(bytes) => Ok(RegionItemDelivery {
+                        preview: item_preview_snippet(&bytes),
+                        byte_count: bytes.len() as u64,
+                        bytes,
+                    }),
+                    other => Err(ExecutionError::HostError(format!(
+                        "live feed delivered a non-bytes item ({other:?}) — the \
+                         capture contract delivers raw payload bytes"
+                    ))),
+                },
+                Err(e) => Err(ExecutionError::HostError(format!(
+                    "live feed failed while driving the ForEach region: {e}"
+                ))),
+            };
+            let failed = delivery.is_err();
+            if tx.send(delivery).await.is_err() || failed {
+                return;
+            }
+        }
+    });
+    RegionItemSource {
+        rx,
+        known_total: None,
+        feed_handle: Some(handle),
+    }
+}
+
+/// Bound on region bodies IN FLIGHT at once. Cartridge capacity gates the
+/// actual work; this bounds host-side memory (each in-flight body holds its
+/// item bytes) so a long feed never loads all its items at once.
+const REGION_BODY_MAX_IN_FLIGHT: usize = 32;
+
+#[allow(clippy::too_many_arguments)]
 async fn run_region_bodies(
     runtime: &Arc<dyn EngineRuntime>,
     registry: &Arc<FabricRegistry>,
     body_subplan: &MachinePlan,
     persist_sinks: &HashSet<String>,
     region: &Region,
-    input_items: &[Vec<u8>],
+    mut source: RegionItemSource,
     cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
     progress_fn: Option<&CapProgressFn>,
     step_progress_fn: Option<&CapStepProgressFn>,
     log_fn: Option<&PipelineLogFn>,
     item_fn: Option<&PipelineItemFn>,
+    foreach_items_fn: Option<&ForEachItemsFn>,
     body_outcome_fn: Option<&BodyOutcomeFn>,
     progress_base: f32,
     progress_weight: f32,
@@ -1132,16 +1443,26 @@ async fn run_region_bodies(
     )>,
     ExecutionError,
 > {
-    let item_count = input_items.len();
     let fe_token_id = region.step_token_id.clone();
+    let known_total = source.known_total;
+    // Hoisted so the select handlers never touch `source` while an arm
+    // future borrows its receiver.
+    let feed_handle = source.feed_handle.take();
 
-    let body_progress_slots: Arc<Vec<AtomicU32>> = Arc::new(
-        (0..item_count)
-            .map(|_| AtomicU32::new(0f32.to_bits()))
-            .collect(),
-    );
+    // Per-body progress slots, grown as items are dispatched (a live feed's
+    // total is unknown until it ends). Aggregated step progress divides by
+    // the known total when there is one, else by the dispatched count, and
+    // passes through a monotone clamp so the bar never runs backwards while
+    // the denominator grows.
+    let body_progress_slots: Arc<std::sync::Mutex<Vec<f32>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let dispatched_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    // Non-negative f32 bit patterns order like the floats — fetch_max works.
+    let reported_step_bits = Arc::new(AtomicU32::new(0f32.to_bits()));
     let stall_tracker = Arc::new(PipelineProgressTracker::new());
     let mut stall_warning_logged = false;
+
+    let body_permits = Arc::new(tokio::sync::Semaphore::new(REGION_BODY_MAX_IN_FLIGHT));
 
     type BodyOk = (
         usize,
@@ -1153,88 +1474,39 @@ async fn run_region_bodies(
 
     let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<Result<BodyOk, BodyErr>>();
 
-    for (i, raw_item_bytes) in input_items.iter().enumerate() {
-        let runtime = runtime.clone();
-        let registry = registry.clone();
-        let body_subplan = body_subplan.clone();
-        let persist_sinks = persist_sinks.clone();
-        let body_input_id = region.body_input_id.clone();
-        let cap_arguments = cap_arguments.clone();
-        let raw_item_bytes = raw_item_bytes.clone();
-        let body_log_fn = log_fn.cloned();
-        let body_stall_tracker = stall_tracker.clone();
-        let done_tx = done_tx.clone();
-        let body_coordinate = ForEachBodyCoordinate {
-            foreach_token_id: fe_token_id.clone(),
-            body_index: i,
-        };
-
-        let item_pfn: Option<CapProgressFn> = progress_fn.map(|parent| {
-            let parent = parent.clone();
-            let slots = body_progress_slots.clone();
-            let tracker = stall_tracker.clone();
-            let n = item_count as f32;
-            let step_sink = step_progress_fn.cloned();
-            let fe_token_id = fe_token_id.clone();
-            Arc::new(move |p: f32, cap_urn: &str, msg: &str| {
-                slots[i].store(p.to_bits(), Ordering::Relaxed);
-                tracker.touch();
-                let sum: f32 = slots
-                    .iter()
-                    .map(|s| f32::from_bits(s.load(Ordering::Relaxed)))
-                    .sum();
-                let step = if n > 0.0 { sum / n } else { 0.0 };
-                if let Some(sink) = &step_sink {
-                    sink(step.clamp(0.0, 1.0), cap_urn, &fe_token_id);
-                }
-                parent(progress_base + progress_weight * step, cap_urn, msg);
-            }) as CapProgressFn
-        });
-
-        tokio::spawn(async move {
-            let started = Instant::now();
-            let mut roots: HashMap<String, (PlanInput, bool)> = HashMap::new();
-            roots.insert(body_input_id, (PlanInput::Bytes(raw_item_bytes), false));
-            // The item's local progress is [0,1]; item_pfn aggregates it across items.
-            let res = run_subplan(
-                &runtime,
-                &registry,
-                &body_subplan,
-                roots,
-                &persist_sinks,
-                &cap_arguments,
-                item_pfn.as_ref(),
-                None,
-                body_log_fn.as_ref(),
-                Some(body_coordinate),
-                Some(body_stall_tracker),
-                0.0,
-                1.0,
-            )
-            .await;
-            let ms = started.elapsed().as_millis() as u64;
-            let _ = match res {
-                Ok(seg) => done_tx.send(Ok((i, seg.node_data, seg.writer_results, ms))),
-                Err(e) => done_tx.send(Err((i, e, ms))),
-            };
-        });
-    }
-    drop(done_tx);
-
+    let mut source_done = false;
+    let mut dispatched = 0usize;
+    let mut completed = 0usize;
+    let mut succeeded = 0usize;
+    let mut failed = 0usize;
     let mut item_results: Vec<
         Option<(
             HashMap<String, Vec<Vec<u8>>>,
             HashMap<String, Vec<WriterResult>>,
         )>,
-    > = (0..item_count).map(|_| None).collect();
-    let mut completed = 0usize;
-    let mut succeeded = 0usize;
-    let mut failed = 0usize;
+    > = Vec::new();
+    let mut item_facts: Vec<(Option<String>, u64)> = Vec::new();
 
-    while completed < item_count {
+    // Shared step aggregation: slot sum over the denominator, monotone.
+    let aggregate_step = {
+        let slots = body_progress_slots.clone();
+        let dispatched = dispatched_counter.clone();
+        let reported = reported_step_bits.clone();
+        move || -> f32 {
+            let sum: f32 = slots.lock().expect("progress slots").iter().sum();
+            let denom = known_total
+                .unwrap_or_else(|| dispatched.load(Ordering::Relaxed))
+                .max(1) as f32;
+            let raw = (sum / denom).clamp(0.0, 1.0);
+            let bits = reported.fetch_max(raw.to_bits(), Ordering::Relaxed);
+            f32::from_bits(bits.max(raw.to_bits()))
+        }
+    };
+
+    while !(source_done && completed >= dispatched) {
         tokio::select! {
             biased;
-            recv = done_rx.recv() => {
+            recv = done_rx.recv(), if completed < dispatched => {
                 let Some(result) = recv else { break };
                 match result {
                     Ok((i, node_data, writers, ms)) => {
@@ -1260,15 +1532,15 @@ async fn run_region_bodies(
                             saved_paths,
                             total_bytes: item_bytes,
                             duration_ms: ms,
-                            item_preview_text: input_items.get(i).and_then(|b| item_preview_snippet(b)),
-                            item_byte_count: input_items.get(i).map(|b| b.len() as u64).unwrap_or(0),
+                            item_preview_text: item_facts.get(i).and_then(|f| f.0.clone()),
+                            item_byte_count: item_facts.get(i).map(|f| f.1).unwrap_or(0),
                         });
                         if let Some(bofn) = body_outcome_fn { bofn(body_outcomes)?; }
                         if let Some(ifn) = item_fn {
                             // Surface the region's body-entry per-item output as it lands.
                             if let Some(items) = node_data.get(&region.body_entry) {
                                 for d in items {
-                                    ifn(&OutputItem { data: d.clone(), index: i }, item_count);
+                                    ifn(&OutputItem { data: d.clone(), index: i }, known_total.unwrap_or(dispatched));
                                 }
                             }
                         }
@@ -1292,8 +1564,8 @@ async fn run_region_bodies(
                             saved_paths: vec![],
                             total_bytes: 0,
                             duration_ms: ms,
-                            item_preview_text: input_items.get(i).and_then(|b| item_preview_snippet(b)),
-                            item_byte_count: input_items.get(i).map(|b| b.len() as u64).unwrap_or(0),
+                            item_preview_text: item_facts.get(i).and_then(|f| f.0.clone()),
+                            item_byte_count: item_facts.get(i).map(|f| f.1).unwrap_or(0),
                         });
                         if let Some(bofn) = body_outcome_fn { bofn(body_outcomes)?; }
                         tracing::error!("[execute_plan] region '{}' body {i} failed: {e}", region.fe_id);
@@ -1302,10 +1574,161 @@ async fn run_region_bodies(
                     }
                 }
                 if let Some(pfn) = progress_fn {
-                    let sum: f32 =
-                        body_progress_slots.iter().map(|s| f32::from_bits(s.load(Ordering::Relaxed))).sum();
-                    let step = if item_count > 0 { sum / item_count as f32 } else { 1.0 };
-                    pfn(progress_base + progress_weight * step, "", &format!("Completed {completed}/{item_count}"));
+                    let step = aggregate_step();
+                    let total_display = known_total.unwrap_or(dispatched);
+                    pfn(progress_base + progress_weight * step, "", &format!("Completed {completed}/{total_display}"));
+                }
+            }
+            delivered = async {
+                let permit = body_permits
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .expect("region body semaphore is never closed");
+                let item = source.rx.recv().await;
+                (permit, item)
+            }, if !source_done => {
+                let (permit, item) = delivered;
+                match item {
+                    None => {
+                        drop(permit);
+                        source_done = true;
+                        // Overruns at a host-held capture edge are counted loss
+                        // (12.5 §Overrun) — surface them, never silently.
+                        if let Some(handle) = &feed_handle {
+                            let overruns = handle.overruns();
+                            if overruns > 0 {
+                                if let Some(lfn) = log_fn {
+                                    lfn(PipelineLogRecord {
+                                        step_token_id: Some(region.step_token_id.clone()),
+                                        cap_urn: None,
+                                        level: "warn".to_string(),
+                                        attribution_class: crate::AttributionClass::Resource,
+                                        message: format!(
+                                            "live feed dropped {overruns} item(s) at the capture \
+                                             edge (drop-oldest overrun policy) — bodies ran on \
+                                             the delivered items only"
+                                        ),
+                                        meta: None,
+                                        body_index: None,
+                                        arg_urn: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        drop(permit);
+                        // The SOURCE failed (device died, spool corrupt): the
+                        // region's input is incomplete — this is an input
+                        // failure of the whole region, not a body failure,
+                        // and no partial-failure policy applies.
+                        return Err(ExecutionError::StepFailed {
+                            step_token_id: region.step_token_id.clone(),
+                            source: Box::new(e),
+                        });
+                    }
+                    Some(Ok(delivery)) => {
+                        let i = dispatched;
+                        item_facts.push((delivery.preview.clone(), delivery.byte_count));
+                        item_results.push(None);
+                        body_progress_slots.lock().expect("progress slots").push(0.0);
+                        dispatched_counter.store(i + 1, Ordering::Relaxed);
+
+                        // The item's snapshot is published BEFORE its body
+                        // spawns — append-only deltas, one per item (the total
+                        // is unknowable for a live feed until it ends).
+                        if let Some(callback) = foreach_items_fn {
+                            callback(&fe_token_id, &[ForEachItemSnapshot {
+                                foreach_token_id: fe_token_id.clone(),
+                                body_index: i,
+                                item_preview_text: delivery.preview.clone(),
+                                item_byte_count: delivery.byte_count,
+                            }])?;
+                        }
+
+                        let runtime = runtime.clone();
+                        let registry = registry.clone();
+                        let body_subplan = body_subplan.clone();
+                        let persist_sinks = persist_sinks.clone();
+                        let body_input_id = region.body_input_id.clone();
+                        let cap_arguments = cap_arguments.clone();
+                        let body_log_fn = log_fn.cloned();
+                        let body_stall_tracker = stall_tracker.clone();
+                        let done_tx = done_tx.clone();
+                        let body_coordinate = ForEachBodyCoordinate {
+                            foreach_token_id: fe_token_id.clone(),
+                            body_index: i,
+                        };
+
+                        let item_pfn: Option<CapProgressFn> = progress_fn.map(|parent| {
+                            let parent = parent.clone();
+                            let slots = body_progress_slots.clone();
+                            let tracker = stall_tracker.clone();
+                            let dispatched_now = dispatched_counter.clone();
+                            let reported = reported_step_bits.clone();
+                            let step_sink = step_progress_fn.cloned();
+                            let fe_token_id = fe_token_id.clone();
+                            Arc::new(move |p: f32, cap_urn: &str, msg: &str| {
+                                {
+                                    let mut slots = slots.lock().expect("progress slots");
+                                    if let Some(slot) = slots.get_mut(i) {
+                                        *slot = p;
+                                    }
+                                }
+                                tracker.touch();
+                                let sum: f32 = slots.lock().expect("progress slots").iter().sum();
+                                let denom = known_total
+                                    .unwrap_or_else(|| dispatched_now.load(Ordering::Relaxed))
+                                    .max(1) as f32;
+                                let raw = (sum / denom).clamp(0.0, 1.0);
+                                let bits = reported.fetch_max(raw.to_bits(), Ordering::Relaxed);
+                                let step = f32::from_bits(bits.max(raw.to_bits()));
+                                if let Some(sink) = &step_sink {
+                                    sink(step, cap_urn, &fe_token_id);
+                                }
+                                parent(progress_base + progress_weight * step, cap_urn, msg);
+                            }) as CapProgressFn
+                        });
+
+                        let raw_item_bytes = delivery.bytes;
+                        tokio::spawn(async move {
+                            let _permit = permit;
+                            let started = Instant::now();
+                            let mut roots: HashMap<String, (PlanInput, bool)> = HashMap::new();
+                            roots.insert(body_input_id, (PlanInput::Bytes(raw_item_bytes), false));
+                            // The item's local progress is [0,1]; item_pfn aggregates it across items.
+                            let res = run_subplan(
+                                &runtime,
+                                &registry,
+                                &body_subplan,
+                                roots,
+                                &persist_sinks,
+                                &cap_arguments,
+                                item_pfn.as_ref(),
+                                None,
+                                body_log_fn.as_ref(),
+                                Some(body_coordinate),
+                                Some(body_stall_tracker),
+                                0.0,
+                                1.0,
+                            )
+                            .await;
+                            let ms = started.elapsed().as_millis() as u64;
+                            let _ = match res {
+                                Ok(seg) => {
+                                    // A body-internal spool was consumed within the body's
+                                    // own segment; nothing after the body reads it.
+                                    for path in seg.node_spool.values() {
+                                        let _ = std::fs::remove_file(path);
+                                    }
+                                    done_tx.send(Ok((i, seg.node_data, seg.writer_results, ms)))
+                                }
+                                Err(e) => done_tx.send(Err((i, e, ms))),
+                            };
+                        });
+                        dispatched += 1;
+                    }
                 }
             }
             _ = tokio::time::sleep(Duration::from_secs(5)) => {
@@ -1331,7 +1754,9 @@ async fn run_region_bodies(
             }
         }
     }
+    drop(done_tx);
 
+    let item_count = dispatched;
     if failed > 0 {
         let policy = runtime.foreach_partial_failure_policy().await;
         let should_fail = match policy.as_str() {
@@ -1517,8 +1942,556 @@ mod tests {
                 node_is_sequence: HashMap::from([(edge.to.clone(), false)]),
                 writer_results: HashMap::new(),
                 terminal_meta: HashMap::new(),
+                node_spool: HashMap::new(),
             })
         }
+    }
+
+    /// A runtime that records the PlanInput map its segment received —
+    /// pinning what the ENGINE hands the executor for a live source.
+    struct InputCapturingRuntime {
+        registry: Arc<FabricRegistry>,
+        seen_inputs: Arc<std::sync::Mutex<Vec<HashMap<String, PlanInput>>>>,
+        seen_flags: Arc<std::sync::Mutex<Vec<HashMap<String, bool>>>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for InputCapturingRuntime {
+        async fn segment_switch(
+            &self,
+            _graph: &ResolvedGraph,
+        ) -> Result<Arc<crate::bifaci::relay_switch::RelaySwitch>, ExecutionError> {
+            panic!("capturing runtime overrides run_segment")
+        }
+
+        async fn activity_timeout_secs(
+            &self,
+            _graph: &ResolvedGraph,
+        ) -> Result<u64, ExecutionError> {
+            panic!("capturing runtime overrides run_segment")
+        }
+
+        fn fabric_registry(&self) -> Arc<FabricRegistry> {
+            self.registry.clone()
+        }
+
+        async fn foreach_partial_failure_policy(&self) -> String {
+            "fail".to_string()
+        }
+
+        async fn run_segment(
+            &self,
+            graph: &ResolvedGraph,
+            initial_inputs: HashMap<String, PlanInput>,
+            initial_is_sequence: HashMap<String, bool>,
+            _cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
+            _progress_fn: Option<&CapProgressFn>,
+            _step_progress_fn: Option<&CapStepProgressFn>,
+            _log_fn: Option<&PipelineLogFn>,
+            _body_coordinate: Option<ForEachBodyCoordinate>,
+            _stall_tracker: Option<Arc<PipelineProgressTracker>>,
+            _persist_sinks: &HashSet<String>,
+        ) -> Result<SegmentOutput, ExecutionError> {
+            self.seen_inputs
+                .lock()
+                .expect("input capture lock")
+                .push(initial_inputs);
+            self.seen_flags
+                .lock()
+                .expect("flag capture lock")
+                .push(initial_is_sequence);
+            let edge = graph.edges.first().expect("segment has an edge");
+            Ok(SegmentOutput {
+                node_data: HashMap::from([(edge.to.clone(), vec![b"result".to_vec()])]),
+                node_is_sequence: HashMap::from([(edge.to.clone(), false)]),
+                writer_results: HashMap::new(),
+                terminal_meta: HashMap::new(),
+                node_spool: HashMap::new(),
+            })
+        }
+    }
+
+    // TEST1449: a live source enters the executor as PlanInput::LiveReference
+    // and reaches run_segment INTACT — reference urn and selector bytes
+    // unchanged, sequence flag true. This is the engine half of
+    // reference-forwarding (13.2 §Reference Media): losing the reference (or
+    // flattening it to bytes-only) would silently run the machine on the
+    // SELECTOR TEXT as content.
+    #[tokio::test]
+    async fn test1449_live_reference_reaches_segment_intact() {
+        let mut plan = MachinePlan::new("live-linear");
+        plan.add_node(MachineNode::input_slot(
+            "input",
+            "input",
+            "media:audio-frames;pcm",
+            crate::planner::InputCardinality::Sequence,
+        ));
+        plan.add_node(MachineNode::cap(
+            "encode",
+            "cap:encode-audio-frames;in=\"media:audio-frames;pcm\";out=\"media:audio;ext=wav\"",
+        ));
+        plan.add_node(MachineNode::output("out", "result", "encode"));
+        plan.add_edge(MachinePlanEdge::direct("input", "encode"));
+        plan.add_edge(MachinePlanEdge::direct("encode", "out"));
+
+        let registry = FabricRegistry::new_for_test();
+        registry.add_caps_to_cache(vec![test_cap(
+            "cap:encode-audio-frames;in=\"media:audio-frames;pcm\";out=\"media:audio;ext=wav\"",
+            false,
+        )]);
+        let registry = Arc::new(registry);
+        let seen_inputs = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen_flags = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let runtime: Arc<dyn EngineRuntime> = Arc::new(InputCapturingRuntime {
+            registry,
+            seen_inputs: seen_inputs.clone(),
+            seen_flags: seen_flags.clone(),
+        });
+
+        let inputs = HashMap::from([(
+            "input".to_string(),
+            PlanInput::LiveReference {
+                reference_urn: "media:audio;live;microphone".to_string(),
+                selector: br#"{"stop":{"duration_ms":5000}}"#.to_vec(),
+            },
+        )]);
+        let flags = HashMap::from([("input".to_string(), true)]);
+        execute_plan(
+            &plan,
+            runtime,
+            inputs,
+            flags,
+            &HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("live linear plan executes");
+
+        let seen = seen_inputs.lock().expect("captured inputs");
+        assert_eq!(seen.len(), 1, "one trunk segment");
+        match seen[0].get("input").expect("live input delivered") {
+            PlanInput::LiveReference {
+                reference_urn,
+                selector,
+            } => {
+                assert_eq!(reference_urn, "media:audio;live;microphone");
+                assert_eq!(selector, br#"{"stop":{"duration_ms":5000}}"#);
+            }
+            other => panic!("live input flattened to {other:?}"),
+        }
+        let flags = seen_flags.lock().expect("captured flags");
+        assert_eq!(
+            flags[0].get("input"),
+            Some(&true),
+            "a live feed is a sequence at its anchor"
+        );
+    }
+
+    /// Handles a capless trunk (a live source feeding a region directly has
+    /// no trunk caps), records every body's input, and counts host-feed tap
+    /// registrations — proving the engine wires stop for host-opened feeds.
+    struct LiveRegionRuntime {
+        registry: Arc<FabricRegistry>,
+        body_inputs: Arc<std::sync::Mutex<Vec<HashMap<String, PlanInput>>>>,
+        taps_registered: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for LiveRegionRuntime {
+        async fn segment_switch(
+            &self,
+            _graph: &ResolvedGraph,
+        ) -> Result<Arc<crate::bifaci::relay_switch::RelaySwitch>, ExecutionError> {
+            panic!("live region runtime overrides run_segment")
+        }
+
+        async fn activity_timeout_secs(
+            &self,
+            _graph: &ResolvedGraph,
+        ) -> Result<u64, ExecutionError> {
+            panic!("live region runtime overrides run_segment")
+        }
+
+        fn fabric_registry(&self) -> Arc<FabricRegistry> {
+            self.registry.clone()
+        }
+
+        async fn foreach_partial_failure_policy(&self) -> String {
+            "fail".to_string()
+        }
+
+        fn on_host_feed_open(&self, _handle: &crate::bifaci::live_feed::LiveFeedHandle) {
+            self.taps_registered
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        async fn run_segment(
+            &self,
+            graph: &ResolvedGraph,
+            initial_inputs: HashMap<String, PlanInput>,
+            _initial_is_sequence: HashMap<String, bool>,
+            _cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
+            _progress_fn: Option<&CapProgressFn>,
+            _step_progress_fn: Option<&CapStepProgressFn>,
+            _log_fn: Option<&PipelineLogFn>,
+            body_coordinate: Option<ForEachBodyCoordinate>,
+            _stall_tracker: Option<Arc<PipelineProgressTracker>>,
+            _persist_sinks: &HashSet<String>,
+        ) -> Result<SegmentOutput, ExecutionError> {
+            if body_coordinate.is_some() {
+                let edge = graph.edges.first().expect("body graph has an edge");
+                self.body_inputs
+                    .lock()
+                    .expect("body input capture lock")
+                    .push(initial_inputs);
+                return Ok(SegmentOutput {
+                    node_data: HashMap::from([(edge.to.clone(), vec![b"mapped".to_vec()])]),
+                    node_is_sequence: HashMap::from([(edge.to.clone(), false)]),
+                    writer_results: HashMap::new(),
+                    terminal_meta: HashMap::new(),
+                    node_spool: HashMap::new(),
+                });
+            }
+            // The trunk of a direct live→region plan has NO caps: nothing to
+            // run, nothing produced.
+            Ok(SegmentOutput {
+                node_data: HashMap::new(),
+                node_is_sequence: HashMap::new(),
+                writer_results: HashMap::new(),
+                terminal_meta: HashMap::new(),
+                node_spool: HashMap::new(),
+            })
+        }
+    }
+
+    // TEST1454: a live source mapped DIRECTLY into a ForEach region is
+    // resolved BY THE HOST (13.2 §Reference Media, host resolution): the
+    // engine opens the feed through the built-in capture dispatch — here the
+    // real `media:live;synthetic` backend, no mocks of the seam — and
+    // dispatches one body per delivered item while the feed runs. The tap is
+    // registered with the runtime so a run stop can close it.
+    #[tokio::test]
+    async fn test1454_live_source_drives_foreach_region_host_side() {
+        let mut plan = MachinePlan::new("live-foreach");
+        plan.add_node(MachineNode::input_slot(
+            "input",
+            "input",
+            "media:feed-frames",
+            crate::planner::InputCardinality::Sequence,
+        ));
+        plan.add_node(MachineNode::cap(
+            "mapper",
+            "cap:in=\"media:feed-frames\";map;out=\"media:fmt=json;record\"",
+        ));
+        plan.add_node(MachineNode::for_each_token(
+            "fe",
+            "input",
+            "mapper",
+            "mapper",
+            "live-foreach-token".to_string(),
+        ));
+        plan.add_node(MachineNode::output("out", "result", "mapper"));
+        plan.add_edge(MachinePlanEdge::direct("input", "fe"));
+        plan.add_edge(MachinePlanEdge::iteration("fe", "mapper"));
+        plan.add_edge(MachinePlanEdge::direct("mapper", "out"));
+
+        let registry = FabricRegistry::new_for_test();
+        registry.add_caps_to_cache(vec![test_cap(
+            "cap:in=\"media:feed-frames\";map;out=\"media:fmt=json;record\"",
+            false,
+        )]);
+        let registry = Arc::new(registry);
+        let body_inputs: Arc<std::sync::Mutex<Vec<HashMap<String, PlanInput>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let taps_registered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let runtime: Arc<dyn EngineRuntime> = Arc::new(LiveRegionRuntime {
+            registry,
+            body_inputs: body_inputs.clone(),
+            taps_registered: taps_registered.clone(),
+        });
+
+        let snapshots: Arc<std::sync::Mutex<Vec<ForEachItemSnapshot>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let snapshots_sink = snapshots.clone();
+        let items_fn: ForEachItemsFn = Arc::new(move |_token, items| {
+            snapshots_sink
+                .lock()
+                .expect("snapshot lock")
+                .extend(items.iter().cloned());
+            Ok(())
+        });
+
+        let inputs = HashMap::from([(
+            "input".to_string(),
+            PlanInput::LiveReference {
+                reference_urn: "media:live;synthetic".to_string(),
+                selector: br#"{"params":{"items":3,"interval_ms":0,"item_bytes":8}}"#.to_vec(),
+            },
+        )]);
+        let flags = HashMap::from([("input".to_string(), true)]);
+        let result = execute_plan(
+            &plan,
+            runtime,
+            inputs,
+            flags,
+            &HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&items_fn),
+        )
+        .await
+        .expect("a live source drives the region host-side");
+
+        // One body per delivered item, with the feed's actual payload bytes
+        // (the synthetic backend emits [i % 256; item_bytes]).
+        let seen = body_inputs.lock().expect("captured body inputs");
+        assert_eq!(seen.len(), 3, "one body per feed item");
+        let mut got: Vec<Vec<u8>> = seen
+            .iter()
+            .map(|m| {
+                let (_, input) = m.iter().next().expect("one body root");
+                match input {
+                    PlanInput::Bytes(b) => b.clone(),
+                    other => panic!("body root is raw item bytes, got {other:?}"),
+                }
+            })
+            .collect();
+        got.sort();
+        assert_eq!(got, vec![vec![0u8; 8], vec![1u8; 8], vec![2u8; 8]]);
+
+        // Snapshots arrived append-only, one delta per item, in index order.
+        let snaps = snapshots.lock().expect("snapshots");
+        assert_eq!(snaps.len(), 3);
+        assert!(snaps
+            .iter()
+            .enumerate()
+            .all(|(i, s)| s.body_index == i && s.item_byte_count == 8));
+
+        // The host-opened tap was registered for stop wiring.
+        assert_eq!(
+            taps_registered.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the engine must be able to close the feed on a run stop"
+        );
+
+        // The region terminal assembled one item per body.
+        let terminal = result.terminal("out").expect("region terminal");
+        assert!(terminal.is_sequence);
+        assert_eq!(terminal.items.len(), 3);
+    }
+
+    /// Trunk returns its region-input node SPOOLED (the unbounded-feed
+    /// shape); body calls are recorded so per-item dispatch is provable.
+    struct SpooledTrunkRuntime {
+        registry: Arc<FabricRegistry>,
+        spool_path: std::path::PathBuf,
+        body_inputs: Arc<std::sync::Mutex<Vec<HashMap<String, PlanInput>>>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for SpooledTrunkRuntime {
+        async fn segment_switch(
+            &self,
+            _graph: &ResolvedGraph,
+        ) -> Result<Arc<crate::bifaci::relay_switch::RelaySwitch>, ExecutionError> {
+            panic!("spooled trunk runtime overrides run_segment")
+        }
+
+        async fn activity_timeout_secs(
+            &self,
+            _graph: &ResolvedGraph,
+        ) -> Result<u64, ExecutionError> {
+            panic!("spooled trunk runtime overrides run_segment")
+        }
+
+        fn fabric_registry(&self) -> Arc<FabricRegistry> {
+            self.registry.clone()
+        }
+
+        async fn foreach_partial_failure_policy(&self) -> String {
+            "fail".to_string()
+        }
+
+        async fn run_segment(
+            &self,
+            graph: &ResolvedGraph,
+            initial_inputs: HashMap<String, PlanInput>,
+            _initial_is_sequence: HashMap<String, bool>,
+            _cap_arguments: &HashMap<String, Vec<(String, Vec<u8>)>>,
+            _progress_fn: Option<&CapProgressFn>,
+            _step_progress_fn: Option<&CapStepProgressFn>,
+            _log_fn: Option<&PipelineLogFn>,
+            body_coordinate: Option<ForEachBodyCoordinate>,
+            _stall_tracker: Option<Arc<PipelineProgressTracker>>,
+            _persist_sinks: &HashSet<String>,
+        ) -> Result<SegmentOutput, ExecutionError> {
+            let edge = graph.edges.first().expect("segment has an edge");
+            if body_coordinate.is_some() {
+                // A region body: record the item it was dispatched with and
+                // produce a per-item result.
+                self.body_inputs
+                    .lock()
+                    .expect("body input capture lock")
+                    .push(initial_inputs);
+                return Ok(SegmentOutput {
+                    node_data: HashMap::from([(edge.to.clone(), vec![b"upscaled".to_vec()])]),
+                    node_is_sequence: HashMap::from([(edge.to.clone(), false)]),
+                    writer_results: HashMap::new(),
+                    terminal_meta: HashMap::new(),
+                    node_spool: HashMap::new(),
+                });
+            }
+            // The trunk: its sink was an UNBOUNDED stream that ended — the
+            // executor spooled it. Write the spool (3 CBOR Bytes items) and
+            // return it WITHOUT in-memory node_data, exactly as
+            // run_dag_on_context does for an engaged spool.
+            let mut spool_bytes = Vec::new();
+            for i in 0..3u8 {
+                ciborium::ser::into_writer(
+                    &ciborium::Value::Bytes(format!("frame-{i}").into_bytes()),
+                    &mut spool_bytes,
+                )
+                .expect("encode spool item");
+            }
+            std::fs::write(&self.spool_path, &spool_bytes).expect("write spool file");
+            Ok(SegmentOutput {
+                node_data: HashMap::new(),
+                node_is_sequence: HashMap::from([(edge.to.clone(), true)]),
+                writer_results: HashMap::new(),
+                terminal_meta: HashMap::new(),
+                node_spool: HashMap::from([(edge.to.clone(), self.spool_path.clone())]),
+            })
+        }
+    }
+
+    // TEST1456: an UNBOUNDED trunk stream (a live capture's content) that
+    // ended and was SPOOLED drives a ForEach region — per-item dispatch
+    // streams items from the spool file: every item gets its own body with
+    // the right bytes, the snapshots carry real per-item facts, the region
+    // output assembles in item order, and the spool file is removed when the
+    // plan completes. This is the `cam → bridge → foreach(filter)` machine
+    // shape; refusing it was scaffolding, not design.
+    #[tokio::test]
+    async fn test1456_spooled_unbounded_input_drives_foreach_region() {
+        let mut plan = MachinePlan::new("spooled-foreach");
+        plan.add_node(MachineNode::input_slot(
+            "input",
+            "input",
+            "media:ext=pdf",
+            crate::planner::InputCardinality::Single,
+        ));
+        plan.add_node(MachineNode::cap(
+            "bridge",
+            "cap:frames;in=\"media:ext=pdf\";out=\"media:ext=png;image\"",
+        ));
+        plan.add_node(MachineNode::cap(
+            "mapper",
+            "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\"",
+        ));
+        plan.add_node(MachineNode::for_each_token(
+            "fe",
+            "bridge",
+            "mapper",
+            "mapper",
+            "spooled-foreach-token".to_string(),
+        ));
+        plan.add_node(MachineNode::output("out", "result", "mapper"));
+        plan.add_edge(MachinePlanEdge::direct("input", "bridge"));
+        plan.add_edge(MachinePlanEdge::direct("bridge", "fe"));
+        plan.add_edge(MachinePlanEdge::iteration("fe", "mapper"));
+        plan.add_edge(MachinePlanEdge::direct("mapper", "out"));
+
+        let registry = FabricRegistry::new_for_test();
+        registry.add_caps_to_cache(vec![
+            test_cap("cap:frames;in=\"media:ext=pdf\";out=\"media:ext=png;image\"", true),
+            test_cap(
+                "cap:in=\"media:ext=png;image\";upscale;out=\"media:ext=png;image;up\"",
+                false,
+            ),
+        ]);
+        let registry = Arc::new(registry);
+
+        let dir = tempfile::tempdir().unwrap();
+        let spool_path = dir.path().join("bridge.spool");
+        let body_inputs: Arc<std::sync::Mutex<Vec<HashMap<String, PlanInput>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let runtime: Arc<dyn EngineRuntime> = Arc::new(SpooledTrunkRuntime {
+            registry,
+            spool_path: spool_path.clone(),
+            body_inputs: body_inputs.clone(),
+        });
+
+        let snapshots: Arc<std::sync::Mutex<Vec<ForEachItemSnapshot>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let snapshots_sink = snapshots.clone();
+        let items_fn: ForEachItemsFn = Arc::new(move |_token, items| {
+            snapshots_sink
+                .lock()
+                .expect("snapshot lock")
+                .extend(items.iter().cloned());
+            Ok(())
+        });
+
+        let inputs = HashMap::from([("input".to_string(), PlanInput::Bytes(b"doc".to_vec()))]);
+        let flags = HashMap::from([("input".to_string(), false)]);
+        let result = execute_plan(
+            &plan,
+            runtime,
+            inputs,
+            flags,
+            &HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&items_fn),
+        )
+        .await
+        .expect("a spooled unbounded region input executes");
+
+        // Every spooled item got its own body, with the decoded raw bytes.
+        let seen = body_inputs.lock().expect("captured body inputs");
+        assert_eq!(seen.len(), 3, "one body per spooled item");
+        let mut got: Vec<Vec<u8>> = seen
+            .iter()
+            .map(|m| {
+                let (_, input) = m.iter().next().expect("one body root");
+                match input {
+                    PlanInput::Bytes(b) => b.clone(),
+                    other => panic!("body root is raw bytes, got {other:?}"),
+                }
+            })
+            .collect();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![b"frame-0".to_vec(), b"frame-1".to_vec(), b"frame-2".to_vec()]
+        );
+
+        // Snapshots carried real per-item facts from the indexing pass.
+        let snaps = snapshots.lock().expect("snapshots");
+        assert_eq!(snaps.len(), 3);
+        assert!(snaps.iter().all(|s| s.item_byte_count == 7));
+
+        // The region output assembled as a sequence, one item per body.
+        let terminal = result.terminal("out").expect("region terminal");
+        assert!(terminal.is_sequence);
+        assert_eq!(terminal.items.len(), 3);
+
+        // The plan-level cleanup removed the spool file.
+        assert!(
+            !spool_path.exists(),
+            "spool files are removed when the plan completes"
+        );
     }
 
     /// Structural fixture: input → mapper (inside a ForEach region) → fold →
@@ -1662,10 +2635,11 @@ mod tests {
             &body_plan,
             &HashSet::new(),
             region,
-            &[b"item".to_vec()],
+            region_source_from_memory(vec![b"item".to_vec()]),
             &HashMap::new(),
             Some(&overall_progress),
             Some(&step_progress),
+            None,
             None,
             None,
             None,

@@ -884,10 +884,44 @@ impl CartridgeManager {
             {
                 // Re-verify the installed binary against the registry's
                 // signed manifest on every use — a post-install tamper of
-                // the on-disk executable must never run.
-                self.verify_cartridge_integrity(cartridge_id, &entry_point)
-                    .await?;
-                return Ok(entry_point);
+                // the on-disk executable must never run. A FAILED
+                // verification is not a dead end, though: whether the local
+                // bytes rotted or the registry re-published this version
+                // with new bytes (staging does, via --overwrite), the
+                // remedy is identical and fully gated — discard the stale
+                // install and re-download through the same
+                // sha256+size+signature pipeline. Only a fresh download
+                // that ALSO fails verification is terminal (the registry
+                // itself is inconsistent).
+                match self
+                    .verify_cartridge_integrity(cartridge_id, &entry_point)
+                    .await
+                {
+                    Ok(()) => return Ok(entry_point),
+                    Err(e) => {
+                        tracing::warn!(
+                            cartridge_id,
+                            entry_point = %entry_point.display(),
+                            error = %e,
+                            "installed cartridge failed integrity verification against the \
+                             current signed manifest — discarding the stale install and \
+                             re-downloading (every byte re-verifies before it can run)"
+                        );
+                        if let Some(version_dir) = entry_point.parent() {
+                            if let Err(rm) = fs::remove_dir_all(version_dir) {
+                                // If the stale install cannot even be removed,
+                                // the original verification failure stands —
+                                // never run unverified bytes.
+                                tracing::error!(
+                                    version_dir = %version_dir.display(),
+                                    error = %rm,
+                                    "failed to remove stale cartridge install"
+                                );
+                                return Err(e);
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -1153,8 +1187,18 @@ impl CartridgeManager {
 
         // The v5 manifest carries the absolute URL on the binary itself.
         // No URL derivation: if the manifest's URL is wrong, we want to fail
-        // hard against the URL the publisher actually committed to.
-        let download_url = binary.url.as_str();
+        // hard against the URL the publisher actually committed to. The
+        // manifest also pins the artifact's sha256 — appending it as a query
+        // param keys any CDN cache to the CONTENT: a republished
+        // (byte-different) artifact at the same path gets a new cache entry
+        // instead of serving the stale object until TTL expiry.
+        let download_url = format!(
+            "{}{}sha256={}",
+            binary.url,
+            if binary.url.contains('?') { "&" } else { "?" },
+            binary.sha256
+        );
+        let download_url = download_url.as_str();
 
         let response = reqwest::get(download_url).await.map_err(|e| {
             ExecutionError::CartridgeDownloadFailed(format!("Download failed: {}", e))
@@ -1221,7 +1265,9 @@ impl CartridgeManager {
                 format!("{}Z", now.as_secs())
             },
             installed_from: Some(crate::CartridgeInstallSource::Registry),
-            source_url: download_url.to_string(),
+            // Provenance records the URL the publisher committed to, not the
+            // content-keyed fetch URL.
+            source_url: binary.url.clone(),
             package_sha256: binary.sha256.clone(),
             package_size: binary.size,
             fabric_manifest_version: self.fabric_manifest_version,
@@ -1277,6 +1323,11 @@ pub struct ExecutionContext {
     /// consuming edge's in_media) so the receiving cartridge's demux
     /// intercepts and resolves capture — the op stays transport-blind.
     node_live_reference: HashMap<String, String>,
+    /// Nodes whose data lives in a DISK SPOOL, not in `node_data`: an
+    /// UNBOUNDED intermediate at a mandatory chain-split boundary streams to
+    /// a temp file (L16 — never unbounded memory) and downstream chain heads
+    /// feed from the file (`send_file_stream`). node id → spool path.
+    node_spool: HashMap<String, std::path::PathBuf>,
     /// Cached max chunk size from the relay.
     max_chunk: usize,
     /// Cleanup handles for masters added via add_cartridge_host.
@@ -1319,6 +1370,7 @@ impl ExecutionContext {
             node_live_reference: HashMap::new(),
             node_meta: HashMap::new(),
             node_is_sequence: HashMap::new(),
+            node_spool: HashMap::new(),
             max_chunk,
             cleanup_handles: Vec::new(),
         })
@@ -1342,6 +1394,7 @@ impl ExecutionContext {
             node_live_reference: HashMap::new(),
             node_meta: HashMap::new(),
             node_is_sequence: HashMap::new(),
+            node_spool: HashMap::new(),
             max_chunk,
             cleanup_handles: Vec::new(),
         })
@@ -1603,6 +1656,17 @@ impl ExecutionContext {
         &self.node_live_reference
     }
 
+    /// Mark a node's data as living in a disk spool (unbounded intermediate
+    /// at a chain-split boundary); downstream feeds stream from the file.
+    pub fn set_node_spool(&mut self, node: String, path: std::path::PathBuf) {
+        self.node_spool.insert(node, path);
+    }
+
+    /// Get the full node → spool-path map.
+    pub fn node_spool(&self) -> &HashMap<String, std::path::PathBuf> {
+        &self.node_spool
+    }
+
     /// Set stream metadata for a node (provenance context for ForEach propagation).
     pub fn set_node_meta(&mut self, node: String, meta: crate::StreamMeta) {
         self.node_meta.insert(node, meta);
@@ -1736,6 +1800,7 @@ pub async fn run_dag_on_context(
             node_is_sequence,
             writer_results,
             terminal_meta,
+            node_spool: HashMap::new(),
         });
     }
 
@@ -1749,51 +1814,80 @@ pub async fn run_dag_on_context(
     // capacity partition below. Persisted terminal sinks each get their own writer
     // from the factory (fan-out ⇒ several); intermediate sinks stay in memory.
     //
-    // A positive handler capacity is also a materialisation boundary. Opening
-    // several bounded invocations before feeding the chain head can deadlock when
-    // two adjacent caps resolve to the same capacity-one cartridge: the first
-    // invocation owns the permit but has no input, while opening the second waits
-    // for that permit before the feed and relay pump exist. Unlimited handlers
-    // retain the maximal live-pipeline behaviour.
+    // A materialisation boundary is ALSO forced between two ADJACENT caps
+    // that resolve to the SAME capacity-bounded cartridge: opening both
+    // invocations before feeding the chain head deadlocks — the first
+    // invocation owns the permit but has no input while opening the second
+    // waits for that permit before the feed and relay pump exist. That is
+    // the ONLY capacity case that must split: bounded caps in DIFFERENT
+    // permit domains share nothing, and splitting them anyway would
+    // materialise every intermediate — which an UNBOUNDED live pipeline
+    // (13.2 §Reference Media) cannot survive (its intermediates must
+    // stream; collection refuses unbounded, L16). The permit domain is the
+    // ADMISSION KEY (master + cartridge identity), NOT the master index:
+    // one relay slot can aggregate many cartridge processes (machfab's
+    // external-cartridges RelaySlave), each with independent permits —
+    // comparing master indices there would split every junction and break
+    // live pipelines.
     let linear_chains = decompose_group_chains(&groups, &group_order);
-    let mut capacity_by_cap: HashMap<String, usize> = HashMap::new();
+    let mut cap_admission: HashMap<String, (crate::bifaci::request_state::AdmissionKey, usize)> =
+        HashMap::new();
     let mut bounded_groups: HashSet<usize> = HashSet::new();
+    let mut group_domain: Vec<crate::bifaci::request_state::AdmissionKey> =
+        Vec::with_capacity(groups.len());
     for (group_idx, group) in groups.iter().enumerate() {
-        let capacity = if let Some(capacity) = capacity_by_cap.get(&group.cap_urn) {
-            *capacity
-        } else {
-            if ctx
-                .switch()
-                .wait_for_cap(&group.cap_urn, CAP_DISPATCH_READY_TIMEOUT)
-                .await
-                .is_none()
-            {
-                return Err(ExecutionError::HostError(format!(
-                    "resolve admission capacity for cap '{}': no master advertised a cap \
-                     dispatchable for this request within {}s",
-                    group.cap_urn,
-                    CAP_DISPATCH_READY_TIMEOUT.as_secs(),
-                )));
-            }
-            let capacity = ctx
-                .switch()
-                .admission_capacity_for_cap(&group.cap_urn)
-                .await
-                .map_err(|error| {
-                    ExecutionError::HostError(format!(
-                        "resolve admission capacity for cap '{}': {}",
-                        group.cap_urn, error
-                    ))
-                })?;
-            capacity_by_cap.insert(group.cap_urn.clone(), capacity);
-            capacity
-        };
+        let (admission_key, capacity) =
+            if let Some(cached) = cap_admission.get(&group.cap_urn) {
+                cached.clone()
+            } else {
+                if ctx
+                    .switch()
+                    .wait_for_cap(&group.cap_urn, CAP_DISPATCH_READY_TIMEOUT)
+                    .await
+                    .is_none()
+                {
+                    return Err(ExecutionError::HostError(format!(
+                        "resolve admission capacity for cap '{}': no master advertised a cap \
+                         dispatchable for this request within {}s",
+                        group.cap_urn,
+                        CAP_DISPATCH_READY_TIMEOUT.as_secs(),
+                    )));
+                }
+                let target = ctx
+                    .switch()
+                    .admission_target_for_cap(&group.cap_urn)
+                    .await
+                    .map_err(|error| {
+                        ExecutionError::HostError(format!(
+                            "resolve admission capacity for cap '{}': {}",
+                            group.cap_urn, error
+                        ))
+                    })?;
+                cap_admission.insert(group.cap_urn.clone(), target.clone());
+                target
+            };
+        group_domain.push(admission_key);
         if capacity > 0 {
             bounded_groups.insert(group_idx);
         }
     }
-    let chains = split_chains_at_bounded_groups(linear_chains, &bounded_groups);
+    let chains =
+        split_chains_at_same_domain_bounded(linear_chains, &group_domain, &bounded_groups);
     let n_chains = chains.len();
+
+    // Spool files created for unbounded intermediates this segment; consumed
+    // by later chains in THIS loop, removed when the segment completes —
+    // success or error (Drop), a leftover spool is temp litter, not state.
+    struct SpoolCleanup(Vec<std::path::PathBuf>);
+    impl Drop for SpoolCleanup {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+    let mut spool_files = SpoolCleanup(Vec::new());
+    let mut node_spool: HashMap<String, std::path::PathBuf> = HashMap::new();
 
     for (ci, chain_idxs) in chains.iter().enumerate() {
         let chain_groups: Vec<EdgeGroup> =
@@ -1815,10 +1909,27 @@ pub async fn run_dag_on_context(
         };
         let has_writer = writer.is_some();
 
+        // An INTERMEDIATE sink (not a plan terminal) gets a lazy disk spool:
+        // the collector engages it only if the stream declares UNBOUNDED, so
+        // a mandatory split boundary never buffers unbounded data in memory
+        // (L16) and never refuses a legitimate machine. Terminals keep the
+        // strict contract: unbounded without a persisted sink is refused.
+        let mut spool: Option<super::stream_io::SpoolWriter> = if persist_sinks.contains(&sink) {
+            None
+        } else {
+            Some(super::stream_io::SpoolWriter::new(std::env::temp_dir().join(
+                format!(
+                    "capdag-spool-{}-{}",
+                    std::process::id(),
+                    uuid::Uuid::new_v4()
+                ),
+            )))
+        };
+
         let progress_base = ci as f32 / n_chains as f32;
         let progress_span = 1.0 / n_chains as f32;
 
-        let (items, is_seq, meta) = run_group_chain(
+        let chain_result = run_group_chain(
             ctx,
             &chain_groups,
             cap_arguments,
@@ -1832,10 +1943,24 @@ pub async fn run_dag_on_context(
             writer
                 .as_mut()
                 .map(|w| w.as_mut() as &mut dyn super::stream_io::IncrementalWriter),
+            spool.as_mut(),
             activity_timeout_secs,
             observer,
         )
-        .await?;
+        .await;
+        let (items, is_seq, meta) = match chain_result {
+            Ok(v) => v,
+            Err(e) => {
+                // A failed chain's engaged spool is already on disk — remove
+                // it here; later chains' spools are handled by the Drop guard.
+                if let Some(sp) = &spool {
+                    if sp.engaged() {
+                        let _ = std::fs::remove_file(sp.path());
+                    }
+                }
+                return Err(e);
+            }
+        };
 
         if let Some(w) = writer {
             writer_results
@@ -1844,11 +1969,25 @@ pub async fn run_dag_on_context(
                 .push(w.finish());
         }
 
+        let spool_engaged = spool.as_ref().is_some_and(|s| s.engaged());
+        if spool_engaged {
+            let sp = spool.take().expect("engaged spool exists");
+            let path = sp.path().to_path_buf();
+            if let Some(m) = sp.stream_meta() {
+                ctx.set_node_meta(sink.clone(), m.clone());
+            }
+            ctx.set_node_spool(sink.clone(), path.clone());
+            ctx.set_node_is_sequence(sink.clone(), sp.is_sequence());
+            spool_files.0.push(path.clone());
+            node_spool.insert(sink.clone(), path);
+        }
+
         // Materialise this chain's sink so downstream chains' heads can read it (via
         // send_group_input from node_data). When persisted to a writer there are no
-        // in-memory items and nothing downstream reads it. Sequences re-assemble to
-        // the CBOR sequence the next head will re-split.
-        if !has_writer {
+        // in-memory items and nothing downstream reads it; a spool-engaged sink's
+        // data is on disk and downstream feeds stream from the file. Sequences
+        // re-assemble to the CBOR sequence the next head will re-split.
+        if !has_writer && !spool_engaged {
             // Sequence node_data is an RFC 8742 CBOR sequence of self-delimiting
             // values; `items` are the raw, unwrapped item bytes from
             // `decode_terminal_output`, so each must be re-encoded as a `CBOR::Bytes`
@@ -1873,11 +2012,19 @@ pub async fn run_dag_on_context(
         node_data.insert(sink, items);
     }
 
+    // The segment completed: ownership of the spool files transfers to the
+    // caller through `DagOutput.node_spool` (a ForEach region driver may
+    // still stream from them) — disarm the error-path guard instead of
+    // deleting. The caller (execute_plan) removes them at plan end.
+    spool_files.0.clear();
+    drop(spool_files);
+
     Ok(DagOutput {
         node_data,
         node_is_sequence,
         writer_results,
         terminal_meta,
+        node_spool,
     })
 }
 
@@ -1895,6 +2042,11 @@ pub struct DagOutput {
     pub writer_results: HashMap<String, Vec<super::execute_plan::WriterResult>>,
     /// Terminal sink node id → its terminal metadata (titles, final progress, …).
     pub terminal_meta: HashMap<String, TerminalMeta>,
+    /// UNBOUNDED intermediates spooled to disk at chain-split boundaries
+    /// (L16): node id → spool path, in the node_data byte form. The caller
+    /// owns the files (a ForEach region driver streams items from them) and
+    /// removes them when the plan completes.
+    pub node_spool: HashMap<String, std::path::PathBuf>,
 }
 
 /// Decompose topologically-ordered cap groups into maximal linear chains (lists of
@@ -1979,25 +2131,36 @@ fn decompose_group_chains(groups: &[EdgeGroup], group_order: &[usize]) -> Vec<Ve
 /// bounded-capacity groups. A bounded invocation owns a concrete cartridge
 /// process slot from REQ through terminal response, so it must receive its input
 /// and finish before a dependent bounded invocation is acquired.
-fn split_chains_at_bounded_groups(
+/// Split each linear chain at the permit-deadlock boundary: between two
+/// ADJACENT groups whose caps resolve to the SAME admission domain (the
+/// cartridge behind the master — NOT the master index, which can aggregate
+/// many cartridges) when either side is capacity-bounded (opening both
+/// invocations up front would have the second wait on the permit the
+/// first holds while neither has input). Bounded groups in DIFFERENT
+/// domains share no permit and keep streaming in one live chain — the
+/// property unbounded (live-feed) pipelines depend on, since only chain
+/// SINKS are collected/persisted and unbounded intermediates cannot be
+/// materialised (L16).
+fn split_chains_at_same_domain_bounded<K: PartialEq>(
     chains: Vec<Vec<usize>>,
+    group_domain: &[K],
     bounded_groups: &HashSet<usize>,
 ) -> Vec<Vec<usize>> {
     let mut split = Vec::new();
     for chain in chains {
-        let mut live_segment = Vec::new();
+        let mut segment: Vec<usize> = Vec::new();
         for group_idx in chain {
-            if bounded_groups.contains(&group_idx) {
-                if !live_segment.is_empty() {
-                    split.push(std::mem::take(&mut live_segment));
-                }
-                split.push(vec![group_idx]);
-            } else {
-                live_segment.push(group_idx);
+            let deadlock_boundary = segment.last().is_some_and(|&prev| {
+                group_domain[prev] == group_domain[group_idx]
+                    && (bounded_groups.contains(&group_idx) || bounded_groups.contains(&prev))
+            });
+            if deadlock_boundary {
+                split.push(std::mem::take(&mut segment));
             }
+            segment.push(group_idx);
         }
-        if !live_segment.is_empty() {
-            split.push(live_segment);
+        if !segment.is_empty() {
+            split.push(segment);
         }
     }
     split
@@ -2057,6 +2220,7 @@ async fn run_group_chain(
     body_index: Option<usize>,
     stall_tracker: Option<Arc<PipelineProgressTracker>>,
     writer: Option<&mut dyn super::stream_io::IncrementalWriter>,
+    mut spool: Option<&mut super::stream_io::SpoolWriter>,
     activity_timeout_secs: u64,
     observer: Option<&dyn super::stream_io::FlowObserver>,
 ) -> Result<(Vec<Vec<u8>>, bool, TerminalMeta), ExecutionError> {
@@ -2133,6 +2297,22 @@ async fn run_group_chain(
         credit_routers.push(crate::bifaci::credit::CreditRouter::new());
     }
 
+    // The chain HEAD is FEED-BEARING when any of its inputs is a live
+    // reference: the selector we send it resolves into an open device tap in
+    // the receiving cartridge. Recorded so the stop-input control can close
+    // exactly these taps (non-force Cancel → close-tap → drain, 15.2 §Runs
+    // Stop) without touching other requests.
+    if let Some(obs) = observer {
+        let head_group = ordered_groups[0];
+        if head_group
+            .edges
+            .iter()
+            .any(|edge| ctx.node_live_reference().contains_key(&edge.from))
+        {
+            obs.record_feed_bearing(&invocations[0].0);
+        }
+    }
+
     // ── Step 2: Spawn pump task ──
     // Reads from switch.read_from_masters_timeout to route peer requests. Without
     // this, cartridge→cartridge peer calls would deadlock. The pump must exit via
@@ -2168,6 +2348,7 @@ async fn run_group_chain(
         let node_meta = ctx.node_meta().clone();
         let node_is_sequence = ctx.node_is_sequence().clone();
         let node_live_reference = ctx.node_live_reference().clone();
+        let node_spool = ctx.node_spool().clone();
         let router = credit_routers[0].clone();
         tokio::spawn(async move {
             send_group_input(
@@ -2179,6 +2360,7 @@ async fn run_group_chain(
                 &node_meta,
                 &node_is_sequence,
                 &node_live_reference,
+                &node_spool,
                 max_chunk,
                 Some((&router, initial_credit)),
             )
@@ -2346,6 +2528,9 @@ async fn run_group_chain(
         body_index,
         stall_tracker.as_ref(),
         writer,
+        spool
+            .as_deref_mut()
+            .map(|s| s as &mut dyn super::stream_io::IncrementalWriter),
         activity_timeout_secs,
         Some(&terminal_plumbing),
     )
@@ -2448,9 +2633,11 @@ async fn run_group_chain(
     // ── Step 7: Decode this chain's sink output ──
     let terminal_is_sequence = is_sequence.unwrap_or(false);
 
-    // Writer present ⇒ data is on disk, no in-memory items. Writer absent ⇒
-    // decode the accumulated bytes (CBOR transport stripped).
-    let decoded_items = if has_writer {
+    // Writer present (or the intermediate spool engaged) ⇒ data is on disk,
+    // no in-memory items. Otherwise decode the accumulated bytes (CBOR
+    // transport stripped).
+    let spool_engaged = spool.as_ref().is_some_and(|s| s.engaged());
+    let decoded_items = if has_writer || spool_engaged {
         vec![]
     } else {
         super::stream_io::decode_terminal_output(&output_bytes, is_sequence)
@@ -2475,6 +2662,7 @@ async fn send_group_input(
     node_meta: &HashMap<String, crate::StreamMeta>,
     node_is_sequence: &HashMap<String, bool>,
     node_live_reference: &HashMap<String, String>,
+    node_spool: &HashMap<String, std::path::PathBuf>,
     max_chunk: usize,
     credit: Option<(&crate::bifaci::credit::CreditRouter, u64)>,
 ) -> Result<(), ExecutionError> {
@@ -2490,19 +2678,34 @@ async fn send_group_input(
     //    sequence sent with is_sequence=true. A scalar arg receiving two
     //    streams (the illegal "two stdins" case) or a sequence member inside a
     //    gather is a malformed graph — fail hard, never silently double-send.
+    enum MemberSource<'a> {
+        Mem(&'a [u8]),
+        /// The member's data lives in a disk spool (unbounded intermediate at
+        /// a chain-split boundary) — streamed via `send_file_stream`.
+        Spool(&'a std::path::Path),
+    }
     struct UrnGroup<'a> {
         urn: crate::MediaUrn,
         urn_str: &'a str,
-        members: Vec<(&'a [u8], Option<&'a crate::StreamMeta>, bool)>,
+        members: Vec<(MemberSource<'a>, Option<&'a crate::StreamMeta>, bool)>,
     }
     let mut urn_groups: Vec<UrnGroup> = Vec::new();
     for edge in &group.edges {
-        let data = node_data.get(&edge.from).ok_or_else(|| {
-            ExecutionError::HostError(format!(
-                "Missing input data at node '{}' for cap '{}'",
-                edge.from, edge.cap_urn
-            ))
-        })?;
+        let data: MemberSource = if let Some(path) = node_spool.get(&edge.from) {
+            MemberSource::Spool(path.as_path())
+        } else {
+            MemberSource::Mem(
+                node_data
+                    .get(&edge.from)
+                    .ok_or_else(|| {
+                        ExecutionError::HostError(format!(
+                            "Missing input data at node '{}' for cap '{}'",
+                            edge.from, edge.cap_urn
+                        ))
+                    })?
+                    .as_slice(),
+            )
+        };
         let meta = node_meta.get(&edge.from);
         let is_seq = *node_is_sequence.get(&edge.from).ok_or_else(|| {
             ExecutionError::HostError(format!(
@@ -2537,7 +2740,7 @@ async fn send_group_input(
             urn_groups.push(UrnGroup {
                 urn,
                 urn_str: reference_urn.as_str(),
-                members: vec![(data.as_slice(), meta, false)],
+                members: vec![(data, meta, false)],
             });
             continue;
         }
@@ -2551,11 +2754,11 @@ async fn send_group_input(
             .iter_mut()
             .find(|g| g.urn.is_equivalent(&urn).unwrap_or(false))
         {
-            Some(g) => g.members.push((data.as_slice(), meta, is_seq)),
+            Some(g) => g.members.push((data, meta, is_seq)),
             None => urn_groups.push(UrnGroup {
                 urn,
                 urn_str: edge.in_media.as_str(),
-                members: vec![(data.as_slice(), meta, is_seq)],
+                members: vec![(data, meta, is_seq)],
             }),
         }
     }
@@ -2602,19 +2805,37 @@ async fn send_group_input(
 
     for urn_group in &urn_groups {
         if urn_group.members.len() == 1 {
-            let (data, meta, is_seq) = urn_group.members[0];
-            super::stream_io::send_one_stream(
-                switch,
-                rid,
-                urn_group.urn_str,
-                data,
-                meta.cloned(),
-                is_seq,
-                max_chunk,
-                credit,
-            )
-            .await
-            .map_err(|e| ExecutionError::HostError(e.to_string()))?;
+            let (ref data, meta, is_seq) = urn_group.members[0];
+            match data {
+                MemberSource::Mem(bytes) => {
+                    super::stream_io::send_one_stream(
+                        switch,
+                        rid,
+                        urn_group.urn_str,
+                        bytes,
+                        meta.cloned(),
+                        is_seq,
+                        max_chunk,
+                        credit,
+                    )
+                    .await
+                    .map_err(|e| ExecutionError::HostError(e.to_string()))?;
+                }
+                MemberSource::Spool(path) => {
+                    super::stream_io::send_file_stream(
+                        switch,
+                        rid,
+                        urn_group.urn_str,
+                        path,
+                        meta.cloned(),
+                        is_seq,
+                        max_chunk,
+                        credit,
+                    )
+                    .await
+                    .map_err(|e| ExecutionError::HostError(e.to_string()))?;
+                }
+            }
             continue;
         }
 
@@ -2646,34 +2867,30 @@ async fn send_group_input(
                 urn_group.urn_str
             )));
         }
-        // Flatten deterministically, in edge (= source-declaration) order: a
-        // scalar member contributes one item (CBOR-wrapped here); a sequence
-        // member's bytes are already an RFC 8742 CBOR sequence and append
-        // as-is, contributing its items.
-        let mut gathered: Vec<u8> = Vec::new();
-        for (data, _, member_is_seq) in &urn_group.members {
-            if *member_is_seq {
-                gathered.extend_from_slice(data);
-            } else {
-                let wrapped = crate::orchestrator::cbor_util::wrap_raw_items_as_cbor_sequence(&[
-                    data.to_vec(),
-                ])
-                .map_err(|e| {
-                    ExecutionError::HostError(format!(
-                        "gather into '{}' for cap '{}': {e}",
-                        urn_group.urn_str, group.cap_urn
-                    ))
-                })?;
-                gathered.extend_from_slice(&wrapped);
-            }
-        }
-        super::stream_io::send_one_stream(
+        // Assemble deterministically, in edge (= source-declaration) order: a
+        // scalar member contributes one item, a sequence member its items,
+        // and a SPOOLED member (an ended unbounded intermediate) streams its
+        // data from the file — a gather never re-buffers an unbounded
+        // stream into memory.
+        let members: Vec<super::stream_io::GatherMember> = urn_group
+            .members
+            .iter()
+            .map(|(data, _, member_is_seq)| match data {
+                MemberSource::Mem(bytes) => super::stream_io::GatherMember::Memory {
+                    data: bytes.to_vec(),
+                    is_sequence: *member_is_seq,
+                },
+                MemberSource::Spool(path) => super::stream_io::GatherMember::Spooled {
+                    path: path.to_path_buf(),
+                    is_sequence: *member_is_seq,
+                },
+            })
+            .collect();
+        super::stream_io::send_gathered_stream(
             switch,
             rid,
             urn_group.urn_str,
-            &gathered,
-            None,
-            true,
+            members,
             max_chunk,
             credit,
         )
@@ -3558,6 +3775,47 @@ pub async fn execute_dag(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet as SplitHashSet;
+
+    // TEST1448: chains split ONLY at the permit-deadlock boundary — two
+    // adjacent groups in the SAME admission DOMAIN (the cartridge behind
+    // the master, never the master index: one relay slot can aggregate
+    // many cartridges) with a bounded capacity between them. Bounded caps
+    // in different domains keep streaming in one live chain (the property
+    // unbounded live pipelines depend on: only chain sinks are collected,
+    // and unbounded intermediates cannot be materialised, L16).
+    #[test]
+    fn test1448_chain_split_only_at_same_domain_bounded_adjacency() {
+        // encode(audiocartridge) → transcribe(candle, bounded) →
+        // generate(candle, bounded): the electron shape — ONE aggregated
+        // master slot, THREE caps, TWO cartridges. The only boundary is
+        // between the two candle caps; encode|transcribe streams.
+        let chains = vec![vec![0, 1, 2]];
+        let domains = vec!["audiocartridge", "candlecartridge", "candlecartridge"];
+        let bounded: SplitHashSet<usize> = [1, 2].into_iter().collect();
+        let split = super::split_chains_at_same_domain_bounded(chains, &domains, &bounded);
+        assert_eq!(
+            split,
+            vec![vec![0, 1], vec![2]],
+            "split exactly at the same-cartridge bounded junction"
+        );
+
+        // Different domains everywhere — ONE live chain, no materialisation.
+        let chains = vec![vec![0, 1, 2]];
+        let domains = vec!["a", "b", "c"];
+        let bounded: SplitHashSet<usize> = [1].into_iter().collect();
+        let split = super::split_chains_at_same_domain_bounded(chains, &domains, &bounded);
+        assert_eq!(split, vec![vec![0, 1, 2]], "different cartridges never split");
+
+        // Same domain but UNBOUNDED capacity on both: no permit to contend —
+        // stays one chain.
+        let chains = vec![vec![0, 1]];
+        let domains = vec!["d", "d"];
+        let bounded: SplitHashSet<usize> = SplitHashSet::new();
+        let split = super::split_chains_at_same_domain_bounded(chains, &domains, &bounded);
+        assert_eq!(split, vec![vec![0, 1]], "unbounded same-cartridge streams");
+    }
+
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
 

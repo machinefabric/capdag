@@ -61,16 +61,38 @@ pub fn emit_terminals(
     stdout: &mut dyn Write,
 ) -> Result<Vec<PathBuf>, String> {
     // The stdout fast path: one terminal, scalar, one item, no explicit dir.
+    // The item may be in memory or a single persisted part-file (the CLI's disk
+    // writer, L16) — persisted, its bytes stream to stdout and the part is
+    // removed, so the pipe contract is identical either way.
     if options.output_dir.is_none() && result.terminals.len() == 1 {
         let terminal = &result.terminals[0];
-        if !terminal.is_sequence && terminal.items.len() == 1 {
-            stdout
-                .write_all(&terminal.items[0].data)
-                .map_err(|e| format!("failed to write result to stdout: {e}"))?;
-            stdout
-                .flush()
-                .map_err(|e| format!("failed to flush stdout: {e}"))?;
-            return Ok(Vec::new());
+        if !terminal.is_sequence {
+            if terminal.writer_results.is_empty() && terminal.items.len() == 1 {
+                stdout
+                    .write_all(&terminal.items[0].data)
+                    .map_err(|e| format!("failed to write result to stdout: {e}"))?;
+                stdout
+                    .flush()
+                    .map_err(|e| format!("failed to flush stdout: {e}"))?;
+                return Ok(Vec::new());
+            }
+            let parts: Vec<&String> = terminal
+                .writer_results
+                .iter()
+                .flat_map(|w| w.saved_paths.iter())
+                .collect();
+            if let [part] = parts.as_slice() {
+                let mut file = std::fs::File::open(part)
+                    .map_err(|e| format!("failed to open persisted result '{part}': {e}"))?;
+                std::io::copy(&mut file, stdout)
+                    .map_err(|e| format!("failed to stream result to stdout: {e}"))?;
+                stdout
+                    .flush()
+                    .map_err(|e| format!("failed to flush stdout: {e}"))?;
+                std::fs::remove_file(part)
+                    .map_err(|e| format!("failed to remove part file '{part}': {e}"))?;
+                return Ok(Vec::new());
+            }
         }
     }
 
@@ -81,31 +103,79 @@ pub fn emit_terminals(
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("failed to create output dir {dir:?}: {e}"))?;
 
+    // Every persisted part-file in processing order — so a refusal mid-emit can
+    // sweep the not-yet-renamed parts instead of littering the output dir.
+    let all_parts: Vec<String> = result
+        .terminals
+        .iter()
+        .flat_map(|t| t.writer_results.iter())
+        .flat_map(|w| w.saved_paths.iter().cloned())
+        .collect();
+    let mut parts_done = 0usize;
+    let refuse = |path: &Path, parts_done: usize| {
+        for part in &all_parts[parts_done..] {
+            let _ = std::fs::remove_file(part);
+        }
+        format!("refusing to overwrite existing file {path:?} (pass --force to allow)")
+    };
+
     let mut written: Vec<PathBuf> = Vec::new();
     for terminal in &result.terminals {
         let ext = extension_for_media(&terminal.media_urn);
-        let multi_item = terminal.is_sequence || terminal.items.len() > 1;
-        for item in &terminal.items {
-            let name = if multi_item {
-                format!(
-                    "{}.{}.{}.{}",
-                    options.input_stem, terminal.output_node_id, item.index, ext
-                )
-            } else {
-                format!("{}.{}.{}", options.input_stem, terminal.output_node_id, ext)
-            };
-            let path = dir.join(&name);
-            if path.exists() && !options.force {
-                return Err(format!(
-                    "refusing to overwrite existing file {path:?} (pass --force to allow)"
-                ));
+        if terminal.writer_results.is_empty() {
+            let multi_item = terminal.is_sequence || terminal.items.len() > 1;
+            for item in &terminal.items {
+                let name = if multi_item {
+                    format!(
+                        "{}.{}.{}.{}",
+                        options.input_stem, terminal.output_node_id, item.index, ext
+                    )
+                } else {
+                    format!("{}.{}.{}", options.input_stem, terminal.output_node_id, ext)
+                };
+                let path = dir.join(&name);
+                if path.exists() && !options.force {
+                    return Err(refuse(&path, parts_done));
+                }
+                std::fs::write(&path, &item.data)
+                    .map_err(|e| format!("failed to write {path:?}: {e}"))?;
+                let absolute = absolutize(&path);
+                writeln!(stdout, "{}", absolute.display())
+                    .map_err(|e| format!("failed to report written path: {e}"))?;
+                written.push(absolute);
             }
-            std::fs::write(&path, &item.data)
-                .map_err(|e| format!("failed to write {path:?}: {e}"))?;
-            let absolute = absolutize(&path);
-            writeln!(stdout, "{}", absolute.display())
-                .map_err(|e| format!("failed to report written path: {e}"))?;
-            written.push(absolute);
+        } else {
+            // Persisted terminal (CLI disk writer): rename each part-file to its
+            // contract name — parts live in the destination directory, so the
+            // rename is same-filesystem and never re-buffers the data.
+            let parts: Vec<&String> = terminal
+                .writer_results
+                .iter()
+                .flat_map(|w| w.saved_paths.iter())
+                .collect();
+            let multi_item = terminal.is_sequence || parts.len() > 1;
+            for (index, part) in parts.iter().enumerate() {
+                let name = if multi_item {
+                    format!(
+                        "{}.{}.{}.{}",
+                        options.input_stem, terminal.output_node_id, index, ext
+                    )
+                } else {
+                    format!("{}.{}.{}", options.input_stem, terminal.output_node_id, ext)
+                };
+                let path = dir.join(&name);
+                if path.exists() && !options.force {
+                    return Err(refuse(&path, parts_done));
+                }
+                std::fs::rename(part, &path).map_err(|e| {
+                    format!("failed to move persisted result '{part}' to {path:?}: {e}")
+                })?;
+                parts_done += 1;
+                let absolute = absolutize(&path);
+                writeln!(stdout, "{}", absolute.display())
+                    .map_err(|e| format!("failed to report written path: {e}"))?;
+                written.push(absolute);
+            }
         }
     }
     stdout
@@ -259,5 +329,162 @@ mod tests {
         assert_eq!(extension_for_media("media:fmt=ndjson;record"), "ndjson");
         assert_eq!(extension_for_media("media:enc=utf-8;summary"), "txt");
         assert_eq!(extension_for_media("media:embedding-vector"), "bin");
+    }
+
+    use crate::orchestrator::execute_plan::WriterResult;
+
+    fn persisted_terminal(
+        node: &str,
+        media: &str,
+        is_sequence: bool,
+        parts: Vec<String>,
+    ) -> TerminalOutput {
+        TerminalOutput {
+            output_node_id: node.to_string(),
+            items: Vec::new(),
+            is_sequence,
+            media_urn: media.to_string(),
+            writer_results: vec![WriterResult {
+                is_sequence,
+                media_urn: media.to_string(),
+                saved_paths: parts,
+                total_bytes: 0,
+                stream_meta: None,
+                item_metas: Vec::new(),
+            }],
+        }
+    }
+
+    fn write_part(dir: &Path, name: &str, data: &[u8]) -> String {
+        let p = dir.join(name);
+        std::fs::write(&p, data).unwrap();
+        p.to_string_lossy().into_owned()
+    }
+
+    // TEST8144: persisted terminals (the CLI disk writer path, L16) obey the
+    // same emission contract as in-memory items — a persisted sequence's
+    // part-files are RENAMED to contract names with paths on stdout; a single
+    // persisted scalar with no --output streams its BYTES to stdout and the
+    // part-file disappears; an overwrite refusal sweeps the unrenamed parts.
+    #[test]
+    fn test8144_emit_persisted_terminals_contract() {
+        // 1. Persisted sequence → renamed contract files, paths on stdout.
+        let dir = tempfile::tempdir().unwrap();
+        let parts = vec![
+            write_part(dir.path(), ".capdag-part.0.cap_1.0", b"png0"),
+            write_part(dir.path(), ".capdag-part.0.cap_1.1", b"png1"),
+        ];
+        let result = result_of(vec![persisted_terminal(
+            "output",
+            "media:ext=png;image",
+            true,
+            parts.clone(),
+        )]);
+        let mut stdout: Vec<u8> = Vec::new();
+        let written = emit_terminals(
+            &result,
+            &EmitOptions {
+                output_dir: Some(dir.path().to_path_buf()),
+                force: false,
+                input_stem: "cam".to_string(),
+            },
+            &mut stdout,
+        )
+        .unwrap();
+        assert_eq!(written.len(), 2);
+        assert!(written[0].ends_with("cam.output.0.png"), "{written:?}");
+        assert_eq!(std::fs::read(&written[0]).unwrap(), b"png0");
+        assert_eq!(std::fs::read(&written[1]).unwrap(), b"png1");
+        assert!(
+            !Path::new(&parts[0]).exists() && !Path::new(&parts[1]).exists(),
+            "part-files are renamed away, not copied"
+        );
+        let listing = String::from_utf8(stdout).unwrap();
+        assert_eq!(listing.lines().count(), 2, "one path per line: {listing}");
+
+        // 2. Single persisted scalar, no --output → raw bytes to stdout, part
+        //    removed (identical pipe contract to the in-memory fast path).
+        let dir = tempfile::tempdir().unwrap();
+        let part = write_part(dir.path(), ".capdag-part.1.cap_1.blob", b"wav-bytes");
+        let result = result_of(vec![persisted_terminal(
+            "output",
+            "media:audio;ext=wav",
+            false,
+            vec![part.clone()],
+        )]);
+        let mut stdout: Vec<u8> = Vec::new();
+        let written = emit_terminals(
+            &result,
+            &EmitOptions {
+                output_dir: None,
+                force: false,
+                input_stem: "mic".to_string(),
+            },
+            &mut stdout,
+        )
+        .unwrap();
+        assert!(written.is_empty());
+        assert_eq!(stdout, b"wav-bytes");
+        assert!(!Path::new(&part).exists(), "streamed part is removed");
+
+        // 3. Persisted scalar WITH --output → renamed to the scalar contract name.
+        let dir = tempfile::tempdir().unwrap();
+        let part = write_part(dir.path(), ".capdag-part.2.cap_1.blob", b"wav-bytes");
+        let result = result_of(vec![persisted_terminal(
+            "output",
+            "media:audio;ext=wav",
+            false,
+            vec![part],
+        )]);
+        let mut stdout: Vec<u8> = Vec::new();
+        let written = emit_terminals(
+            &result,
+            &EmitOptions {
+                output_dir: Some(dir.path().to_path_buf()),
+                force: false,
+                input_stem: "mic".to_string(),
+            },
+            &mut stdout,
+        )
+        .unwrap();
+        assert_eq!(written.len(), 1);
+        assert!(written[0].ends_with("mic.output.wav"), "{written:?}");
+        assert_eq!(std::fs::read(&written[0]).unwrap(), b"wav-bytes");
+
+        // 4. Overwrite refusal mid-emit sweeps the not-yet-renamed parts —
+        //    no litter in the output dir, and the error names --force.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("mic.output.0.wav"), b"precious").unwrap();
+        let parts = vec![
+            write_part(dir.path(), ".capdag-part.3.cap_1.0", b"a"),
+            write_part(dir.path(), ".capdag-part.3.cap_1.1", b"b"),
+        ];
+        let result = result_of(vec![persisted_terminal(
+            "output",
+            "media:audio;ext=wav",
+            true,
+            parts.clone(),
+        )]);
+        let mut stdout: Vec<u8> = Vec::new();
+        let err = emit_terminals(
+            &result,
+            &EmitOptions {
+                output_dir: Some(dir.path().to_path_buf()),
+                force: false,
+                input_stem: "mic".to_string(),
+            },
+            &mut stdout,
+        )
+        .unwrap_err();
+        assert!(err.contains("refusing to overwrite"), "{err}");
+        assert!(
+            !Path::new(&parts[0]).exists() && !Path::new(&parts[1]).exists(),
+            "refusal sweeps the remaining part-files"
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("mic.output.0.wav")).unwrap(),
+            b"precious",
+            "the existing file is untouched"
+        );
     }
 }

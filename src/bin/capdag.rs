@@ -931,7 +931,7 @@ async fn execute_notation(
     // cartridge is spawned once and every ForEach body multiplexes onto it, like the
     // engine), keeps output in memory, and fails hard on any ForEach body failure.
     // execute_plan drives the ForEach/Collect decomposition on top of it.
-    let runtime: Arc<dyn EngineRuntime> = Arc::new(CliRuntime::new(
+    let cli_runtime = Arc::new(CliRuntime::new(
         cartridge_dir.clone(),
         registry_url.clone(),
         BUILD_CHANNEL,
@@ -940,7 +940,30 @@ async fn execute_notation(
         bundled_cartridges_dir.clone(),
         registry.clone(),
         trace_sink,
+        output_dir.clone().unwrap_or_else(|| PathBuf::from(".")),
     ));
+    let runtime: Arc<dyn EngineRuntime> = cli_runtime.clone();
+
+    // Ctrl-C is the tap-off control (15.2 §Runs Stop): the FIRST one closes
+    // every live input — the machine drains, terminals finalize, and outputs
+    // are emitted as for any stopped run. A SECOND Ctrl-C aborts.
+    {
+        let stop_runtime = cli_runtime.clone();
+        tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_err() {
+                return; // no signal handler on this platform — nothing to arm
+            }
+            eprintln!(
+                "\nStopping input — live taps closed, machine draining to complete \
+                 outputs. Press Ctrl-C again to abort."
+            );
+            stop_runtime.stop_live_inputs().await;
+            if tokio::signal::ctrl_c().await.is_ok() {
+                eprintln!("Aborted.");
+                process::exit(130);
+            }
+        });
+    }
 
     let (progress, log_fn) = progress_hooks();
 
@@ -2430,7 +2453,7 @@ async fn cmd_cap(args: &[String]) -> ! {
         None => None,
     };
 
-    let runtime: Arc<dyn EngineRuntime> = Arc::new(CliRuntime::new(
+    let cli_runtime = Arc::new(CliRuntime::new(
         user_cartridge_dir(),
         BAKED_REGISTRY_URL.map(str::to_string),
         BUILD_CHANNEL,
@@ -2439,7 +2462,30 @@ async fn cmd_cap(args: &[String]) -> ! {
         bundled_cartridges_dir(),
         registry.clone(),
         trace_sink,
+        output_dir.clone().unwrap_or_else(|| PathBuf::from(".")),
     ));
+    let runtime: Arc<dyn EngineRuntime> = cli_runtime.clone();
+
+    // Ctrl-C is the tap-off control (15.2 §Runs Stop): the FIRST one closes
+    // every live input — the machine drains, terminals finalize, and outputs
+    // are emitted as for any stopped run. A SECOND Ctrl-C aborts.
+    {
+        let stop_runtime = cli_runtime.clone();
+        tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_err() {
+                return; // no signal handler on this platform — nothing to arm
+            }
+            eprintln!(
+                "\nStopping input — live taps closed, machine draining to complete \
+                 outputs. Press Ctrl-C again to abort."
+            );
+            stop_runtime.stop_live_inputs().await;
+            if tokio::signal::ctrl_c().await.is_ok() {
+                eprintln!("Aborted.");
+                process::exit(130);
+            }
+        });
+    }
     let (progress, log_fn) = progress_hooks();
 
     // One run per input (stdin = a single run; a live source = a single run).

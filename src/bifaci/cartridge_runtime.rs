@@ -3319,14 +3319,16 @@ impl FilePathContext {
 /// Media, live family) — the live sibling of [`FilePathContext`]. An
 /// incoming stream whose media URN carries the `live` marker is a
 /// reference: the demux accumulates its selector value, opens the feed
-/// through the registered providers, and delivers an UNBOUNDED SEQUENCE
+/// through the built-in capture dispatch, and delivers an UNBOUNDED SEQUENCE
 /// `InputStream` labeled with the arg's stdin content URN. Opened feeds
 /// register their handles so a stop (non-force Cancel on a feed-bearing
 /// request) can close the tap and let the run drain (15.2 §Runs Stop).
 pub(crate) struct LiveFeedContext {
     cap_urn: String,
     manifest: Option<CapManifest>,
-    providers: Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+    /// The runtime-wide overrun aggregate the opened feeds count into
+    /// (rides heartbeat meta as `overruns_total`).
+    overruns_total: Arc<std::sync::atomic::AtomicU64>,
     /// This request's open feed handles, shared with the runtime's per-rid
     /// registry (the stop path closes through the same Arc).
     handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
@@ -3336,7 +3338,7 @@ impl LiveFeedContext {
     fn new(
         cap_urn: &str,
         manifest: Option<CapManifest>,
-        providers: Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+        overruns_total: Arc<std::sync::atomic::AtomicU64>,
         handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
     ) -> Result<Self, RuntimeError> {
         // Store the CANONICAL rendering so the manifest lookup compares
@@ -3353,7 +3355,7 @@ impl LiveFeedContext {
         Ok(Self {
             cap_urn: canonical,
             manifest,
-            providers,
+            overruns_total,
             handles,
         })
     }
@@ -3415,7 +3417,7 @@ impl LiveFeedContext {
         reference_urn: &str,
         selector_bytes: &[u8],
     ) -> Result<InputStream, StreamError> {
-        use crate::bifaci::live_feed::{open_feed, LiveFeedSelector};
+        use crate::bifaci::live_feed::LiveFeedSelector;
 
         let incoming = MediaUrn::from_string(reference_urn)
             .map_err(|e| StreamError::Protocol(format!("invalid live-feed reference URN: {e}")))?;
@@ -3448,12 +3450,12 @@ impl LiveFeedContext {
                         self.cap_urn, reference_urn
                     ))
                 })?;
-                let provider_content =
-                    self.providers.content_urn_for(&incoming).ok_or_else(|| {
+                let provider_content = crate::capture::content_urn_for(&incoming)
+                    .map(str::to_string)
+                    .ok_or_else(|| {
                         StreamError::Protocol(format!(
-                            "no live-feed provider is registered for reference '{}' \
-                             in this runtime — the cap's cartridge must register a \
-                             capture backend for that device family",
+                            "live reference '{}' is not a known device family — no \
+                             capture backend exists for it (13.2 §Reference Media)",
                             reference_urn
                         ))
                     })?;
@@ -3489,8 +3491,9 @@ impl LiveFeedContext {
         }
         let selector = LiveFeedSelector::parse(selector_bytes)
             .map_err(|e| StreamError::Protocol(e.to_string()))?;
-        let opened = open_feed(&self.providers, reference_urn, selector)
-            .map_err(|e| StreamError::Protocol(e.to_string()))?;
+        let opened =
+            crate::capture::open(reference_urn, selector, Arc::clone(&self.overruns_total))
+                .map_err(|e| StreamError::Protocol(e.to_string()))?;
         self.handles.lock().unwrap().push(opened.handle);
         Ok(InputStream {
             media_urn: content_urn,
@@ -4302,10 +4305,13 @@ pub struct CartridgeRuntime {
     /// END/ERR. Counted per frame type, indicated as benign — never drops.
     straggler_counters: Arc<crate::bifaci::stats::StragglerCounters>,
 
-    /// Live-feed providers (13.2 §Reference Media, live family): reference
-    /// URN pattern → capture backend. Ships with the built-in synthetic
-    /// feed; capture-capable cartridges register hardware providers.
-    live_feed_providers: Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+    /// Runtime-wide live-feed overrun aggregate (12.5 §Overrun): real-time
+    /// items discarded at capture edges because consumers lagged. Rides
+    /// heartbeat meta as `overruns_total` — never counted as drops. The
+    /// capture backends themselves are the built-in compile-time dispatch
+    /// in `crate::capture` — capture is transport resolution, not a plugin
+    /// surface, and there is nothing to register.
+    live_feed_overruns: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Dispatch an Op with a Request via WetContext.
@@ -4454,7 +4460,7 @@ fn spawn_handler(
     drops: &Arc<crate::bifaci::stats::DropCounters>,
     credit_router: &crate::bifaci::credit::CreditRouter,
     initial_credit: u64,
-    live_feed_providers: &Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+    live_feed_overruns: &Arc<std::sync::atomic::AtomicU64>,
     live_feed_handles: &Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
 ) -> JoinHandle<()> {
     let output_tx_clone = output_tx.clone();
@@ -4463,7 +4469,7 @@ fn spawn_handler(
     let done_tx = handler_done_tx.clone();
     let drops = Arc::clone(drops);
     let credit_router = credit_router.clone();
-    let live_feed_providers = Arc::clone(live_feed_providers);
+    let live_feed_overruns = Arc::clone(live_feed_overruns);
     let live_feed_handles = Arc::clone(live_feed_handles);
 
     tokio::spawn(async move {
@@ -4471,7 +4477,7 @@ fn spawn_handler(
         let lf_ctx = LiveFeedContext::new(
             &cap_urn,
             manifest_clone,
-            live_feed_providers,
+            live_feed_overruns,
             live_feed_handles,
         )
         .ok();
@@ -4630,7 +4636,7 @@ impl CartridgeRuntime {
             capacity: CapacityHandle::new(0),
             drop_counters: Arc::new(crate::bifaci::stats::DropCounters::new()),
             straggler_counters: Arc::new(crate::bifaci::stats::StragglerCounters::new()),
-            live_feed_providers: Arc::new(crate::bifaci::live_feed::LiveFeedProviders::new()),
+            live_feed_overruns: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         };
         rt.register_standard_caps();
         rt
@@ -4656,7 +4662,7 @@ impl CartridgeRuntime {
             capacity: CapacityHandle::new(0),
             drop_counters: Arc::new(crate::bifaci::stats::DropCounters::new()),
             straggler_counters: Arc::new(crate::bifaci::stats::StragglerCounters::new()),
-            live_feed_providers: Arc::new(crate::bifaci::live_feed::LiveFeedProviders::new()),
+            live_feed_overruns: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         };
         rt.register_standard_caps();
         rt
@@ -4683,23 +4689,12 @@ impl CartridgeRuntime {
         self.straggler_counters.snapshot()
     }
 
-    /// Register a live-feed provider (13.2 §Reference Media): capture
-    /// backends for a reference-URN pattern (e.g. the audio cartridge's
-    /// microphone provider for `media:audio;live;microphone`). The built-in
-    /// synthetic feed is pre-registered.
-    pub fn register_live_feed_provider(
-        &self,
-        pattern: &str,
-        provider: Arc<dyn crate::bifaci::live_feed::LiveFeedProvider>,
-    ) {
-        self.live_feed_providers.register(pattern, provider);
-    }
-
     /// Runtime-wide overrun total (12.5 §Overrun): real-time items
     /// discarded at capture edges because consumers lagged. Rides
     /// heartbeat meta as `overruns_total` — never counted as drops.
     pub fn protocol_overruns_total(&self) -> u64 {
-        self.live_feed_providers.overruns_total()
+        self.live_feed_overruns
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Register the standard identity and discard handlers.
@@ -5056,7 +5051,7 @@ impl CartridgeRuntime {
         let cli_lf_ctx = LiveFeedContext::new(
             &cap.urn_string(),
             self.manifest.clone(),
-            Arc::clone(&self.live_feed_providers),
+            Arc::clone(&self.live_feed_overruns),
             cli_feed_handles,
         )
         .ok();
@@ -5730,7 +5725,7 @@ impl CartridgeRuntime {
                     &self.drop_counters,
                     &credit_router,
                     negotiated_limits.initial_credit,
-                    &self.live_feed_providers,
+                    &self.live_feed_overruns,
                     &feed_handles,
                 );
                 active_handlers.insert(handler_rid.clone(), handle);
@@ -5888,7 +5883,7 @@ impl CartridgeRuntime {
                             &self.drop_counters,
                             &credit_router,
                             negotiated_limits.initial_credit,
-                            &self.live_feed_providers,
+                            &self.live_feed_overruns,
                             &feed_handles,
                         );
                         active_handlers.insert(handler_rid.clone(), handle);
@@ -6100,7 +6095,9 @@ impl CartridgeRuntime {
                     meta.insert(
                         "overruns_total".into(),
                         ciborium::Value::Integer(
-                            self.live_feed_providers.overruns_total().into(),
+                            self.live_feed_overruns
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                                .into(),
                         ),
                     );
                     meta.insert(
@@ -6927,7 +6924,7 @@ mod tests {
         selector_arg_is_sequence: bool,
     ) -> (
         LiveFeedContext,
-        Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+        Arc<std::sync::atomic::AtomicU64>,
         Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
     ) {
         let manifest_json = if selector_arg_is_sequence {
@@ -6937,17 +6934,17 @@ mod tests {
         };
         let manifest: CapManifest =
             serde_json::from_str(&manifest_json).expect("live-feed manifest must parse");
-        let providers = Arc::new(crate::bifaci::live_feed::LiveFeedProviders::new());
+        let overruns = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>> =
             Arc::new(Mutex::new(Vec::new()));
         let ctx = LiveFeedContext::new(
             "cap:drain;in=\"media:feed-frames\";out=\"media:fmt=json;record\"",
             Some(manifest),
-            Arc::clone(&providers),
+            Arc::clone(&overruns),
             Arc::clone(&handles),
         )
         .expect("live-feed context must build");
-        (ctx, providers, handles)
+        (ctx, overruns, handles)
     }
 
     /// Feed a live-feed reference through the demux: STREAM_START with the
@@ -6983,7 +6980,7 @@ mod tests {
     // with seq/pts_us/capture_ts_us metadata, and the op is none the wiser.
     #[tokio::test]
     async fn test8128_live_feed_reference_resolves_to_unbounded_content_stream() {
-        let (ctx, _providers, handles) = live_feed_ctx(true);
+        let (ctx, _overruns, handles) = live_feed_ctx(true);
         let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
         let rid = MessageId::new_uuid();
         send_live_reference(&raw_tx, &rid, r#"{"params":{"items":5,"interval_ms":1,"item_bytes":4}}"#);
@@ -7029,7 +7026,7 @@ mod tests {
         main_in: &str,
     ) -> (
         LiveFeedContext,
-        Arc<crate::bifaci::live_feed::LiveFeedProviders>,
+        Arc<std::sync::atomic::AtomicU64>,
         Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>>,
     ) {
         let cap_urn = format!("cap:consume;in=\"{main_in}\";out=\"media:fmt=json;record\"");
@@ -7039,17 +7036,17 @@ mod tests {
         );
         let manifest: CapManifest =
             serde_json::from_str(&manifest_json).expect("blind manifest must parse");
-        let providers = Arc::new(crate::bifaci::live_feed::LiveFeedProviders::new());
+        let overruns = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let handles: Arc<Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>> =
             Arc::new(Mutex::new(Vec::new()));
         let ctx = LiveFeedContext::new(
             &cap_urn,
             Some(manifest),
-            Arc::clone(&providers),
+            Arc::clone(&overruns),
             Arc::clone(&handles),
         )
         .expect("blind live-feed context must build");
-        (ctx, providers, handles)
+        (ctx, overruns, handles)
     }
 
     // TEST8137: main-input fallback — a cap with NO explicit reference arg
@@ -7060,7 +7057,7 @@ mod tests {
     // and the op stays transport-blind.
     #[tokio::test]
     async fn test8137_main_input_fallback_resolves_live_reference() {
-        let (ctx, _providers, handles) = blind_live_feed_ctx("media:feed-frames");
+        let (ctx, _overruns, handles) = blind_live_feed_ctx("media:feed-frames");
         let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
         let rid = MessageId::new_uuid();
         send_live_reference(&raw_tx, &rid, r#"{"params":{"items":3,"interval_ms":1,"item_bytes":4}}"#);
@@ -7093,7 +7090,7 @@ mod tests {
     // mislabeled stream.
     #[tokio::test]
     async fn test8138_main_input_fallback_content_mismatch_rejected() {
-        let (ctx, _providers, _handles) = blind_live_feed_ctx("media:audio-frames;pcm");
+        let (ctx, _overruns, _handles) = blind_live_feed_ctx("media:audio-frames;pcm");
         let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
         let rid = MessageId::new_uuid();
         send_live_reference(&raw_tx, &rid, "{}");
@@ -7116,7 +7113,7 @@ mod tests {
     // is visible in-band. delivered + dropped always equals captured.
     #[tokio::test]
     async fn test8129_overrun_drop_oldest_counts_and_marks_gaps() {
-        let (ctx, providers, _handles) = live_feed_ctx(true);
+        let (ctx, overruns, _handles) = live_feed_ctx(true);
         let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
         let rid = MessageId::new_uuid();
         send_live_reference(
@@ -7168,7 +7165,7 @@ mod tests {
             "every captured item is either delivered or counted as dropped — nothing silent"
         );
         assert_eq!(
-            providers.overruns_total(),
+            overruns.load(std::sync::atomic::Ordering::Relaxed),
             dropped_via_gaps,
             "the runtime-wide overrun counter matches the in-band accounting"
         );
@@ -7178,7 +7175,7 @@ mod tests {
     // frame gets a classified FEED_OVERRUN stream error instead of loss.
     #[tokio::test]
     async fn test8130_overrun_fail_ends_feed_with_classified_error() {
-        let (ctx, _providers, _handles) = live_feed_ctx(true);
+        let (ctx, _overruns, _handles) = live_feed_ctx(true);
         let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
         let rid = MessageId::new_uuid();
         send_live_reference(
@@ -7213,7 +7210,7 @@ mod tests {
     // own when its input ends, 15.2 §Runs Stop).
     #[tokio::test]
     async fn test8131_max_items_stop_condition_ends_feed() {
-        let (ctx, _providers, _handles) = live_feed_ctx(true);
+        let (ctx, _overruns, _handles) = live_feed_ctx(true);
         let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
         let rid = MessageId::new_uuid();
         send_live_reference(
@@ -7238,7 +7235,7 @@ mod tests {
     // stream ends without error (the drain path of a stopped run).
     #[tokio::test]
     async fn test8132_handle_close_stops_feed_and_drains() {
-        let (ctx, _providers, handles) = live_feed_ctx(true);
+        let (ctx, _overruns, handles) = live_feed_ctx(true);
         let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
         let rid = MessageId::new_uuid();
         send_live_reference(
@@ -7276,7 +7273,7 @@ mod tests {
     // resolution, never delivering a mislabeled stream.
     #[tokio::test]
     async fn test8133_scalar_live_feed_arg_rejected() {
-        let (ctx, _providers, _handles) = live_feed_ctx(false);
+        let (ctx, _overruns, _handles) = live_feed_ctx(false);
         let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
         let rid = MessageId::new_uuid();
         send_live_reference(&raw_tx, &rid, "{}");
@@ -7294,7 +7291,7 @@ mod tests {
     // all-defaults feed.
     #[tokio::test]
     async fn test8134_invalid_selector_rejected() {
-        let (ctx, _providers, _handles) = live_feed_ctx(true);
+        let (ctx, _overruns, _handles) = live_feed_ctx(true);
         let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
         let rid = MessageId::new_uuid();
         send_live_reference(&raw_tx, &rid, "{not json");
@@ -7318,7 +7315,7 @@ mod tests {
             r#"{"stop": {"duration": 1000}}"#,
             r#"{"stop": {"max_item": 3}}"#,
         ] {
-            let (ctx, _providers, _handles) = live_feed_ctx(true);
+            let (ctx, _overruns, _handles) = live_feed_ctx(true);
             let (raw_tx, raw_rx) = crossbeam_channel::unbounded();
             let rid = MessageId::new_uuid();
             send_live_reference(&raw_tx, &rid, bad);

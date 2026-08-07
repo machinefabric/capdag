@@ -11,10 +11,13 @@
 //! cartridges — is orthogonal to how they are hosted and called; this runtime resolves
 //! them lazily on first need and hosts each exactly once (deduped by binary path).
 //!
-//! Reference-regime specifics vs the engine: terminal output stays in memory (the CLI
-//! persists it itself → no writer factory), there is no flow observer, and any ForEach
-//! body failure fails the whole plan (failures are exposed, not tolerated). Everything
-//! else — the segment orchestration — is the shared `EngineRuntime::run_segment` default.
+//! Reference-regime specifics vs the engine: terminal sinks are persisted through
+//! [`CliDiskWriter`] part-files in the emit target directory (so UNBOUNDED terminals
+//! stream to disk per L16, and `emit_terminals` renames the parts to their contract
+//! names), the flow observer tracks ONLY feed-bearing rids (for the Ctrl-C
+//! stop-input control), and any ForEach body failure fails the whole plan
+//! (failures are exposed, not tolerated). Everything else — the segment
+//! orchestration — is the shared `EngineRuntime::run_segment` default.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -50,10 +53,41 @@ pub struct CliRuntime {
     /// line per sample — the CLI's `--trace` and the scenario harness's
     /// `CAPDAG_SCENARIO_TRACE` wire this. `None` disables tracing.
     trace_sink: Option<Arc<ProtocolTraceSink>>,
+    /// Where terminal-sink part-files are streamed — the resolved emit directory
+    /// (`--output`, or the current directory), so the final rename to contract
+    /// names never crosses a filesystem.
+    persist_dir: PathBuf,
+    /// Uniquifies part-file names across sinks, runs, and ForEach bodies.
+    writer_seq: Arc<std::sync::atomic::AtomicU64>,
     /// The long-lived in-process cartridge host, built on demand. Behind a mutex for
     /// interior mutability under the `&self` trait hooks; the lock is held only while
     /// registering newly-needed cartridges, never across segment execution.
     host: Mutex<CliHost>,
+    /// Live-input state for the stop-input control (15.2 §Runs Stop): taps of
+    /// HOST-opened feeds and the rids of FEED-BEARING requests (cartridge-side
+    /// taps). First Ctrl-C in `capdag run` closes the taps and the machine
+    /// drains to complete outputs; a second Ctrl-C aborts.
+    live_inputs: CliLiveInputs,
+}
+
+/// Tracks everything a stop-input must close, and doubles as the CLI's
+/// [`FlowObserver`] (rid→step correlation is a no-op here; only feed-bearing
+/// rids matter to the CLI).
+#[derive(Default)]
+struct CliLiveInputs {
+    host_taps: std::sync::Mutex<Vec<crate::bifaci::live_feed::LiveFeedHandle>>,
+    feed_bearing: std::sync::Mutex<Vec<crate::bifaci::frame::MessageId>>,
+}
+
+impl crate::orchestrator::stream_io::FlowObserver for CliLiveInputs {
+    fn record(&self, _rid: &crate::bifaci::frame::MessageId, _token_id: &str) {}
+
+    fn record_feed_bearing(&self, rid: &crate::bifaci::frame::MessageId) {
+        self.feed_bearing
+            .lock()
+            .expect("CLI feed-bearing registry mutex poisoned")
+            .push(rid.clone());
+    }
 }
 
 /// Lazily-initialised shared host state. `ctx` owns the switch, the host tasks, and
@@ -83,6 +117,7 @@ impl CliRuntime {
         bundled_cartridges_dir: Option<PathBuf>,
         fabric_registry: Arc<FabricRegistry>,
         trace_sink: Option<Arc<ProtocolTraceSink>>,
+        persist_dir: PathBuf,
     ) -> Self {
         Self {
             cartridge_dir,
@@ -93,6 +128,8 @@ impl CliRuntime {
             bundled_cartridges_dir,
             fabric_registry,
             trace_sink,
+            persist_dir,
+            writer_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             host: Mutex::new(CliHost {
                 ctx: None,
                 manager: None,
@@ -100,6 +137,53 @@ impl CliRuntime {
                 registered_paths: HashSet::new(),
                 bundled_registered: false,
             }),
+            live_inputs: CliLiveInputs::default(),
+        }
+    }
+
+    /// STOP INPUT (15.2 §Runs Stop): close every open live tap — host-opened
+    /// feeds directly, cartridge-resolved feeds via a non-force Cancel on
+    /// their feed-bearing requests — and let the machine DRAIN: in-flight
+    /// items flow through, terminals end, writers finalize, and the run
+    /// completes with its outputs. This is the tap-off control, distinct
+    /// from aborting the machine.
+    pub async fn stop_live_inputs(&self) {
+        {
+            let mut taps = self
+                .live_inputs
+                .host_taps
+                .lock()
+                .expect("CLI host tap registry mutex poisoned");
+            for tap in taps.iter() {
+                tap.close();
+            }
+            taps.clear();
+        }
+        let rids: Vec<crate::bifaci::frame::MessageId> = {
+            let mut rids = self
+                .live_inputs
+                .feed_bearing
+                .lock()
+                .expect("CLI feed-bearing registry mutex poisoned");
+            std::mem::take(&mut *rids)
+        };
+        if rids.is_empty() {
+            return;
+        }
+        let switch = {
+            let host = self.host.lock().await;
+            host.ctx.as_ref().map(|ctx| ctx.switch().clone())
+        };
+        let Some(switch) = switch else {
+            // No host was ever built — nothing is running, nothing to stop.
+            return;
+        };
+        for rid in rids {
+            // Frame-only stop: the cartridge runtime closes the request's
+            // feed taps and the request ends NATURALLY after the drain —
+            // host-side request state stays live so every downstream cap
+            // still receives the drained stream.
+            switch.stop_request_feeds(&rid).await;
         }
     }
 }
@@ -216,6 +300,44 @@ impl EngineRuntime for CliRuntime {
 
     fn trace_sink(&self) -> Option<Arc<ProtocolTraceSink>> {
         self.trace_sink.clone()
+    }
+
+    fn flow_observer(&self) -> Option<&dyn crate::orchestrator::stream_io::FlowObserver> {
+        // The CLI observes ONLY feed-bearing rids (for the stop-input
+        // control); step correlation is engine-side machinery.
+        Some(&self.live_inputs)
+    }
+
+    fn on_host_feed_open(&self, handle: &crate::bifaci::live_feed::LiveFeedHandle) {
+        let mut taps = self
+            .live_inputs
+            .host_taps
+            .lock()
+            .expect("CLI host tap registry mutex poisoned");
+        taps.retain(|t| !t.is_closed());
+        taps.push(handle.clone());
+    }
+
+    /// Persist every terminal sink through a [`CliDiskWriter`] part-file in the
+    /// emit directory. This is what lets an UNBOUNDED terminal (a live capture)
+    /// stream to disk instead of hitting the L16 buffering refusal; bounded
+    /// terminals take the identical path — one code path, no special cases.
+    fn writer_factory(
+        &self,
+    ) -> Option<Box<crate::orchestrator::stream_io::SegmentWriterFactory>> {
+        let dir = self.persist_dir.clone();
+        let seq = self.writer_seq.clone();
+        Some(Box::new(move |sink: &str, coordinate| {
+            let n = seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let tag = match &coordinate {
+                Some(c) => format!("{n}.{sink}.b{}", c.body_index),
+                None => format!("{n}.{sink}"),
+            };
+            Box::new(crate::orchestrator::cli_writer::CliDiskWriter::new(
+                dir.clone(),
+                tag,
+            ))
+        }))
     }
 
     fn fabric_registry(&self) -> Arc<FabricRegistry> {

@@ -612,6 +612,44 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    // TEST7107: the live-source CapInputFile contract — `live_source()`
+    // builds a device input (empty file_path, CONTENT urn as media_urn,
+    // reference + selector set), and BOTH live fields survive the serde
+    // round-trip the task payload performs (a run resumed from persistence
+    // must still know its input is a device, or the interpreter would try
+    // to read an empty path as a file).
+    #[test]
+    fn test7107_live_source_input_file_contract_and_roundtrip() {
+        let live = CapInputFile::live_source(
+            "media:audio;live;microphone",
+            "media:audio-frames;pcm",
+            r#"{"stop":{"duration_ms":5000}}"#,
+        );
+        assert_eq!(live.file_path, "", "a device input has NO file path");
+        assert_eq!(live.media_urn, "media:audio-frames;pcm", "media_urn is the CONTENT urn");
+        assert_eq!(live.live_reference.as_deref(), Some("media:audio;live;microphone"));
+        assert_eq!(
+            live.live_selector.as_deref(),
+            Some(r#"{"stop":{"duration_ms":5000}}"#)
+        );
+
+        let json = serde_json::to_string(&live).expect("serializes");
+        let back: CapInputFile = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.live_reference, live.live_reference, "reference survives persistence");
+        assert_eq!(back.live_selector, live.live_selector, "selector survives persistence");
+        assert_eq!(back.file_path, "");
+
+        // A plain file input carries NO live fields — and omits them from
+        // its serialized form entirely.
+        let file = CapInputFile::new("/tmp/a.wav".to_string(), "media:audio;ext=wav".to_string());
+        assert!(file.live_reference.is_none());
+        let json = serde_json::to_string(&file).expect("serializes");
+        assert!(
+            !json.contains("live_reference"),
+            "absent live fields are omitted from the wire form: {json}"
+        );
+    }
+
     // TEST957: Tests CapInputFile constructor creates file with correct path and media URN
     // Verifies new() initializes file_path, media_urn and leaves metadata/source_id as None
     #[test]

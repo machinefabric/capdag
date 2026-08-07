@@ -23,6 +23,7 @@ pub mod cbor_util;
 pub mod cli_cap;
 pub mod cli_output;
 pub mod cli_runtime;
+pub mod cli_writer;
 pub mod execute_plan;
 pub mod executor;
 pub mod machine_plan;
@@ -50,6 +51,7 @@ pub use cli_cap::{
 };
 pub use cli_output::{emit_terminals, extension_for_media, EmitOptions};
 pub use cli_runtime::CliRuntime;
+pub use cli_writer::{CliDiskWriter, PART_FILE_PREFIX};
 
 pub use plan_converter::plan_to_resolved_graph;
 

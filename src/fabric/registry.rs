@@ -1111,16 +1111,31 @@ impl FabricRegistry {
             "[prefetch] warming alias cache from manifest"
         );
 
-        // `get_alias` borrows `&self`, so resolve sequentially rather than
-        // spawning detached tasks. Alias counts are small (hundreds) and most
-        // hit the on-disk cache, so this is cheap; correctness (the cache being
-        // warm before the first sync parse) matters more than shaving startup ms.
+        // Bounded concurrency, same shape as the cap warm above. A SERIAL
+        // loop here was a real startup failure: with a COLD disk cache
+        // (fresh workdir, cleared cache, bumped manifest) every alias is a
+        // network round-trip, and ~280 sequential GETs can exceed the
+        // app-side 30s port deadline — the engine never opens gRPC because
+        // this warm runs before the server starts, and the splash dies with
+        // "did not reach its configuring state". Intermittent by nature:
+        // network jitter decides which side of the deadline a cold start
+        // lands on. Warm in parallel; per-alias failures stay soft (the
+        // on-demand background fetcher retries later).
+        const MAX_IN_FLIGHT: usize = 16;
         let mut warmed = 0usize;
         let mut failed = 0usize;
-        for name in to_fetch {
-            match self.get_alias(&name).await {
-                Ok(_) => warmed += 1,
-                Err(e) => {
+        let mut set: tokio::task::JoinSet<(String, Result<StoredAlias, FabricRegistryError>)> =
+            tokio::task::JoinSet::new();
+        let mut iter = to_fetch.into_iter();
+        for _ in 0..MAX_IN_FLIGHT {
+            if let Some(name) = iter.next() {
+                self.spawn_alias_warm(&mut set, name);
+            }
+        }
+        while let Some(joined) = set.join_next().await {
+            match joined {
+                Ok((_, Ok(_))) => warmed += 1,
+                Ok((name, Err(e))) => {
                     failed += 1;
                     tracing::warn!(
                         alias = %name,
@@ -1128,6 +1143,13 @@ impl FabricRegistry {
                         "[prefetch] failed to warm alias; on-demand background fetch will retry later"
                     );
                 }
+                Err(e) => {
+                    failed += 1;
+                    tracing::warn!(error = %e, "[prefetch] alias warm task panicked");
+                }
+            }
+            if let Some(name) = iter.next() {
+                self.spawn_alias_warm(&mut set, name);
             }
         }
 
@@ -1137,6 +1159,60 @@ impl FabricRegistry {
             total,
             "[prefetch] alias cache warm-up complete"
         );
+    }
+
+    /// Spawn a single alias warm-up task onto `set`, cloning the `Arc`
+    /// handles the atomic fetcher needs so it can run independently of
+    /// `&self` — the alias twin of `spawn_cap_warm`.
+    fn spawn_alias_warm(
+        &self,
+        set: &mut tokio::task::JoinSet<(String, Result<StoredAlias, FabricRegistryError>)>,
+        name: String,
+    ) {
+        let client = self.client.clone();
+        let cache_dir = self.cache_dir.clone();
+        let cached_aliases = Arc::clone(&self.cached_aliases);
+        let offline_flag = Arc::clone(&self.offline_flag);
+        let config = self.config.clone();
+        let cache_revision_tx = self.cache_revision_tx.clone();
+        // Resolve the defver under the manifest lock BEFORE spawning — the
+        // task then owns everything it needs.
+        let normalized = match normalize_alias_name(&name) {
+            Ok(n) => n,
+            Err(e) => {
+                set.spawn(async move {
+                    (
+                        name,
+                        Err(FabricRegistryError::ValidationError(format!(
+                            "invalid alias name: {}",
+                            e
+                        ))),
+                    )
+                });
+                return;
+            }
+        };
+        let defver = match self.alias_defver(&normalized) {
+            Ok(d) => d,
+            Err(e) => {
+                set.spawn(async move { (name, Err(e)) });
+                return;
+            }
+        };
+        set.spawn(async move {
+            let result = fetch_one_alias(
+                &client,
+                &cache_dir,
+                &cached_aliases,
+                &offline_flag,
+                &config,
+                &cache_revision_tx,
+                &normalized,
+                defver,
+            )
+            .await;
+            (name, result)
+        });
     }
 
     /// Spawn a single cap warm-up task onto `set`, cloning the `Arc` handles
@@ -3716,6 +3792,78 @@ mod parity_port_tests {
                 .and_then(|s| s.to_str()),
             Some("capdag"),
             "the per-origin slug must live under the capdag cache directory"
+        );
+    }
+
+    // TEST8139: live-source enumeration is MANIFEST-backed with the
+    // metadata.content pairing — a live def the cap-driven cache warm never
+    // touches (live references are referenced by NO cap) still enumerates,
+    // and content lookup matches by urn EQUIVALENCE, not spelling. A silent
+    // empty catalog here is the bug that shipped a dead microphone button.
+    #[tokio::test]
+    async fn test8139_live_source_defs_manifest_backed_with_pairing() {
+        let registry = FabricRegistry::new_for_test();
+        registry.insert_cached_media_def_for_test(StoredMediaDef {
+            urn: "media:audio;live;microphone".to_string(),
+            version: 1,
+            media_type: "application/x-live-feed-reference".to_string(),
+            title: "Microphone Feed Reference".to_string(),
+            metadata: Some(serde_json::json!({ "content": "media:audio-frames;pcm" })),
+            ..Default::default()
+        });
+        registry.insert_cached_media_def_for_test(StoredMediaDef {
+            urn: "media:audio-frames;pcm".to_string(),
+            version: 1,
+            media_type: "audio/x-raw".to_string(),
+            title: "PCM Audio Frames".to_string(),
+            ..Default::default()
+        });
+
+        let defs = registry.live_source_defs().await.expect("enumeration succeeds");
+        assert_eq!(
+            defs,
+            vec![(
+                "media:audio;live;microphone".to_string(),
+                "media:audio-frames;pcm".to_string(),
+                "Microphone Feed Reference".to_string()
+            )],
+            "exactly the live def, with its pairing — content defs are not live sources"
+        );
+
+        // Content lookup by EQUIVALENCE: a reordered spelling of the same
+        // reference resolves the same pairing.
+        let reordered = crate::MediaUrn::from_string("media:microphone;live;audio")
+            .expect("reordered reference parses");
+        assert_eq!(
+            registry
+                .live_source_content_urn(&reordered)
+                .await
+                .expect("lookup succeeds"),
+            Some("media:audio-frames;pcm".to_string())
+        );
+    }
+
+    // TEST8140: a live def WITHOUT its metadata.content pairing is a fabric
+    // defect reported as a HARD error — never silently skipped (a skipped
+    // def is an invisible dead device family).
+    #[tokio::test]
+    async fn test8140_live_def_without_pairing_is_a_hard_error() {
+        let registry = FabricRegistry::new_for_test();
+        registry.insert_cached_media_def_for_test(StoredMediaDef {
+            urn: "media:image;live;webcam".to_string(),
+            version: 1,
+            media_type: "application/x-live-feed-reference".to_string(),
+            title: "Webcam Feed Reference".to_string(),
+            metadata: None,
+            ..Default::default()
+        });
+        let err = registry
+            .live_source_defs()
+            .await
+            .expect_err("a pairing-less live def must fail loudly");
+        assert!(
+            err.to_string().contains("metadata.content"),
+            "the error names the missing pairing: {err}"
         );
     }
 

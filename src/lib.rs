@@ -31,6 +31,7 @@
 pub mod bifaci;
 pub mod bundled_cartridge_hashes;
 pub mod cap;
+pub mod capture;
 pub mod cartridge_discovery;
 pub mod cartridge_registry_version;
 pub mod dev;
@@ -142,9 +143,10 @@ pub use bifaci::request_state::{
     TerminatedSummary,
 };
 pub use bifaci::live_feed::{
-    LiveFeedItem, LiveFeedProvider, LiveFeedProviders, LiveFeedSelector, LiveFeedSink,
-    LiveFeedStop, OverrunPolicy, SyntheticFeedProvider, MEDIA_LIVE_FEED, MEDIA_LIVE_SYNTHETIC,
+    LiveFeedHandle, LiveFeedItem, LiveFeedSelector, LiveFeedSink, LiveFeedStop, OpenedFeed,
+    OverrunPolicy, MEDIA_LIVE_FEED, MEDIA_LIVE_SYNTHETIC,
 };
+pub use capture::MEDIA_FEED_FRAMES;
 pub use bifaci::stats::{
     DropCounters, DropSnapshot, StragglerCounters, StragglerSnapshot, TerminatedFlows,
 };

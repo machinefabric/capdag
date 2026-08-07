@@ -762,10 +762,14 @@ impl CartridgeRepo {
     async fn verify_manifest_sidecar(
         &self,
         repo_url: &str,
+        cache_bust: u64,
         manifest_bytes: &[u8],
         trust: &crate::bifaci::release_cert::RegistryTrust,
     ) -> Result<Vec<(String, String)>> {
-        let sidecar_url = format!("{repo_url}.sig");
+        // Same cache-bust token as the manifest fetch: signature verification
+        // only holds over a COHERENT (manifest, sidecar) pair, and two
+        // independently CDN-cached objects can come from different publishes.
+        let sidecar_url = format!("{repo_url}.sig?cb={cache_bust}");
         let response = self
             .http_client
             .get(&sidecar_url)
@@ -822,9 +826,27 @@ impl CartridgeRepo {
                 repo_url
             )));
         }
-        let response = self.http_client.get(repo_url).send().await.map_err(|e| {
-            CartridgeRepoError::HttpError(format!("Failed to fetch from {}: {}", repo_url, e))
-        })?;
+        // The manifest is mutable and signed by a separate sidecar object; a
+        // CDN may cache the two from DIFFERENT publishes, which fails
+        // signature verification (and, downstream, artifact sha checks) with
+        // no client-side error. A fresh cache-bust token on both fetches
+        // forces one coherent origin read per sync.
+        let cache_bust = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock before epoch")
+            .as_millis() as u64;
+        let manifest_fetch_url = format!(
+            "{repo_url}{}cb={cache_bust}",
+            if repo_url.contains('?') { "&" } else { "?" }
+        );
+        let response = self
+            .http_client
+            .get(&manifest_fetch_url)
+            .send()
+            .await
+            .map_err(|e| {
+                CartridgeRepoError::HttpError(format!("Failed to fetch from {}: {}", repo_url, e))
+            })?;
 
         if response.status().as_u16() == 404 {
             // Manifest not published yet. Return an empty response so
@@ -865,7 +887,7 @@ impl CartridgeRepo {
         let trust = self.trust.read().await.clone();
         if let Some(trust) = trust {
             let release_keys = self
-                .verify_manifest_sidecar(repo_url, &body_bytes, &trust)
+                .verify_manifest_sidecar(repo_url, cache_bust, &body_bytes, &trust)
                 .await?;
             self.verified_release_keys
                 .write()

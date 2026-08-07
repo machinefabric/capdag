@@ -440,6 +440,544 @@ pub type SegmentWriterFactory = dyn Fn(&str, Option<super::execute_plan::ForEach
     + Send
     + Sync;
 
+/// Disk spool for an UNBOUNDED INTERMEDIATE at a chain split boundary.
+///
+/// A mandatory materialisation boundary (same-admission-domain bounded caps,
+/// fan-out) turns a chain's sink into collected `node_data` — but an
+/// unbounded stream must never be collected into memory (L16). The spool is
+/// the third leg: the collector engages it LAZILY when STREAM_START declares
+/// unbounded and no persist writer exists, streaming the data to a temp file
+/// in the exact `node_data` byte form:
+/// - sequence: chunk payloads (raw CBOR fragments) appended verbatim — the
+///   file IS the RFC 8742 CBOR sequence;
+/// - blob: each chunk's CBOR Bytes/Text value unwrapped, raw bytes appended.
+///
+/// [`send_file_stream`] then feeds the downstream chain head from the file in
+/// bounded windows. The stream has ENDED by the time the file is read, so the
+/// downstream cap receives an ordinary bounded stream — which is exactly the
+/// semantics a split boundary implies (the consumer needed the complete
+/// input before its permit could even be acquired).
+pub struct SpoolWriter {
+    path: std::path::PathBuf,
+    file: Option<tokio::fs::File>,
+    is_sequence: bool,
+    stream_meta: Option<StreamMeta>,
+    total_bytes: usize,
+    engaged: bool,
+}
+
+impl SpoolWriter {
+    pub fn new(path: std::path::PathBuf) -> Self {
+        Self {
+            path,
+            file: None,
+            is_sequence: false,
+            stream_meta: None,
+            total_bytes: 0,
+            engaged: false,
+        }
+    }
+
+    /// Whether the collector routed a stream into this spool.
+    pub fn engaged(&self) -> bool {
+        self.engaged
+    }
+
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
+    pub fn is_sequence(&self) -> bool {
+        self.is_sequence
+    }
+
+    pub fn stream_meta(&self) -> Option<&StreamMeta> {
+        self.stream_meta.as_ref()
+    }
+}
+
+#[async_trait]
+impl IncrementalWriter for SpoolWriter {
+    async fn on_stream_start(
+        &mut self,
+        is_sequence: Option<bool>,
+        _media_urn: &str,
+        meta: Option<StreamMeta>,
+        _stream_id: Option<String>,
+    ) -> Result<(), StreamIoError> {
+        if self.engaged {
+            return Err(StreamIoError::Protocol(
+                "intermediate spool received a second STREAM_START — a chain sink is \
+                 exactly one stream"
+                    .to_string(),
+            ));
+        }
+        self.engaged = true;
+        self.is_sequence = is_sequence == Some(true);
+        self.stream_meta = meta;
+        let file = tokio::fs::File::create(&self.path).await.map_err(|e| {
+            StreamIoError::Protocol(format!(
+                "failed to create spool file '{}': {e}",
+                self.path.display()
+            ))
+        })?;
+        self.file = Some(file);
+        Ok(())
+    }
+
+    async fn on_chunk_payload(
+        &mut self,
+        payload: &[u8],
+        _meta: Option<StreamMeta>,
+    ) -> Result<(), StreamIoError> {
+        use tokio::io::AsyncWriteExt;
+        let Some(file) = self.file.as_mut() else {
+            return Err(StreamIoError::Protocol(
+                "intermediate spool received a CHUNK before STREAM_START".to_string(),
+            ));
+        };
+        if self.is_sequence {
+            // Raw CBOR fragments append verbatim — concatenation of the
+            // producer's self-delimiting values is the RFC 8742 form.
+            file.write_all(payload).await.map_err(|e| {
+                StreamIoError::Protocol(format!(
+                    "failed to append to spool '{}': {e}",
+                    self.path.display()
+                ))
+            })?;
+            self.total_bytes += payload.len();
+        } else {
+            // Blob chunks are complete CBOR Bytes/Text values.
+            let value: ciborium::Value = ciborium::de::from_reader(payload)
+                .map_err(|e| StreamIoError::CborDecode(format!("spool blob chunk: {e}")))?;
+            let raw = unwrap_cbor_value(value, 0)?;
+            file.write_all(&raw).await.map_err(|e| {
+                StreamIoError::Protocol(format!(
+                    "failed to append to spool '{}': {e}",
+                    self.path.display()
+                ))
+            })?;
+            self.total_bytes += raw.len();
+        }
+        Ok(())
+    }
+
+    async fn on_stream_end(&mut self) -> Result<(), StreamIoError> {
+        use tokio::io::AsyncWriteExt;
+        if let Some(file) = self.file.as_mut() {
+            file.flush().await.map_err(|e| {
+                StreamIoError::Protocol(format!(
+                    "failed to flush spool '{}': {e}",
+                    self.path.display()
+                ))
+            })?;
+        }
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> super::execute_plan::WriterResult {
+        super::execute_plan::WriterResult {
+            is_sequence: self.is_sequence,
+            media_urn: String::new(),
+            saved_paths: vec![self.path.to_string_lossy().into_owned()],
+            total_bytes: self.total_bytes,
+            stream_meta: self.stream_meta,
+            item_metas: Vec::new(),
+        }
+    }
+}
+
+/// How many bytes of a spool file are resident at once while feeding it
+/// downstream — the streaming window, not a size cap.
+const SPOOL_READ_WINDOW: usize = 256 * 1024;
+
+/// Send one input stream from a SPOOL FILE (STREAM_START → CHUNKs →
+/// STREAM_END), mirroring [`send_one_stream`]'s framing and credit handling
+/// while keeping only a bounded window of the file in memory. The file holds
+/// the `node_data` byte form written by [`SpoolWriter`].
+#[allow(clippy::too_many_arguments)]
+pub async fn send_file_stream(
+    switch: &Arc<RelaySwitch>,
+    rid: &MessageId,
+    media_urn: &str,
+    path: &std::path::Path,
+    meta: Option<StreamMeta>,
+    is_sequence: bool,
+    max_chunk: usize,
+    credit: Option<(&crate::bifaci::credit::CreditRouter, u64)>,
+) -> Result<(), StreamIoError> {
+    use tokio::io::AsyncReadExt;
+
+    let stream_id = uuid::Uuid::new_v4().to_string();
+    let credit = credit.map(|(router, initial_credit)| {
+        let gate = std::sync::Arc::new(crate::bifaci::credit::CreditGate::new(initial_credit));
+        router.register(
+            rid.clone(),
+            Some(stream_id.clone()),
+            std::sync::Arc::clone(&gate),
+        );
+        gate
+    });
+    let credit = credit.as_deref();
+    async fn acquire(
+        credit: Option<&crate::bifaci::credit::CreditGate>,
+    ) -> Result<(), StreamIoError> {
+        if let Some(gate) = credit {
+            gate.acquire(1)
+                .await
+                .map_err(|e| StreamIoError::Transport(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    let mut file = tokio::fs::File::open(path).await.map_err(|e| {
+        StreamIoError::Protocol(format!("failed to open spool '{}': {e}", path.display()))
+    })?;
+
+    let mut ss = Frame::stream_start(
+        rid.clone(),
+        stream_id.clone(),
+        media_urn.to_string(),
+        if is_sequence { Some(true) } else { None },
+    );
+    ss.meta = meta;
+    switch
+        .send_to_master(ss, None)
+        .await
+        .map_err(|e| StreamIoError::Transport(format!("STREAM_START: {}", e)))?;
+
+    let mut chunk_index = 0u64;
+    let mut send_chunk = |payload: Vec<u8>| {
+        let rid = rid.clone();
+        let stream_id = stream_id.clone();
+        let idx = chunk_index;
+        chunk_index += 1;
+        let checksum = Frame::compute_checksum(&payload);
+        Frame::chunk(rid, stream_id, idx, payload, idx, checksum)
+    };
+
+    if is_sequence {
+        // Rolling window: read, drain every complete self-delimiting CBOR
+        // value as one item chunk, keep the partial tail, repeat.
+        let mut buf: Vec<u8> = Vec::with_capacity(SPOOL_READ_WINDOW);
+        let mut read_buf = vec![0u8; SPOOL_READ_WINDOW];
+        loop {
+            let n = file.read(&mut read_buf).await.map_err(|e| {
+                StreamIoError::Protocol(format!("failed to read spool '{}': {e}", path.display()))
+            })?;
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&read_buf[..n]);
+            loop {
+                if buf.is_empty() {
+                    break;
+                }
+                let mut cursor = std::io::Cursor::new(buf.as_slice());
+                let ok = ciborium::de::from_reader::<ciborium::Value, _>(&mut cursor).is_ok();
+                if !ok {
+                    break; // incomplete value — read more
+                }
+                let consumed = cursor.position() as usize;
+                let item: Vec<u8> = buf.drain(..consumed).collect();
+                acquire(credit).await?;
+                let chunk = send_chunk(item);
+                switch
+                    .send_to_master(chunk, None)
+                    .await
+                    .map_err(|e| StreamIoError::Transport(format!("CHUNK: {}", e)))?;
+            }
+        }
+        if !buf.is_empty() {
+            return Err(StreamIoError::Protocol(format!(
+                "{} bytes of an incomplete CBOR item at the end of spool '{}' — \
+                 truncated intermediate",
+                buf.len(),
+                path.display()
+            )));
+        }
+    } else {
+        let mut read_buf = vec![0u8; max_chunk.max(1)];
+        let mut sent_any = false;
+        loop {
+            let n = file.read(&mut read_buf).await.map_err(|e| {
+                StreamIoError::Protocol(format!("failed to read spool '{}': {e}", path.display()))
+            })?;
+            if n == 0 {
+                break;
+            }
+            sent_any = true;
+            let cbor_value = ciborium::Value::Bytes(read_buf[..n].to_vec());
+            let mut cbor_payload = Vec::new();
+            ciborium::into_writer(&cbor_value, &mut cbor_payload)
+                .map_err(|e| StreamIoError::CborEncode(format!("{}", e)))?;
+            acquire(credit).await?;
+            let chunk = send_chunk(cbor_payload);
+            switch
+                .send_to_master(chunk, None)
+                .await
+                .map_err(|e| StreamIoError::Transport(format!("CHUNK: {}", e)))?;
+        }
+        if !sent_any {
+            // Mirror send_one_stream: an empty payload still sends one
+            // explicit empty chunk.
+            let mut cbor_payload = Vec::new();
+            ciborium::into_writer(&ciborium::Value::Bytes(vec![]), &mut cbor_payload)
+                .map_err(|e| StreamIoError::CborEncode(format!("{}", e)))?;
+            acquire(credit).await?;
+            let chunk = send_chunk(cbor_payload);
+            switch
+                .send_to_master(chunk, None)
+                .await
+                .map_err(|e| StreamIoError::Transport(format!("CHUNK: {}", e)))?;
+        }
+    }
+
+    let se = Frame::stream_end(rid.clone(), stream_id, chunk_index);
+    switch
+        .send_to_master(se, None)
+        .await
+        .map_err(|e| StreamIoError::Transport(format!("STREAM_END: {}", e)))?;
+    Ok(())
+}
+
+/// One member of a GATHER (N producers concatenating into one sequence
+/// arg), in the order the resolver declared its sources.
+pub enum GatherMember {
+    /// In-memory member: `node_data` form — raw bytes for a scalar (wrapped
+    /// as one CBOR Bytes item), an RFC 8742 CBOR sequence for a sequence
+    /// (items forwarded as-is).
+    Memory { data: Vec<u8>, is_sequence: bool },
+    /// A spooled member (an UNBOUNDED intermediate whose feed ended): its
+    /// items stream from the file in bounded windows — the member's whole
+    /// point is never being memory-resident. A sequence spool contributes
+    /// its items; a blob spool contributes ONE item whose CBOR byte-string
+    /// streams across chunk payloads (receivers reassemble split items by
+    /// contract, 12.4 §Streaming).
+    Spooled {
+        path: std::path::PathBuf,
+        is_sequence: bool,
+    },
+}
+
+/// The CBOR byte-string HEADER for a payload of `len` bytes (major type 2).
+/// Streaming a spooled blob as one item = this header followed by the raw
+/// file bytes, split across chunk payloads.
+fn cbor_bytes_header(len: u64) -> Vec<u8> {
+    match len {
+        0..=23 => vec![0x40 | len as u8],
+        24..=0xFF => vec![0x58, len as u8],
+        0x100..=0xFFFF => {
+            let mut v = vec![0x59];
+            v.extend_from_slice(&(len as u16).to_be_bytes());
+            v
+        }
+        0x1_0000..=0xFFFF_FFFF => {
+            let mut v = vec![0x5A];
+            v.extend_from_slice(&(len as u32).to_be_bytes());
+            v
+        }
+        _ => {
+            let mut v = vec![0x5B];
+            v.extend_from_slice(&len.to_be_bytes());
+            v
+        }
+    }
+}
+
+/// Send one GATHERED sequence stream assembled from `members` in order
+/// (STREAM_START → members' items → STREAM_END), mirroring
+/// [`send_one_stream`]'s framing and credit handling. Spooled members
+/// stream from their files in bounded windows — a gather over an ended
+/// unbounded intermediate never re-buffers it.
+#[allow(clippy::too_many_arguments)]
+pub async fn send_gathered_stream(
+    switch: &Arc<RelaySwitch>,
+    rid: &MessageId,
+    media_urn: &str,
+    members: Vec<GatherMember>,
+    max_chunk: usize,
+    credit: Option<(&crate::bifaci::credit::CreditRouter, u64)>,
+) -> Result<(), StreamIoError> {
+    use tokio::io::AsyncReadExt;
+
+    let stream_id = uuid::Uuid::new_v4().to_string();
+    let credit = credit.map(|(router, initial_credit)| {
+        let gate = std::sync::Arc::new(crate::bifaci::credit::CreditGate::new(initial_credit));
+        router.register(
+            rid.clone(),
+            Some(stream_id.clone()),
+            std::sync::Arc::clone(&gate),
+        );
+        gate
+    });
+    let credit = credit.as_deref();
+    async fn acquire(
+        credit: Option<&crate::bifaci::credit::CreditGate>,
+    ) -> Result<(), StreamIoError> {
+        if let Some(gate) = credit {
+            gate.acquire(1)
+                .await
+                .map_err(|e| StreamIoError::Transport(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    let ss = Frame::stream_start(
+        rid.clone(),
+        stream_id.clone(),
+        media_urn.to_string(),
+        Some(true),
+    );
+    switch
+        .send_to_master(ss, None)
+        .await
+        .map_err(|e| StreamIoError::Transport(format!("STREAM_START: {}", e)))?;
+
+    let mut chunk_index = 0u64;
+    macro_rules! send_payload {
+        ($payload:expr) => {{
+            let payload: Vec<u8> = $payload;
+            acquire(credit).await?;
+            let checksum = Frame::compute_checksum(&payload);
+            let chunk = Frame::chunk(
+                rid.clone(),
+                stream_id.clone(),
+                chunk_index,
+                payload,
+                chunk_index,
+                checksum,
+            );
+            switch
+                .send_to_master(chunk, None)
+                .await
+                .map_err(|e| StreamIoError::Transport(format!("CHUNK: {}", e)))?;
+            chunk_index += 1;
+        }};
+    }
+
+    for member in members {
+        match member {
+            GatherMember::Memory { data, is_sequence } => {
+                if is_sequence {
+                    // RFC 8742 sequence: forward each self-delimiting value
+                    // as its own item payload.
+                    let mut cursor = std::io::Cursor::new(data.as_slice());
+                    while (cursor.position() as usize) < data.len() {
+                        let start = cursor.position() as usize;
+                        let _: ciborium::Value =
+                            ciborium::de::from_reader(&mut cursor).map_err(|e| {
+                                StreamIoError::CborDecode(format!(
+                                    "gather sequence member item: {e}"
+                                ))
+                            })?;
+                        let end = cursor.position() as usize;
+                        send_payload!(data[start..end].to_vec());
+                    }
+                } else {
+                    let mut payload = Vec::new();
+                    ciborium::into_writer(&ciborium::Value::Bytes(data), &mut payload)
+                        .map_err(|e| StreamIoError::CborEncode(format!("{}", e)))?;
+                    send_payload!(payload);
+                }
+            }
+            GatherMember::Spooled { path, is_sequence } => {
+                let mut file = tokio::fs::File::open(&path).await.map_err(|e| {
+                    StreamIoError::Protocol(format!(
+                        "failed to open gather spool '{}': {e}",
+                        path.display()
+                    ))
+                })?;
+                if is_sequence {
+                    // Rolling window: forward each complete value as an item.
+                    let mut buf: Vec<u8> = Vec::with_capacity(SPOOL_READ_WINDOW);
+                    let mut read_buf = vec![0u8; SPOOL_READ_WINDOW];
+                    loop {
+                        let n = file.read(&mut read_buf).await.map_err(|e| {
+                            StreamIoError::Protocol(format!(
+                                "failed to read gather spool '{}': {e}",
+                                path.display()
+                            ))
+                        })?;
+                        if n == 0 {
+                            break;
+                        }
+                        buf.extend_from_slice(&read_buf[..n]);
+                        loop {
+                            if buf.is_empty() {
+                                break;
+                            }
+                            let mut cursor = std::io::Cursor::new(buf.as_slice());
+                            if ciborium::de::from_reader::<ciborium::Value, _>(&mut cursor)
+                                .is_err()
+                            {
+                                break; // incomplete — read more
+                            }
+                            let consumed = cursor.position() as usize;
+                            let item: Vec<u8> = buf.drain(..consumed).collect();
+                            send_payload!(item);
+                        }
+                    }
+                    if !buf.is_empty() {
+                        return Err(StreamIoError::Protocol(format!(
+                            "{} bytes of an incomplete CBOR item at the end of gather \
+                             spool '{}' — truncated intermediate",
+                            buf.len(),
+                            path.display()
+                        )));
+                    }
+                } else {
+                    // A blob spool is ONE item: its CBOR byte-string header,
+                    // then the raw file bytes, split across payloads — the
+                    // receiver reassembles the split item (12.4 §Streaming).
+                    let len = file
+                        .metadata()
+                        .await
+                        .map_err(|e| {
+                            StreamIoError::Protocol(format!(
+                                "failed to stat gather spool '{}': {e}",
+                                path.display()
+                            ))
+                        })?
+                        .len();
+                    send_payload!(cbor_bytes_header(len));
+                    let mut sent: u64 = 0;
+                    let mut read_buf = vec![0u8; max_chunk.max(1)];
+                    loop {
+                        let n = file.read(&mut read_buf).await.map_err(|e| {
+                            StreamIoError::Protocol(format!(
+                                "failed to read gather spool '{}': {e}",
+                                path.display()
+                            ))
+                        })?;
+                        if n == 0 {
+                            break;
+                        }
+                        sent += n as u64;
+                        send_payload!(read_buf[..n].to_vec());
+                    }
+                    if sent != len {
+                        return Err(StreamIoError::Protocol(format!(
+                            "gather spool '{}' changed size mid-send ({} bytes sent, \
+                             header promised {}) — the item on the wire is corrupt",
+                            path.display(),
+                            sent,
+                            len
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    let se = Frame::stream_end(rid.clone(), stream_id, chunk_index);
+    switch
+        .send_to_master(se, None)
+        .await
+        .map_err(|e| StreamIoError::Transport(format!("STREAM_END: {}", e)))?;
+    Ok(())
+}
+
 /// Observes the correlation between a cap invocation's request id and its
 /// strand-step identity, at the one point both are known (invocation setup).
 /// The engine implements this to feed the run's live protocol/flow snapshots
@@ -447,6 +985,14 @@ pub type SegmentWriterFactory = dyn Fn(&str, Option<super::execute_plan::ForEach
 pub trait FlowObserver: Send + Sync {
     /// Record that request `rid` belongs to strand step `token_id`.
     fn record(&self, rid: &crate::bifaci::frame::MessageId, token_id: &str);
+
+    /// Record that request `rid` is FEED-BEARING: its input carries a live
+    /// reference the receiving cartridge resolved into an open device tap.
+    /// The stop-input control (15.2 §Runs Stop) sends a non-force Cancel to
+    /// exactly these requests — the runtime closes the taps and the machine
+    /// drains — without touching any other in-flight request. Default no-op
+    /// for observers that don't wire stop.
+    fn record_feed_bearing(&self, _rid: &crate::bifaci::frame::MessageId) {}
 }
 
 /// Send a single input stream (STREAM_START → CHUNKs → STREAM_END) to a cartridge.
@@ -1000,6 +1546,7 @@ pub async fn collect_terminal_output(
     body_index: Option<usize>,
     stall_tracker: Option<&Arc<PipelineProgressTracker>>,
     writer: Option<&mut dyn IncrementalWriter>,
+    spool: Option<&mut dyn IncrementalWriter>,
     activity_timeout_secs: u64,
     credit: Option<&CreditPlumbing>,
 ) -> Result<(Vec<u8>, Option<bool>, TerminalMeta), StreamIoError> {
@@ -1027,9 +1574,14 @@ pub async fn collect_terminal_output(
     // 500 ms. The flag resets to false the next time any frame arrives.
     let mut activity_warning_logged = false;
 
-    // Rebind writer as mutable — we pass it through as Option<&mut> but need
-    // to call methods on it inside the loop.
-    let mut writer = writer;
+    // Rebind writer as a LOCAL reborrow — we call methods on it inside the
+    // loop, and engaging the spool replaces it (both reborrows share the
+    // local lifetime, so the two parameters keep independent lifetimes).
+    let mut writer: Option<&mut dyn IncrementalWriter> = match writer {
+        Some(w) => Some(&mut *w),
+        None => None,
+    };
+    let mut spool = spool;
 
     loop {
         let frame = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
@@ -1291,20 +1843,27 @@ pub async fn collect_terminal_output(
                         // the cap's declared effect contract before a single
                         // byte of it is collected or persisted.
                         effect_audit.audit(frame.media_urn.as_deref())?;
-                        // An UNBOUNDED terminal must be consumed incrementally
+                        // An UNBOUNDED stream must be consumed incrementally
                         // (L16): a writer streams it to disk; without one this
-                        // buffering collector would be unbounded memory — the
-                        // engine must route such terminals to `TerminalOutput`
-                        // or a persisted sink instead (15.2 §Live-Feed
-                        // Machines). Refused loudly, never an OOM.
+                        // buffering collector would be unbounded memory. An
+                        // INTERMEDIATE at a mandatory split boundary engages
+                        // its disk spool here instead (the caller passed one);
+                        // a TERMINAL without a persisted sink is refused
+                        // loudly, never an OOM (15.2 §Live-Feed Machines).
                         if frame.is_unbounded() && writer.is_none() {
-                            return Err(StreamIoError::Protocol(format!(
-                                "cap '{}' terminal declared an UNBOUNDED stream but the sink is \
-                                 not persisted — unbounded terminals require incremental \
-                                 consumption (a persisted sink / IncrementalWriter, or \
-                                 TerminalOutput), never a buffering collector (L16)",
-                                cap_urn
-                            )));
+                            match spool.take() {
+                                Some(sp) => writer = Some(&mut *sp),
+                                None => {
+                                    return Err(StreamIoError::Protocol(format!(
+                                        "cap '{}' terminal declared an UNBOUNDED stream but the \
+                                         sink is not persisted — unbounded terminals require \
+                                         incremental consumption (a persisted sink / \
+                                         IncrementalWriter, or TerminalOutput), never a \
+                                         buffering collector (L16)",
+                                        cap_urn
+                                    )));
+                                }
+                            }
                         }
                         if let Some(seq) = frame.is_sequence {
                             is_sequence = Some(seq);
@@ -1564,6 +2123,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             5,
             None,
         )
@@ -1647,6 +2207,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             5,
             None,
         )
@@ -1656,6 +2217,137 @@ mod tests {
             err.to_string().contains("UNBOUNDED"),
             "the refusal names the cause: {err}"
         );
+    }
+
+    // TEST8145: SpoolWriter — the disk spool for an unbounded INTERMEDIATE at
+    // a chain-split boundary. Sequence fragments append verbatim so the file
+    // IS the RFC 8742 node_data form (items split across payloads included);
+    // blob chunks are unwrapped to raw bytes; a second STREAM_START refuses.
+    #[tokio::test]
+    async fn test8145_spool_writer_spools_node_data_forms() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Sequence: two CBOR Bytes items, the second split across payloads.
+        let mut item0 = Vec::new();
+        ciborium::into_writer(&ciborium::Value::Bytes(b"win0".to_vec()), &mut item0).unwrap();
+        let mut item1 = Vec::new();
+        ciborium::into_writer(&ciborium::Value::Bytes(b"win1".to_vec()), &mut item1).unwrap();
+        let mut sp = Box::new(super::SpoolWriter::new(dir.path().join("seq.spool")));
+        assert!(!sp.engaged());
+        sp.on_stream_start(Some(true), "media:record", None, None)
+            .await
+            .unwrap();
+        assert!(sp.engaged());
+        sp.on_chunk_payload(&item0, None).await.unwrap();
+        let (a, b) = item1.split_at(2);
+        sp.on_chunk_payload(a, None).await.unwrap();
+        sp.on_chunk_payload(b, None).await.unwrap();
+        sp.on_stream_end().await.unwrap();
+        assert!(sp.is_sequence());
+        let err = sp
+            .on_stream_start(Some(true), "media:record", None, None)
+            .await
+            .expect_err("a chain sink is exactly one stream");
+        assert!(err.to_string().contains("second STREAM_START"), "{err}");
+        let path = sp.path().to_path_buf();
+        let result = (sp as Box<dyn IncrementalWriter>).finish();
+        assert!(result.is_sequence);
+        let on_disk = std::fs::read(&path).unwrap();
+        let expected: Vec<u8> = [item0.as_slice(), item1.as_slice()].concat();
+        assert_eq!(on_disk, expected, "file is the concatenated CBOR sequence");
+        let items = crate::orchestrator::cbor_util::split_cbor_sequence(&on_disk).unwrap();
+        assert_eq!(items.len(), 2, "both items round-trip");
+
+        // Blob: chunks are complete CBOR Bytes values; raw bytes append.
+        let mut sp = Box::new(super::SpoolWriter::new(dir.path().join("blob.spool")));
+        sp.on_stream_start(Some(false), "media:audio;ext=wav", None, None)
+            .await
+            .unwrap();
+        let mut c0 = Vec::new();
+        ciborium::into_writer(&ciborium::Value::Bytes(b"RIFF".to_vec()), &mut c0).unwrap();
+        let mut c1 = Vec::new();
+        ciborium::into_writer(&ciborium::Value::Bytes(b"data".to_vec()), &mut c1).unwrap();
+        sp.on_chunk_payload(&c0, None).await.unwrap();
+        sp.on_chunk_payload(&c1, None).await.unwrap();
+        sp.on_stream_end().await.unwrap();
+        let path = sp.path().to_path_buf();
+        let result = (sp as Box<dyn IncrementalWriter>).finish();
+        assert!(!result.is_sequence);
+        assert_eq!(result.total_bytes, 8);
+        assert_eq!(std::fs::read(&path).unwrap(), b"RIFFdata");
+    }
+
+    // TEST8147: the CBOR byte-string header used to stream a spooled BLOB
+    // gather member as one split item — every length class encodes exactly
+    // as a CBOR decoder expects, so the reassembled item decodes.
+    #[test]
+    fn test8147_cbor_bytes_header_encodes_every_length_class() {
+        for len in [0u64, 1, 23, 24, 255, 256, 65_535, 65_536, 4_294_967_295, 4_294_967_296] {
+            let header = super::cbor_bytes_header(len);
+            // Decode the header + a truncated body via ciborium only for the
+            // small classes (allocating 4GiB in a test is not a test).
+            if len <= 65_536 {
+                let mut value = header.clone();
+                value.extend(std::iter::repeat(0xAB).take(len as usize));
+                let decoded: ciborium::Value =
+                    ciborium::de::from_reader(value.as_slice()).expect("header + body decodes");
+                match decoded {
+                    ciborium::Value::Bytes(b) => assert_eq!(b.len() as u64, len),
+                    other => panic!("expected bytes, got {other:?}"),
+                }
+            } else {
+                // Large classes: check the major type + length field shape.
+                assert_eq!(header[0] & 0xE0, 0x40, "major type 2");
+            }
+        }
+    }
+
+    // TEST8146: an UNBOUNDED stream with no persist writer but a spool
+    // available ENGAGES the spool instead of the L16 refusal — the mandatory
+    // chain-split boundary streams to disk and the collect succeeds. This is
+    // the mic → encode → transcribe → <same-cartridge cap> machine shape that
+    // the refusal wrongly killed.
+    #[tokio::test]
+    async fn test8146_unbounded_intermediate_engages_spool() {
+        let dir = tempfile::tempdir().unwrap();
+        let rid = MessageId::new_uuid();
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(Frame::stream_start_unbounded(
+            rid.clone(),
+            "out".to_string(),
+            "media:enc=utf-8;record".to_string(),
+            Some(true),
+        ))
+        .unwrap();
+        let mut item = Vec::new();
+        ciborium::into_writer(&ciborium::Value::Bytes(b"window-1".to_vec()), &mut item).unwrap();
+        tx.send(chunk(&rid, &item)).unwrap();
+        tx.send(Frame::stream_end(rid.clone(), "out".to_string(), 1))
+            .unwrap();
+        tx.send(Frame::end_ok(rid.clone(), None)).unwrap();
+        drop(tx);
+
+        let mut spool = super::SpoolWriter::new(dir.path().join("mid.spool"));
+        let (bytes, is_seq, _meta) = collect_terminal_output(
+            rx,
+            None,
+            "cap:test",
+            "step_test",
+            None,
+            None,
+            None,
+            None,
+            Some(&mut spool as &mut dyn IncrementalWriter),
+            5,
+            None,
+        )
+        .await
+        .expect("the spool absorbs the unbounded intermediate");
+        assert!(spool.engaged(), "STREAM_START-unbounded engages the spool");
+        assert!(bytes.is_empty(), "nothing buffers in memory");
+        assert_eq!(is_seq, Some(true));
+        let on_disk = std::fs::read(spool.path()).unwrap();
+        assert_eq!(on_disk, item, "the item streamed to disk verbatim");
     }
 
     // TEST7022: The receiver delivers final progress exactly once, sourced from END terminal metadata, defaulting to 1.0 on a plain successful END.
@@ -1677,6 +2369,7 @@ mod tests {
             "cap:test",
             "step_test",
             Some(&cap.log_fn),
+            None,
             None,
             None,
             None,
@@ -1724,6 +2417,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             5,
             None,
         )
@@ -1764,6 +2458,7 @@ mod tests {
             "cap:test",
             "step_test",
             Some(&cap.log_fn),
+            None,
             None,
             None,
             None,

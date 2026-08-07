@@ -1090,3 +1090,114 @@ async fn test394_peer_invoke_roundtrip() {
         "Peer invoke chain should prepend and append correctly"
     );
 }
+
+// =============================================================================
+// Host-mediated live capture → ForEach region (13.2 §Reference Media)
+// =============================================================================
+
+// TEST1459: a live source drives a ForEach region END TO END through the
+// REAL stack — the CLI runtime hosts the actual testcartridge process on a
+// real relay switch, the HOST opens the built-in `media:live;synthetic`
+// feed itself through the same capture dispatch the hardware backends use,
+// and one body runs per delivered item while the feed runs. No mocks
+// anywhere: real capture bridge, real region driver, real cartridge
+// invocations, real persisted body outputs.
+#[tokio::test]
+async fn test1459_live_synthetic_foreach_region_end_to_end() {
+    use capdag::orchestrator::{execute_plan, CliRuntime, EngineRuntime, PlanInput};
+    use capdag::planner::{InputCardinality, MachineNode, MachinePlan, MachinePlanEdge};
+
+    let registry = create_test_fabric_registry();
+    let (_temp, cartridge_dir, dev_binaries) = setup_test_env();
+    let persist_dir = _temp.path().join("outputs");
+
+    // input (live synthetic, sequence) → fe → mapper (test-edge1, one item
+    // per body) → out. The planner produces exactly this shape when a
+    // scalar-consuming cap is planned over live content.
+    let mut plan = MachinePlan::new("live-region-e2e");
+    plan.add_node(MachineNode::input_slot(
+        "input",
+        "input",
+        "media:feed-frames",
+        InputCardinality::Sequence,
+    ));
+    plan.add_node(MachineNode::cap(
+        "mapper",
+        r#"cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2""#,
+    ));
+    plan.add_node(MachineNode::for_each_token(
+        "fe",
+        "input",
+        "mapper",
+        "mapper",
+        "live-e2e-token".to_string(),
+    ));
+    plan.add_node(MachineNode::output("out", "result", "mapper"));
+    plan.add_edge(MachinePlanEdge::direct("input", "fe"));
+    plan.add_edge(MachinePlanEdge::iteration("fe", "mapper"));
+    plan.add_edge(MachinePlanEdge::direct("mapper", "out"));
+
+    let runtime: Arc<dyn EngineRuntime> = Arc::new(CliRuntime::new(
+        cartridge_dir,
+        None, // no registry URL — dev binaries only, no network
+        capdag::CartridgeChannel::Release,
+        capdag::FABRIC_MANIFEST_VERSION,
+        dev_binaries,
+        None,
+        registry.clone(),
+        None,
+        persist_dir,
+    ));
+
+    let inputs = HashMap::from([(
+        "input".to_string(),
+        PlanInput::LiveReference {
+            reference_urn: "media:live;synthetic".to_string(),
+            selector: br#"{"params":{"items":3,"interval_ms":0,"item_bytes":4}}"#.to_vec(),
+        },
+    )]);
+    let flags = HashMap::from([("input".to_string(), true)]);
+
+    let result = execute_plan(
+        &plan,
+        runtime,
+        inputs,
+        flags,
+        &HashMap::new(),
+        None,
+        None,
+        Some(&test_pipeline_log_fn()),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("a live source must drive the region through the real stack");
+
+    // One persisted body output per delivered feed item, in item order: the
+    // CLI runtime persists terminal sinks, so the region terminal carries
+    // writer results (one blob per body) instead of in-memory items.
+    let terminal = result.terminal("out").expect("region terminal");
+    assert!(terminal.is_sequence, "a region terminal is a sequence");
+    assert_eq!(
+        terminal.writer_results.len(),
+        3,
+        "one persisted body output per feed item"
+    );
+    for (i, writer) in terminal.writer_results.iter().enumerate() {
+        assert_eq!(
+            writer.saved_paths.len(),
+            1,
+            "body {i} persisted exactly one blob"
+        );
+        let bytes =
+            fs::read(&writer.saved_paths[0]).expect("persisted body output is on disk");
+        // The synthetic feed emits [i % 256; item_bytes]; test-edge1 prepends.
+        let mut expected = b"[PREPEND]".to_vec();
+        expected.extend(std::iter::repeat(i as u8).take(4));
+        assert_eq!(
+            bytes, expected,
+            "body {i} ran on the feed's actual item bytes"
+        );
+    }
+}

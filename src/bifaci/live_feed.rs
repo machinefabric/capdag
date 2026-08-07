@@ -1,9 +1,10 @@
 //! Live-feed transport resolution (13.2 §Reference Media, live family).
 //!
 //! A live feed is an input that arrives BY REFERENCE: the wire value is a
-//! small selector record, and the runtime — never the op — resolves it by
-//! opening a capture device through a registered [`LiveFeedProvider`] and
-//! delivering an UNBOUNDED SEQUENCE stream of items labeled with the arg's
+//! small selector record, and the resolving runtime — never the op —
+//! opens the device through the built-in capture dispatch
+//! (`crate::capture::open`, the device analog of file-path reading) and
+//! delivers an UNBOUNDED SEQUENCE stream of items labeled with the arg's
 //! stdin content URN. The op is transport-blind: it consumes frames exactly
 //! as it would consume a file's bytes, and cannot tell the difference.
 //!
@@ -16,12 +17,16 @@
 //! an in-band `gap` marker on the next delivered item so downstream sees
 //! the discontinuity.
 //!
-//! The runtime ships one built-in provider, [`SyntheticFeedProvider`]
-//! (`media:live;synthetic`): a deterministic clock source used by the
-//! shared test range and available everywhere as a fixture feed. Hardware
-//! providers (microphone, webcam) are registered by capture-capable
-//! cartridges; on sandboxed platforms the host captures instead and this
-//! seam is not involved.
+//! This module owns the feed TRANSPORT: the selector contract, the ring +
+//! feeder backpressure bridge ([`bridge_feed`]), the sink the capture
+//! backends push into, and the stop/drain handle. The capture backends
+//! themselves — which device families exist and how each opens — live in
+//! `crate::capture` as plain compile-time dispatch: capture is transport
+//! resolution, not a capability and not a plugin surface. Which runtime
+//! resolves is a deployment detail (13.2 §Reference Media): the cartridge
+//! runtime when the consumer is an op; the HOST when the cartridge cannot
+//! reach the device, or when the host itself consumes the items
+//! (engine-side per-item dispatch over a live source).
 
 use crate::bifaci::cartridge_runtime::{RuntimeError, StreamMeta};
 use crate::urn::media_urn::MediaUrn;
@@ -69,10 +74,10 @@ pub struct LiveFeedStop {
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LiveFeedSelector {
-    /// Provider-defined device selector. A provider with exactly one
+    /// Backend-defined device selector. A backend with exactly one
     /// device may default this.
     pub device: Option<String>,
-    /// Provider-defined capture parameters (sample rate, resolution, …).
+    /// Backend-defined capture parameters (sample rate, resolution, …).
     #[serde(default)]
     pub params: serde_json::Map<String, serde_json::Value>,
     #[serde(default)]
@@ -101,8 +106,8 @@ impl LiveFeedSelector {
     }
 }
 
-/// One captured item, as a provider hands it to the sink. `seq` and gap
-/// accounting are assigned by the sink/feeder — providers supply only the
+/// One captured item, as a capture backend hands it to the sink. `seq` and gap
+/// accounting are assigned by the sink/feeder — backends supply only the
 /// payload and its timestamps.
 #[derive(Debug)]
 pub struct LiveFeedItem {
@@ -137,7 +142,7 @@ struct FeedShared {
     cond: Condvar,
     ring_cap: usize,
     policy: OverrunPolicy,
-    /// Feed closed (stop, abort, or delivery side gone): providers observe
+    /// Feed closed (stop, abort, or delivery side gone): backends observe
     /// this via `push()` returning false and must stop capturing.
     closed: AtomicBool,
     /// Items captured so far (delivered + dropped) — the `seq` source and
@@ -160,7 +165,7 @@ impl FeedShared {
     }
 }
 
-/// The provider's write side of a feed. Owned by the provider's capture
+/// The capture backend's write side of a feed. Owned by the backend's capture
 /// thread; `push` applies the overrun policy at the capture edge.
 pub struct LiveFeedSink {
     shared: Arc<FeedShared>,
@@ -169,7 +174,7 @@ pub struct LiveFeedSink {
 
 impl LiveFeedSink {
     /// Push one captured item. Returns `false` when the feed is closed —
-    /// the provider must stop capturing and release the device. A full
+    /// the backend must stop capturing and release the device. A full
     /// ring applies the feed's overrun policy (12.5 §Overrun); under
     /// `fail` the feed ends and this returns `false`.
     pub fn push(&self, item: LiveFeedItem) -> bool {
@@ -215,6 +220,18 @@ impl LiveFeedSink {
         !self.shared.closed.load(Ordering::SeqCst)
     }
 
+    /// The producer FAILED (device error mid-capture). The feed ends with a
+    /// delivered stream error — a dying device must never masquerade as a
+    /// clean end-of-feed, or a 3-second recording quietly becomes 3
+    /// milliseconds of data.
+    pub fn fail(&self, message: String) {
+        let mut state = self.shared.state.lock().unwrap();
+        state.failed = Some(message);
+        self.shared.cond.notify_all();
+        drop(state);
+        self.shared.close();
+    }
+
     /// The producer finished on its own (stop condition, device closed).
     /// The feeder drains the remaining ring, then the stream ends.
     pub fn finish(&self) {
@@ -232,12 +249,13 @@ impl LiveFeedSink {
 /// A handle to one open feed, held by the runtime per request so a stop
 /// (non-force Cancel on a feed-bearing request) can close the tap and let
 /// the run drain (15.2 §Runs Stop).
+#[derive(Clone)]
 pub struct LiveFeedHandle {
     shared: Arc<FeedShared>,
 }
 
 impl LiveFeedHandle {
-    /// Close the tap: the provider's next `push` returns false, the feeder
+    /// Close the tap: the backend's next `push` returns false, the feeder
     /// drains what was already captured, and the stream ends — the drain
     /// path of a stopped run.
     pub fn close(&self) {
@@ -248,95 +266,10 @@ impl LiveFeedHandle {
     pub fn overruns(&self) -> u64 {
         self.shared.overruns.load(Ordering::Relaxed)
     }
-}
 
-/// A live-capture backend. Implementations own a capture thread: `open`
-/// starts capture pushing into `sink` and returns the stream-level format
-/// actuals (sample rate, resolution, …) for STREAM_START meta. `push`
-/// returning false — or `sink.is_closed()` — means stop capturing and
-/// release the device.
-pub trait LiveFeedProvider: Send + Sync {
-    /// Provider name, for errors and logs.
-    fn name(&self) -> &str;
-    /// The CONTENT media URN this provider's feed delivers (e.g. the
-    /// microphone provider delivers `media:audio-frames;pcm`). Used when a
-    /// live reference resolves against a cap's MAIN INPUT (the cap declares
-    /// no explicit reference arg): the content urn must conform to the main
-    /// input's declared urn, and the delivered stream is labeled with it.
-    fn content_urn(&self) -> &str;
-    /// Open the device described by `selector` and start capturing into
-    /// `sink`. A device that cannot be opened is a hard error — never a
-    /// silent empty feed.
-    fn open(
-        &self,
-        selector: &LiveFeedSelector,
-        sink: LiveFeedSink,
-    ) -> Result<Option<StreamMeta>, RuntimeError>;
-}
-
-/// Registered providers: reference-URN pattern → provider. First
-/// registered pattern that ACCEPTS the incoming reference URN wins;
-/// registration order is deliberate (a cartridge may register a more
-/// specific device provider before the generic family).
-#[derive(Default)]
-pub struct LiveFeedProviders {
-    entries: Mutex<Vec<(MediaUrn, Arc<dyn LiveFeedProvider>)>>,
-    /// Runtime-wide overrun total (heartbeat `overruns_total`).
-    overruns_total: Arc<AtomicU64>,
-}
-
-impl LiveFeedProviders {
-    pub fn new() -> Self {
-        let providers = Self::default();
-        providers.register(MEDIA_LIVE_SYNTHETIC, Arc::new(SyntheticFeedProvider));
-        providers
-    }
-
-    /// Register a provider for a reference-URN pattern. The pattern must
-    /// itself be a live-feed reference (carry the `live` marker) — a
-    /// provider registered off-family would be unreachable, which is a
-    /// wiring bug surfaced loudly here.
-    pub fn register(&self, pattern: &str, provider: Arc<dyn LiveFeedProvider>) {
-        let pattern_urn = MediaUrn::from_string(pattern).unwrap_or_else(|e| {
-            panic!(
-                "BUG: live-feed provider pattern '{}' is not a valid media URN: {}",
-                pattern, e
-            )
-        });
-        let family = MediaUrn::from_string(MEDIA_LIVE_FEED)
-            .expect("BUG: MEDIA_LIVE_FEED constant is invalid");
-        if !family.accepts(&pattern_urn).unwrap_or(false) {
-            panic!(
-                "BUG: live-feed provider pattern '{}' is outside the live reference \
-                 family '{}' — it would never be resolved",
-                pattern, MEDIA_LIVE_FEED
-            );
-        }
-        self.entries
-            .lock()
-            .unwrap()
-            .push((pattern_urn, provider));
-    }
-
-    fn find(&self, reference: &MediaUrn) -> Option<Arc<dyn LiveFeedProvider>> {
-        self.entries
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|(pattern, _)| pattern.accepts(reference).unwrap_or(false))
-            .map(|(_, p)| Arc::clone(p))
-    }
-
-    /// The CONTENT urn the provider matching `reference` delivers, if a
-    /// provider is registered for it. Used by main-input resolution: the
-    /// content urn must conform to the consuming arg's declared urn.
-    pub fn content_urn_for(&self, reference: &MediaUrn) -> Option<String> {
-        self.find(reference).map(|p| p.content_urn().to_string())
-    }
-
-    /// Runtime-wide overrun total (rides heartbeat meta).
-    pub fn overruns_total(&self) -> u64 {
-        self.overruns_total.load(Ordering::Relaxed)
+    /// Whether the tap is closed (stop, abort, or feed end).
+    pub fn is_closed(&self) -> bool {
+        self.shared.closed.load(Ordering::SeqCst)
     }
 }
 
@@ -346,7 +279,7 @@ const DEFAULT_RING_CAP: usize = 64;
 /// backpressure chain. Small on purpose: the ring is the elastic stage.
 const DELIVERY_CHANNEL_CAP: usize = 8;
 
-/// Everything `open_feed` returns to the demux: the delivery receiver the
+/// Everything `bridge_feed` returns to the resolver: the delivery receiver the
 /// `InputStream` consumes, the stream-level meta for STREAM_START, and the
 /// handle the runtime registers for stop.
 pub struct OpenedFeed {
@@ -357,28 +290,17 @@ pub struct OpenedFeed {
     pub handle: LiveFeedHandle,
 }
 
-/// Resolve a live-feed reference: find the provider, open the device, and
-/// bridge capture → bounded delivery through the ring + feeder thread.
-pub fn open_feed(
-    providers: &LiveFeedProviders,
-    reference_urn: &str,
+/// Bridge one opened capture into bounded delivery: build the ring + sink,
+/// hand the sink to `open_device` (a `crate::capture` backend), and spawn
+/// the feeder thread enforcing the backpressure chain and the
+/// `duration_ms` stop condition. `overruns_total` is the calling runtime's
+/// aggregate overrun counter.
+pub fn bridge_feed(
     selector: LiveFeedSelector,
+    overruns_total: Arc<AtomicU64>,
+    open_device: impl FnOnce(&LiveFeedSelector, LiveFeedSink) -> Result<Option<StreamMeta>, RuntimeError>,
 ) -> Result<OpenedFeed, RuntimeError> {
     use crate::bifaci::cartridge_runtime::StreamError;
-
-    let reference = MediaUrn::from_string(reference_urn).map_err(|e| {
-        RuntimeError::Handler(format!(
-            "live-feed reference URN '{}' is not a valid media URN: {}",
-            reference_urn, e
-        ))
-    })?;
-    let provider = providers.find(&reference).ok_or_else(|| {
-        RuntimeError::Handler(format!(
-            "no live-feed provider registered for reference '{}' — the runtime \
-             cannot open this feed",
-            reference_urn
-        ))
-    })?;
 
     let ring_cap = selector
         .params
@@ -400,21 +322,21 @@ pub fn open_feed(
         captured: AtomicU64::new(0),
         dropped_since_delivery: AtomicU64::new(0),
         overruns: AtomicU64::new(0),
-        runtime_overruns: Arc::clone(&providers.overruns_total),
+        runtime_overruns: overruns_total,
     });
 
     let sink = LiveFeedSink {
         shared: Arc::clone(&shared),
         max_items: selector.stop.max_items,
     };
-    let stream_meta = provider.open(&selector, sink)?;
+    let stream_meta = open_device(&selector, sink)?;
 
     let (tx, rx) = tokio::sync::mpsc::channel(DELIVERY_CHANNEL_CAP);
 
     // The feeder: ring → bounded delivery. Blocking sends give the real
     // backpressure — when the op lags, the feeder blocks, the ring fills,
     // and the capture edge applies the overrun policy. A `duration_ms`
-    // stop condition is enforced here (uniformly across providers).
+    // stop condition is enforced here (uniformly across backends).
     let feeder_shared = Arc::clone(&shared);
     let deadline = selector
         .stop
@@ -496,7 +418,7 @@ pub fn open_feed(
                 .is_err()
             {
                 // Consumer gone (handler dropped the stream): close the tap
-                // so the provider stops capturing.
+                // so the backend stops capturing.
                 feeder_shared.close();
                 return;
             }
@@ -510,84 +432,3 @@ pub fn open_feed(
     })
 }
 
-/// The built-in deterministic feed (`media:live;synthetic`): a logical
-/// clock emitting `items` payloads of `item_bytes` bytes every
-/// `interval_ms` (params, all optional; defaults 10 × 32B × 10ms).
-/// `pts_us` is the LOGICAL clock (i × interval), so tests are
-/// deterministic; `capture_ts_us` is wall clock. `interval_ms = 0` emits
-/// as fast as possible — with a small `ring` and a slow consumer this
-/// exercises real overruns without hardware.
-pub struct SyntheticFeedProvider;
-
-/// The content urn the synthetic feed delivers: opaque test frames.
-pub const MEDIA_FEED_FRAMES: &str = "media:feed-frames";
-
-impl LiveFeedProvider for SyntheticFeedProvider {
-    fn name(&self) -> &str {
-        "synthetic"
-    }
-
-    fn content_urn(&self) -> &str {
-        MEDIA_FEED_FRAMES
-    }
-
-    fn open(
-        &self,
-        selector: &LiveFeedSelector,
-        sink: LiveFeedSink,
-    ) -> Result<Option<StreamMeta>, RuntimeError> {
-        let items = selector
-            .params
-            .get("items")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10);
-        let interval_ms = selector
-            .params
-            .get("interval_ms")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10);
-        let item_bytes = selector
-            .params
-            .get("item_bytes")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(32)
-            .max(1) as usize;
-
-        std::thread::spawn(move || {
-            let start = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_micros() as u64)
-                .unwrap_or(0);
-            for i in 0..items {
-                if sink.is_closed() {
-                    break;
-                }
-                // Deterministic payload: the item index repeated.
-                let payload = vec![(i % 256) as u8; item_bytes];
-                let pushed = sink.push(LiveFeedItem {
-                    payload,
-                    pts_us: i * interval_ms * 1000,
-                    capture_ts_us: start + i * interval_ms * 1000,
-                });
-                if !pushed {
-                    break;
-                }
-                if interval_ms > 0 {
-                    std::thread::sleep(std::time::Duration::from_millis(interval_ms));
-                }
-            }
-            sink.finish();
-        });
-
-        let mut meta = StreamMeta::new();
-        meta.insert(
-            "feed".to_string(),
-            ciborium::Value::Text("synthetic".to_string()),
-        );
-        meta.insert(
-            "interval_ms".to_string(),
-            ciborium::Value::Integer(interval_ms.into()),
-        );
-        Ok(Some(meta))
-    }
-}

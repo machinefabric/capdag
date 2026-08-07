@@ -1865,14 +1865,25 @@ impl RelaySwitch {
         &self,
         cap_urn: &str,
     ) -> Result<usize, RelaySwitchError> {
+        let (_, capacity) = self.admission_target_for_cap(cap_urn).await?;
+        Ok(capacity)
+    }
+
+    /// The ADMISSION identity serving a cap: the (master, cartridge) permit
+    /// domain plus its capacity. This — not the master index — is the unit
+    /// permits are held against: one relay slot can aggregate MANY cartridge
+    /// processes (machfab's external-cartridges RelaySlave), each with its
+    /// own independent permit pool. Callers deciding whether two caps
+    /// contend for the same permits must compare THIS key.
+    pub async fn admission_target_for_cap(
+        &self,
+        cap_urn: &str,
+    ) -> Result<(AdmissionKey, usize), RelaySwitchError> {
         let (master_idx, registered_cap) = self
             .find_route_for_cap(cap_urn, None)
             .await
             .ok_or_else(|| RelaySwitchError::NoHandler(cap_urn.to_string()))?;
-        let (_, capacity) = self
-            .cap_admission_target(master_idx, &registered_cap)
-            .await?;
-        Ok(capacity)
+        self.cap_admission_target(master_idx, &registered_cap).await
     }
 
     async fn acquire_cartridge_admission(
@@ -2318,6 +2329,32 @@ impl RelaySwitch {
     /// 3. Terminates the request (Cancelled) — removing ALL its state (L7)
     /// 4. Recursively cancels the child peer calls recorded on the entry
     /// 5. Sends ERR "CANCELLED" to the external response channel if present
+    /// STOP a feed-bearing request's live inputs (15.2 §Runs Stop): send the
+    /// non-force Cancel FRAME to the request's destination WITHOUT touching
+    /// host-side request state. The cartridge runtime closes the request's
+    /// open taps and the request then ends NATURALLY — END after the drain —
+    /// so routing, forwarding, collection, and every downstream cap stay
+    /// live and the run completes WITH its outputs. Contrast
+    /// [`Self::cancel_request`], which terminates host state, cascades to
+    /// children, and delivers ERR CANCELLED (the abort path). A request
+    /// that is unknown (already terminated) is a no-op.
+    pub async fn stop_request_feeds(&self, rid: &MessageId) {
+        let (xid, destination) = {
+            let requests = self.requests.read().await;
+            let Some(xid) = requests.xid_for_rid(rid) else {
+                return;
+            };
+            let key = (xid.clone(), rid.clone());
+            let Some(state) = requests.get(&key) else {
+                return;
+            };
+            (xid, state.routing.destination_master_idx)
+        };
+        let mut cancel_frame = Frame::cancel(rid.clone(), false);
+        cancel_frame.routing_id = Some(xid);
+        let _ = self.write_to_master_idx(destination, &mut cancel_frame).await;
+    }
+
     pub async fn cancel_request(&self, rid: &MessageId, force_kill: bool) {
         // Find XID for this RID
         let xid = {
