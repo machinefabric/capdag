@@ -50,16 +50,26 @@ fn pythonpath() -> String {
 fn spawn_mock_fabric() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock fabric");
     let addr = listener.local_addr().expect("mock fabric addr");
+    // The manifest's `version` is the version the CLIENT asked for: the
+    // registry fetches `manifest-v{N}.json` and refuses a body that reports a
+    // different N — a stale mirror serving an old manifest under a new name is
+    // exactly the failure that guard exists to catch. So the mock reports the
+    // version this build is pinned to rather than a literal, and bumping
+    // `fabric/manifest-version.txt` can never leave this test behind.
+    let body = format!(
+        r#"{{"version":{},"previous":0,"caps":{{}},"media":{{}},"aliases":{{}}}}"#,
+        capdag::FABRIC_MANIFEST_VERSION
+    );
     std::thread::spawn(move || {
-        const BODY: &str = r#"{"version":1,"previous":0,"caps":{},"media":{},"aliases":{}}"#;
+        let body = body;
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
             let mut buf = [0u8; 2048];
             let _ = stream.read(&mut buf); // drain the request; we answer every path the same
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                BODY.len(),
-                BODY
+                body.len(),
+                body
             );
             let _ = stream.write_all(resp.as_bytes());
         }
