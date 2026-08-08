@@ -282,12 +282,27 @@ const DELIVERY_CHANNEL_CAP: usize = 8;
 /// Everything `bridge_feed` returns to the resolver: the delivery receiver the
 /// `InputStream` consumes, the stream-level meta for STREAM_START, and the
 /// handle the runtime registers for stop.
+///
+/// `Debug` is written by hand rather than derived: the handle owns the shared
+/// ring behind a mutex, and deriving would drag `Debug` onto that whole graph —
+/// including a `Condvar` — to print state a caller cannot read without taking
+/// the lock. What a diagnostic actually needs is what this feed IS, so that is
+/// what it prints.
 pub struct OpenedFeed {
     pub rx: tokio::sync::mpsc::Receiver<
         Result<(ciborium::Value, Option<StreamMeta>), crate::bifaci::cartridge_runtime::StreamError>,
     >,
     pub stream_meta: Option<StreamMeta>,
     pub handle: LiveFeedHandle,
+}
+
+impl std::fmt::Debug for OpenedFeed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpenedFeed")
+            .field("stream_meta_keys", &self.stream_meta.as_ref().map(|meta| meta.len()))
+            .field("overruns", &self.handle.overruns())
+            .finish_non_exhaustive()
+    }
 }
 
 /// Bridge one opened capture into bounded delivery: build the ring + sink,

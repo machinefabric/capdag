@@ -601,6 +601,10 @@ async fn test7059_terminal_end_releases_credit_and_leaks_no_state() {
             &std::collections::HashSet::new(),
             120,
             None,
+            // Transient capture is engine-only: this protocol test runs the DAG
+            // directly, with no run-artifact root and nothing to publish to.
+            None,
+            None,
         ),
     )
     .await
@@ -735,6 +739,10 @@ async fn test7061_negotiated_initial_credit_is_min_of_proposals() {
             None,
             &std::collections::HashSet::new(),
             120,
+            None,
+            // Transient capture is engine-only: this protocol test runs the DAG
+            // directly, with no run-artifact root and nothing to publish to.
+            None,
             None,
         ),
     )
